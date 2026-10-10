@@ -160,7 +160,7 @@ public class MainActivity extends Activity {
         fg = prefs.getInt("fg", 0xff30221e);
         font = prefs.getInt("font", 1);
         rsvp = prefs.getBoolean("rsvp", true);
-        screen = prefs.getInt("screen", 0);
+        screen = 0;
         currentUri = prefs.getString("uri", "");
         String data = prefs.getString("library", "[]");
         library.clear();
@@ -171,7 +171,7 @@ public class MainActivity extends Activity {
     }
 
     void saveAll() {
-        updateCurrentMeta();
+        if (screen == 1 && words.length > 0) updateCurrentMeta();
         JSONArray arr = new JSONArray();
         for (BookMeta m : library) arr.put(m.toJson());
         prefs.edit()
@@ -809,6 +809,15 @@ public class MainActivity extends Activity {
     }
 
     void openBook(String uriString, boolean reset, boolean switchToReader) {
+        if (switchToReader) {
+            stop();
+            saveAll();
+            Intent reader = new Intent(this, ReaderActivity.class);
+            reader.putExtra("book_uri", uriString);
+            reader.putExtra("reset", reset);
+            startActivity(reader);
+            return;
+        }
         if (uriString == null || uriString.isEmpty()) return;
         if (uriString.equals(currentUri) && !body.isEmpty() && words.length > 0) {
             BookMeta m = meta(uriString);
@@ -1048,6 +1057,17 @@ public class MainActivity extends Activity {
                     if (background) bg = n; else fg = n;
                     saveAll(); draw();
                 }).setNegativeButton("Отмена", null).show();
+    }
+
+    private boolean hasResumedOnce = false;
+    @Override protected void onResume() {
+        super.onResume();
+        if (hasResumedOnce) {
+            loadPrefs();
+            screen = 0;
+            draw();
+        }
+        hasResumedOnce = true;
     }
 
     @Override protected void onPause() { super.onPause(); saveAll(); stop(); }
