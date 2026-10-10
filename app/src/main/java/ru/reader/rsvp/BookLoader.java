@@ -5,6 +5,9 @@ import android.net.Uri;
 import android.text.Html;
 import org.w3c.dom.*;
 import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.XMLConstants;
+import org.xml.sax.InputSource;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -16,7 +19,27 @@ public class BookLoader {
     static String decode(byte[] b){ try { return StandardCharsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(b)).toString(); }catch(Exception e){try{return new String(b,"windows-1251");}catch(Exception x){return new String(b,StandardCharsets.UTF_8);}} }
     static String htmlToText(String s) { s=s.replaceAll("(?is)<(script|style)[^>]*>.*?</\\1>"," ").replaceAll("(?i)<br\\s*/?>","\n").replaceAll("(?i)</(p|div|h[1-6]|li|blockquote)>","\n\n"); return Html.fromHtml(s,Html.FROM_HTML_MODE_LEGACY).toString().replace('\u00a0',' ').replaceAll("[ \t]+"," ").replaceAll("\n{3,}","\n\n").trim(); }
     static String xmlText(Element el){ StringBuilder s=new StringBuilder(); NodeList list=el.getChildNodes(); for(int i=0;i<list.getLength();i++){Node n=list.item(i); if(n.getNodeType()==Node.TEXT_NODE)s.append(n.getNodeValue()); else if(n.getNodeType()==Node.ELEMENT_NODE){String tag=n.getLocalName()!=null?n.getLocalName():n.getNodeName(); if(tag.equals("binary"))continue; if(tag.equals("p")||tag.equals("title")||tag.equals("subtitle"))s.append("\n"); s.append(xmlText((Element)n)); if(tag.equals("p")||tag.equals("title")||tag.equals("subtitle"))s.append("\n");}}return s.toString(); }
-    static Document xml(byte[] bytes) throws Exception {DocumentBuilderFactory f=DocumentBuilderFactory.newInstance();f.setNamespaceAware(true);f.setFeature("http://apache.org/xml/features/disallow-doctype-decl",true);f.setFeature("http://xml.org/sax/features/external-general-entities",false);f.setFeature("http://xml.org/sax/features/external-parameter-entities",false); return f.newDocumentBuilder().parse(new ByteArrayInputStream(bytes));}
+    // Some Android XML parsers do not support Apache-only feature flags.
+    // Disable external entities where supported, and always block resolution
+    // of external resources through a dedicated EntityResolver.
+    static void optionalFeature(DocumentBuilderFactory factory, String name, boolean value) {
+        try { factory.setFeature(name, value); }
+        catch (javax.xml.parsers.ParserConfigurationException ignored) { }
+        catch (RuntimeException ignored) { }
+    }
+    static Document xml(byte[] bytes) throws Exception {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+        factory.setExpandEntityReferences(false);
+        optionalFeature(factory, XMLConstants.FEATURE_SECURE_PROCESSING, true);
+        optionalFeature(factory, "http://apache.org/xml/features/disallow-doctype-decl", true);
+        optionalFeature(factory, "http://xml.org/sax/features/external-general-entities", false);
+        optionalFeature(factory, "http://xml.org/sax/features/external-parameter-entities", false);
+        optionalFeature(factory, "http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+        DocumentBuilder builder = factory.newDocumentBuilder();
+        builder.setEntityResolver((publicId, systemId) -> new InputSource(new StringReader("")));
+        return builder.parse(new ByteArrayInputStream(bytes));
+    }
     static String content(Element e){return e==null?"":e.getTextContent().trim();}
     static Element first(Document d,String tag){NodeList n=d.getElementsByTagNameNS("*",tag);return n.getLength()>0?(Element)n.item(0):null;}
     static String base(String x){int p=x.lastIndexOf('/');return p<0?"":x.substring(0,p+1);}
