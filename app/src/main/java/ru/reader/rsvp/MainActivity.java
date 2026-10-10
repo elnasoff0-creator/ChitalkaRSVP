@@ -102,6 +102,8 @@ public class MainActivity extends Activity {
     String body = "";
     String[] words = new String[0];
     int[] wordStarts = new int[0];
+    int pageStart = 0, pageEnd = 0;
+    static final int PAGE_CHARS = 3000;
 
     int index = 0, wpm = 350, display = 1, size = 36, bg = 0xfff3e7d5, fg = 0xff30221e, font = 1;
     boolean rsvp = true, playing = false;
@@ -120,6 +122,11 @@ public class MainActivity extends Activity {
                 normalScroll.smoothScrollBy(0, Math.max(2, size / 4));
                 normalY = normalScroll.getScrollY();
                 syncIndexFromScroll();
+                if (normalScroll.getScrollY() >= Math.max(0, normalText.getHeight() - normalScroll.getHeight()) - dp(3) && pageEnd < body.length()) {
+                    int found = java.util.Arrays.binarySearch(wordStarts, pageEnd);
+                    index = Math.min(words.length - 1, Math.max(0, found < 0 ? -found - 2 : found));
+                    updateNormalPage(true);
+                }
             }
             if (index % 8 == 0) saveAll();
             handler.postDelayed(this, rsvp ? Math.max(60, 60000L / Math.max(1, wpm)) : 80);
@@ -131,6 +138,7 @@ public class MainActivity extends Activity {
         getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
         getWindow().setStatusBarColor(0xffefe3d3);
+        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
         prefs = getSharedPreferences("reader", MODE_PRIVATE);
         loadPrefs();
         if (!currentUri.isEmpty()) {
@@ -593,38 +601,6 @@ public class MainActivity extends Activity {
         add(root, divider());
         add(root, gap(8));
 
-        // The reader owns all remaining vertical space. FrameLayout ensures that
-        // whichever reading mode is visible always has a non-zero, full-size viewport.
-        FrameLayout readerWrap = new FrameLayout(this);
-        readerWrap.setBackground(shape(panelColor(), 24));
-        LinearLayout.LayoutParams readerLp = new LinearLayout.LayoutParams(-1, 0, 1f);
-        root.addView(readerWrap, readerLp);
-
-        wordView = text("", size, true);
-        wordView.setGravity(Gravity.CENTER);
-        wordView.setTypeface(type(), Typeface.BOLD);
-        pad(wordView, 20);
-        readerWrap.addView(wordView, new FrameLayout.LayoutParams(-1, -1));
-        rsvpPane = wordView;
-
-        normalScroll = new ScrollView(this);
-        normalScroll.setFillViewport(true);
-        normalScroll.setVerticalScrollBarEnabled(true);
-        normalText = text(body, Math.max(12, (int) (size * .58f)), false);
-        normalText.setTypeface(type());
-        normalText.setLineSpacing(dp(6), 1.18f);
-        pad(normalText, 18);
-        normalScroll.addView(normalText, new ScrollView.LayoutParams(-1, -2));
-        readerWrap.addView(normalScroll, new FrameLayout.LayoutParams(-1, -1));
-        normalScroll.setOnScrollChangeListener((View.OnScrollChangeListener) (v, x, y, ox, oy) -> {
-            if (rsvp || y == oy) return;
-            normalY = y;
-            syncIndexFromScroll();
-            long now = android.os.SystemClock.uptimeMillis();
-            if (now - lastScrollSave > 800) { lastScrollSave = now; saveAll(); }
-        });
-        normalScroll.post(() -> { if (!rsvp) normalScroll.scrollTo(0, normalY); });
-
         LinearLayout controls = row();
         controls.setGravity(Gravity.CENTER);
         controls.setBackground(shape(panelColor(), 22));
@@ -666,6 +642,40 @@ public class MainActivity extends Activity {
         footerLp.topMargin = dp(6);
         root.addView(footer, footerLp);
 
+        // The reader owns all remaining vertical space. FrameLayout ensures that
+        // whichever reading mode is visible always has a non-zero, full-size viewport.
+        FrameLayout readerWrap = new FrameLayout(this);
+        readerWrap.setBackground(shape(panelColor(), 24));
+        readerWrap.setMinimumHeight(dp(100));
+        LinearLayout.LayoutParams readerLp = new LinearLayout.LayoutParams(-1, 0, 1f);
+        root.addView(readerWrap, readerLp);
+
+        wordView = text("", size, true);
+        wordView.setGravity(Gravity.CENTER);
+        wordView.setTypeface(type(), Typeface.BOLD);
+        pad(wordView, 20);
+        readerWrap.addView(wordView, new FrameLayout.LayoutParams(-1, -1));
+        rsvpPane = wordView;
+
+        normalScroll = new ScrollView(this);
+        normalScroll.setFillViewport(true);
+        normalScroll.setVerticalScrollBarEnabled(true);
+        normalText = text("", Math.max(12, (int) (size * .58f)), false);
+        updateNormalPage(false);
+        normalText.setTypeface(type());
+        normalText.setLineSpacing(dp(6), 1.18f);
+        pad(normalText, 18);
+        normalScroll.addView(normalText, new ScrollView.LayoutParams(-1, -2));
+        readerWrap.addView(normalScroll, new FrameLayout.LayoutParams(-1, -1));
+        normalScroll.setOnScrollChangeListener((View.OnScrollChangeListener) (v, x, y, ox, oy) -> {
+            if (rsvp || y == oy) return;
+            normalY = y;
+            syncIndexFromScroll();
+            long now = android.os.SystemClock.uptimeMillis();
+            if (now - lastScrollSave > 800) { lastScrollSave = now; saveAll(); }
+        });
+        normalScroll.post(() -> { if (!rsvp) normalScroll.scrollTo(0, 0); });
+
         showMode();
         updateSpeedLabel();
         updateWord();
@@ -696,13 +706,11 @@ public class MainActivity extends Activity {
 
     void toggleMode() {
         stop();
-        if (rsvp) {
-            rsvp = false;
-            normalScroll.post(() -> {
-                int range = Math.max(0, normalText.getHeight() - normalScroll.getHeight());
-                normalScroll.scrollTo(0, (int) ((long) range * index / Math.max(1, words.length - 1)));
-            });
-        } else rsvp = true;
+        rsvp = !rsvp;
+        if (!rsvp) {
+            updateNormalPage(false);
+            if (normalScroll != null) normalScroll.post(() -> normalScroll.scrollTo(0, 0));
+        }
         showMode();
         saveAll();
     }
@@ -732,10 +740,31 @@ public class MainActivity extends Activity {
         updateProgress();
     }
 
+    // Only a small slice of an EPUB is ever set into the normal TextView.
+    // Supplying the entire 500,000+ character novel caused slow UI construction
+    // and could leave the screen blank before playback controls were created.
+    void updateNormalPage(boolean scrollTop) {
+        if (normalText == null || body == null || body.isEmpty()) return;
+        int wordPos = (index >= 0 && index < wordStarts.length) ? wordStarts[index] : 0;
+        // Start near the selected word without splitting a word.
+        int start = Math.max(0, wordPos - 120);
+        while (start > 0 && !Character.isWhitespace(body.charAt(start - 1))) start--;
+        int end = Math.min(body.length(), start + PAGE_CHARS);
+        while (end < body.length() && !Character.isWhitespace(body.charAt(end))) end++;
+        pageStart = start;
+        pageEnd = end;
+        normalText.setText(body.substring(start, end));
+        if (scrollTop && normalScroll != null) normalScroll.post(() -> normalScroll.scrollTo(0, 0));
+    }
+
     void syncIndexFromScroll() {
         if (normalText == null || words.length == 0 || normalScroll == null) return;
         int range = Math.max(1, normalText.getHeight() - normalScroll.getHeight());
-        index = Math.min(words.length - 1, Math.round((float) normalScroll.getScrollY() / range * (words.length - 1)));
+        int estimate = pageStart + Math.round((float) normalScroll.getScrollY() / range * Math.max(1, pageEnd - pageStart));
+        int found = java.util.Arrays.binarySearch(wordStarts, estimate);
+        if (found < 0) found = Math.max(0, -found - 2);
+        index = Math.min(words.length - 1, found);
+        updateCurrentMeta();
     }
 
     void step(int by) {
@@ -743,8 +772,21 @@ public class MainActivity extends Activity {
         if (rsvp) {
             index = Math.max(0, Math.min(words.length - 1, index + by));
             updateWord();
-        } else if (normalScroll != null) {
-            normalScroll.smoothScrollBy(0, by * Math.max(dp(40), normalScroll.getHeight() * 3 / 4));
+        } else {
+            if (normalScroll != null) {
+                int range = Math.max(0, normalText.getHeight() - normalScroll.getHeight());
+                if (by > 0 && normalScroll.getScrollY() < range - dp(16)) {
+                    normalScroll.smoothScrollBy(0, normalScroll.getHeight() * 3 / 4);
+                } else if (by < 0 && normalScroll.getScrollY() > dp(16)) {
+                    normalScroll.smoothScrollBy(0, -normalScroll.getHeight() * 3 / 4);
+                } else {
+                    int target = by > 0 ? Math.min(body.length(), pageEnd) : Math.max(0, pageStart - PAGE_CHARS + 100);
+                    int found = java.util.Arrays.binarySearch(wordStarts, target);
+                    if (found < 0) found = Math.max(0, -found - 2);
+                    index = Math.min(words.length - 1, found);
+                    updateNormalPage(true);
+                }
+            }
         }
         saveAll();
     }
@@ -768,7 +810,7 @@ public class MainActivity extends Activity {
 
     void openBook(String uriString, boolean reset, boolean switchToReader) {
         if (uriString == null || uriString.isEmpty()) return;
-        if (uriString.equals(currentUri) && !body.isEmpty()) {
+        if (uriString.equals(currentUri) && !body.isEmpty() && words.length > 0) {
             BookMeta m = meta(uriString);
             if (m != null) {
                 if (reset) { index = 0; normalY = 0; } else { index = m.index; normalY = m.scroll; }
