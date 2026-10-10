@@ -18,6 +18,7 @@ import android.text.style.StyleSpan;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.ImageView;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -131,7 +132,15 @@ public class MainActivity extends Activity {
         getWindow().setStatusBarColor(0xffefe3d3);
         prefs = getSharedPreferences("reader", MODE_PRIVATE);
         loadPrefs();
-        draw();
+        if (!currentUri.isEmpty()) {
+            int requestedScreen = screen;
+            screen = 0;
+            draw();
+            openBook(currentUri, false, requestedScreen == 1);
+        } else {
+            screen = 0;
+            draw();
+        }
     }
 
     void loadPrefs() {
@@ -171,7 +180,7 @@ public class MainActivity extends Activity {
     }
 
     void updateCurrentMeta() {
-        if (currentUri.isEmpty()) return;
+        if (currentUri.isEmpty() || words.length == 0 || body.isEmpty()) return;
         BookMeta m = meta(currentUri);
         if (m == null) {
             m = new BookMeta();
@@ -242,7 +251,7 @@ public class MainActivity extends Activity {
         root = column();
         root.setBackgroundColor(bg);
         setContentView(root);
-        if (screen == 1) drawReader(); else drawHome();
+        if (screen == 1 && words.length > 0 && !body.isEmpty()) drawReader(); else drawHome();
     }
 
     void drawHome() {
@@ -256,11 +265,11 @@ public class MainActivity extends Activity {
         TextView titleView = text("Читалка RSVP", 23, true);
         titleView.setTypeface(Typeface.SERIF, Typeface.BOLD);
         top.addView(titleView, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView search = buttonish("⌕", softPanel(), fg, false); search.setOnClickListener(v -> showLibraryChooser());
+        View search = iconButton(android.R.drawable.ic_menu_search, v -> showLibraryChooser());
         top.addView(search, new LinearLayout.LayoutParams(dp(52), dp(46)));
-        TextView importBtn = buttonish("⤴", softPanel(), fg, false); importBtn.setOnClickListener(v -> pick());
+        View importBtn = iconButton(android.R.drawable.ic_menu_add, v -> pick());
         top.addView(importBtn, new LinearLayout.LayoutParams(dp(52), dp(46)));
-        TextView menuBtn = buttonish("⋮", softPanel(), fg, false); menuBtn.setOnClickListener(v -> settings());
+        View menuBtn = iconButton(android.R.drawable.ic_menu_preferences, v -> settings());
         top.addView(menuBtn, new LinearLayout.LayoutParams(dp(52), dp(46)));
         add(contentWrap, top);
 
@@ -515,7 +524,7 @@ public class MainActivity extends Activity {
         nav.addView(navItem("📚", "Библиотека", active == 0, v -> { screen = 0; saveAll(); draw(); }), new LinearLayout.LayoutParams(0, -2, 1));
         nav.addView(navItem("▶", "Чтение", active == 1, v -> { if (currentUri.isEmpty()) pick(); else { screen = 1; openBook(currentUri, false, false); } }), new LinearLayout.LayoutParams(0, -2, 1));
         nav.addView(navItem("⭐", "Закладки", false, v -> bookmarks()), new LinearLayout.LayoutParams(0, -2, 1));
-        nav.addView(navItem("⚙", "Настройки", false, v -> settings()), new LinearLayout.LayoutParams(0, -2, 1));
+        nav.addView(navItem("⚙️", "Настройки", false, v -> settings()), new LinearLayout.LayoutParams(0, -2, 1));
         return nav;
     }
 
@@ -524,10 +533,31 @@ public class MainActivity extends Activity {
         item.setGravity(Gravity.CENTER);
         item.setBackground(active ? shape(softPanel(), 16) : null);
         pad(item, 6, 10, 6, 10);
-        TextView ic = text(icon, 20, false); ic.setGravity(Gravity.CENTER); ic.setTextColor(active ? accent() : fg); item.addView(ic);
+        if (label.equals("Настройки") || label.equals("Библиотека") || label.equals("Чтение")) {
+            int image = label.equals("Настройки") ? android.R.drawable.ic_menu_preferences :
+                    label.equals("Библиотека") ? android.R.drawable.ic_menu_agenda : android.R.drawable.ic_media_play;
+            ImageView iv = new ImageView(this);
+            iv.setImageResource(image);
+            iv.setColorFilter(active ? accent() : fg);
+            item.addView(iv, new LinearLayout.LayoutParams(dp(23), dp(23)));
+        } else {
+            TextView ic = text(icon, 20, false); ic.setGravity(Gravity.CENTER); ic.setTextColor(active ? accent() : fg); item.addView(ic);
+        }
         TextView lb = text(label, 13, active); lb.setGravity(Gravity.CENTER); lb.setTextColor(active ? accent() : fg); item.addView(lb);
         item.setOnClickListener(click);
         return item;
+    }
+
+    View iconButton(int drawable, View.OnClickListener click) {
+        LinearLayout shell = row();
+        shell.setGravity(Gravity.CENTER);
+        shell.setBackground(shape(softPanel(), 16));
+        ImageView img = new ImageView(this);
+        img.setImageResource(drawable);
+        img.setColorFilter(fg);
+        shell.addView(img, new LinearLayout.LayoutParams(dp(23), dp(23)));
+        shell.setOnClickListener(click);
+        return shell;
     }
 
     void drawReader() {
@@ -541,7 +571,7 @@ public class MainActivity extends Activity {
         top.addView(titles, new LinearLayout.LayoutParams(0, -2, 1));
         TextView mark = buttonish("⭐", softPanel(), fg, false); mark.setOnClickListener(v -> bookmark());
         top.addView(mark, new LinearLayout.LayoutParams(dp(54), dp(48)));
-        TextView more = buttonish("⋮", softPanel(), fg, true); more.setOnClickListener(v -> settings());
+        View more = iconButton(android.R.drawable.ic_menu_preferences, v -> settings());
         top.addView(more, new LinearLayout.LayoutParams(dp(54), dp(48)));
         add(root, top);
 
@@ -549,7 +579,7 @@ public class MainActivity extends Activity {
         TextView chapter = text(findChapterForIndex(index), 15, true);
         chapter.setEllipsize(TextUtils.TruncateAt.END); chapter.setSingleLine(true);
         modeRow.addView(chapter, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView mode = buttonish(rsvp ? "🕮 Обычное чтение" : "ϟ Скорочтение", softPanel(), fg, false);
+        TextView mode = buttonish(rsvp ? "📖 Обычное чтение" : "⚡ Скорочтение", softPanel(), fg, false);
         modeButton = mode; mode.setOnClickListener(v -> toggleMode());
         modeRow.addView(mode);
         add(root, modeRow);
@@ -589,11 +619,11 @@ public class MainActivity extends Activity {
         controls.setBackground(shape(panelColor(), 22));
         LinearLayout.LayoutParams ctlp = new LinearLayout.LayoutParams(-1, -2); ctlp.topMargin = dp(8);
         root.addView(controls, ctlp);
-        controls.addView(circleButton("❮", softPanel(), fg, v -> step(-1)), new LinearLayout.LayoutParams(0, dp(70), 1));
+        controls.addView(circleButton("‹", softPanel(), fg, v -> step(-1)), new LinearLayout.LayoutParams(0, dp(70), 1));
         TextView play = circleButton("▶", accent(), 0xffffffff, v -> { if (playing) stop(); else { playing = true; handler.post(ticker); } updatePlayButton(); });
         playButton = play;
         controls.addView(play, new LinearLayout.LayoutParams(0, dp(76), 1));
-        controls.addView(circleButton("❯", softPanel(), fg, v -> step(1)), new LinearLayout.LayoutParams(0, dp(70), 1));
+        controls.addView(circleButton("›", softPanel(), fg, v -> step(1)), new LinearLayout.LayoutParams(0, dp(70), 1));
 
         LinearLayout speedPanel = column();
         speedPanel.setBackground(shape(panelColor(), 22));
@@ -612,20 +642,18 @@ public class MainActivity extends Activity {
         });
         speedPanel.addView(seek);
 
-        LinearLayout settingsRow = row();
-        settingsRow.setBackground(shape(panelColor(), 22));
-        pad(settingsRow, 14);
-        LinearLayout.LayoutParams stLp = new LinearLayout.LayoutParams(-1, -2); stLp.topMargin = dp(8);
-        root.addView(settingsRow, stLp);
-        TextView fontLabel = text("Шрифт", 15, false); settingsRow.addView(fontLabel);
-        TextView fontBtn = buttonish(fontNames[font], softPanel(), fg, false); fontBtn.setOnClickListener(v -> fontDialog());
-        LinearLayout.LayoutParams fontLp = new LinearLayout.LayoutParams(0, -2, 1); fontLp.setMargins(dp(10), 0, dp(10), 0); settingsRow.addView(fontBtn, fontLp);
-        TextView minus = circleButton("−", softPanel(), fg, v -> { size = Math.max(16, size - 2); saveAll(); refreshReaderContent(); });
-        TextView sizeV = buttonish(String.valueOf(size), softPanel(), fg, true);
-        TextView plus = circleButton("＋", softPanel(), fg, v -> { size = Math.min(76, size + 2); saveAll(); refreshReaderContent(); });
-        settingsRow.addView(minus, new LinearLayout.LayoutParams(dp(44), dp(44)));
-        settingsRow.addView(sizeV, new LinearLayout.LayoutParams(dp(54), dp(44)));
-        settingsRow.addView(plus, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        LinearLayout footer = row();
+        TextView settingsAction = buttonish("Aa  Шрифт и размер", softPanel(), fg, false);
+        settingsAction.setOnClickListener(v -> settings());
+        footer.addView(settingsAction, new LinearLayout.LayoutParams(0, dp(46), 1));
+        TextView wordsAction = buttonish("Показ слов", softPanel(), fg, false);
+        wordsAction.setOnClickListener(v -> displayDialog());
+        LinearLayout.LayoutParams wordsLp = new LinearLayout.LayoutParams(0, dp(46), 1);
+        wordsLp.leftMargin = dp(8);
+        footer.addView(wordsAction, wordsLp);
+        LinearLayout.LayoutParams footerLp = new LinearLayout.LayoutParams(-1, -2);
+        footerLp.topMargin = dp(6);
+        root.addView(footer, footerLp);
 
         showMode();
         updateSpeedLabel();
@@ -651,7 +679,7 @@ public class MainActivity extends Activity {
         if (rsvpPane == null || normalScroll == null) return;
         rsvpPane.setVisibility(rsvp ? View.VISIBLE : View.GONE);
         normalScroll.setVisibility(rsvp ? View.GONE : View.VISIBLE);
-        if (modeButton != null) modeButton.setText(rsvp ? "🕮 Обычное чтение" : "ϟ Скорочтение");
+        if (modeButton != null) modeButton.setText(rsvp ? "📖 Обычное чтение" : "⚡ Скорочтение");
         updateProgress();
     }
 
@@ -690,7 +718,6 @@ public class MainActivity extends Activity {
             wordView.setTextSize(size);
             wordView.setTypeface(type(), Typeface.BOLD);
         }
-        updateCurrentMeta();
         updateProgress();
     }
 
@@ -698,7 +725,6 @@ public class MainActivity extends Activity {
         if (normalText == null || words.length == 0 || normalScroll == null) return;
         int range = Math.max(1, normalText.getHeight() - normalScroll.getHeight());
         index = Math.min(words.length - 1, Math.round((float) normalScroll.getScrollY() / range * (words.length - 1)));
-        updateCurrentMeta();
     }
 
     void step(int by) {
@@ -747,11 +773,18 @@ public class MainActivity extends Activity {
                 BookLoader.Book book = BookLoader.load(this, Uri.parse(uriString));
                 runOnUiThread(() -> {
                     stop();
+                    if (!currentUri.isEmpty() && !currentUri.equals(uriString)) saveAll();
                     currentUri = uriString;
                     title = book.title == null ? "Книга" : book.title;
                     author = book.author == null ? "" : book.author;
                     body = book.text == null ? "" : book.text;
                     prepareWords();
+                    if (words.length == 0) {
+                        screen = 0;
+                        Toast.makeText(this, "В книге нет доступного текста", Toast.LENGTH_LONG).show();
+                        draw();
+                        return;
+                    }
                     BookMeta m = meta(currentUri);
                     if (m == null) { m = new BookMeta(); m.uri = currentUri; library.add(0, m); }
                     if (reset) { index = 0; normalY = 0; }
