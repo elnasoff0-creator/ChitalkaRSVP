@@ -20,6 +20,7 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.HorizontalScrollView;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
@@ -192,9 +193,9 @@ public class MainActivity extends Activity {
         m.progress = words.length == 0 ? 0 : Math.max(0, Math.min(100, (index + 1) * 100 / Math.max(1, words.length)));
         m.index = index;
         m.scroll = normalY;
-        m.chapter = findChapterForIndex(index);
-        m.excerpt = excerptAroundIndex(index);
-        m.format = extensionFromUri(currentUri);
+        if (m.chapter.isEmpty()) m.chapter = findChapterForIndex(index);
+        if (m.excerpt.isEmpty()) m.excerpt = excerptAroundIndex(index);
+        if (m.format.isEmpty()) m.format = extensionFromUri(currentUri);
         m.openedAt = System.currentTimeMillis();
         bringFirst(m);
     }
@@ -561,6 +562,12 @@ public class MainActivity extends Activity {
     }
 
     void drawReader() {
+        if (words.length == 0 || body.trim().isEmpty()) {
+            screen = 0;
+            drawHome();
+            Toast.makeText(this, "Текст книги не загружен. Открой книгу повторно.", Toast.LENGTH_LONG).show();
+            return;
+        }
         root.setPadding(dp(10), dp(21), dp(10), dp(7));
         LinearLayout top = row();
         TextView back = buttonish("←", softPanel(), fg, true); back.setOnClickListener(v -> { screen = 0; saveAll(); draw(); });
@@ -586,25 +593,29 @@ public class MainActivity extends Activity {
         add(root, divider());
         add(root, gap(8));
 
-        LinearLayout readerWrap = column();
+        // The reader owns all remaining vertical space. FrameLayout ensures that
+        // whichever reading mode is visible always has a non-zero, full-size viewport.
+        FrameLayout readerWrap = new FrameLayout(this);
         readerWrap.setBackground(shape(panelColor(), 24));
-        LinearLayout.LayoutParams readerLp = new LinearLayout.LayoutParams(-1, 0, 1);
-        add(root, readerWrap, readerLp);
+        LinearLayout.LayoutParams readerLp = new LinearLayout.LayoutParams(-1, 0, 1f);
+        root.addView(readerWrap, readerLp);
 
         wordView = text("", size, true);
         wordView.setGravity(Gravity.CENTER);
         wordView.setTypeface(type(), Typeface.BOLD);
         pad(wordView, 20);
-        readerWrap.addView(wordView, new LinearLayout.LayoutParams(-1, 0, 1));
+        readerWrap.addView(wordView, new FrameLayout.LayoutParams(-1, -1));
         rsvpPane = wordView;
 
         normalScroll = new ScrollView(this);
+        normalScroll.setFillViewport(true);
+        normalScroll.setVerticalScrollBarEnabled(true);
         normalText = text(body, Math.max(12, (int) (size * .58f)), false);
         normalText.setTypeface(type());
         normalText.setLineSpacing(dp(6), 1.18f);
         pad(normalText, 18);
-        normalScroll.addView(normalText);
-        readerWrap.addView(normalScroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        normalScroll.addView(normalText, new ScrollView.LayoutParams(-1, -2));
+        readerWrap.addView(normalScroll, new FrameLayout.LayoutParams(-1, -1));
         normalScroll.setOnScrollChangeListener((View.OnScrollChangeListener) (v, x, y, ox, oy) -> {
             if (rsvp || y == oy) return;
             normalY = y;
