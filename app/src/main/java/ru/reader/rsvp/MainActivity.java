@@ -388,7 +388,7 @@ public class MainActivity extends Activity {
         LinearLayout card = row();
         card.setBackground(shape(panelColor(), 24));
         pad(card, 14);
-        card.addView(coverView(m.title), new LinearLayout.LayoutParams(dp(108), dp(156)));
+        card.addView(coverView(m.title, m.uri), new LinearLayout.LayoutParams(dp(108), dp(156)));
 
         LinearLayout info = column();
         LinearLayout.LayoutParams infoLp = new LinearLayout.LayoutParams(0, -2, 1);
@@ -416,7 +416,7 @@ public class MainActivity extends Activity {
     View libraryRow(BookMeta m) {
         LinearLayout row = row();
         pad(row, 12, 12, 12, 12);
-        row.addView(coverView(m.title), new LinearLayout.LayoutParams(dp(72), dp(100)));
+        row.addView(coverView(m.title, m.uri), new LinearLayout.LayoutParams(dp(72), dp(100)));
         LinearLayout info = column();
         LinearLayout.LayoutParams infoLp = new LinearLayout.LayoutParams(0, -2, 1);
         infoLp.setMargins(dp(12), 0, dp(8), 0);
@@ -442,7 +442,12 @@ public class MainActivity extends Activity {
         return row;
     }
 
-    View coverView(String title) {
+    View coverView(String title, String uri) {
+        android.widget.FrameLayout frame=new android.widget.FrameLayout(this);
+        android.widget.ImageView image=new android.widget.ImageView(this);
+        image.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+        image.setVisibility(View.GONE);
+        frame.addView(image,new android.widget.FrameLayout.LayoutParams(-1,-1));
         LinearLayout card = column();
         GradientDrawable d = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
                 new int[]{0xff2c241f, 0xff544033, 0xff1d1a19});
@@ -468,7 +473,21 @@ public class MainActivity extends Activity {
         t.setGravity(Gravity.BOTTOM | Gravity.START);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, 0, 1);
         card.addView(t, lp);
-        return card;
+        frame.addView(card,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        if(uri!=null && !uri.isEmpty()){
+            new Thread(()->{
+                byte[] bytes=CoverLoader.get(getApplicationContext(),uri);
+                if(bytes==null)return;
+                android.graphics.BitmapFactory.Options opts=new android.graphics.BitmapFactory.Options();
+                opts.inJustDecodeBounds=true;
+                android.graphics.BitmapFactory.decodeByteArray(bytes,0,bytes.length,opts);
+                opts.inSampleSize=Math.max(1,Math.max(opts.outWidth/400,opts.outHeight/600));
+                opts.inJustDecodeBounds=false;
+                android.graphics.Bitmap bmp=android.graphics.BitmapFactory.decodeByteArray(bytes,0,bytes.length,opts);
+                if(bmp!=null)runOnUiThread(()->{image.setImageBitmap(bmp);image.setVisibility(View.VISIBLE);frame.bringChildToFront(image);});
+            }).start();
+        }
+        return frame;
     }
 
     String coverTitle(String t) {
@@ -531,7 +550,7 @@ public class MainActivity extends Activity {
         nav.setBackground(shape(panelColor(), 22));
         pad(nav, 6);
         nav.addView(navItem("📚", "Библиотека", active == 0, v -> { screen = 0; saveAll(); draw(); }), new LinearLayout.LayoutParams(0, -2, 1));
-        nav.addView(navItem("▶", "Чтение", active == 1, v -> { if (currentUri.isEmpty()) pick(); else { screen = 1; openBook(currentUri, false, false); } }), new LinearLayout.LayoutParams(0, -2, 1));
+        nav.addView(navItem("▶", "Чтение", active == 1, v -> { if (currentUri.isEmpty()) pick(); else { openBook(currentUri, false, true); } }), new LinearLayout.LayoutParams(0, -2, 1));
         nav.addView(navItem("⭐", "Закладки", false, v -> bookmarks()), new LinearLayout.LayoutParams(0, -2, 1));
         nav.addView(navItem("⚙️", "Настройки", false, v -> settings()), new LinearLayout.LayoutParams(0, -2, 1));
         return nav;
