@@ -21,6 +21,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     private float speed=1.0f, pitch=1.0f;
     private int segment=0, ttsPosition=0, duration=0;
     private long sleepDeadline=0;
+    private double pendingChapterFraction=0;
     private ArrayList<String> playlist=new ArrayList<>(), chunks=new ArrayList<>(), chapterNames=new ArrayList<>();
     private String title="Аудиокнига", currentBook="", bookId="";
     private Handler handler=new Handler(Looper.getMainLooper());
@@ -28,12 +29,12 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     @Override public void onCreate(){super.onCreate();instance=this;android.app.NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);if(Build.VERSION.SDK_INT>=26)nm.createNotificationChannel(new NotificationChannel(CHANNEL,"Аудиокниги",NotificationManager.IMPORTANCE_LOW));tts=new TextToSpeech(this,this);handler.post(tick);}
     @Override public int onStartCommand(Intent intent,int flags,int startId){if(intent==null)return START_STICKY;String action=intent.getAction();if(action==null)return START_STICKY;switch(action){
         case LOAD: {String[] uris=intent.getStringArrayExtra("uris");playlist.clear();if(uris!=null)for(String u:uris)if(u!=null)playlist.add(u);title=intent.getStringExtra("title");if(title==null)title="Аудиокнига";
-          bookId=intent.getStringExtra("bookId");if(bookId==null)bookId=playlistKey();
+          bookId=intent.getStringExtra("bookId");if(bookId==null)bookId=playlistKey();getSharedPreferences("reader",0).edit().putString("audio_last_book",bookId).apply();
           chapterNames.clear();String[] names=intent.getStringArrayExtra("chapters");if(names!=null)chapterNames.addAll(Arrays.asList(names));
           ttsMode=false;active=true;speed=getSharedPreferences("reader",0).getFloat("audio_speed",1f);
           segment=Math.max(0,Math.min(Math.max(0,playlist.size()-1),getSharedPreferences("reader",0).getInt("audio_segment:"+bookId,0)));
           int resume=getSharedPreferences("reader",0).getInt("audio_pos:"+bookId,0);
-          prepareAudio(resume,false);break;}
+          prepareAudio(resume,intent.getBooleanExtra("autoplay",false));break;}
         case TTS: {title=intent.getStringExtra("title");currentBook=intent.getStringExtra("bookUri");final String source=currentBook;
           ttsMode=true;active=true;paused=true;releasePlayer();
           new Thread(()->{try{BookLoader.Book book=BookLoader.load(this,Uri.parse(source));handler.post(()->{if(!ttsMode||!source.equals(currentBook))return;makeChunks(book.text);ttsPosition=Math.max(0,Math.min(chunks.size()-1,intent.getIntExtra("position",getSharedPreferences("reader",0).getInt("tts_pos:"+source,0))));ttsStartRequested=true;startTts();});}catch(Exception ignored){handler.post(()->{paused=true;notifyState();});}}).start();break;}
@@ -44,10 +45,10 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         case SPEED: speed=Math.max(.5f,Math.min(3f,intent.getFloatExtra("speed",1)));if(tts!=null)tts.setSpeechRate(speed);applySpeed();saveProgress();break;
         case SLEEP: {int minutes=intent.getIntExtra("minutes",0);sleepDeadline=minutes<=0?0:System.currentTimeMillis()+minutes*60000L;getSharedPreferences("reader",0).edit().putLong("audio_sleep_deadline",sleepDeadline).apply();break;}
         case VOICE: {float p=intent.getFloatExtra("pitch",1f);pitch=Math.max(.6f,Math.min(1.5f,p));if(tts!=null)tts.setPitch(pitch);break;}
-        case CHAPTER: {int target=intent.getIntExtra("chapter",0);if(!ttsMode&&target>=0&&target<playlist.size()){segment=target;prepareAudio(0,!paused);}break;}
+        case CHAPTER: {int target=intent.getIntExtra("chapter",0);if(!ttsMode&&target>=0&&target<playlist.size()){boolean shouldPlay=!paused;segment=target;pendingChapterFraction=Math.max(0,Math.min(1,intent.getDoubleExtra("fraction",0)));prepareAudio(0,shouldPlay);}break;}
     }notifyState();return START_STICKY;}
     private String playlistKey(){return playlist.isEmpty()?"":playlist.get(0);}
-    private void prepareAudio(int offset,boolean autoplay){releasePlayer();paused=true;duration=0;notifyState();if(playlist.isEmpty())return;try{Uri uri=Uri.parse(playlist.get(segment));player=new MediaPlayer();player.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());player.setDataSource(this,uri);player.setOnPreparedListener(mp->{duration=mp.getDuration();mp.seekTo(Math.max(0,Math.min(offset,duration)));applySpeed();if(autoplay)mp.start();paused=!autoplay;saveProgress();notifyState();});player.setOnCompletionListener(mp->{if(segment+1<playlist.size()){segment++;prepareAudio(0,true);}else pausePlayback();});player.prepareAsync();}catch(Exception e){paused=true;notifyState();}}
+    private void prepareAudio(int offset,boolean autoplay){releasePlayer();paused=true;duration=0;notifyState();if(playlist.isEmpty())return;try{Uri uri=Uri.parse(playlist.get(segment));player=new MediaPlayer();player.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());player.setDataSource(this,uri);player.setOnPreparedListener(mp->{duration=mp.getDuration();int target=pendingChapterFraction>0?(int)(pendingChapterFraction*duration):offset;pendingChapterFraction=0;mp.seekTo(Math.max(0,Math.min(target,duration)));applySpeed();if(autoplay)mp.start();paused=!autoplay;saveProgress();notifyState();});player.setOnCompletionListener(mp->{if(segment+1<playlist.size()){segment++;prepareAudio(0,true);}else pausePlayback();});player.prepareAsync();}catch(Exception e){paused=true;notifyState();}}
     private void releasePlayer(){if(player!=null){try{player.reset();player.release();}catch(Exception ignored){}player=null;}}
     private void applySpeed(){if(player!=null)try{player.setPlaybackParams(player.getPlaybackParams().setSpeed(speed));}catch(Exception ignored){}}
     private void resume(){if(ttsMode){startTts();return;}if(player!=null)try{player.start();applySpeed();paused=false;}catch(Exception ignored){}notifyState();}

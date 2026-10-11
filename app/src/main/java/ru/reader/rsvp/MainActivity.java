@@ -326,27 +326,45 @@ public class MainActivity extends Activity {
         // Theme presets moved to SettingsActivity.
         add(contentWrap, gap(16));
 
-        if(AudioPlaybackService.instance!=null){
-            AudioPlaybackService audio=AudioPlaybackService.instance;
-            TextView mini=buttonish("♫  "+audio.getTitle()+"   "+(audio.isPaused()?"▶":"Ⅱ"),softPanel(),fg,true);
-            mini.setSingleLine(true);mini.setEllipsize(TextUtils.TruncateAt.END);
-            mini.setOnClickListener(v->startActivity(new Intent(this,AudioPlayerActivity.class)));
-            root.addView(mini,new LinearLayout.LayoutParams(-1,dp(48)));
-        }
         java.util.ArrayList<AudioLibrary.Book> audioBooks=AudioLibrary.load(this);
         if(!audioBooks.isEmpty()){
-            add(contentWrap,sectionHeader("Аудиокниги", ""));
-            for(AudioLibrary.Book ab:audioBooks){
-                LinearLayout r=row();r.setBackground(shape(panelColor(),16));pad(r,10,12,10,12);
-                TextView icon=text("🎙",23,false);r.addView(icon,new LinearLayout.LayoutParams(dp(42),-2));
-                LinearLayout info=column();TextView label=text(ab.name,16,true);info.addView(label);
-                int saved=getSharedPreferences("reader",0).getInt("audio_segment:"+ab.id,0);
-                TextView chapter=text("Продолжить · Глава "+(saved+1)+" из "+ab.uris.size(),12,false);chapter.setTextColor(faintText());info.addView(chapter);
-                r.addView(info,new LinearLayout.LayoutParams(0,-2,1));
-                TextView launch=buttonish("▶",accent(),0xffffffff,true);r.addView(launch);
-                r.setOnClickListener(v->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_book_id",ab.id)));
-                launch.setOnClickListener(v->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_book_id",ab.id)));
-                add(contentWrap,r);add(contentWrap,gap(5));
+            String lastId=prefs.getString("audio_last_book","");
+            AudioLibrary.Book recent=null;
+            for(AudioLibrary.Book item:audioBooks)if(item.id.equals(lastId)){recent=item;break;}
+            if(recent==null)recent=audioBooks.get(0);
+            final AudioLibrary.Book lastBook=recent;
+            add(contentWrap,gap(12));
+            add(contentWrap,sectionHeader("Продолжить аудиокнигу",""));
+            LinearLayout recentCard=column();recentCard.setBackground(shape(panelColor(),22));pad(recentCard,14);
+            TextView name=text(lastBook.name,18,true);name.setMaxLines(2);recentCard.addView(name);
+            int chapter=Math.min(Math.max(0,prefs.getInt("audio_segment:"+lastBook.id,0)),Math.max(0,lastBook.chapters.size()-1));
+            String chapterName=lastBook.chapters.isEmpty()?"":lastBook.chapters.get(chapter);
+            TextView pos=text("Глава "+(chapter+1)+" из "+lastBook.uris.size()+" · "+chapterName,13,false);
+            pos.setSingleLine(true);pos.setEllipsize(TextUtils.TruncateAt.END);pos.setTextColor(faintText());recentCard.addView(pos);
+            TextView continueAudio=buttonish("▶  Продолжить",accent(),0xffffffff,true);
+            continueAudio.setOnClickListener(v->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_book_id",lastBook.id)));
+            LinearLayout.LayoutParams resumeLp=new LinearLayout.LayoutParams(-2,dp(44));resumeLp.topMargin=dp(8);
+            recentCard.addView(continueAudio,resumeLp);
+            recentCard.setOnClickListener(v->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_book_id",lastBook.id)));
+            add(contentWrap,recentCard);
+            add(contentWrap,gap(12));
+            boolean expanded=prefs.getBoolean("audio_library_expanded",false);
+            TextView toggle=buttonish("Аудиобиблиотека ("+audioBooks.size()+")  "+(expanded?"⌃":"⌄"),softPanel(),fg,true);
+            toggle.setOnClickListener(v->{prefs.edit().putBoolean("audio_library_expanded",!expanded).apply();draw();});
+            add(contentWrap,toggle);
+            if(expanded){
+                LinearLayout audioList=column();audioList.setBackground(shape(panelColor(),18));
+                for(AudioLibrary.Book ab:audioBooks){
+                    LinearLayout r=row();pad(r,12,10,12,10);
+                    TextView icon=text("♫",23,false);r.addView(icon,new LinearLayout.LayoutParams(dp(38),-2));
+                    LinearLayout info=column();TextView label=text(ab.name,16,true);label.setMaxLines(1);label.setEllipsize(TextUtils.TruncateAt.END);info.addView(label);
+                    int saved=prefs.getInt("audio_segment:"+ab.id,0);
+                    TextView detail=text("Глава "+(saved+1)+" из "+ab.uris.size(),12,false);detail.setTextColor(faintText());info.addView(detail);
+                    r.addView(info,new LinearLayout.LayoutParams(0,-2,1));
+                    r.setOnClickListener(v->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_book_id",ab.id)));
+                    audioList.addView(r);audioList.addView(divider());
+                }
+                add(contentWrap,audioList);
             }
         }
         root.addView(bottomNav(0), new LinearLayout.LayoutParams(-1, -2));
