@@ -291,14 +291,12 @@ public class MainActivity extends Activity {
         add(contentWrap, sub);
 
         add(contentWrap, gap(10));
-        add(contentWrap, importCard());
-        add(contentWrap, gap(12));
 
         LinearLayout head1 = sectionHeader("Продолжить чтение", currentUri.isEmpty() ? "" : "");
         add(contentWrap, head1);
         if (!currentUri.isEmpty() && meta(currentUri) != null) add(contentWrap, continueCard(meta(currentUri)));
         else {
-            TextView empty = text("У тебя пока нет открытой книги. Нажми «Импортировать книги», чтобы добавить EPUB, FB2 или HTML.", 15, false);
+            TextView empty = text("У тебя пока нет открытой книги. Нажми «+» вверху для добавления EPUB, FB2 или HTML.", 15, false);
             empty.setTextColor(faintText());
             empty.setBackground(shape(panelColor(), 22));
             pad(empty, 16);
@@ -389,60 +387,59 @@ public class MainActivity extends Activity {
     }
 
     View continueCard(BookMeta m) {
-        LinearLayout card = row();
-        card.setBackground(shape(panelColor(), 24));
-        pad(card, 14);
-        card.addView(coverView(m.title, m.uri), new LinearLayout.LayoutParams(dp(108), dp(156)));
-
-        LinearLayout info = column();
-        LinearLayout.LayoutParams infoLp = new LinearLayout.LayoutParams(0, -2, 1);
-        infoLp.setMargins(dp(14), 0, 0, 0);
-        TextView titleV = text(m.title, 20, true); titleV.setTypeface(Typeface.SERIF, Typeface.BOLD); info.addView(titleV);
-        if (!m.author.isEmpty()) {
-            TextView a = text(m.author, 15, false); a.setTextColor(faintText()); info.addView(a);
-        }
-        TextView ex = text(shorten(m.excerpt, 110), 15, false); ex.setTextColor(faintText()); pad(ex, 0, 6, 0, 6); info.addView(ex);
-        info.addView(progressBar(m.progress));
-        LinearLayout pr = row();
-        TextView chapter = text(m.chapter.isEmpty() ? "Последняя позиция" : m.chapter, 15, false);
-        pr.addView(chapter, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView percent = text(m.progress + "%", 15, true); pr.addView(percent);
-        info.addView(pr);
-        TextView btn = buttonish("Продолжить", accent(), 0xffffffff, true);
-        btn.setOnClickListener(v -> openBook(m.uri, false, true));
-        LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(dp(160), -2);
-        btnLp.setMargins(0, dp(10), 0, 0);
-        info.addView(btn, btnLp);
-        card.addView(info, infoLp);
+        LinearLayout card=row();
+        card.setBackground(shape(panelColor(),22));
+        pad(card,10);
+        card.addView(coverView(m.title,m.uri),new LinearLayout.LayoutParams(dp(104),dp(104)));
+        LinearLayout info=column();
+        LinearLayout.LayoutParams infoLp=new LinearLayout.LayoutParams(0,dp(112),1);
+        infoLp.setMargins(dp(10),0,0,0);
+        TextView name=text(m.title,17,true);
+        name.setMaxLines(1);name.setEllipsize(TextUtils.TruncateAt.END);
+        info.addView(name);
+        TextView excerpt=text(shorten(m.excerpt,145),13,false);
+        excerpt.setTextColor(faintText());excerpt.setMaxLines(3);
+        excerpt.setEllipsize(TextUtils.TruncateAt.END);
+        info.addView(excerpt,new LinearLayout.LayoutParams(-1,0,1));
+        LinearLayout foot=row();
+        TextView progress=text(m.progress+"%",13,true);
+        foot.addView(progress,new LinearLayout.LayoutParams(0,-2,1));
+        TextView resume=buttonish("Продолжить",accent(),0xffffffff,true);
+        resume.setTextSize(12);
+        pad(resume,8,6,8,6);
+        resume.setOnClickListener(v->openBook(m.uri,false,true));
+        foot.addView(resume);
+        info.addView(foot);
+        card.addView(info,infoLp);
+        card.setOnClickListener(v->openBook(m.uri,false,true));
         return card;
     }
 
     View libraryRow(BookMeta m) {
-        LinearLayout row = row();
-        pad(row, 12, 12, 12, 12);
-        row.addView(coverView(m.title, m.uri), new LinearLayout.LayoutParams(dp(72), dp(100)));
-        LinearLayout info = column();
-        LinearLayout.LayoutParams infoLp = new LinearLayout.LayoutParams(0, -2, 1);
-        infoLp.setMargins(dp(12), 0, dp(8), 0);
-        TextView titleV = text(m.title, 17, true); titleV.setEllipsize(TextUtils.TruncateAt.END); titleV.setMaxLines(2); info.addView(titleV);
-        if (!m.author.isEmpty()) {
-            TextView a = text(m.author, 14, false); a.setTextColor(faintText()); info.addView(a);
+        final int side=84;
+        LinearLayout row=row();
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        pad(row,8,7,8,7);
+        row.addView(coverView(m.title,m.uri),new LinearLayout.LayoutParams(dp(side),dp(side)));
+        LinearLayout info=column();
+        LinearLayout.LayoutParams infoLp=new LinearLayout.LayoutParams(0,dp(side),1);
+        infoLp.setMargins(dp(10),0,dp(5),0);
+        TextView titleV=text(m.title,16,true);
+        titleV.setMaxLines(2);titleV.setEllipsize(TextUtils.TruncateAt.END);
+        info.addView(titleV);
+        if(!m.author.isEmpty()){
+            TextView auth=text(m.author,12,false);
+            auth.setTextColor(faintText());auth.setMaxLines(1);
+            auth.setEllipsize(TextUtils.TruncateAt.END);
+            info.addView(auth);
         }
-        TextView ch = text(m.chapter.isEmpty() ? (m.format.isEmpty() ? "Книга" : m.format.toUpperCase(Locale.ROOT)) : m.chapter, 14, false);
-        ch.setTextColor(faintText()); pad(ch, 0, 4, 0, 4); info.addView(ch);
-        info.addView(progressBar(m.progress));
-        TextView p = text("Прочитано: " + m.progress + "%", 13, false); p.setTextColor(faintText()); info.addView(p);
-        row.addView(info, infoLp);
-        LinearLayout actions = column();
-        TextView open = buttonish("Открыть", accent(), 0xffffffff, true);
-        open.setOnClickListener(v -> openBook(m.uri, false, true));
-        TextView more = buttonish("⋮", softPanel(), fg, true);
-        more.setOnClickListener(v -> bookMenu(m));
-        actions.addView(open, new LinearLayout.LayoutParams(dp(92), -2));
-        LinearLayout.LayoutParams moreLp = new LinearLayout.LayoutParams(dp(92), -2);
-        moreLp.topMargin = dp(8);
-        actions.addView(more, moreLp);
-        row.addView(actions);
+        TextView percent=text(m.progress+"% прочитано",12,false);
+        percent.setTextColor(faintText());
+        info.addView(percent);
+        row.addView(info,infoLp);
+        View more=iconButton(android.R.drawable.ic_menu_more,v->bookMenu(m));
+        row.addView(more,new LinearLayout.LayoutParams(dp(38),dp(42)));
+        row.setOnClickListener(v->openBook(m.uri,false,true));
         return row;
     }
 
@@ -478,6 +475,7 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, 0, 1);
         card.addView(t, lp);
         frame.addView(card,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        frame.setClipToOutline(true);
         if(uri!=null && !uri.isEmpty()){
             new Thread(()->{
                 byte[] bytes=CoverLoader.get(getApplicationContext(),uri);

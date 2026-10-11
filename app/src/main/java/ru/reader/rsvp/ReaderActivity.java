@@ -93,7 +93,7 @@ public class ReaderActivity extends Activity {
       if(!rsvp || words.length==0)return false;
       if(event.getAction()==MotionEvent.ACTION_DOWN){stop();swipeSeeking=true;swipeStartY=event.getY();swipeStartIndex=index;showSeekingWords();return true;}
       if(event.getAction()==MotionEvent.ACTION_MOVE){int delta=Math.round((swipeStartY-event.getY())/dp(26));index=Math.max(0,Math.min(words.length-1,swipeStartIndex+delta));showSeekingWords();return true;}
-      if(event.getAction()==MotionEvent.ACTION_UP || event.getAction()==MotionEvent.ACTION_CANCEL){swipeSeeking=false;updateWord();save();return true;}
+      if(event.getAction()==MotionEvent.ACTION_UP || event.getAction()==MotionEvent.ACTION_CANCEL){swipeSeeking=false;wordView.setMaxLines(Integer.MAX_VALUE);updateWord();save();return true;}
       return true;
     });
     normalScroll=new ScrollView(this);normalText=text(body,Math.max(12,(int)(size*.60)));normalText.setTypeface(type());normalText.setLineSpacing(dp(6),1.16f);pad(normalText,14);normalScroll.addView(normalText);readingFrame.addView(normalScroll,new LinearLayout.LayoutParams(-1,-1));
@@ -118,20 +118,32 @@ public class ReaderActivity extends Activity {
     if(pauseSentence && (w.endsWith(".") || w.endsWith("!") || w.endsWith("?") || w.endsWith("…") || w.endsWith("»")))mult+=1.2;
     return (long)(base*mult);
   }
+  // While dragging, show connected book text and a prominent current word.
   void showSeekingWords(){
     if(wordView==null || words.length==0)return;
-    int lo=Math.max(0,index-5),hi=Math.min(words.length,index+6);
-    StringBuilder b=new StringBuilder();int start=-1,end=-1;
+    int before=24,after=35;
+    int lo=Math.max(0,index-before),hi=Math.min(words.length,index+after+1);
+    StringBuilder builder=new StringBuilder();int selectedStart=-1,selectedEnd=-1;
     for(int i=lo;i<hi;i++){
-      if(i>lo)b.append("\n");
-      if(i==index)start=b.length();
-      b.append(words[i]);
-      if(i==index)end=b.length();
+      if(i>lo)builder.append(' ');
+      if(i==index)selectedStart=builder.length();
+      builder.append(words[i]);
+      if(i==index)selectedEnd=builder.length();
+      // Keep paragraph-like flow and avoid an artificial column of words.
+      if(words[i].matches(".*[.!?…]$"))builder.append("\n\n");
     }
-    SpannableString span=new SpannableString(b.toString());
-    span.setSpan(new ForegroundColorSpan(0xff999999),0,span.length(),33);
-    if(start>=0){span.setSpan(new ForegroundColorSpan(0xff101010),start,end,33);span.setSpan(new StyleSpan(Typeface.BOLD),start,end,33);span.setSpan(new RelativeSizeSpan(1.5f),start,end,33);}
-    wordView.setTextSize(Math.max(16,size*0.65f));wordView.setText(span);updateProgress();
+    SpannableString span=new SpannableString(builder.toString());
+    span.setSpan(new ForegroundColorSpan(0xff929292),0,span.length(),33);
+    if(selectedStart>=0){
+      span.setSpan(new ForegroundColorSpan(fg),selectedStart,selectedEnd,33);
+      span.setSpan(new StyleSpan(Typeface.BOLD),selectedStart,selectedEnd,33);
+      span.setSpan(new RelativeSizeSpan(1.65f),selectedStart,selectedEnd,33);
+    }
+    wordView.setGravity(Gravity.CENTER);
+    wordView.setMaxLines(22);
+    wordView.setTextSize(Math.max(14,Math.min(24,size*0.44f)));
+    wordView.setText(span);
+    updateProgress();
   }
   void updateWord(){if(wordView!=null&&words.length>0){String current=words[Math.min(index,words.length-1)];String before=index>0?words[index-1]:"";String after=index+1<words.length?words[index+1]:"";String result=display==0?current:display==1?before+"\n"+current+"\n"+after:current+"\n"+after;android.text.SpannableString span=new android.text.SpannableString(result);int begin=result.indexOf(current,display==1?before.length():0);if(begin>=0){span.setSpan(new android.text.style.RelativeSizeSpan(1.0f),begin,begin+current.length(),33);span.setSpan(new android.text.style.StyleSpan(Typeface.BOLD),begin,begin+current.length(),33);}if(begin>0)span.setSpan(new android.text.style.RelativeSizeSpan(.43f),0,begin,33);if(begin+current.length()<result.length())span.setSpan(new android.text.style.RelativeSizeSpan(.43f),begin+current.length(),result.length(),33);wordView.setText(span);wordView.setTextSize(size);wordView.setTypeface(type());}updateProgress();}
   void step(int by){if(rsvp){index=Math.max(0,Math.min(words.length-1,index+by));updateWord();}else if(normalScroll!=null){normalScroll.smoothScrollBy(0,by*normalScroll.getHeight()*3/4);}save();}
