@@ -5,7 +5,7 @@ import android.text.style.StyleSpan;
 import android.text.style.RelativeSizeSpan;import java.util.*;
 
 public class ReaderActivity extends Activity {
-  android.content.SharedPreferences prefs; LinearLayout root,bar; TextView wordView,progressView,speedView; ScrollView normalScroll; TextView normalText; LinearLayout readingFrame; TextView modeButton,playButton; View rsvpPane; LinearLayout speedPanel,controls; long lastScrollSave=0; Handler handler=new Handler(Looper.getMainLooper());
+  android.content.SharedPreferences prefs; LinearLayout root,bar; TextView wordView,progressView,speedView; ScrollView normalScroll; TextView normalText; LinearLayout readingFrame; TextView modeButton,playButton; android.widget.ImageView playIcon; View rsvpPane; LinearLayout speedPanel,controls; long lastScrollSave=0; Handler handler=new Handler(Looper.getMainLooper());
   String title="",author="",body=""; String[] words=new String[0]; int index=0,wpm=350,display=1,size=36,bg=0xfff3e7d5,fg=0xff30221e,font=0; boolean rsvp=true,playing=false,swipeSeeking=false,pausePunctuation=true,pauseLong=true,pauseSentence=true; float swipeStartY=0; int swipeStartIndex=0; int normalY=0; String docUri=""; String[] fontNames={"Без засечек","С засечками","Моноширинный"};
   Runnable ticker=new Runnable(){public void run(){if(!playing)return;if(rsvp){if(index<words.length-1)index++;else{stop();return;}updateWord();}else if(normalScroll!=null){normalScroll.smoothScrollBy(0,Math.max(2,size/4));normalY=normalScroll.getScrollY();}if(index%8==0)save();handler.postDelayed(this,rsvp?delayForWord():80);}};
   @Override public void onCreate(Bundle b){
@@ -82,6 +82,7 @@ public class ReaderActivity extends Activity {
     TextView name=text(title.isEmpty()?"Читалка":"Читалка",23);name.setTypeface(Typeface.SERIF,Typeface.BOLD);name.setSingleLine(true);name.setEllipsize(TextUtils.TruncateAt.END);top.addView(name,new LinearLayout.LayoutParams(0,-2,1));
     Button mark=button("",v->bookmark());icon(mark,R.drawable.ic_bookmark);top.addView(mark,new LinearLayout.LayoutParams(dp(53),dp(53)));
     Button config=button("",v->settings());icon(config,R.drawable.ic_settings);top.addView(config,new LinearLayout.LayoutParams(dp(53),dp(53)));
+    Button audio=button("♫",v->{stop();save();Intent ai=new Intent(this,AudioPlayerActivity.class);ai.putExtra("book_uri",docUri);ai.putExtra("start_tts",true);ai.putExtra("word_index",index);startActivity(ai);});top.addView(audio,new LinearLayout.LayoutParams(dp(53),dp(53)));
     if(words.length==0){TextView intro=text("EPUB · FB2 · HTML\n\nОткройте книгу, чтобы начать чтение.\nЗакладки, положение и настройки сохраняются автоматически.",20);pad(intro,24);add(root,intro);add(root,button("＋  Открыть книгу",v->pick()));return;}
     TextView bookTitle=text(title,19);bookTitle.setTypeface(Typeface.SERIF,Typeface.BOLD);bookTitle.setSingleLine(true);bookTitle.setEllipsize(TextUtils.TruncateAt.END);pad(bookTitle,12);add(root,bookTitle);
     LinearLayout modeRow=new LinearLayout(this);modeRow.setGravity(Gravity.CENTER_VERTICAL);add(root,modeRow);
@@ -100,15 +101,22 @@ public class ReaderActivity extends Activity {
     normalScroll=new ScrollView(this);normalText=text(body,Math.max(12,(int)(size*.60)));normalText.setTypeface(type());normalText.setLineSpacing(dp(6),1.16f);pad(normalText,14);normalScroll.addView(normalText);readingFrame.addView(normalScroll,new LinearLayout.LayoutParams(-1,-1));
     normalScroll.setOnScrollChangeListener((View.OnScrollChangeListener)(v,x,y,oldX,oldY)->{if(rsvp||y==oldY)return;normalY=y;int range=Math.max(1,normalText.getHeight()-normalScroll.getHeight());index=Math.min(words.length-1,Math.round((float)y/range*(words.length-1)));updateProgress();long now=android.os.SystemClock.uptimeMillis();if(now-lastScrollSave>800){lastScrollSave=now;save();}});
     normalScroll.post(()->{if(!rsvp){normalScroll.scrollTo(0,normalY);}});
-    controls=new LinearLayout(this);controls.setGravity(Gravity.CENTER);controls.setBackground(shape(panelColor(),22));add(root,controls);
-    Button play=button("",v->{if(playing){stop();}else{playing=true;handler.post(ticker);}updatePlayButton();});playButton=play;play.setBackgroundTintList(null);play.setTextColor(-1);play.setBackground(shape(0xff915439,99));// A fixed-size button centered inside the full-width controls panel.
-    // Do not assign MATCH_PARENT to the play button: that was the reason
-    // it filled the whole width in v1.9.2.3.
-    play.setMinWidth(0);
-    play.setMinimumWidth(0);
-    LinearLayout.LayoutParams playParams=new LinearLayout.LayoutParams(dp(88),dp(72));
-    playParams.gravity=Gravity.CENTER_HORIZONTAL;
-    controls.addView(play,playParams);
+    controls=new LinearLayout(this);
+    controls.setGravity(Gravity.CENTER);
+    controls.setBackground(shape(panelColor(),22));
+    add(root,controls);
+    android.widget.FrameLayout playFrame=new android.widget.FrameLayout(this);
+    playFrame.setBackground(shape(0xff915439,99));
+    android.widget.ImageView centeredPlay=new android.widget.ImageView(this);
+    playIcon=centeredPlay;
+    centeredPlay.setScaleType(android.widget.ImageView.ScaleType.CENTER_INSIDE);
+    centeredPlay.setImageResource(R.drawable.ic_play);
+    centeredPlay.setColorFilter(0xffffffff);
+    android.widget.FrameLayout.LayoutParams imageParams=new android.widget.FrameLayout.LayoutParams(dp(30),dp(30),Gravity.CENTER);
+    playFrame.addView(centeredPlay,imageParams);
+    playFrame.setOnClickListener(v->{if(playing){stop();}else{playing=true;handler.post(ticker);}updatePlayButton();});
+    controls.addView(playFrame,new LinearLayout.LayoutParams(dp(88),dp(72)));
+
     speedPanel=column();speedPanel.setBackground(shape(panelColor(),18));pad(speedPanel,8);add(root,speedPanel);
     LinearLayout speedRow=new LinearLayout(this);speedRow.setGravity(Gravity.CENTER_VERTICAL);add(speedPanel,speedRow);
     ImageView gauge=new ImageView(this);gauge.setImageResource(R.drawable.ic_speed);gauge.setColorFilter(fg);
@@ -119,7 +127,7 @@ public class ReaderActivity extends Activity {
     showMode();updateWord();updatePlayButton();
   }
   void changeSpeed(int delta){wpm=Math.max(100,Math.min(1000,wpm+delta));if(speedView!=null)speedView.setText(wpm+" слов/мин");save();}
-  void updatePlayButton(){if(playButton!=null){playButton.setText("");android.graphics.drawable.Drawable d=getDrawable(playing?R.drawable.ic_pause:R.drawable.ic_play);if(d!=null){d.setTint(0xffffffff);d.setBounds(0,0,dp(28),dp(28));playButton.setCompoundDrawables(d,null,null,null);playButton.setGravity(Gravity.CENTER);}}}
+  void updatePlayButton(){if(playIcon!=null){playIcon.setImageResource(playing?R.drawable.ic_pause:R.drawable.ic_play);playIcon.setColorFilter(0xffffffff);}}
   void updateProgress(){if(progressView!=null)progressView.setText((index+1)+" / "+words.length+" слов · "+((index+1)*100/Math.max(1,words.length))+"%");}
   long delayForWord(){
     long base=Math.max(60,60000L/Math.max(100,wpm));

@@ -283,8 +283,10 @@ public class MainActivity extends Activity {
         top.addView(search, new LinearLayout.LayoutParams(dp(52), dp(46)));
         View importBtn = iconButton(R.drawable.ic_plus, v -> pick());
         top.addView(importBtn, new LinearLayout.LayoutParams(dp(52), dp(46)));
+        View audioBtn = iconButton(android.R.drawable.ic_media_play, v -> startActivity(new Intent(this, AudioPlayerActivity.class)));
+        top.addView(audioBtn, new LinearLayout.LayoutParams(dp(45), dp(46)));
         View menuBtn = iconButton(R.drawable.ic_settings, v -> settings());
-        top.addView(menuBtn, new LinearLayout.LayoutParams(dp(52), dp(46)));
+        top.addView(menuBtn, new LinearLayout.LayoutParams(dp(45), dp(46)));
         add(contentWrap, top);
 
         TextView sub = text("Быстрое чтение. Больше смысла.", 13, false);
@@ -326,6 +328,13 @@ public class MainActivity extends Activity {
         // Theme presets moved to SettingsActivity.
         add(contentWrap, gap(16));
 
+        if(AudioPlaybackService.instance!=null){
+            AudioPlaybackService audio=AudioPlaybackService.instance;
+            TextView mini=buttonish("♫  "+audio.getTitle()+"   "+(audio.isPaused()?"▶":"Ⅱ"),softPanel(),fg,true);
+            mini.setSingleLine(true);mini.setEllipsize(TextUtils.TruncateAt.END);
+            mini.setOnClickListener(v->startActivity(new Intent(this,AudioPlayerActivity.class)));
+            root.addView(mini,new LinearLayout.LayoutParams(-1,dp(48)));
+        }
         root.addView(bottomNav(0), new LinearLayout.LayoutParams(-1, -2));
     }
 

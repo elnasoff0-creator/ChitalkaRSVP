@@ -60,14 +60,14 @@ public final class UpdateManager {
                         if (digest.startsWith("sha256:")) sha = digest.substring(7);
                     }
                 }
-                String remoteVersion = release.optString("tag_name", "");
+                long remoteCode = parseVersionCode(release.optString("tag_name", ""));
                 final String foundUrl = apkUrl;
                 final String foundSha = sha;
                 final String tag = release.optString("tag_name", "");
                 final String notes = release.optString("body", "");
                 MAIN.post(() -> {
                     busy = false;
-                    if (compareVersions(remoteVersion, getLocalVersion()) <= 0) {
+                    if (remoteCode <= getLocalCode()) {
                         if (!silent) message("Обновлений нет", "Установлена актуальная версия приложения.");
                     } else if (foundUrl == null || foundUrl.isEmpty() || foundSha == null || !foundSha.matches("(?i)[0-9a-f]{64}")) {
                         if (!silent) message("Обновление недоступно", "В выпуске " + tag + " нет APK с SHA-256. Публикуйте подписанный APK через GitHub Releases.");
@@ -86,38 +86,22 @@ public final class UpdateManager {
         }).start();
     }
 
-    /** Compare public release tags with the installed versionName, not versionCode.
-     * versionCode is a separate monotonically increasing Android build number.
-     * Handles v1.9.2.4 vs 1.9.2.3 numerically (not as text). */
-    private String getLocalVersion() {
+    private int getLocalCode() {
         try {
             PackageInfo p = activity.getPackageManager().getPackageInfo(activity.getPackageName(), 0);
-            return p.versionName == null ? "0" : p.versionName;
-        } catch (Exception e) { return "0"; }
+            return Build.VERSION.SDK_INT >= 28 ? (int)p.getLongVersionCode() : p.versionCode;
+        } catch (Exception e) { return 0; }
     }
-
-    private static int compareVersions(String remote, String local) {
-        int[] a = parseVersion(remote);
-        int[] b = parseVersion(local);
-        for (int i = 0; i < 4; i++) {
-            if (a[i] != b[i]) return Integer.compare(a[i], b[i]);
-        }
-        return 0;
-    }
-
-    private static int[] parseVersion(String version) {
-        int[] parts = new int[4];
-        if (version == null) return parts;
-        String normalized = version.trim().replaceFirst("^[vV]", "");
-        String[] fields = normalized.split("\\.");
-        for (int i = 0; i < Math.min(fields.length, 4); i++) {
-            java.util.regex.Matcher m = java.util.regex.Pattern.compile("^(\\d+)").matcher(fields[i]);
-            if (m.find()) {
-                try { parts[i] = Integer.parseInt(m.group(1)); }
-                catch (NumberFormatException ignored) { parts[i] = 0; }
-            }
-        }
-        return parts;
+    // Tags must be in the form v1.9.0 (versionCode=190), v2.0.0 (200), etc.
+    private long parseVersionCode(String tag) {
+        try {
+            String t = tag.toLowerCase(Locale.ROOT).replaceFirst("^v", "");
+            String[] a = t.split("\\.");
+            if (a.length < 2) return 0;
+            int major = Integer.parseInt(a[0]); int minor = Integer.parseInt(a[1]);
+            int patch = a.length > 2 ? Integer.parseInt(a[2]) : 0;
+            return major * 10000L + minor * 100L + patch;
+        } catch (Exception e) { return 0; }
     }
 
     private JSONObject readJson(String path) throws Exception {
