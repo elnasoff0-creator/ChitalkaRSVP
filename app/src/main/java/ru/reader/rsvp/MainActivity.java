@@ -626,13 +626,19 @@ public class MainActivity extends Activity {
         LinearLayout controls = row();
         controls.setGravity(Gravity.CENTER);
         controls.setBackground(shape(panelColor(), 22));
+        pad(controls, 12, 10, 12, 10);
         LinearLayout.LayoutParams ctlp = new LinearLayout.LayoutParams(-1, -2); ctlp.topMargin = dp(8);
         root.addView(controls, ctlp);
-        controls.addView(circleButton("‹", softPanel(), fg, v -> step(-1)), new LinearLayout.LayoutParams(0, dp(70), 1));
+        LinearLayout.LayoutParams sideLp = new LinearLayout.LayoutParams(dp(72), dp(70));
+        sideLp.rightMargin = dp(10);
+        controls.addView(circleButton("‹", softPanel(), fg, v -> step(-1)), sideLp);
         TextView play = circleButton("▶", accent(), 0xffffffff, v -> { if (playing) stop(); else { playing = true; handler.post(ticker); } updatePlayButton(); });
         playButton = play;
-        controls.addView(play, new LinearLayout.LayoutParams(0, dp(76), 1));
-        controls.addView(circleButton("›", softPanel(), fg, v -> step(1)), new LinearLayout.LayoutParams(0, dp(70), 1));
+        LinearLayout.LayoutParams playLp = new LinearLayout.LayoutParams(dp(96), dp(76));
+        controls.addView(play, playLp);
+        LinearLayout.LayoutParams sideRightLp = new LinearLayout.LayoutParams(dp(72), dp(70));
+        sideRightLp.leftMargin = dp(10);
+        controls.addView(circleButton("›", softPanel(), fg, v -> step(1)), sideRightLp);
 
         LinearLayout speedPanel = column();
         speedPanel.setBackground(shape(panelColor(), 22));
