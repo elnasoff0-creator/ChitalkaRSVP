@@ -1,6 +1,7 @@
 package ru.reader.rsvp;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.app.AlertDialog;
 import android.content.SharedPreferences;
 import android.graphics.Color;
@@ -19,6 +20,7 @@ import android.widget.TextView;
 /** Separate, persistent reader settings with live typography/background preview. */
 public class SettingsActivity extends Activity {
     private SharedPreferences prefs;
+    private boolean audioTab=false;
     private LinearLayout root, list;
     private TextView preview, sizeValue;
     private int bg, fg, font, size, display;
@@ -26,7 +28,7 @@ public class SettingsActivity extends Activity {
     private final int[] backgrounds={0xffffffff,0xfff3e7d5,0xfff1e0c7,0xffdfe9d9,0xffe3e8ee,0xffe6dff1,0xff1e2025,0xff303438,0xff283d32,0xffded8c9,0xfffff0da,0xffdde5df};
     private final int[] textColors={0xff202020,0xff30221e,0xff444444,0xff5b4638,0xffe8e5db,0xffffffff,0xff365541,0xff604b7b};
 
-    @Override public void onCreate(Bundle state){super.onCreate(state);prefs=getSharedPreferences("reader",MODE_PRIVATE);load();draw();}
+    @Override public void onCreate(Bundle state){super.onCreate(state);prefs=getSharedPreferences("reader",MODE_PRIVATE);audioTab=getIntent().getBooleanExtra("audio_tab",false);load();draw();}
     int dp(int n){return (int)(getResources().getDisplayMetrics().density*n+.5f);}
     void load(){bg=prefs.getInt("bg",0xfff3e7d5);fg=prefs.getInt("fg",0xff30221e);font=prefs.getInt("font",1);size=prefs.getInt("size",36);display=prefs.getInt("display",1);}
     void put(String k,int v){prefs.edit().putInt(k,v).apply();}
@@ -44,6 +46,11 @@ public class SettingsActivity extends Activity {
         ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_back);back.setColorFilter(contrast(bg));back.setPadding(dp(12),dp(12),dp(12),dp(12));back.setOnClickListener(v->finish());top.addView(back,new LinearLayout.LayoutParams(dp(52),dp(52)));
         TextView name=text("Настройки чтения",24,true);name.setTypeface(Typeface.SERIF,Typeface.BOLD);top.addView(name,new LinearLayout.LayoutParams(0,-2,1));root.addView(top);
         ScrollView sc=new ScrollView(this);list=col();sc.addView(list);root.addView(sc,new LinearLayout.LayoutParams(-1,0,1));
+        LinearLayout tabs=new LinearLayout(this);
+        TextView reading=action("Чтение",()->{audioTab=false;draw();});
+        TextView audio=action("🎙  Аудионастройки",()->{audioTab=true;draw();});
+        tabs.addView(reading,new LinearLayout.LayoutParams(0,dp(55),1));tabs.addView(audio,new LinearLayout.LayoutParams(0,dp(55),1));list.addView(tabs);
+        if(audioTab){drawAudioSettings();return;}
         header("Предпросмотр текста");
         preview=new TextView(this);preview.setText("Глава 1\n\nВ дороге солнце мягко освещало страницы книги. Читать должно быть удобно для глаз.");preview.setLineSpacing(dp(5),1.18f);preview.setPadding(dp(19),dp(21),dp(19),dp(21));list.addView(preview,new LinearLayout.LayoutParams(-1,-2));applyPreview();
         header("Шрифт");
@@ -65,6 +72,16 @@ public class SettingsActivity extends Activity {
         gap(8);list.addView(action("Дополнительные паузы",this::pauses));
         gap(8);list.addView(action("Проверить обновления",()->new UpdateManager(this).check(false)));
         gap(18);
+    }
+    void drawAudioSettings(){
+        header("Управление аудиокнигами");
+        list.addView(action("+ Добавить папку с аудиокнигой",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","import"))));gap(8);
+        list.addView(action("Озвучить текущую текстовую книгу",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","tts"))));gap(8);
+        list.addView(action("Голос TTS и высота тона",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","voice"))));gap(8);
+        list.addView(action("Аудиозакладки",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","marks"))));gap(8);
+        list.addView(action("Выбрать обложку аудиокниги",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","cover").putExtra("audio_book_id",getIntent().getStringExtra("audio_book_id")))));gap(8);
+        list.addView(action("Таймер сна",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","sleep"))));gap(8);
+        list.addView(action("Скорость воспроизведения",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","speed"))));
     }
     void theme(LinearLayout row,String name,int background,int ink){TextView chip=text(name,13,false);chip.setTextColor(ink);chip.setGravity(Gravity.CENTER);chip.setBackground(rounded(background,14));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(56),1);lp.setMargins(dp(2),0,dp(2),0);row.addView(chip,lp);chip.setOnClickListener(v->{bg=background;fg=ink;put("bg",bg);put("fg",fg);draw();});}
     void palette(int[] colors,boolean background){

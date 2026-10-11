@@ -283,8 +283,6 @@ public class MainActivity extends Activity {
         top.addView(search, new LinearLayout.LayoutParams(dp(52), dp(46)));
         View importBtn = iconButton(R.drawable.ic_plus, v -> pick());
         top.addView(importBtn, new LinearLayout.LayoutParams(dp(52), dp(46)));
-        View audioBtn = iconButton(android.R.drawable.ic_media_play, v -> startActivity(new Intent(this, AudioPlayerActivity.class)));
-        top.addView(audioBtn, new LinearLayout.LayoutParams(dp(45), dp(46)));
         View menuBtn = iconButton(R.drawable.ic_settings, v -> settings());
         top.addView(menuBtn, new LinearLayout.LayoutParams(dp(45), dp(46)));
         add(contentWrap, top);
@@ -334,6 +332,22 @@ public class MainActivity extends Activity {
             mini.setSingleLine(true);mini.setEllipsize(TextUtils.TruncateAt.END);
             mini.setOnClickListener(v->startActivity(new Intent(this,AudioPlayerActivity.class)));
             root.addView(mini,new LinearLayout.LayoutParams(-1,dp(48)));
+        }
+        java.util.ArrayList<AudioLibrary.Book> audioBooks=AudioLibrary.load(this);
+        if(!audioBooks.isEmpty()){
+            add(contentWrap,sectionHeader("Аудиокниги", ""));
+            for(AudioLibrary.Book ab:audioBooks){
+                LinearLayout r=row();r.setBackground(shape(panelColor(),16));pad(r,10,12,10,12);
+                TextView icon=text("🎙",23,false);r.addView(icon,new LinearLayout.LayoutParams(dp(42),-2));
+                LinearLayout info=column();TextView label=text(ab.name,16,true);info.addView(label);
+                int saved=getSharedPreferences("reader",0).getInt("audio_segment:"+ab.id,0);
+                TextView chapter=text("Продолжить · Глава "+(saved+1)+" из "+ab.uris.size(),12,false);chapter.setTextColor(faintText());info.addView(chapter);
+                r.addView(info,new LinearLayout.LayoutParams(0,-2,1));
+                TextView launch=buttonish("▶",accent(),0xffffffff,true);r.addView(launch);
+                r.setOnClickListener(v->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_book_id",ab.id)));
+                launch.setOnClickListener(v->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_book_id",ab.id)));
+                add(contentWrap,r);add(contentWrap,gap(5));
+            }
         }
         root.addView(bottomNav(0), new LinearLayout.LayoutParams(-1, -2));
     }
@@ -562,8 +576,8 @@ public class MainActivity extends Activity {
         nav.setBackground(shape(panelColor(), 22));
         pad(nav, 6);
         nav.addView(navItem("📚", "Библиотека", active == 0, v -> { screen = 0; saveAll(); draw(); }), new LinearLayout.LayoutParams(0, -2, 1));
-        nav.addView(navItem("▶", "Чтение", active == 1, v -> { if (currentUri.isEmpty()) pick(); else { openBook(currentUri, false, true); } }), new LinearLayout.LayoutParams(0, -2, 1));
-        nav.addView(navItem("⭐", "Закладки", false, v -> bookmarks()), new LinearLayout.LayoutParams(0, -2, 1));
+        nav.addView(navItem("📖", "Чтение", active == 1, v -> { if (currentUri.isEmpty()) pick(); else { openBook(currentUri, false, true); } }), new LinearLayout.LayoutParams(0, -2, 1));
+        nav.addView(navItem("🎙", "Аудиокнига", false, v -> startActivity(new Intent(this,AudioPlayerActivity.class))), new LinearLayout.LayoutParams(0, -2, 1));
         nav.addView(navItem("⚙️", "Настройки", false, v -> settings()), new LinearLayout.LayoutParams(0, -2, 1));
         return nav;
     }
@@ -573,9 +587,9 @@ public class MainActivity extends Activity {
         item.setGravity(Gravity.CENTER);
         item.setBackground(active ? shape(softPanel(), 16) : null);
         pad(item, 6, 10, 6, 10);
-        if (label.equals("Настройки") || label.equals("Библиотека") || label.equals("Чтение") || label.equals("Закладки")) {
+        if (label.equals("Настройки") || label.equals("Библиотека") || label.equals("Чтение") || label.equals("Закладки") || label.equals("Аудиокнига")) {
             int image = label.equals("Настройки") ? R.drawable.ic_settings :
-                    label.equals("Библиотека") ? R.drawable.ic_library : label.equals("Закладки") ? R.drawable.ic_bookmark : R.drawable.ic_play;
+                    label.equals("Библиотека") ? R.drawable.ic_library : label.equals("Аудиокнига") ? R.drawable.ic_microphone : label.equals("Закладки") ? R.drawable.ic_bookmark : R.drawable.ic_book;
             ImageView iv = new ImageView(this);
             iv.setImageResource(image);
             iv.setColorFilter(active ? accent() : fg);
