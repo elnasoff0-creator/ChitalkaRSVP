@@ -12,3 +12,34 @@
 **Сборка:** заменить исходники в GitHub и запустить прежний Actions workflow `gradle assembleDebug`. `versionCode=9`, `versionName=1.8`. Никаких внешних библиотек.
 
 **Тестирование:** этот архив не компилировался в среде подготовки (нет Android SDK); сборку и проверку на устройстве нужно выполнить через GitHub Actions. Существующие данные `SharedPreferences` сохраняются, если приложение устанавливается поверх предыдущего APK с той же подписью.
+
+## Обновления через GitHub Releases (v1.9.0)
+
+В настройках есть **«Проверить обновления»**. Раз в 24 часа приложение также делает
+фоновую проверку GitHub Releases и предложит установку, только если опубликована
+версия новее. Обновления загружаются в собственную папку приложения с помощью
+`DownloadManager`, проверяются по SHA-256 (`assets[].digest` GitHub API), после чего
+открывается стандартный установщик Android. Требуется разрешить установку APK из
+этого приложения в настройках Android.
+
+**Важно:** текущие debug APK из GitHub Actions обычно подписываются временным
+ключом. Новый release APK, подписанный **другим** ключом, невозможно установить
+поверх старого debug APK. При первой смене ключа необходимо удалить debug-версию
+(перед этим сохраните книги/закладки), затем установить подписанный release APK.
+После этого все обновления должны использовать **тот же release keystore**.
+Ни пароль, ни keystore нельзя публиковать в репозитории.
+
+### Настройка подписи (один раз на компьютере)
+
+1. Создайте постоянный ключ: `keytool -genkeypair -v -keystore reader-release.jks -alias reader -keyalg RSA -keysize 3072 -validity 10000`.
+2. Преобразуйте keystore в Base64 (`base64 -w 0 reader-release.jks` на Linux) и сохраните как GitHub Actions secret `RELEASE_KEYSTORE_B64`.
+3. Добавьте в Settings → Secrets and variables → Actions ещё три secrets:
+   `RELEASE_KEYSTORE_PASSWORD`, `RELEASE_KEY_PASSWORD`, `RELEASE_KEY_ALIAS`.
+4. Сохраните keystore и пароли в надёжном резервном хранилище вне GitHub.
+5. Загрузите `.github/workflows/release.yml` в репозиторий.
+6. Создайте тег `v1.9.0` и отправьте его в GitHub. Action соберёт подписанный APK и создаст GitHub Release.
+   Для каждой следующей версии нужно повысить `versionCode`, `versionName` в `app/build.gradle`
+   и создать новый тег, например `v1.9.1`.
+
+Соглашение: `versionCode = major*10000 + minor*100 + patch`, например `v1.9.0` → `10900`.
+**Установка и компиляция в настоящем Android SDK пока не проверялись.**

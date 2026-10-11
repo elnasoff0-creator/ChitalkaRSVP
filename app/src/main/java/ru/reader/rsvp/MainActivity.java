@@ -150,6 +150,10 @@ public class MainActivity extends Activity {
             screen = 0;
             draw();
         }
+        if (System.currentTimeMillis() - prefs.getLong("update_last_check", 0L) > 24L * 60 * 60 * 1000) {
+            prefs.edit().putLong("update_last_check", System.currentTimeMillis()).apply();
+            new UpdateManager(this).check(true);
+        }
     }
 
     void loadPrefs() {
@@ -1017,7 +1021,7 @@ public class MainActivity extends Activity {
         String[] options = {
                 "Режим показа слов", "Шрифт", "Размер шрифта", "Цвет текста", "Цвет фона",
                 "Тема: светлая", "Тема: сепия", "Тема: ночная", "Тема: мягкая зелёная",
-                "Открыть книгу", "Закладки"
+                "Открыть книгу", "Закладки", "Проверить обновления"
         };
         new AlertDialog.Builder(this).setTitle("Настройки")
                 .setItems(options, (d, n) -> {
@@ -1033,6 +1037,7 @@ public class MainActivity extends Activity {
                         case 8: theme(0xffdfe9d9, 0xff223a29); break;
                         case 9: pick(); break;
                         case 10: bookmarks(); break;
+                        case 11: new UpdateManager(this).check(false); break;
                     }
                 }).show();
     }
