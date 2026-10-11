@@ -267,7 +267,6 @@ public class MainActivity extends Activity {
         if (screen == 1 && words.length > 0 && !body.isEmpty()) drawReader(); else drawHome();
     }
 
-    @Override protected void onResume(){super.onResume();if(prefs!=null&&root!=null){int nb=prefs.getInt("bg",bg),nf=prefs.getInt("fg",fg);if(nb!=bg||nf!=fg){bg=nb;fg=nf;draw();}}}
 
     void drawHome() {
         root.setPadding(dp(12), dp(23), dp(12), dp(8));
