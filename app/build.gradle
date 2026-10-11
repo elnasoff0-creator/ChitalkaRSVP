@@ -2,7 +2,7 @@ plugins { id 'com.android.application' }
 android {
     namespace 'ru.reader.rsvp'
     compileSdk 35
-    defaultConfig { applicationId 'ru.reader.rsvp'; minSdk 24; targetSdk 35; versionCode 10904; versionName '1.9.2.2' }
+    defaultConfig { applicationId 'ru.reader.rsvp'; minSdk 24; targetSdk 35; versionCode 10906; versionName '1.9.2.4' }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
 

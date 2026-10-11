@@ -101,7 +101,14 @@ public class ReaderActivity extends Activity {
     normalScroll.setOnScrollChangeListener((View.OnScrollChangeListener)(v,x,y,oldX,oldY)->{if(rsvp||y==oldY)return;normalY=y;int range=Math.max(1,normalText.getHeight()-normalScroll.getHeight());index=Math.min(words.length-1,Math.round((float)y/range*(words.length-1)));updateProgress();long now=android.os.SystemClock.uptimeMillis();if(now-lastScrollSave>800){lastScrollSave=now;save();}});
     normalScroll.post(()->{if(!rsvp){normalScroll.scrollTo(0,normalY);}});
     controls=new LinearLayout(this);controls.setGravity(Gravity.CENTER);controls.setBackground(shape(panelColor(),22));add(root,controls);
-    Button play=button("",v->{if(playing){stop();}else{playing=true;handler.post(ticker);}updatePlayButton();});playButton=play;play.setBackgroundTintList(null);play.setTextColor(-1);play.setBackground(shape(0xff915439,99));controls.addView(play,new LinearLayout.LayoutParams(-1,dp(64)));
+    Button play=button("",v->{if(playing){stop();}else{playing=true;handler.post(ticker);}updatePlayButton();});playButton=play;play.setBackgroundTintList(null);play.setTextColor(-1);play.setBackground(shape(0xff915439,99));// A fixed-size button centered inside the full-width controls panel.
+    // Do not assign MATCH_PARENT to the play button: that was the reason
+    // it filled the whole width in v1.9.2.3.
+    play.setMinWidth(0);
+    play.setMinimumWidth(0);
+    LinearLayout.LayoutParams playParams=new LinearLayout.LayoutParams(dp(88),dp(72));
+    playParams.gravity=Gravity.CENTER_HORIZONTAL;
+    controls.addView(play,playParams);
     speedPanel=column();speedPanel.setBackground(shape(panelColor(),18));pad(speedPanel,8);add(root,speedPanel);
     LinearLayout speedRow=new LinearLayout(this);speedRow.setGravity(Gravity.CENTER_VERTICAL);add(speedPanel,speedRow);
     ImageView gauge=new ImageView(this);gauge.setImageResource(R.drawable.ic_speed);gauge.setColorFilter(fg);
