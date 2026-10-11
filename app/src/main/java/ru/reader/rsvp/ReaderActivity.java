@@ -1,6 +1,8 @@
 package ru.reader.rsvp;
 
-import android.app.*;import android.os.*;import android.content.*;import android.graphics.Color;import android.graphics.Typeface;import android.graphics.drawable.GradientDrawable;import android.net.Uri;import android.text.*;import android.view.*;import android.widget.*;import android.view.MotionEvent;import android.text.style.ForegroundColorSpan;import java.util.*;
+import android.app.*;import android.os.*;import android.content.*;import android.graphics.Color;import android.graphics.Typeface;import android.graphics.drawable.GradientDrawable;import android.net.Uri;import android.text.*;import android.view.*;import android.widget.*;import android.view.MotionEvent;import android.text.style.ForegroundColorSpan;
+import android.text.style.StyleSpan;
+import android.text.style.RelativeSizeSpan;import java.util.*;
 
 public class ReaderActivity extends Activity {
   android.content.SharedPreferences prefs; LinearLayout root,bar; TextView wordView,progressView,speedView; ScrollView normalScroll; TextView normalText; LinearLayout readingFrame; TextView modeButton,playButton; View rsvpPane; long lastScrollSave=0; Handler handler=new Handler(Looper.getMainLooper());
