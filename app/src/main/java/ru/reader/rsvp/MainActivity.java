@@ -267,6 +267,8 @@ public class MainActivity extends Activity {
         if (screen == 1 && words.length > 0 && !body.isEmpty()) drawReader(); else drawHome();
     }
 
+    @Override protected void onResume(){super.onResume();if(prefs!=null&&root!=null){int nb=prefs.getInt("bg",bg),nf=prefs.getInt("fg",fg);if(nb!=bg||nf!=fg){bg=nb;fg=nf;draw();}}}
+
     void drawHome() {
         root.setPadding(dp(12), dp(23), dp(12), dp(8));
         LinearLayout contentWrap = column();
@@ -278,11 +280,11 @@ public class MainActivity extends Activity {
         TextView titleView = text("Читалка RSVP", 23, true);
         titleView.setTypeface(Typeface.SERIF, Typeface.BOLD);
         top.addView(titleView, new LinearLayout.LayoutParams(0, -2, 1));
-        View search = iconButton(android.R.drawable.ic_menu_search, v -> showLibraryChooser());
+        View search = iconButton(R.drawable.ic_search, v -> showLibraryChooser());
         top.addView(search, new LinearLayout.LayoutParams(dp(52), dp(46)));
-        View importBtn = iconButton(android.R.drawable.ic_menu_add, v -> pick());
+        View importBtn = iconButton(R.drawable.ic_plus, v -> pick());
         top.addView(importBtn, new LinearLayout.LayoutParams(dp(52), dp(46)));
-        View menuBtn = iconButton(android.R.drawable.ic_menu_preferences, v -> settings());
+        View menuBtn = iconButton(R.drawable.ic_settings, v -> settings());
         top.addView(menuBtn, new LinearLayout.LayoutParams(dp(52), dp(46)));
         add(contentWrap, top);
 
@@ -322,7 +324,7 @@ public class MainActivity extends Activity {
         }
 
         add(contentWrap, gap(12));
-        add(contentWrap, themePanel());
+        // Theme presets moved to SettingsActivity.
         add(contentWrap, gap(16));
 
         root.addView(bottomNav(0), new LinearLayout.LayoutParams(-1, -2));
@@ -563,9 +565,9 @@ public class MainActivity extends Activity {
         item.setGravity(Gravity.CENTER);
         item.setBackground(active ? shape(softPanel(), 16) : null);
         pad(item, 6, 10, 6, 10);
-        if (label.equals("Настройки") || label.equals("Библиотека") || label.equals("Чтение")) {
-            int image = label.equals("Настройки") ? android.R.drawable.ic_menu_preferences :
-                    label.equals("Библиотека") ? android.R.drawable.ic_menu_agenda : android.R.drawable.ic_media_play;
+        if (label.equals("Настройки") || label.equals("Библиотека") || label.equals("Чтение") || label.equals("Закладки")) {
+            int image = label.equals("Настройки") ? R.drawable.ic_settings :
+                    label.equals("Библиотека") ? R.drawable.ic_library : label.equals("Закладки") ? R.drawable.ic_bookmark : R.drawable.ic_play;
             ImageView iv = new ImageView(this);
             iv.setImageResource(image);
             iv.setColorFilter(active ? accent() : fg);
@@ -607,7 +609,7 @@ public class MainActivity extends Activity {
         top.addView(titles, new LinearLayout.LayoutParams(0, -2, 1));
         TextView mark = buttonish("⭐", softPanel(), fg, false); mark.setOnClickListener(v -> bookmark());
         top.addView(mark, new LinearLayout.LayoutParams(dp(54), dp(48)));
-        View more = iconButton(android.R.drawable.ic_menu_preferences, v -> settings());
+        View more = iconButton(R.drawable.ic_settings, v -> settings());
         top.addView(more, new LinearLayout.LayoutParams(dp(54), dp(48)));
         add(root, top);
 
@@ -1016,6 +1018,9 @@ public class MainActivity extends Activity {
     }
 
     void settings() {
+        startActivity(new Intent(this, SettingsActivity.class));
+    }
+    void legacySettingsUnused() {
         String[] options = {
                 "Режим показа слов", "Шрифт", "Размер шрифта", "Цвет текста", "Цвет фона",
                 "Тема: светлая", "Тема: сепия", "Тема: ночная", "Тема: мягкая зелёная",

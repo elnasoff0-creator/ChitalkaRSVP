@@ -5,7 +5,7 @@ import android.text.style.StyleSpan;
 import android.text.style.RelativeSizeSpan;import java.util.*;
 
 public class ReaderActivity extends Activity {
-  android.content.SharedPreferences prefs; LinearLayout root,bar; TextView wordView,progressView,speedView; ScrollView normalScroll; TextView normalText; LinearLayout readingFrame; TextView modeButton,playButton; View rsvpPane; long lastScrollSave=0; Handler handler=new Handler(Looper.getMainLooper());
+  android.content.SharedPreferences prefs; LinearLayout root,bar; TextView wordView,progressView,speedView; ScrollView normalScroll; TextView normalText; LinearLayout readingFrame; TextView modeButton,playButton; View rsvpPane; LinearLayout speedPanel,controls; long lastScrollSave=0; Handler handler=new Handler(Looper.getMainLooper());
   String title="",author="",body=""; String[] words=new String[0]; int index=0,wpm=350,display=1,size=36,bg=0xfff3e7d5,fg=0xff30221e,font=0; boolean rsvp=true,playing=false,swipeSeeking=false,pausePunctuation=true,pauseLong=true,pauseSentence=true; float swipeStartY=0; int swipeStartIndex=0; int normalY=0; String docUri=""; String[] fontNames={"Без засечек","С засечками","Моноширинный"};
   Runnable ticker=new Runnable(){public void run(){if(!playing)return;if(rsvp){if(index<words.length-1)index++;else{stop();return;}updateWord();}else if(normalScroll!=null){normalScroll.smoothScrollBy(0,Math.max(2,size/4));normalY=normalScroll.getScrollY();}if(index%8==0)save();handler.postDelayed(this,rsvp?delayForWord():80);}};
   @Override public void onCreate(Bundle b){
@@ -67,25 +67,26 @@ public class ReaderActivity extends Activity {
   void pad(View v,int n){v.setPadding(dp(n),dp(n),dp(n),dp(n));}
   void add(LinearLayout p,View c){p.addView(c,new LinearLayout.LayoutParams(-1,-2));}
   Button button(String s,View.OnClickListener l){Button b=new Button(this);b.setAllCaps(false);b.setText(s);b.setOnClickListener(l);return b;}
+  void icon(Button b,int resource){android.graphics.drawable.Drawable d=getDrawable(resource);if(d!=null){d.setTint(fg);d.setBounds(0,0,dp(22),dp(22));b.setCompoundDrawables(d,null,null,null);b.setCompoundDrawablePadding(dp(6));}}
   void rowButton(LinearLayout row,String s,View.OnClickListener click){Button b=button(s,click);row.addView(b,new LinearLayout.LayoutParams(0,dp(58),1));}
   GradientDrawable shape(int fill,int radius){GradientDrawable d=new GradientDrawable();d.setColor(fill);d.setCornerRadius(dp(radius));return d;}
   int panelColor(){return (bg==0xff1e2025)?0xff303238:0xfffff9f0;}
   void setup(){root=column();root.setBackgroundColor(bg);setContentView(root);}
-  void showMode(){if(rsvpPane==null||normalScroll==null)return;rsvpPane.setVisibility(rsvp?View.VISIBLE:View.GONE);normalScroll.setVisibility(rsvp?View.GONE:View.VISIBLE);if(modeButton!=null)modeButton.setText(rsvp?"📖 Обычный":"⚡ Скоростной");updateProgress();}
+  void showMode(){if(rsvpPane==null||normalScroll==null)return;rsvpPane.setVisibility(rsvp?View.VISIBLE:View.GONE);normalScroll.setVisibility(rsvp?View.GONE:View.VISIBLE);if(modeButton!=null){modeButton.setText(rsvp?"Обычный":"Скоростной");icon((Button)modeButton,rsvp?R.drawable.ic_book:R.drawable.ic_bolt);}if(controls!=null)controls.setVisibility(rsvp?View.VISIBLE:View.GONE);if(speedPanel!=null)speedPanel.setVisibility(rsvp?View.VISIBLE:View.GONE);updateProgress();}
   void toggleMode(){stop();if(rsvp){rsvp=false;normalScroll.post(()->{int range=Math.max(0,normalText.getHeight()-normalScroll.getHeight());normalScroll.scrollTo(0,(int)((long)range*index/Math.max(1,words.length-1)));});}else{rsvp=true;}showMode();save();}
 
   void draw(){
     stop();setup();root.setPadding(dp(10),dp(20),dp(10),dp(7));
     LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);add(root,top);
-    Button menuBtn=button("←",v->finish());top.addView(menuBtn,new LinearLayout.LayoutParams(dp(52),dp(53)));
+    Button menuBtn=button("",v->finish());icon(menuBtn,R.drawable.ic_back);top.addView(menuBtn,new LinearLayout.LayoutParams(dp(52),dp(53)));
     TextView name=text(title.isEmpty()?"Читалка":"Читалка",23);name.setTypeface(Typeface.SERIF,Typeface.BOLD);name.setSingleLine(true);name.setEllipsize(TextUtils.TruncateAt.END);top.addView(name,new LinearLayout.LayoutParams(0,-2,1));
-    Button mark=button("⭐",v->bookmark());top.addView(mark,new LinearLayout.LayoutParams(dp(53),dp(53)));
-    Button config=button("☷",v->settings());top.addView(config,new LinearLayout.LayoutParams(dp(53),dp(53)));
+    Button mark=button("",v->bookmark());icon(mark,R.drawable.ic_bookmark);top.addView(mark,new LinearLayout.LayoutParams(dp(53),dp(53)));
+    Button config=button("",v->settings());icon(config,R.drawable.ic_settings);top.addView(config,new LinearLayout.LayoutParams(dp(53),dp(53)));
     if(words.length==0){TextView intro=text("EPUB · FB2 · HTML\n\nОткройте книгу, чтобы начать чтение.\nЗакладки, положение и настройки сохраняются автоматически.",20);pad(intro,24);add(root,intro);add(root,button("＋  Открыть книгу",v->pick()));return;}
     TextView bookTitle=text(title,19);bookTitle.setTypeface(Typeface.SERIF,Typeface.BOLD);bookTitle.setSingleLine(true);bookTitle.setEllipsize(TextUtils.TruncateAt.END);pad(bookTitle,12);add(root,bookTitle);
     LinearLayout modeRow=new LinearLayout(this);modeRow.setGravity(Gravity.CENTER_VERTICAL);add(root,modeRow);
     progressView=text("",13);progressView.setGravity(Gravity.CENTER_VERTICAL);modeRow.addView(progressView,new LinearLayout.LayoutParams(0,dp(49),1));
-    Button mode=button("",v->toggleMode());modeButton=mode;mode.setTextColor(0xffffffff);mode.setBackground(shape(0xff915439,19));modeRow.addView(mode,new LinearLayout.LayoutParams(dp(174),dp(48)));
+    Button mode=button("",v->toggleMode());modeButton=mode;mode.setTextColor(0xffffffff);mode.setBackground(shape(0xff915439,19));modeRow.addView(mode,new LinearLayout.LayoutParams(dp(174),dp(48)));icon(mode,rsvp?R.drawable.ic_book:R.drawable.ic_bolt);
     readingFrame=column();readingFrame.setBackground(shape(panelColor(),23));readingFrame.setPadding(dp(9),dp(12),dp(9),dp(12));LinearLayout.LayoutParams frameParams=new LinearLayout.LayoutParams(-1,0,1);frameParams.setMargins(0,dp(7),0,dp(8));root.addView(readingFrame,frameParams);
     wordView=text("",size);wordView.setGravity(Gravity.CENTER);wordView.setTypeface(type(),Typeface.BOLD);
     readingFrame.addView(wordView,new LinearLayout.LayoutParams(-1,-1));rsvpPane=wordView;
@@ -99,14 +100,19 @@ public class ReaderActivity extends Activity {
     normalScroll=new ScrollView(this);normalText=text(body,Math.max(12,(int)(size*.60)));normalText.setTypeface(type());normalText.setLineSpacing(dp(6),1.16f);pad(normalText,14);normalScroll.addView(normalText);readingFrame.addView(normalScroll,new LinearLayout.LayoutParams(-1,-1));
     normalScroll.setOnScrollChangeListener((View.OnScrollChangeListener)(v,x,y,oldX,oldY)->{if(rsvp||y==oldY)return;normalY=y;int range=Math.max(1,normalText.getHeight()-normalScroll.getHeight());index=Math.min(words.length-1,Math.round((float)y/range*(words.length-1)));updateProgress();long now=android.os.SystemClock.uptimeMillis();if(now-lastScrollSave>800){lastScrollSave=now;save();}});
     normalScroll.post(()->{if(!rsvp){normalScroll.scrollTo(0,normalY);}});
-    LinearLayout controls=new LinearLayout(this);controls.setGravity(Gravity.CENTER);controls.setBackground(shape(panelColor(),22));add(root,controls);
-    Button play=button("▶",v->{if(playing){stop();}else{playing=true;handler.post(ticker);}updatePlayButton();});playButton=play;play.setTextColor(-1);play.setBackground(shape(0xff915439,99));controls.addView(play,new LinearLayout.LayoutParams(-1,dp(64)));
-    LinearLayout speedPanel=column();add(root,speedPanel);speedView=text("Скорость чтения       "+wpm+" слов/мин",15);pad(speedView,4);add(speedPanel,speedView);
-    SeekBar seek=new SeekBar(this);seek.setMax(900);seek.setProgress(wpm-100);seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean from){wpm=p+100;speedView.setText("Скорость чтения       "+wpm+" слов/мин");if(from)save();}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}});add(speedPanel,seek);
-    Button wordDisplay=button("Показ слов  ▾",v->displayDialog());add(root,wordDisplay);
-    showMode();updateWord();
+    controls=new LinearLayout(this);controls.setGravity(Gravity.CENTER);controls.setBackground(shape(panelColor(),22));add(root,controls);
+    Button play=button("",v->{if(playing){stop();}else{playing=true;handler.post(ticker);}updatePlayButton();});playButton=play;play.setBackgroundTintList(null);play.setTextColor(-1);play.setBackground(shape(0xff915439,99));controls.addView(play,new LinearLayout.LayoutParams(-1,dp(64)));
+    speedPanel=column();speedPanel.setBackground(shape(panelColor(),18));pad(speedPanel,8);add(root,speedPanel);
+    LinearLayout speedRow=new LinearLayout(this);speedRow.setGravity(Gravity.CENTER_VERTICAL);add(speedPanel,speedRow);
+    ImageView gauge=new ImageView(this);gauge.setImageResource(R.drawable.ic_speed);gauge.setColorFilter(fg);
+    speedRow.addView(gauge,new LinearLayout.LayoutParams(dp(28),dp(28)));
+    speedView=text(wpm+" слов/мин",17);speedView.setGravity(Gravity.CENTER);speedRow.addView(speedView,new LinearLayout.LayoutParams(0,dp(48),1));
+    Button less=button("−10",v->changeSpeed(-10));speedRow.addView(less,new LinearLayout.LayoutParams(dp(84),dp(48)));
+    Button more=button("+10",v->changeSpeed(10));speedRow.addView(more,new LinearLayout.LayoutParams(dp(84),dp(48)));
+    showMode();updateWord();updatePlayButton();
   }
-  void updatePlayButton(){if(playButton!=null)playButton.setText(playing?"❚❚":"▶");}
+  void changeSpeed(int delta){wpm=Math.max(100,Math.min(1000,wpm+delta));if(speedView!=null)speedView.setText(wpm+" слов/мин");save();}
+  void updatePlayButton(){if(playButton!=null){playButton.setText("");android.graphics.drawable.Drawable d=getDrawable(playing?R.drawable.ic_pause:R.drawable.ic_play);if(d!=null){d.setTint(0xffffffff);d.setBounds(0,0,dp(28),dp(28));playButton.setCompoundDrawables(d,null,null,null);playButton.setGravity(Gravity.CENTER);}}}
   void updateProgress(){if(progressView!=null)progressView.setText((index+1)+" / "+words.length+" слов · "+((index+1)*100/Math.max(1,words.length))+"%");}
   long delayForWord(){
     long base=Math.max(60,60000L/Math.max(100,wpm));
@@ -154,7 +160,8 @@ public class ReaderActivity extends Activity {
   void bookmark(){if(words.length==0)return;String key="bookmark:"+docUri;Set<String> set=new HashSet<>(prefs.getStringSet(key,new HashSet<>()));set.add(String.valueOf(index));prefs.edit().putStringSet(key,set).apply();Toast.makeText(this,"Закладка добавлена",Toast.LENGTH_SHORT).show();}
   void bookmarks(){if(words.length==0)return;ArrayList<Integer> list=new ArrayList<>();for(String s:prefs.getStringSet("bookmark:"+docUri,new HashSet<>()))try{list.add(Integer.parseInt(s));}catch(Exception ignored){}Collections.sort(list);String[] rows=new String[list.size()];for(int i=0;i<list.size();i++){int n=list.get(i);rows[i]=(n+1)+" · "+words[Math.min(n,words.length-1)];}new AlertDialog.Builder(this).setTitle("Закладки").setItems(rows,(d,which)->{index=list.get(which);normalY=0;save();draw();}).setNeutralButton("Удалить все",(d,w)->{prefs.edit().remove("bookmark:"+docUri).apply();}).setPositiveButton("Закрыть",null).show();}
   void displayDialog(){String[] opts={"Только одно слово","Предыдущее и следующее","Текущее и следующее"};new AlertDialog.Builder(this).setTitle("Показ слов в скорочтении").setSingleChoiceItems(opts,display,(d,i)->{display=i;save();d.dismiss();updateWord();}).setNegativeButton("Отмена",null).show();}
-  void settings(){String[] options={"Паузы при скорочтении","Режим показа слов","Шрифт","Размер шрифта","Цвет текста","Цвет фона","Тема: светлая","Тема: сепия","Тема: ночная","Тема: мягкая зелёная","Закладки","Открыть книгу"};new AlertDialog.Builder(this).setTitle("Настройки чтения").setItems(options,(d,n)->{switch(n){case 0:pauseDialog();break;case 1:displayDialog();break;case 2:fontDialog();break;case 3:sizeDialog();break;case 4:colorDialog(false);break;case 5:colorDialog(true);break;case 6:theme(0xffffffff,0xff202020);break;case 7:theme(0xfff3e7d5,0xff30221e);break;case 8:theme(0xff1e2025,0xffe8e5db);break;case 9:theme(0xffdfe9d9,0xff223a29);break;case 10:bookmarks();break;case 11:pick();break;}}).show();}
+  void settings(){stop();startActivity(new Intent(this,SettingsActivity.class));}
+  @Override protected void onResume(){super.onResume();if(prefs!=null){int oldBg=bg,oldFg=fg,oldSize=size,oldFont=font,oldDisplay=display;bg=prefs.getInt("bg",bg);fg=prefs.getInt("fg",fg);size=prefs.getInt("size",size);font=prefs.getInt("font",font);display=prefs.getInt("display",display);pausePunctuation=prefs.getBoolean("pausePunctuation",pausePunctuation);pauseLong=prefs.getBoolean("pauseLong",pauseLong);pauseSentence=prefs.getBoolean("pauseSentence",pauseSentence);if(root!=null&&(oldBg!=bg||oldFg!=fg||oldSize!=size||oldFont!=font||oldDisplay!=display))draw();}}
   void pauseDialog(){
     String[] names={"Пауза после запятых и знаков пунктуации","Пауза на длинных словах (12+ букв)","Пауза в конце предложения"};
     boolean[] enabled={pausePunctuation,pauseLong,pauseSentence};
