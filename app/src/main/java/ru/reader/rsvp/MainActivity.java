@@ -364,6 +364,12 @@ public class MainActivity extends Activity {
             add(contentWrap, empty);
         }
 
+        // A permanent MRT entry point on the home screen: easy to locate and verify.
+        TextView onlineListen = buttonish("♫  Слушать онлайн · MRT  (beta)", softPanel(), fg, true);
+        onlineListen.setMinHeight(dp(52));
+        onlineListen.setContentDescription("Слушать электронную книгу онлайн через Machine Reading Text");
+        onlineListen.setOnClickListener(v -> openMrtOnline());
+        add(contentWrap, onlineListen);
         add(contentWrap, gap(12));
         ArrayList<BookMeta> sortedBooks = sortedLibraryBooks();
         boolean bookExpanded=prefs.getBoolean("book_library_expanded",false);
@@ -1172,6 +1178,28 @@ public class MainActivity extends Activity {
                 .setSingleChoiceItems(opts, display, (d, i) -> {
                     display = i; saveAll(); d.dismiss(); updateWord();
                 }).setNegativeButton("Отмена", null).show();
+    }
+
+    void openMrtOnline() {
+        String uri = currentUri == null || currentUri.isEmpty()
+                ? prefs.getString("uri", "") : currentUri;
+        if (uri == null || uri.isEmpty()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Слушать онлайн · MRT")
+                    .setMessage("Сначала выберите электронную книгу EPUB, FB2 или HTML.")
+                    .setPositiveButton("Выбрать книгу", (dialog, which) -> pick())
+                    .setNegativeButton("Отмена", null)
+                    .show();
+            return;
+        }
+        BookMeta opened = meta(uri);
+        int word = opened == null
+                ? prefs.getInt("tts_word:" + uri, prefs.getInt("index", 0))
+                : Math.max(0, opened.index);
+        Intent intent = new Intent(this, MrtOnlineActivity.class);
+        intent.putExtra("book_uri", uri);
+        intent.putExtra("word_index", word);
+        startActivity(intent);
     }
 
     void settings() {

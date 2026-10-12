@@ -30,6 +30,7 @@ import org.json.JSONObject;
  * Installation always requires user confirmation. */
 public final class UpdateManager {
     private static final String API = "https://api.github.com/repos/elnasoff0-creator/ChitalkaRSVP/releases/latest";
+    private static final String ALL_RELEASES_API = "https://api.github.com/repos/elnasoff0-creator/ChitalkaRSVP/releases?per_page=30";
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final String APK_NAME = "ChitalkaRSVP-update.apk";
     private final Activity activity;
@@ -39,6 +40,74 @@ public final class UpdateManager {
     private String expectedSha;
 
     public UpdateManager(Activity activity) { this.activity = activity; }
+
+    /** Manual version report: includes published prereleases, unlike GitHub /releases/latest. */
+    public void checkVersion() {
+        if (busy) return;
+        busy = true;
+        final String local = getLocalVersion();
+        final int localCode = getLocalCode();
+        Toast.makeText(activity, "Проверка версии в GitHub…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            try {
+                JSONArray releases = readJsonArray(ALL_RELEASES_API);
+                JSONObject newest = null;
+                for (int i = 0; i < releases.length(); i++) {
+                    JSONObject release = releases.optJSONObject(i);
+                    if (release == null || release.optBoolean("draft")) continue;
+                    String tag = release.optString("tag_name", "");
+                    if (!tag.matches("(?i)^v?[0-9]+(\\.[0-9]+)*(?:[-+].*)?$")) continue;
+                    if (newest == null || compareVersions(tag, newest.optString("tag_name", "")) > 0)
+                        newest = release;
+                }
+                final JSONObject found = newest;
+                MAIN.post(() -> {
+                    busy = false;
+                    if (activity.isFinishing()) return;
+                    if (found == null) {
+                        message("Проверка версии", "Установлена v" + local + " (сборка " + localCode + ").\n\nВ GitHub пока нет опубликованных релизов, доступных для сравнения. APK из Artifacts проверкой не учитываются.");
+                        return;
+                    }
+                    String remote = found.optString("tag_name", "");
+                    int cmp = compareVersions(remote, local);
+                    String report = "Установлена: v" + local + " (сборка " + localCode + ")\n" +
+                        "В GitHub: " + remote + (found.optBoolean("prerelease") ? " (beta)" : "") + "\n\n" +
+                        (cmp > 0 ? "Доступна более новая версия." : cmp == 0 ? "Установлена актуальная опубликованная версия." : "Установленная версия новее опубликованной в GitHub.");
+                    if (cmp <= 0) { message("Проверка версии", report); return; }
+                    JSONArray assets = found.optJSONArray("assets");
+                    String apkUrl = "", sha = "";
+                    if (assets != null) for (int i=0;i<assets.length();i++) {
+                        JSONObject asset = assets.optJSONObject(i);
+                        if (asset == null || !asset.optString("name", "").toLowerCase(Locale.ROOT).endsWith(".apk")) continue;
+                        apkUrl = asset.optString("browser_download_url", "");
+                        String digest = asset.optString("digest", "");
+                        if (digest.startsWith("sha256:")) sha = digest.substring(7);
+                        break;
+                    }
+                    final String url = apkUrl, checksum = sha;
+                    AlertDialog.Builder dialog = new AlertDialog.Builder(activity)
+                        .setTitle("Проверка версии")
+                        .setMessage(report)
+                        .setNegativeButton("Закрыть", null);
+                    if (url.startsWith("https://github.com/") && checksum.matches("(?i)[0-9a-f]{64}")) {
+                        dialog.setPositiveButton("Скачать APK", (d, w) -> download(url, checksum));
+                    } else {
+                        dialog.setMessage(report + "\n\nПодписанный APK с проверяемой SHA-256 пока не опубликован. Откройте GitHub Releases для ручной проверки.");
+                        String page = found.optString("html_url", "");
+                        if (page.startsWith("https://github.com/elnasoff0-creator/ChitalkaRSVP/"))
+                            dialog.setPositiveButton("Открыть релиз", (d, w) -> activity.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(page))));
+                    }
+                    dialog.show();
+                });
+            } catch (Exception e) {
+                MAIN.post(() -> {
+                    busy = false;
+                    if (!activity.isFinishing()) message("Проверка версии",
+                        "Установлена v" + local + " (сборка " + localCode + ").\n\nНе удалось проверить GitHub: " + e.getMessage());
+                });
+            }
+        }, "ChitalkaRSVP-version-check").start();
+    }
 
     public void check(boolean silent) {
         if (busy) return;
@@ -107,7 +176,10 @@ public final class UpdateManager {
         for (int i = 0; i < a.length; i++) {
             if (a[i] != b[i]) return Integer.compare(a[i], b[i]);
         }
-        return 0;
+        // A stable release supersedes a prerelease of the same numeric version.
+        boolean remoteBeta = remote != null && remote.toLowerCase(Locale.ROOT).matches(".*[-](?:alpha|beta|rc|pre).*\\b.*");
+        boolean localBeta = local != null && local.toLowerCase(Locale.ROOT).matches(".*[-](?:alpha|beta|rc|pre).*\\b.*");
+        return Boolean.compare(localBeta, remoteBeta);
     }
 
     private int[] versionParts(String value) {
@@ -125,7 +197,9 @@ public final class UpdateManager {
         return out;
     }
 
-    private JSONObject readJson(String path) throws Exception {
+    private JSONObject readJson(String path) throws Exception { return new JSONObject(readJsonText(path)); }
+    private JSONArray readJsonArray(String path) throws Exception { return new JSONArray(readJsonText(path)); }
+    private String readJsonText(String path) throws Exception {
         HttpURLConnection c = (HttpURLConnection)new URL(path).openConnection();
         c.setConnectTimeout(12000); c.setReadTimeout(12000);
         c.setRequestProperty("Accept", "application/vnd.github+json");
@@ -135,7 +209,7 @@ public final class UpdateManager {
             try (InputStream in = c.getInputStream(); java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
                 byte[] b = new byte[8192]; int n;
                 while ((n = in.read(b)) != -1) { out.write(b, 0, n); if (out.size() > 1_500_000) throw new Exception("Ответ слишком большой"); }
-                return new JSONObject(out.toString("UTF-8"));
+                return out.toString("UTF-8");
             }
         } finally { c.disconnect(); }
     }

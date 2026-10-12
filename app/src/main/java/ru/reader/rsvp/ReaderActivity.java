@@ -83,7 +83,22 @@ public class ReaderActivity extends Activity {
     TextView name=text(title.isEmpty()?"Читалка":"Читалка",23);name.setTypeface(Typeface.SERIF,Typeface.BOLD);name.setSingleLine(true);name.setEllipsize(TextUtils.TruncateAt.END);top.addView(name,new LinearLayout.LayoutParams(0,-2,1));
     Button mark=button("",v->bookmark());icon(mark,R.drawable.ic_bookmark);top.addView(mark,new LinearLayout.LayoutParams(dp(53),dp(53)));
     Button config=button("",v->settings());icon(config,R.drawable.ic_settings);top.addView(config,new LinearLayout.LayoutParams(dp(53),dp(53)));
-    Button audio=button("♫",v->{stop();save();Intent ai=new Intent(this,AudioPlayerActivity.class);ai.putExtra("book_uri",docUri);ai.putExtra("start_tts",true);ai.putExtra("word_index",index);startActivity(ai);});top.addView(audio,new LinearLayout.LayoutParams(dp(53),dp(53)));
+    Button audio=button("♫",v->{
+      if(docUri==null||docUri.isEmpty()){Toast.makeText(this,"Сначала откройте книгу",Toast.LENGTH_SHORT).show();return;}
+      new AlertDialog.Builder(this).setTitle("Способ озвучивания")
+        .setItems(new String[]{"Системный Android TTS", "Слушать онлайн (MRT)"},(dialog,which)->{
+          stop();save();
+          if(which==0){
+            Intent ai=new Intent(this,AudioPlayerActivity.class);
+            ai.putExtra("book_uri",docUri);ai.putExtra("start_tts",true);ai.putExtra("word_index",index);
+            startActivity(ai);
+          }else{
+            Intent online=new Intent(this,MrtOnlineActivity.class);
+            online.putExtra("book_uri",docUri);online.putExtra("word_index",index);
+            startActivity(online);
+          }
+        }).show();
+    });top.addView(audio,new LinearLayout.LayoutParams(dp(53),dp(53)));
     if(words.length==0){TextView intro=text("EPUB · FB2 · HTML\n\nОткройте книгу, чтобы начать чтение.\nЗакладки, положение и настройки сохраняются автоматически.",20);pad(intro,24);add(root,intro);add(root,button("＋  Открыть книгу",v->pick()));return;}
     TextView bookTitle=text(title,19);bookTitle.setTypeface(Typeface.SERIF,Typeface.BOLD);bookTitle.setSingleLine(true);bookTitle.setEllipsize(TextUtils.TruncateAt.END);pad(bookTitle,12);add(root,bookTitle);
     LinearLayout modeRow=new LinearLayout(this);modeRow.setGravity(Gravity.CENTER_VERTICAL);add(root,modeRow);

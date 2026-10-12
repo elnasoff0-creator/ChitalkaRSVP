@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.content.Intent;
 import android.app.AlertDialog;
 import android.content.SharedPreferences;
+import android.content.pm.PackageInfo;
+import android.os.Build;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -32,6 +34,19 @@ public class SettingsActivity extends Activity {
     int dp(int n){return (int)(getResources().getDisplayMetrics().density*n+.5f);}
     void load(){bg=prefs.getInt("bg",0xfff3e7d5);fg=prefs.getInt("fg",0xff30221e);font=prefs.getInt("font",1);size=prefs.getInt("size",36);display=prefs.getInt("display",1);}
     void put(String k,int v){prefs.edit().putInt(k,v).apply();}
+    private PackageInfo installedPackageInfo(){
+        try{return getPackageManager().getPackageInfo(getPackageName(),0);}
+        catch(Exception ignored){return null;}
+    }
+    String installedVersion(){
+        PackageInfo info=installedPackageInfo();
+        return info!=null && info.versionName!=null ? info.versionName : "неизвестна";
+    }
+    long installedCode(){
+        PackageInfo info=installedPackageInfo();
+        if(info==null)return 0;
+        return Build.VERSION.SDK_INT>=28 ? info.getLongVersionCode() : info.versionCode;
+    }
     int contrast(int background){double v=(Color.red(background)*0.299+Color.green(background)*0.587+Color.blue(background)*0.114);return v<140?Color.WHITE:0xff30221e;}
     GradientDrawable rounded(int c,int rad){GradientDrawable gd=new GradientDrawable();gd.setColor(c);gd.setCornerRadius(dp(rad));return gd;}
     Typeface face(){return font==1?Typeface.SERIF:font==2?Typeface.MONOSPACE:Typeface.SANS_SERIF;}
@@ -45,11 +60,22 @@ public class SettingsActivity extends Activity {
         LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);
         ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_back);back.setColorFilter(contrast(bg));back.setPadding(dp(12),dp(12),dp(12),dp(12));back.setOnClickListener(v->finish());top.addView(back,new LinearLayout.LayoutParams(dp(52),dp(52)));
         TextView name=text("Настройки чтения",24,true);name.setTypeface(Typeface.SERIF,Typeface.BOLD);top.addView(name,new LinearLayout.LayoutParams(0,-2,1));root.addView(top);
+        TextView version=text("ChitalkaRSVP v" + installedVersion() + " · сборка " + installedCode(),11,false);
+        version.setGravity(Gravity.END);
+        version.setPadding(0,0,dp(4),dp(8));
+        version.setContentDescription("Текущая установленная версия " + installedVersion() + ", сборка " + installedCode());
+        root.addView(version);
         ScrollView sc=new ScrollView(this);list=col();sc.addView(list);root.addView(sc,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout tabs=new LinearLayout(this);
         TextView reading=action("Чтение",()->{audioTab=false;draw();});
         TextView audio=action("Аудио",()->{audioTab=true;draw();});
         tabs.addView(reading,new LinearLayout.LayoutParams(0,dp(55),1));tabs.addView(audio,new LinearLayout.LayoutParams(0,dp(55),1));list.addView(tabs);
+        header("Версия и обновления");
+        TextView installed=text("Установлена: v" + installedVersion() + " (сборка " + installedCode() + ")",14,false);
+        installed.setPadding(dp(4),0,0,dp(9));
+        list.addView(installed);
+        list.addView(action("Проверить версию в GitHub", () -> new UpdateManager(this).checkVersion()));
+        gap(10);
         if(audioTab){drawAudioSettings();return;}
         header("Предпросмотр текста");
         preview=new TextView(this);preview.setText("Глава 1\n\nВ дороге солнце мягко освещало страницы книги. Читать должно быть удобно для глаз.");preview.setLineSpacing(dp(5),1.18f);preview.setPadding(dp(19),dp(21),dp(19),dp(21));list.addView(preview,new LinearLayout.LayoutParams(-1,-2));applyPreview();
@@ -70,15 +96,31 @@ public class SettingsActivity extends Activity {
         String[] modes={"Только одно слово","Предыдущее и следующее","Текущее и следующее"};
         list.addView(action("Показ слов: "+modes[display],()->new AlertDialog.Builder(this).setTitle("Показ слов").setSingleChoiceItems(modes,display,(d,i)->{display=i;put("display",i);d.dismiss();draw();}).setNegativeButton("Отмена",null).show()));
         gap(8);list.addView(action("Дополнительные паузы",this::pauses));
-        gap(8);list.addView(action("Проверить обновления",()->new UpdateManager(this).check(false)));
         gap(18);
     }
     void drawAudioSettings(){
         header("Управление аудиокнигами");
         list.addView(action("+ Добавить папку с аудиокнигой",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","import"))));gap(8);
         list.addView(action("Озвучить текущую текстовую книгу",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","tts"))));gap(8);
+        TextView mrtListen=action("♫  Слушать онлайн · MRT (beta)",()->openMrtOnline());
+        mrtListen.setTextColor(contrast(bg));
+        mrtListen.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        mrtListen.setContentDescription("Слушать онлайн через Machine Reading Text");
+        list.addView(mrtListen);gap(8);
         list.addView(action("Голос TTS и высота тона",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","voice"))));gap(8);
         list.addView(action("Аудиозакладки",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","marks"))));gap(8);
+    }
+    void openMrtOnline(){
+        String uri=prefs.getString("uri", "");
+        if(uri==null || uri.isEmpty()){
+            new AlertDialog.Builder(this).setTitle("Слушать онлайн · MRT")
+                .setMessage("Для онлайн-озвучивания сначала откройте электронную книгу EPUB, FB2 или HTML.")
+                .setPositiveButton("Понятно",null).show();
+            return;
+        }
+        int index=prefs.getInt("tts_word:"+uri,prefs.getInt("index",0));
+        startActivity(new Intent(this,MrtOnlineActivity.class)
+                .putExtra("book_uri",uri).putExtra("word_index",index));
     }
     GradientDrawable outlined(int color,int radius){GradientDrawable d=rounded(color,radius);d.setStroke(dp(1),0xff938475);return d;}
     void theme(LinearLayout row,String name,int background,int ink){TextView chip=text(name,13,false);chip.setTextColor(ink);chip.setGravity(Gravity.CENTER);chip.setBackground(outlined(background,14));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(56),1);lp.setMargins(dp(2),0,dp(2),0);row.addView(chip,lp);chip.setOnClickListener(v->{bg=background;fg=ink;put("bg",bg);put("fg",fg);draw();});}
