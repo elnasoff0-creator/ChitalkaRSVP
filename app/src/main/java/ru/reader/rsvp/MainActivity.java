@@ -222,6 +222,68 @@ public class MainActivity extends Activity {
         return null;
     }
 
+    int bookUsage(String uri) {
+        return uri == null || uri.isEmpty() ? 0 : prefs.getInt("book_usage:" + uri, 0);
+    }
+
+    void bumpBookUsage(String uri) {
+        if (uri == null || uri.isEmpty()) return;
+        prefs.edit().putInt("book_usage:" + uri, bookUsage(uri) + 1).apply();
+    }
+
+    int audioUsage(String id) {
+        return id == null || id.isEmpty() ? 0 : prefs.getInt("audio_usage:" + id, 0);
+    }
+
+    void bumpAudioUsage(String id) {
+        if (id == null || id.isEmpty()) return;
+        prefs.edit().putInt("audio_usage:" + id, audioUsage(id) + 1).apply();
+    }
+
+    int audioProgress(AudioLibrary.Book book) {
+        if (book == null) return 0;
+        int stored = prefs.getInt("audio_progress:" + book.id, -1);
+        if (stored >= 0) return Math.max(0, Math.min(100, stored));
+        int count = Math.max(1, book.uris.size());
+        int saved = Math.max(0, Math.min(count - 1, prefs.getInt("audio_segment:" + book.id, 0)));
+        return Math.max(0, Math.min(100, saved * 100 / count));
+    }
+
+    ArrayList<BookMeta> sortedLibraryBooks() {
+        ArrayList<BookMeta> sorted = new ArrayList<>(library);
+        Collections.sort(sorted, (a, b) -> {
+            boolean aDone = a.progress >= 100;
+            boolean bDone = b.progress >= 100;
+            if (aDone != bDone) return aDone ? 1 : -1;
+            int byPopularity = Integer.compare(bookUsage(b.uri), bookUsage(a.uri));
+            if (byPopularity != 0) return byPopularity;
+            int byRecent = Long.compare(b.openedAt, a.openedAt);
+            if (byRecent != 0) return byRecent;
+            return a.title.compareToIgnoreCase(b.title);
+        });
+        return sorted;
+    }
+
+    ArrayList<AudioLibrary.Book> sortedAudioBooks(ArrayList<AudioLibrary.Book> books) {
+        ArrayList<AudioLibrary.Book> sorted = new ArrayList<>(books);
+        Collections.sort(sorted, (a, b) -> {
+            boolean aDone = audioProgress(a) >= 100;
+            boolean bDone = audioProgress(b) >= 100;
+            if (aDone != bDone) return aDone ? 1 : -1;
+            int byPopularity = Integer.compare(audioUsage(b.id), audioUsage(a.id));
+            if (byPopularity != 0) return byPopularity;
+            return a.name.compareToIgnoreCase(b.name);
+        });
+        return sorted;
+    }
+
+    void openAudioBook(String id) {
+        if (id == null || id.isEmpty()) return;
+        startActivity(new Intent(this, AudioPlayerActivity.class).putExtra("audio_book_id", id).putExtra("count_usage", true));
+    }
+
+    int subduedText() { return bg == 0xff1e2025 ? 0xff8f8a82 : 0xff9d948a; }
+
     int dp(int n) { return (int) (getResources().getDisplayMetrics().density * n + .5f); }
     Typeface type() { return font == 1 ? Typeface.SERIF : font == 2 ? Typeface.MONOSPACE : Typeface.SANS_SERIF; }
     int accent() { return 0xff9A5E40; }
@@ -303,6 +365,7 @@ public class MainActivity extends Activity {
         }
 
         add(contentWrap, gap(12));
+        ArrayList<BookMeta> sortedBooks = sortedLibraryBooks();
         boolean bookExpanded=prefs.getBoolean("book_library_expanded",false);
         TextView bookToggle=buttonish("Библиотека ("+library.size()+")  "+(bookExpanded?"⌃":"⌄"),softPanel(),fg,true);
         bookToggle.setOnClickListener(v->{prefs.edit().putBoolean("book_library_expanded",!bookExpanded).apply();draw();});
@@ -317,9 +380,9 @@ public class MainActivity extends Activity {
         } else {
             LinearLayout libPanel = column();
             libPanel.setBackground(shape(panelColor(), 22));
-            for (int i = 0; i < library.size(); i++) {
+            for (int i = 0; i < sortedBooks.size(); i++) {
                 if (i > 0) libPanel.addView(divider());
-                libPanel.addView(libraryRow(library.get(i)));
+                libPanel.addView(libraryRow(sortedBooks.get(i)));
             }
             add(contentWrap, libPanel);
         }
@@ -330,6 +393,7 @@ public class MainActivity extends Activity {
         add(contentWrap, gap(16));
 
         java.util.ArrayList<AudioLibrary.Book> audioBooks=AudioLibrary.load(this);
+        audioBooks = sortedAudioBooks(audioBooks);
         if(!audioBooks.isEmpty()){
             String lastId=prefs.getString("audio_last_book","");
             AudioLibrary.Book recent=null;
@@ -345,13 +409,14 @@ public class MainActivity extends Activity {
             TextView name=text(lastBook.name,18,true);name.setMaxLines(2);name.setEllipsize(TextUtils.TruncateAt.END);name.setSingleLine(false);recentInfo.addView(name);
             int chapter=Math.min(Math.max(0,prefs.getInt("audio_segment:"+lastBook.id,0)),Math.max(0,lastBook.chapters.size()-1));
             String chapterName=lastBook.chapters.isEmpty()?"":lastBook.chapters.get(chapter);
-            TextView pos=text("Глава "+(chapter+1)+" из "+lastBook.uris.size()+" · "+chapterName,13,false);
-            pos.setSingleLine(true);pos.setEllipsize(TextUtils.TruncateAt.END);pos.setTextColor(faintText());recentInfo.addView(pos);
-            TextView continueAudio=buttonish("▶  Продолжить",accent(),0xffffffff,true);
-            continueAudio.setOnClickListener(v->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_book_id",lastBook.id)));
+            int listenProgress = audioProgress(lastBook);
+            TextView pos=text("Глава "+(chapter+1)+" из "+lastBook.uris.size()+" · "+chapterName+" · "+listenProgress+"%",13,false);
+            pos.setSingleLine(true);pos.setEllipsize(TextUtils.TruncateAt.END);pos.setTextColor(listenProgress >= 100 ? subduedText() : faintText());recentInfo.addView(pos);
+            TextView continueAudio=buttonish(listenProgress >= 100 ? "↺  Слушать снова" : "▶  Продолжить",accent(),0xffffffff,true);
+            continueAudio.setOnClickListener(v->openAudioBook(lastBook.id));
             LinearLayout.LayoutParams resumeLp=new LinearLayout.LayoutParams(-2,dp(44));resumeLp.topMargin=dp(8);
             recentInfo.addView(continueAudio,resumeLp);
-            recentCard.setOnClickListener(v->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_book_id",lastBook.id)));
+            recentCard.setOnClickListener(v->openAudioBook(lastBook.id));
             add(contentWrap,recentCard);
             add(contentWrap,gap(12));
             boolean expanded=prefs.getBoolean("audio_library_expanded",false);
@@ -360,15 +425,23 @@ public class MainActivity extends Activity {
             add(contentWrap,toggle);
             if(expanded){
                 LinearLayout audioList=column();audioList.setBackground(shape(panelColor(),18));
-                for(AudioLibrary.Book ab:audioBooks){
+                for(int i=0;i<audioBooks.size();i++){
+                    AudioLibrary.Book ab=audioBooks.get(i);
                     LinearLayout r=row();pad(r,12,10,12,10);
+                    int listenedPercent = audioProgress(ab);
+                    boolean finished = listenedPercent >= 100;
                     r.addView(audioCover(ab,82),new LinearLayout.LayoutParams(dp(82),dp(82)));
-                    LinearLayout info=column();TextView label=text(ab.name,16,true);label.setSingleLine(false);label.setMaxLines(2);label.setEllipsize(TextUtils.TruncateAt.END);info.addView(label);
+                    LinearLayout info=column();
+                    TextView label=text(ab.name,16,true);label.setSingleLine(false);label.setMaxLines(2);label.setEllipsize(TextUtils.TruncateAt.END);label.setTextColor(finished ? subduedText() : fg);info.addView(label);
                     int saved=prefs.getInt("audio_segment:"+ab.id,0);
-                    TextView detail=text("Глава "+(saved+1)+" из "+ab.uris.size(),12,false);detail.setTextColor(faintText());info.addView(detail);
+                    String detailLine = finished ? "Завершено · 100% прослушано" : "Глава "+(Math.min(saved+1, Math.max(1, ab.uris.size())))+" из "+ab.uris.size()+" · "+listenedPercent+"% прослушано";
+                    TextView detail=text(detailLine,12,false);detail.setTextColor(finished ? subduedText() : faintText());info.addView(detail);
                     LinearLayout.LayoutParams audioInfoLp=new LinearLayout.LayoutParams(0,dp(82),1);audioInfoLp.leftMargin=dp(10);r.addView(info,audioInfoLp);
-                    r.setOnClickListener(v->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_book_id",ab.id)));
-                    audioList.addView(r);audioList.addView(divider());
+                    TextView play=buttonish(finished ? "↺" : "▶",accent(),0xffffffff,true);pad(play,11,8,11,8);play.setOnClickListener(v->openAudioBook(ab.id));
+                    r.addView(play);
+                    r.setOnClickListener(v->openAudioBook(ab.id));
+                    audioList.addView(r);
+                    if(i!=audioBooks.size()-1)audioList.addView(divider());
                 }
                 add(contentWrap,audioList);
             }
@@ -496,17 +569,19 @@ public class MainActivity extends Activity {
         LinearLayout info=column();
         LinearLayout.LayoutParams infoLp=new LinearLayout.LayoutParams(0,dp(side),1);
         infoLp.setMargins(dp(10),0,dp(5),0);
+        boolean finished = m.progress >= 100;
         TextView titleV=text(m.title,16,true);
         titleV.setMaxLines(2);titleV.setEllipsize(TextUtils.TruncateAt.END);
+        titleV.setTextColor(finished ? subduedText() : fg);
         info.addView(titleV);
         if(!m.author.isEmpty()){
             TextView auth=text(m.author,12,false);
-            auth.setTextColor(faintText());auth.setMaxLines(1);
+            auth.setTextColor(finished ? subduedText() : faintText());auth.setMaxLines(1);
             auth.setEllipsize(TextUtils.TruncateAt.END);
             info.addView(auth);
         }
-        TextView percent=text(m.progress+"% прочитано",12,false);
-        percent.setTextColor(faintText());
+        TextView percent=text((finished ? "Завершено · " : "") + m.progress+"% прочитано",12,false);
+        percent.setTextColor(finished ? subduedText() : faintText());
         info.addView(percent);
         row.addView(info,infoLp);
         View more=iconButton(android.R.drawable.ic_menu_more,v->bookMenu(m));
@@ -913,6 +988,7 @@ public class MainActivity extends Activity {
 
     void openBook(String uriString, boolean reset, boolean switchToReader) {
         if (switchToReader) {
+            bumpBookUsage(uriString);
             stop();
             saveAll();
             Intent reader = new Intent(this, ReaderActivity.class);
@@ -1056,11 +1132,12 @@ public class MainActivity extends Activity {
 
     void showLibraryChooser() {
         if (library.isEmpty()) { Toast.makeText(this, "Библиотека пока пуста", Toast.LENGTH_SHORT).show(); return; }
-        String[] items = new String[library.size()];
-        for (int i = 0; i < library.size(); i++) items[i] = library.get(i).title;
+        ArrayList<BookMeta> sorted = sortedLibraryBooks();
+        String[] items = new String[sorted.size()];
+        for (int i = 0; i < sorted.size(); i++) items[i] = sorted.get(i).title;
         new AlertDialog.Builder(this)
                 .setTitle("Библиотека")
-                .setItems(items, (d, which) -> openBook(library.get(which).uri, false, true))
+                .setItems(items, (d, which) -> openBook(sorted.get(which).uri, false, true))
                 .setNegativeButton("Отмена", null)
                 .show();
     }
