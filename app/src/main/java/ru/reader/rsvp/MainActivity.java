@@ -336,7 +336,7 @@ public class MainActivity extends Activity {
             add(contentWrap,gap(12));
             add(contentWrap,sectionHeader("Продолжить аудиокнигу",""));
             LinearLayout recentCard=column();recentCard.setBackground(shape(panelColor(),22));pad(recentCard,14);
-            TextView name=text(lastBook.name,18,true);name.setMaxLines(2);recentCard.addView(name);
+            TextView name=text(lastBook.name,18,true);name.setMaxLines(2);name.setEllipsize(TextUtils.TruncateAt.END);name.setSingleLine(false);recentCard.addView(name);
             int chapter=Math.min(Math.max(0,prefs.getInt("audio_segment:"+lastBook.id,0)),Math.max(0,lastBook.chapters.size()-1));
             String chapterName=lastBook.chapters.isEmpty()?"":lastBook.chapters.get(chapter);
             TextView pos=text("Глава "+(chapter+1)+" из "+lastBook.uris.size()+" · "+chapterName,13,false);
@@ -357,7 +357,7 @@ public class MainActivity extends Activity {
                 for(AudioLibrary.Book ab:audioBooks){
                     LinearLayout r=row();pad(r,12,10,12,10);
                     TextView icon=text("♫",23,false);r.addView(icon,new LinearLayout.LayoutParams(dp(38),-2));
-                    LinearLayout info=column();TextView label=text(ab.name,16,true);label.setMaxLines(1);label.setEllipsize(TextUtils.TruncateAt.END);info.addView(label);
+                    LinearLayout info=column();TextView label=text(ab.name,16,true);label.setSingleLine(false);label.setMaxLines(2);label.setEllipsize(TextUtils.TruncateAt.END);info.addView(label);
                     int saved=prefs.getInt("audio_segment:"+ab.id,0);
                     TextView detail=text("Глава "+(saved+1)+" из "+ab.uris.size(),12,false);detail.setTextColor(faintText());info.addView(detail);
                     r.addView(info,new LinearLayout.LayoutParams(0,-2,1));

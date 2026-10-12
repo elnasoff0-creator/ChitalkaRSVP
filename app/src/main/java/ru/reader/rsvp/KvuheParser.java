@@ -26,9 +26,12 @@ public final class KvuheParser {
     }
     public static Book fetch(String address)throws Exception{
         URI uri=new URI(address.trim());if(!"https".equalsIgnoreCase(uri.getScheme())||!"knigavuhe.org".equalsIgnoreCase(uri.getHost())||!uri.getPath().startsWith("/book/"))throw new IllegalArgumentException("Требуется https-ссылка на книгу knigavuhe.org/book/...");
-        HttpURLConnection c=(HttpURLConnection)uri.toURL().openConnection();c.setConnectTimeout(14000);c.setReadTimeout(18000);c.setRequestProperty("User-Agent","ChitalkaRSVP/1.11 (Android; public HTML importer)");c.setInstanceFollowRedirects(false);
-        try{if(c.getResponseCode()!=200)throw new java.io.IOException("Сайт вернул HTTP "+c.getResponseCode());String ct=c.getContentType();if(ct==null||!ct.toLowerCase(Locale.ROOT).contains("text/html"))throw new java.io.IOException("Ответ сайта не HTML");
-            Document d=Jsoup.parse(c.getInputStream(),"UTF-8",uri.toString()); Book b=new Book();b.source=uri.toString();Element title=d.selectFirst("span.book_title_elem.book_title_name");if(title==null)title=d.selectFirst("h1");b.title=title==null?"Аудиокнига":title.text().trim();Element cover=d.selectFirst("meta[property=og:image]");if(cover!=null)b.cover=cover.attr("abs:content");
+        // Only follow public HTTPS redirects on knigavuhe.org. Never follow a login,
+        // challenge or external media-host redirect when fetching the book HTML.
+        HttpURLConnection c=openBookPage(uri);
+        try{String ct=c.getContentType();if(ct==null||!ct.toLowerCase(Locale.ROOT).contains("text/html"))throw new java.io.IOException("Ответ сайта не HTML: "+ct);
+            URI finalUri=c.getURL().toURI();
+            Document d=Jsoup.parse(c.getInputStream(),"UTF-8",finalUri.toString()); Book b=new Book();b.source=finalUri.toString();Element title=d.selectFirst("span.book_title_elem.book_title_name");if(title==null)title=d.selectFirst("h1");b.title=title==null?"Аудиокнига":title.text().trim();Element cover=d.selectFirst("meta[property=og:image]");if(cover!=null)b.cover=cover.attr("abs:content");
             Elements names=d.select("div.book_playlist_item_name");Elements times=d.select("div.book_playlist_item_time");for(int i=0;i<names.size();i++){Chapter ch=new Chapter();ch.name=names.get(i).text().trim();ch.time=i<times.size()?times.get(i).text().trim():"";ch.seconds=parseTime(ch.time);b.chapters.add(ch);}
             // Direct chapter-bound URLs only. Global JS URLs cannot safely be mapped by order.
             Elements items=d.select(".book_playlist_item");if(items.size()==b.chapters.size())for(int i=0;i<items.size();i++){
@@ -68,6 +71,42 @@ public final class KvuheParser {
             if(valid!=b.chapters.size()&&b.warning.isEmpty())b.warning="Список глав найден, но прямые MP3-ссылки не подтверждены для "+(b.chapters.size()-valid)+" глав. Скачивание недоступно: сайт может загружать адреса динамически либо ограничивать загрузку.";
             return b;
         }finally{c.disconnect();}
+    }
+    private static HttpURLConnection openBookPage(URI startingUri) throws Exception {
+        URI current=startingUri;
+        HashSet<String> visited=new HashSet<>();
+        for(int redirect=0;redirect<=5;redirect++){
+            if(!allowedBookUri(current))throw new java.io.IOException("Перенаправление за пределы страницы книги запрещено: "+current.getHost());
+            if(!visited.add(current.normalize().toString()))throw new java.io.IOException("Сайт зациклил перенаправления");
+            HttpURLConnection connection=(HttpURLConnection)current.toURL().openConnection();
+            connection.setInstanceFollowRedirects(false);
+            connection.setConnectTimeout(14000);
+            connection.setReadTimeout(18000);
+            connection.setRequestProperty("User-Agent","Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
+            connection.setRequestProperty("Accept","text/html,application/xhtml+xml;q=0.9,*/*;q=0.8");
+            connection.setRequestProperty("Accept-Language","ru-RU,ru;q=0.9,en;q=0.6");
+            int status=connection.getResponseCode();
+            if(status==200)return connection;
+            if(status==301||status==302||status==303||status==307||status==308){
+                String location=connection.getHeaderField("Location");
+                connection.disconnect();
+                if(location==null||location.isEmpty())throw new java.io.IOException("HTTP "+status+": сервер не указал адрес перенаправления");
+                URI next=current.resolve(location).normalize();
+                if(!allowedBookUri(next))throw new java.io.IOException("Сайт перенаправил запрос на другой адрес или страницу входа. Импорт остановлен: "+next.getHost());
+                current=next;
+                continue;
+            }
+            connection.disconnect();
+            if(status==403||status==429)throw new java.io.IOException("Сайт ограничил доступ (HTTP "+status+"). Проверьте ссылку в браузере, затем попробуйте позже");
+            throw new java.io.IOException("Не удалось открыть страницу книги: HTTP "+status);
+        }
+        throw new java.io.IOException("Слишком много перенаправлений (больше 5)");
+    }
+    private static boolean allowedBookUri(URI uri){
+        if(uri==null||!"https".equalsIgnoreCase(uri.getScheme()))return false;
+        String host=uri.getHost();
+        if(host==null||!(host.equalsIgnoreCase("knigavuhe.org")||host.equalsIgnoreCase("www.knigavuhe.org")))return false;
+        return uri.getPath()!=null&&uri.getPath().startsWith("/book/")&&uri.getUserInfo()==null;
     }
     /** Equivalent to Python BeautifulSoup string-regex extraction, with de-escaping. */
     static LinkedHashSet<String> extractMp3Urls(String input){
