@@ -107,6 +107,8 @@ public class SettingsActivity extends Activity {
         mrtListen.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
         mrtListen.setContentDescription("Слушать онлайн через Machine Reading Text");
         list.addView(mrtListen);gap(8);
+        list.addView(action("Размер фрагмента MRT: " + MrtSegmentSettings.get(prefs) + " символов",
+                () -> MrtSegmentSettings.show(this, prefs, value -> draw())));gap(8);
         list.addView(action("Голос TTS и высота тона",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","voice"))));gap(8);
         list.addView(action("Аудиозакладки",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","marks"))));gap(8);
     }

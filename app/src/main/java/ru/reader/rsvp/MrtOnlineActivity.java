@@ -10,7 +10,10 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.view.Gravity;
+import android.view.MotionEvent;
+import android.view.InputDevice;
 import android.view.View;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
@@ -53,7 +56,6 @@ import java.util.regex.Pattern;
 public class MrtOnlineActivity extends Activity {
     private static final String PAGE = "https://alkohole.github.io/machine-reading-text/index.html";
     private static final String TRUSTED_ORIGIN = "https://alkohole.github.io";
-    private static final int SEGMENT_LIMIT = 8000;
     private static final int BG = 0xfff3e7d5;
     private static final int INK = 0xff30221e;
     private static final int MUTED = 0xff716259;
@@ -63,10 +65,10 @@ public class MrtOnlineActivity extends Activity {
     private final ArrayList<Integer> history = new ArrayList<>();
     private WebView web;
     private TextView info, captureInfo, hint;
-    private Button play, pause, previous, next;
+    private Button play, pause, previous, next, lengthButton;
     private CheckBox continuous;
     private String bookUri = "", bookText = "";
-    private int wordIndex, nextWord, segmentNumber = 1;
+    private int wordIndex, nextWord, segmentNumber = 1, segmentLimit = MrtSegmentSettings.DEFAULT;
     private boolean bookLoaded, pageLoaded, engineReady, segmentInserted, captureSupported;
     private boolean playing, paused, finishing, closed;
     private int encodedChunks;
@@ -101,6 +103,7 @@ public class MrtOnlineActivity extends Activity {
         bookUri = getIntent().getStringExtra("book_uri");
         if (bookUri == null || bookUri.isEmpty()) bookUri = getSharedPreferences("reader", 0).getString("uri", "");
         wordIndex = Math.max(0, getIntent().getIntExtra("word_index", 0));
+        segmentLimit = MrtSegmentSettings.get(getSharedPreferences("reader", 0));
         // Prevent two simultaneous audio sources without changing audiobook position.
         AudioPlaybackService service = AudioPlaybackService.instance;
         if (service != null && !service.isPaused()) {
@@ -161,7 +164,7 @@ public class MrtOnlineActivity extends Activity {
         play = button("▶ Слушать");
         play.setBackground(rounded(0xffa26949, 14));
         play.setTextColor(Color.WHITE);
-        play.setOnClickListener(v -> {playbackStartRetries = 0; startPlayback();});
+        play.setOnClickListener(v -> startPlayback());
         transport.addView(play, new LinearLayout.LayoutParams(0, dp(48), 1.25f));
         pause = button("Ⅱ Пауза");
         pause.setEnabled(false);
@@ -191,6 +194,14 @@ public class MrtOnlineActivity extends Activity {
         nextLp.leftMargin = dp(7);
         navigation.addView(next, nextLp);
 
+        lengthButton = button("Размер фрагмента: " + segmentLimit + " символов ▾");
+        lengthButton.setTextSize(12);
+        lengthButton.setContentDescription("Настроить количество символов в текстовом фрагменте MRT");
+        lengthButton.setOnClickListener(v -> MrtSegmentSettings.show(this, getSharedPreferences("reader", 0), this::changeSegmentLength));
+        LinearLayout.LayoutParams lengthLp = new LinearLayout.LayoutParams(-1, dp(40));
+        lengthLp.topMargin = dp(7);
+        root.addView(lengthButton, lengthLp);
+
         continuous = new CheckBox(this);
         continuous.setText("Автоматически озвучивать следующий фрагмент");
         continuous.setTextSize(12);
@@ -201,7 +212,7 @@ public class MrtOnlineActivity extends Activity {
         root.addView(continuous);
 
         hint = new TextView(this);
-        hint.setText("Голос, эмоция и скорость — в панели MRT ниже. При первом запуске может потребоваться нажать ▶ на самой веб-странице.");
+        hint.setText("Голос и скорость выбираются в MRT. Кнопки «Слушать» и «Стоп» нажимают штатный элемент веб-страницы через Android WebView. Для проверки автоперехода выберите 100–300 символов.");
         hint.setTextColor(MUTED);
         hint.setTextSize(12);
         hint.setPadding(dp(5), 0, dp(5), dp(5));
@@ -346,14 +357,20 @@ public class MrtOnlineActivity extends Activity {
     private void insertSegment(boolean startAutomatically) {
         if (!bookLoaded || !engineReady || closed || !pageLoaded || web == null) return;
         int begin = wordOffsets.get(wordIndex);
-        int end = Math.min(bookText.length(), begin + SEGMENT_LIMIT);
+        int end = Math.min(bookText.length(), begin + segmentLimit);
         if (end < bookText.length()) {
             int sentence = -1;
             for (char c : new char[]{'.', '!', '?', '\n'}) sentence = Math.max(sentence, bookText.lastIndexOf(c, end - 1));
-            if (sentence >= begin + SEGMENT_LIMIT / 2) end = sentence + 1;
+            if (sentence >= begin + segmentLimit / 2) end = sentence + 1;
             else {
                 int space = bookText.lastIndexOf(' ', end - 1);
-                if (space > begin + SEGMENT_LIMIT / 2) end = space + 1;
+                if (space > begin + segmentLimit / 2) end = space + 1;
+            }
+            // Small test segments must not cut a word in half.
+            if (end < bookText.length() && !Character.isWhitespace(bookText.charAt(end - 1))
+                    && !Character.isWhitespace(bookText.charAt(end))) {
+                int space = bookText.lastIndexOf(' ', end - 1);
+                if (space > begin) end = space + 1;
             }
         }
         int after = Collections.binarySearch(wordOffsets, end);
@@ -411,6 +428,76 @@ public class MrtOnlineActivity extends Activity {
         next.setEnabled(nextWord < wordOffsets.size());
         pause.setEnabled(playing || paused);
         pause.setText(paused ? "▶ Продолжить" : "Ⅱ Пауза");
+        play.setText(paused ? "▶ Продолжить" : "▶ Слушать");
+    }
+
+    private void changeSegmentLength(int count) {
+        if (closed) return;
+        count = MrtSegmentSettings.clamp(count);
+        if (segmentLimit == count) return;
+        segmentLimit = count;
+        lengthButton.setText("Размер фрагмента: " + segmentLimit + " символов ▾");
+        // Preserve the first word of the current segment; do not skip anything.
+        requestStop(() -> {
+            if (closed || !bookLoaded) return;
+            history.clear();
+            history.add(wordIndex);
+            segmentNumber = 1;
+            insertFailures = 0;
+            insertSegment(false);
+            hint.setText("Новая длина применена. Нажмите «Слушать», затем проверьте автоматический переход.");
+        });
+    }
+
+    /**
+     * A JavaScript element.click() is not a user activation. MRT's original
+     * WebAudio UI may ignore it, even when WebView permits media autoplay.
+     * Dispatch touchscreen input to the ACTUAL HTML button instead.
+     * This matches the user-supplied desktop prototype's trusted-click idea,
+     * adapted to an Android WebView rather than Qt/Windows SendInput.
+     */
+    private void tapNativeMrtButton(int token, Runnable callback) {
+        String script = "(function(){var b=document.getElementById('textSpeaker');"
+                + "if(!b)return {ok:false,reason:'Не найдена кнопка MRT'};"
+                + "b.scrollIntoView({block:'center',inline:'nearest'});"
+                + "var r=b.getBoundingClientRect(),w=window.innerWidth,h=window.innerHeight;"
+                + "if(!w||!h||r.width<1||r.height<1)return {ok:false,reason:'Кнопка MRT скрыта'};"
+                + "return {ok:true,x:(r.left+r.width/2)/w,y:(r.top+r.height/2)/h};})()";
+        eval(script, response -> {
+            if (closed || token != startToken || web == null) return;
+            try {
+                JSONObject coordinates = new JSONObject(response);
+                if (!coordinates.optBoolean("ok", false)) {
+                    captureInfo.setText(coordinates.optString("reason", "Кнопка MRT недоступна"));
+                    if (callback != null) callback.run();
+                    return;
+                }
+                float x = (float)(coordinates.getDouble("x") * web.getWidth());
+                float y = (float)(coordinates.getDouble("y") * web.getHeight());
+                if (x < 0 || y < 0 || x >= web.getWidth() || y >= web.getHeight()) {
+                    captureInfo.setText("Кнопка MRT за пределами видимой области WebView");
+                    if (callback != null) callback.run();
+                    return;
+                }
+                web.requestFocus();
+                long downTime = SystemClock.uptimeMillis();
+                MotionEvent down = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, x, y, 0);
+                down.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+                web.dispatchTouchEvent(down);
+                down.recycle();
+                main.postDelayed(() -> {
+                    if (closed || token != startToken || web == null) return;
+                    MotionEvent up = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, x, y, 0);
+                    up.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+                    web.dispatchTouchEvent(up);
+                    up.recycle();
+                    if (callback != null) callback.run();
+                }, 85);
+            } catch (Exception error) {
+                captureInfo.setText("Ошибка нажатия MRT: " + error.getMessage());
+                if (callback != null) callback.run();
+            }
+        });
     }
 
     private void startPlayback() {
@@ -418,30 +505,37 @@ public class MrtOnlineActivity extends Activity {
             Toast.makeText(this, "Подождите загрузки текста и движка MRT", Toast.LENGTH_SHORT).show();
             return;
         }
-        int token = ++startToken;
-        // Press the original button programmatically. WebView's media gesture
-        // setting allows WebAudio on many devices. Some MRT builds additionally
-        // require a physical user press on the visible web page.
-        eval("window.__rsvpMrt && window.__rsvpMrt.startPlayback()", result -> {
+        if (paused) {
+            togglePause();
+            return;
+        }
+        final int token = ++startToken;
+        eval("window.__rsvpMrt && window.__rsvpMrt.prepareStart()", result -> {
             if (closed || token != startToken) return;
-            if (!"true".equals(result)) {
-                if (playbackStartRetries++ < 5) {
-                    captureInfo.setText("Ожидаю готовность кнопки MRT…");
-                    main.postDelayed(() -> {
-                        if (!closed && token == startToken && !playing) startPlayback();
-                    }, 850);
-                    return;
-                }
-                captureInfo.setText("Нажмите ▶ на странице MRT ниже для начала озвучивания.");
+            if ("2".equals(result)) {
+                playing = true;
+                paused = false;
+                updateUi();
+                return;
             }
-            main.postDelayed(() -> {
-                if (closed || token != startToken || playing) return;
+            if (!"1".equals(result)) {
+                captureInfo.setText("MRT пока не готов: убедитесь, что текст загружен и голос выбран.");
+                return;
+            }
+            tapNativeMrtButton(token, () -> main.postDelayed(() -> {
+                if (closed || token != startToken) return;
                 eval("window.__rsvpMrt && window.__rsvpMrt.isPlaying()", state -> {
-                    if (!closed && token == startToken && !"true".equals(state)) {
-                        hint.setText("Автозапуск ограничен WebView: нажмите кнопку ▶ в самой странице MRT. Голос и скорость также выбираются там.");
+                    if (closed || token != startToken) return;
+                    if ("true".equals(state)) {
+                        playing = true;
+                        paused = false;
+                        updateUi();
+                    } else {
+                        hint.setText("MRT не начал воспроизведение. Нажмите ▶ непосредственно в веб-панели MRT; на этом устройстве программное касание WebView могло быть отклонено.");
+                        captureInfo.setText("Запуск не подтверждён MRT — попробуйте кнопку в веб-панели ниже.");
                     }
                 });
-            }, 5500);
+            }, 1600));
         });
     }
 
@@ -452,14 +546,48 @@ public class MrtOnlineActivity extends Activity {
         });
     }
 
-    private void stopPlayback() {
-        ++startToken;
-        eval("window.__rsvpMrt && window.__rsvpMrt.stopPlayback()", null);
+    /** Stop and wait for the MRT transport before switching to another text. */
+    private void requestStop(Runnable after) {
+        int token = ++startToken;
+        boolean wasPlaying = playing || paused;
         playing = false;
         paused = false;
         finishing = false;
         updateUi();
         savePosition();
+        if (!pageLoaded || !engineReady || web == null) {
+            if (after != null) after.run();
+            return;
+        }
+        eval("window.__rsvpMrt && window.__rsvpMrt.prepareStop()", result -> {
+            if (closed || token != startToken) return;
+            if (!"1".equals(result)) {
+                if (after != null) after.run();
+                return;
+            }
+            tapNativeMrtButton(token, () -> main.postDelayed(() -> {
+                if (closed || token != startToken) return;
+                eval("window.__rsvpMrt && window.__rsvpMrt.isPlaying()", state -> {
+                    if (closed || token != startToken) return;
+                    if ("true".equals(state)) {
+                        // Last-resort stop for WebView implementations that reject
+                        // synthetic MotionEvents. It silences current AudioContexts.
+                        eval("window.__rsvpMrt && window.__rsvpMrt.forceSilence()", null);
+                        if (wasPlaying) hint.setText("Звук остановлен. WebView не подтвердил нажатие «Стоп»; для нового запуска может понадобиться встроенная кнопка MRT.");
+                    }
+                    if (after != null) after.run();
+                });
+            }, 750));
+        });
+    }
+
+    private void stopPlayback() {
+        requestStop(() -> {
+            if (!closed) {
+                updateUi();
+                captureInfo.setText("Остановлено · фрагмент " + segmentNumber);
+            }
+        });
     }
 
     private void nextSegment(boolean autoplay) {
@@ -471,27 +599,30 @@ public class MrtOnlineActivity extends Activity {
             }
             return;
         }
-        // Prevent MRT's stop button from being interpreted as a natural end.
-        eval("window.__rsvpMrt && window.__rsvpMrt.stopPlayback()", null);
-        wordIndex = nextWord;
-        insertFailures = 0;
-        playbackStartRetries = 0;
-        segmentNumber++;
-        history.add(wordIndex);
-        savePosition();
-        insertSegment(autoplay);
+        requestStop(() -> {
+            if (closed) return;
+            wordIndex = nextWord;
+            insertFailures = 0;
+            playbackStartRetries = 0;
+            segmentNumber++;
+            history.add(wordIndex);
+            savePosition();
+            insertSegment(autoplay);
+        });
     }
 
     private void previousSegment() {
         if (history.size() <= 1) return;
-        eval("window.__rsvpMrt && window.__rsvpMrt.stopPlayback()", null);
-        history.remove(history.size() - 1);
-        wordIndex = history.get(history.size() - 1);
-        insertFailures = 0;
-        playbackStartRetries = 0;
-        segmentNumber = Math.max(1, segmentNumber - 1);
-        savePosition();
-        insertSegment(false);
+        requestStop(() -> {
+            if (closed) return;
+            history.remove(history.size() - 1);
+            wordIndex = history.get(history.size() - 1);
+            insertFailures = 0;
+            playbackStartRetries = 0;
+            segmentNumber = Math.max(1, segmentNumber - 1);
+            savePosition();
+            insertSegment(false);
+        });
     }
 
     private void onEngineMessage(String raw) {

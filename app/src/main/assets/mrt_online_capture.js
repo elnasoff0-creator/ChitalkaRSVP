@@ -11,6 +11,7 @@
   var state = {
     version: 1,
     patched: new WeakSet(),
+    contexts: new Set(),
     encodedChunks: 0,
     encodedBytes: 0,
     started: false,
@@ -47,6 +48,7 @@
         return original.apply(this, arguments);
       };
       state.patched.add(context);
+      state.contexts.add(context);
       return true;
     } catch (ignored) { return false; }
   }
@@ -167,6 +169,40 @@
       cancelEnd();
       return true;
     } catch (err) { notify('error', {detail: String(err)}); return false; }
+  };
+
+  // Native Android sends MotionEvent touches to #textSpeaker. Calling
+  // HTMLElement.click() here may yield an untrusted event rejected by MRT.
+  state.prepareStart = function () {
+    var el = button();
+    if (!el || el.classList.contains('state-disabled')) return 0;
+    if (el.classList.contains('state-playing')) return 2;
+    state.pausedByUser = false;
+    state.manuallyStopped = false;
+    cancelEnd();
+    return 1;
+  };
+
+  state.prepareStop = function () {
+    state.manuallyStopped = true;
+    state.pausedByUser = false;
+    state.started = false;
+    cancelEnd();
+    var el = button();
+    return el && el.classList.contains('state-playing') ? 1 : 0;
+  };
+
+  state.forceSilence = function () {
+    // Only a fallback when Android WebView rejects an injected touchscreen tap.
+    state.manuallyStopped = true;
+    state.pausedByUser = false;
+    state.started = false;
+    cancelEnd();
+    patchExisting();
+    state.contexts.forEach(function (ctx) {
+      try { if (ctx.state === 'running') ctx.suspend(); } catch (ignored) {}
+    });
+    return true;
   };
 
   state.startPlayback = function () {

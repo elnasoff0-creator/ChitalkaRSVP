@@ -27,3 +27,12 @@ To protect the native bridge, only `https://alkohole.github.io` main frames are 
 * Detected playback completion is based on the source button's `state-playing` state with a debounce. Pausing manually and slow network responses can affect it.
 * No audiobook/MP3 generation, FFmpeg, or saving synthesized speech in this update.
 * This code is not verified by a full Android build or run on a physical phone in this environment.
+
+## v1.11.15-beta: ручная проверка короткими фрагментами
+
+1. Откройте EPUB/FB2 и режим «Слушать онлайн · MRT».
+2. Нажмите «Размер фрагмента: 8000 символов», выберите «100 символов» или «300 символов». При этом текущая позиция книги сохраняется, текст фрагмента обновляется.
+3. Внизу MRT выберите голос, нажмите верхнюю кнопку **«Слушать»**. Она пытается отправить настоящее касание в WebView, не `HTMLElement.click()`.
+4. Дождитесь озвучивания первого короткого фрагмента и проверьте, увеличивается ли номер фрагмента автоматически.
+5. Проверьте верхнюю кнопку **«Стоп»** во время воспроизведения и затем повторный запуск.
+6. Если Android WebView блокирует программное касание, сообщение на экране предложит использовать оригинальную кнопку MRT. Для некоторых прошивок и в фоне автоматический запуск следующего отрывка остаётся экспериментальным.
