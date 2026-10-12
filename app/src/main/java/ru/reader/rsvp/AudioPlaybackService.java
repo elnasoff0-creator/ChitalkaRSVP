@@ -20,6 +20,8 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     private boolean ttsReady=false, ttsStartRequested=false, active=false, paused=true, ttsMode=false;
     private float speed=1.0f, pitch=1.0f;
     private int segment=0, ttsPosition=0, duration=0;
+    private final ArrayList<Long> chapterDurations=new ArrayList<>();
+    private long durationGeneration=0;
     private final ArrayList<Integer> chunkWordPositions=new ArrayList<>();
     private int ttsWordCount=0;
     private long sleepDeadline=0;
@@ -33,7 +35,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         case LOAD: {if(active)saveProgress(); if(tts!=null&&ttsMode)tts.stop(); String[] uris=intent.getStringArrayExtra("uris");playlist.clear();if(uris!=null)for(String u:uris)if(u!=null)playlist.add(u);title=intent.getStringExtra("title");if(title==null)title="Аудиокнига";
           bookId=intent.getStringExtra("bookId");if(bookId==null)bookId=playlistKey();getSharedPreferences("reader",0).edit().putString("audio_last_book",bookId).apply();
           chapterNames.clear();String[] names=intent.getStringArrayExtra("chapters");if(names!=null)chapterNames.addAll(Arrays.asList(names));
-          ttsMode=false;active=true;speed=getSharedPreferences("reader",0).getFloat("audio_speed",1f);
+          ttsMode=false;active=true;loadChapterDurations();speed=getSharedPreferences("reader",0).getFloat("audio_speed",1f);
           segment=Math.max(0,Math.min(Math.max(0,playlist.size()-1),getSharedPreferences("reader",0).getInt("audio_segment:"+bookId,0)));
           int resume=getSharedPreferences("reader",0).getInt("audio_pos:"+bookId,0);
           prepareAudio(resume,intent.getBooleanExtra("autoplay",false));break;}
@@ -49,8 +51,48 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         case VOICE: {float p=intent.getFloatExtra("pitch",1f);pitch=Math.max(.6f,Math.min(1.5f,p));if(tts!=null)tts.setPitch(pitch);break;}
         case CHAPTER: {int target=intent.getIntExtra("chapter",0);if(!ttsMode&&target>=0&&target<playlist.size()){boolean shouldPlay=!paused;segment=target;pendingChapterFraction=Math.max(0,Math.min(1,intent.getDoubleExtra("fraction",0)));prepareAudio(0,shouldPlay);}break;}
     }notifyState();return START_STICKY;}
+    // Probe audio durations off the main thread so a large library never freezes the UI.
+    private void loadChapterDurations(){
+        final ArrayList<String> copy=new ArrayList<>(playlist);
+        final String currentId=bookId;
+        final long generation=++durationGeneration;
+        chapterDurations.clear();
+        for(int k=0;k<copy.size();k++)chapterDurations.add(0L);
+        new Thread(()->{
+            ArrayList<Long> result=new ArrayList<>();
+            for(String path:copy){
+                long ms=0;
+                android.media.MediaMetadataRetriever mmr=new android.media.MediaMetadataRetriever();
+                try{
+                    mmr.setDataSource(getApplicationContext(),Uri.parse(path));
+                    String value=mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION);
+                    if(value!=null)ms=Math.max(0,Long.parseLong(value));
+                }catch(Exception ignored){}finally{try{mmr.release();}catch(Exception ignored){}}
+                result.add(ms);
+            }
+            handler.post(()->{
+                if(generation!=durationGeneration||!currentId.equals(bookId)||ttsMode)return;
+                chapterDurations.clear();chapterDurations.addAll(result);notifyState();
+            });
+        },"audiobook-duration-scan").start();
+    }
+    public long getTotalDuration(){long sum=0;for(Long ms:chapterDurations){if(ms==null||ms<=0)return 0;sum+=ms;}return sum;}
+    public long getTotalPosition(){long position=Math.max(0,getPosition());for(int n=0;n<Math.min(segment,chapterDurations.size());n++)position+=chapterDurations.get(n);return position;}
+    public void seekTotal(long target){
+        if(ttsMode)return;
+        long total=getTotalDuration();if(total<=0)return;
+        long remaining=Math.max(0,Math.min(total-1,target));
+        for(int k=0;k<chapterDurations.size();k++){
+            long len=chapterDurations.get(k);
+            if(remaining<len||k==chapterDurations.size()-1){
+                if(k==segment)seekTo((int)Math.min(Integer.MAX_VALUE,remaining));
+                else{boolean autoplay=!paused;segment=k;prepareAudio((int)Math.min(Integer.MAX_VALUE,remaining),autoplay);}
+                return;
+            }remaining-=len;
+        }
+    }
     private String playlistKey(){return playlist.isEmpty()?"":playlist.get(0);}
-    private void prepareAudio(int offset,boolean autoplay){releasePlayer();paused=true;duration=0;notifyState();if(playlist.isEmpty())return;try{Uri uri=Uri.parse(playlist.get(segment));player=new MediaPlayer();player.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());player.setDataSource(this,uri);player.setOnPreparedListener(mp->{duration=mp.getDuration();int target=pendingChapterFraction>0?(int)(pendingChapterFraction*duration):offset;pendingChapterFraction=0;mp.seekTo(Math.max(0,Math.min(target,duration)));applySpeed();if(autoplay)mp.start();paused=!autoplay;saveProgress();notifyState();});player.setOnCompletionListener(mp->{if(segment+1<playlist.size()){segment++;prepareAudio(0,true);}else pausePlayback();});player.prepareAsync();}catch(Exception e){paused=true;notifyState();}}
+    private void prepareAudio(int offset,boolean autoplay){releasePlayer();paused=true;duration=0;notifyState();if(playlist.isEmpty())return;try{Uri uri=Uri.parse(playlist.get(segment));player=new MediaPlayer();player.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());player.setDataSource(this,uri);player.setOnPreparedListener(mp->{duration=mp.getDuration();if(segment>=0&&segment<chapterDurations.size()&&duration>0)chapterDurations.set(segment,(long)duration);int target=pendingChapterFraction>0?(int)(pendingChapterFraction*duration):offset;pendingChapterFraction=0;mp.seekTo(Math.max(0,Math.min(target,duration)));applySpeed();if(autoplay)mp.start();paused=!autoplay;saveProgress();notifyState();});player.setOnCompletionListener(mp->{if(segment+1<playlist.size()){segment++;prepareAudio(0,true);}else pausePlayback();});player.prepareAsync();}catch(Exception e){paused=true;notifyState();}}
     private void releasePlayer(){if(player!=null){try{player.reset();player.release();}catch(Exception ignored){}player=null;}}
     private void applySpeed(){if(player!=null)try{player.setPlaybackParams(player.getPlaybackParams().setSpeed(speed));}catch(Exception ignored){}}
     private void resume(){if(ttsMode){startTts();return;}if(player!=null)try{player.start();applySpeed();paused=false;}catch(Exception ignored){}notifyState();}

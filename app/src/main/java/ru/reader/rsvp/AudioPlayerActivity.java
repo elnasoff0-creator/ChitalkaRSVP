@@ -14,8 +14,8 @@ import java.util.*;
 /** Standalone audio interface. Playback remains in AudioPlaybackService on navigation. */
 public class AudioPlayerActivity extends Activity {
     private static final int FILE_PICK=301, FOLDER_PICK=302, COVER_PICK=303;
-    LinearLayout root,playRow; TextView title,info,elapsed,duration,play,spokenText,wholeProgress,speedAction,timerAction; SeekBar progress; TextView chapterElapsed, chapterDuration, chapterPicker; android.widget.ImageView coverImage;
-    Handler handler=new Handler(Looper.getMainLooper()); boolean dragging=false;String bookUri=""; AudioLibrary.Book selected;
+    LinearLayout root,playRow; TextView title,info,elapsed,duration,play,spokenText,wholeProgress,speedAction,timerAction; SeekBar progress, totalProgress; TextView chapterElapsed, chapterDuration, chapterPicker, overallTime, overallPercent, overallRemaining, speedValue; android.widget.ImageView coverImage;
+    Handler handler=new Handler(Looper.getMainLooper()); boolean dragging=false, draggingTotal=false;String bookUri=""; AudioLibrary.Book selected;
     final int BACKGROUND=0xfff3e7d5, TEXT=0xff30221e, ACCENT=0xff94583b;
     BroadcastReceiver receiver=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){refresh();}};
     Runnable updater=new Runnable(){public void run(){refresh();handler.postDelayed(this,1000);}};
@@ -42,19 +42,46 @@ public class AudioPlayerActivity extends Activity {
         LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);
         root.addView(top,new LinearLayout.LayoutParams(-1,dp(54)));
         top.addView(topAction(R.drawable.ic_back,"Назад",v->finish()),new LinearLayout.LayoutParams(dp(44),dp(46)));
-        chapterPicker=topAction(R.drawable.ic_library,"Выбрать главу",v->chapters());
-        top.addView(chapterPicker,new LinearLayout.LayoutParams(0,dp(46),1));
-        speedAction=topAction(R.drawable.ic_audio_speed,"Скорость",v->speedMenu());
-        top.addView(speedAction,new LinearLayout.LayoutParams(dp(48),dp(46)));
+        chapterPicker=topAction(R.drawable.ic_audio_chapters,"Выбрать главу",v->chapters());
+        top.addView(chapterPicker,new LinearLayout.LayoutParams(0,dp(50),1));
+        LinearLayout speedGroup=new LinearLayout(this);speedGroup.setOrientation(1);speedGroup.setGravity(Gravity.CENTER);
+        speedGroup.setBackground(bg(0xfffff8ef,15));
+        android.widget.ImageView speedIcon=new android.widget.ImageView(this);
+        speedIcon.setImageResource(R.drawable.ic_audio_speed);speedIcon.setColorFilter(TEXT);
+        speedGroup.addView(speedIcon,new LinearLayout.LayoutParams(dp(25),dp(25)));
+        speedValue=label("1×",12);speedValue.setGravity(Gravity.CENTER);
+        speedGroup.addView(speedValue,new LinearLayout.LayoutParams(-1,dp(17)));
+        speedGroup.setOnClickListener(v->speedMenu());speedGroup.setContentDescription("Скорость");
+        top.addView(speedGroup,new LinearLayout.LayoutParams(dp(49),dp(51)));
         timerAction=topAction(R.drawable.ic_audio_timer,"Таймер сна",v->sleepMenu());
-        top.addView(timerAction,new LinearLayout.LayoutParams(dp(48),dp(46)));
-        top.addView(control("+",v->importFolder()),new LinearLayout.LayoutParams(dp(45),dp(46)));
-        top.addView(topAction(R.drawable.ic_settings,"Аудионастройки",v->openAudioSettings()),new LinearLayout.LayoutParams(dp(48),dp(46)));
+        top.addView(timerAction,new LinearLayout.LayoutParams(dp(46),dp(50)));
+        top.addView(control("+",v->importFolder()),new LinearLayout.LayoutParams(dp(42),dp(50)));
+        top.addView(topAction(R.drawable.ic_settings,"Аудионастройки",v->openAudioSettings()),new LinearLayout.LayoutParams(dp(46),dp(50)));
         title=label("Аудиокнига",21);title.setGravity(Gravity.CENTER);title.setTypeface(android.graphics.Typeface.SERIF,1);
         title.setMaxLines(2);title.setOnClickListener(v->selectBook());
         LinearLayout.LayoutParams tl=new LinearLayout.LayoutParams(-1,-2);tl.topMargin=dp(10);root.addView(title,tl);
         info=label("",14);info.setGravity(Gravity.CENTER);root.addView(info);
         spokenText=label("",14);spokenText.setGravity(Gravity.CENTER);root.addView(spokenText);
+        TextView overallLabel=label("Вся аудиокнига",14);
+        LinearLayout.LayoutParams overallLabelLp=new LinearLayout.LayoutParams(-1,-2);
+        overallLabelLp.topMargin=dp(13);root.addView(overallLabel,overallLabelLp);
+        totalProgress=new SeekBar(this);totalProgress.setMax(10000);root.addView(totalProgress);
+        totalProgress.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            public void onProgressChanged(SeekBar bar,int value,boolean from){}
+            public void onStartTrackingTouch(SeekBar bar){draggingTotal=true;}
+            public void onStopTrackingTouch(SeekBar bar){
+                AudioPlaybackService service=AudioPlaybackService.instance;
+                if(service!=null && service.getTotalDuration()>0)service.seekTotal(service.getTotalDuration()*bar.getProgress()/10000L);
+                draggingTotal=false;refresh();
+            }
+        });
+        LinearLayout overallTimes=new LinearLayout(this);
+        overallTimes.setGravity(Gravity.CENTER_VERTICAL);root.addView(overallTimes);
+        overallTime=label("— / —",12);overallTimes.addView(overallTime,new LinearLayout.LayoutParams(0,-2,1));
+        overallPercent=label("—",12);overallPercent.setGravity(Gravity.CENTER);
+        overallTimes.addView(overallPercent,new LinearLayout.LayoutParams(dp(55),-2));
+        overallRemaining=label("—",12);overallRemaining.setGravity(Gravity.RIGHT);
+        overallTimes.addView(overallRemaining,new LinearLayout.LayoutParams(0,-2,1));
         android.widget.FrameLayout coverArea=new android.widget.FrameLayout(this);
         coverArea.setBackground(bg(0xfffff8ef,26));
         LinearLayout.LayoutParams cap=new LinearLayout.LayoutParams(-1,0,1);
@@ -74,13 +101,25 @@ public class AudioPlayerActivity extends Activity {
         });
         playRow=new LinearLayout(this);playRow.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams pl=new LinearLayout.LayoutParams(-1,dp(92));pl.topMargin=dp(14);root.addView(playRow,pl);
-        TextView prev=control("|◀",v->changeChapter(-1));playRow.addView(prev,new LinearLayout.LayoutParams(0,dp(62),1));
-        TextView rewind=control("−30",v->jump(-30000));playRow.addView(rewind,new LinearLayout.LayoutParams(0,dp(62),1));
-        play=control("▶",v->{AudioPlaybackService service=AudioPlaybackService.instance;command(service!=null&&!service.isPaused()?AudioPlaybackService.PAUSE:AudioPlaybackService.PLAY);});
-        play.setTextColor(Color.WHITE);play.setBackground(bg(ACCENT,99));play.setTextSize(28);
-        playRow.addView(play,new LinearLayout.LayoutParams(dp(80),dp(80)));
-        TextView forward=control("+30",v->jump(30000));playRow.addView(forward,new LinearLayout.LayoutParams(0,dp(62),1));
-        TextView next=control("▶|",v->changeChapter(1));playRow.addView(next,new LinearLayout.LayoutParams(0,dp(62),1));
+        final String[] buttons={"|◀","◀◀","◀◀","▶","▶▶","▶▶","▶|"};
+        final String[] hints={"","1 м","10 с","","10 с","1 м",""};
+        final int[] offsets={0,-60000,-10000,0,10000,60000,0};
+        for(int n=0;n<buttons.length;n++){
+            final int buttonIndex=n;
+            LinearLayout cell=new LinearLayout(this);cell.setOrientation(1);cell.setGravity(Gravity.CENTER);
+            TextView button=control(buttons[n],v->{
+                if(buttonIndex==0)changeChapter(-1);
+                else if(buttonIndex==6)changeChapter(1);
+                else if(buttonIndex==3){AudioPlaybackService service=AudioPlaybackService.instance;command(service!=null&&!service.isPaused()?AudioPlaybackService.PAUSE:AudioPlaybackService.PLAY);}
+                else jump(offsets[buttonIndex]);
+            });
+            button.setPadding(0,0,0,0);button.setBackground(null);button.setTextSize(n==3?27:17);
+            if(n==3){play=button;button.setTextColor(Color.WHITE);button.setBackground(bg(ACCENT,99));}
+            cell.addView(button,new LinearLayout.LayoutParams(-1,n==3?dp(62):dp(43)));
+            TextView hint=label(hints[n],10);hint.setGravity(Gravity.CENTER);
+            cell.addView(hint,new LinearLayout.LayoutParams(-1,dp(17)));
+            playRow.addView(cell,new LinearLayout.LayoutParams(0,dp(76),n==3?1.35f:1f));
+        }
         LinearLayout times=new LinearLayout(this);times.setGravity(Gravity.CENTER_VERTICAL);root.addView(times);
         chapterElapsed=label("00:00:00",13);times.addView(chapterElapsed,new LinearLayout.LayoutParams(0,-2,1));
         chapterDuration=label("00:00:00",13);times.addView(chapterDuration);
@@ -110,19 +149,34 @@ public class AudioPlayerActivity extends Activity {
     void bookmark(){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null)return;String key="audio_marks:"+s.getTitle();Set<String> marks=new HashSet<>(getSharedPreferences("reader",0).getStringSet(key,new HashSet<>()));marks.add(String.valueOf(s.getPosition()));getSharedPreferences("reader",0).edit().putStringSet(key,marks).apply();Toast.makeText(this,"Аудиозакладка сохранена",Toast.LENGTH_SHORT).show();}
     void options(){String[] choices={"Добавить аудиокнигу","Аудиозакладки","Скорость","Таймер сна","Остановить звук"};new AlertDialog.Builder(this).setItems(choices,(d,n)->{if(n==0)importFiles();if(n==1)showMarks();if(n==2)speedMenu();if(n==3)sleepMenu();if(n==4)command(AudioPlaybackService.STOP);}).show();}
     void showMarks(){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null)return;Set<String> ms=getSharedPreferences("reader",0).getStringSet("audio_marks:"+s.getTitle(),new HashSet<>());ArrayList<Integer> vals=new ArrayList<>();for(String v:ms)try{vals.add(Integer.parseInt(v));}catch(Exception ignored){}Collections.sort(vals);String[] names=new String[vals.size()];for(int j=0;j<vals.size();j++)names[j]=s.isTtsMode()?"Фрагмент "+vals.get(j):format(vals.get(j));new AlertDialog.Builder(this).setTitle("Аудиозакладки").setItems(names,(d,n)->{Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SEEK);i.putExtra("position",vals.get(n));startService(i);}).setPositiveButton("Закрыть",null).show();}
+    String formatLong(long ms){long sec=Math.max(0,ms)/1000;return String.format(Locale.ROOT,"%d:%02d:%02d",sec/3600,(sec/60)%60,sec%60);}
     String format(int ms){long sec=ms/1000;return String.format(Locale.ROOT,"%02d:%02d:%02d",sec/3600,(sec/60)%60,sec%60);}
     void refresh(){
         AudioPlaybackService service=AudioPlaybackService.instance;
         if(title==null||play==null)return;
         if(service==null){play.setText("▶");return;}
         play.setText(service.isPaused()?"▶":"Ⅱ");
-        if(speedAction!=null)speedAction.setContentDescription("Скорость "+service.getSpeed()+"×");
+        if(speedValue!=null){float rate=service.getSpeed();speedValue.setText((rate==(int)rate?Integer.toString((int)rate):Float.toString(rate))+"×");}
         if(timerAction!=null)timerAction.setAlpha(service.getSleepRemainingMillis()>0?1f:.70f);
         if(selected==null && !service.getBookId().isEmpty())for(AudioLibrary.Book item:AudioLibrary.load(this))if(item.id.equals(service.getBookId())){selected=item;updateCover();break;}
         title.setText(service.getTitle());
         info.setText(service.isTtsMode()?"Озвучивание · "+service.getSpeed()+"×":"Аудиокнига · "+service.getSpeed()+"×");
         if(chapterPicker!=null)chapterPicker.setContentDescription("Глава "+(service.getSegment()+1)+". Выбрать главу");
         int d=service.getDuration(), position=service.getPosition(), segments=Math.max(1,service.getChapterCount());
+        long total=service.isTtsMode()?0:service.getTotalDuration();
+        long totalPos=service.getTotalPosition();
+        if(total>0){
+            if(!draggingTotal)totalProgress.setProgress((int)(totalPos*10000/total));
+            overallTime.setText(formatLong(totalPos)+" / "+formatLong(total));
+            overallPercent.setText((totalPos*100/total)+"%");
+            overallRemaining.setText("−"+formatLong(Math.max(0,total-totalPos)));
+            totalProgress.setEnabled(true);
+        }else{
+            if(!draggingTotal)totalProgress.setProgress(0);
+            overallTime.setText("Подсчёт длительности…");overallPercent.setText("—");overallRemaining.setText("—");
+            totalProgress.setEnabled(false);
+        }
+
         int whole=d>0?(int)((long)position*100/d):0;
         if(!dragging)progress.setProgress(d>0?(int)((long)position*10000/d):0);
         wholeProgress.setText(service.isTtsMode()?"Озвучивание текста · "+(service.getDuration()>0?(int)((long)position*100/service.getDuration()):0)+"%":"Глава "+(service.getSegment()+1)+" из "+segments+" · "+service.getChapterName(service.getSegment())+" · "+whole+"%");
