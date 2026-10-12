@@ -33,17 +33,38 @@ public class AudioPlayerActivity extends Activity {
         return view;
     }
     LinearLayout bottomIconControl(int iconRes,String hint,boolean primary,int iconSizeDp,View.OnClickListener action){
-        LinearLayout cell=new LinearLayout(this);cell.setOrientation(1);cell.setGravity(Gravity.CENTER);
-        FrameLayout holder=new FrameLayout(this);holder.setForegroundGravity(Gravity.CENTER);
-        holder.setBackground(primary?bg(ACCENT,99):bg(0xfffff8ef,22));
+        LinearLayout cell=new LinearLayout(this);
+        cell.setOrientation(LinearLayout.VERTICAL);
+        cell.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        // Identical vertical slots for every button: no baseline-related vertical shift.
+        FrameLayout buttonSlot=new FrameLayout(this);
+        cell.addView(buttonSlot,new LinearLayout.LayoutParams(-1,dp(66)));
+        FrameLayout holder=new FrameLayout(this);
+        GradientDrawable buttonBackground;
+        if(primary){
+            buttonBackground=new GradientDrawable();
+            buttonBackground.setShape(GradientDrawable.OVAL);
+            buttonBackground.setColor(ACCENT);
+        }else{
+            buttonBackground=bg(0xfffff8ef,22);
+        }
+        holder.setBackground(buttonBackground);
+        holder.setClipToOutline(false);
         holder.setOnClickListener(action);
-        LinearLayout.LayoutParams holderLp=new LinearLayout.LayoutParams(primary?dp(62):dp(46),primary?dp(62):dp(46));
-        ImageView icon=new ImageView(this);icon.setImageResource(iconRes);icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        holder.setContentDescription(primary?"Воспроизвести или поставить на паузу":hint);
+        int holderSize=primary?dp(60):dp(44);
+        FrameLayout.LayoutParams hp=new FrameLayout.LayoutParams(holderSize,holderSize,Gravity.CENTER);
+        buttonSlot.addView(holder,hp);
+        ImageView icon=new ImageView(this);
+        icon.setImageResource(iconRes);
+        icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
         icon.setColorFilter(primary?Color.WHITE:TEXT);
         FrameLayout.LayoutParams ip=new FrameLayout.LayoutParams(dp(iconSizeDp),dp(iconSizeDp),Gravity.CENTER);
         holder.addView(icon,ip);
-        cell.addView(holder,holderLp);
-        if(hint!=null&&!hint.isEmpty()){TextView cap=label(hint,10);cap.setGravity(Gravity.CENTER);LinearLayout.LayoutParams capLp=new LinearLayout.LayoutParams(-2,-2);capLp.topMargin=dp(4);cell.addView(cap,capLp);}
+        TextView cap=label(hint==null?"":hint,10);
+        cap.setSingleLine(true);
+        cap.setGravity(Gravity.CENTER);
+        cell.addView(cap,new LinearLayout.LayoutParams(-1,dp(20)));
         if(primary)playIcon=icon;
         return cell;
     }
@@ -120,7 +141,7 @@ public class AudioPlayerActivity extends Activity {
         chapterDuration=label("00:00:00",13);chapterDuration.setGravity(Gravity.RIGHT);times.addView(chapterDuration,new LinearLayout.LayoutParams(0,-2,1));
         elapsed=chapterElapsed;duration=chapterDuration;
         playRow=new LinearLayout(this);playRow.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams pl=new LinearLayout.LayoutParams(-1,dp(96));pl.topMargin=dp(10);root.addView(playRow,pl);
+        LinearLayout.LayoutParams pl=new LinearLayout.LayoutParams(-1,dp(90));pl.topMargin=dp(10);root.addView(playRow,pl);
         String[] hints={"Глава","1 мин","10 сек","","10 сек","1 мин","Глава"};
         int[] icons={R.drawable.ic_prev_chapter,R.drawable.ic_rewind_1m,R.drawable.ic_rewind_10s,R.drawable.ic_play,R.drawable.ic_forward_10s,R.drawable.ic_forward_1m,R.drawable.ic_next_chapter};
         final int[] offsets={0,-60000,-10000,0,10000,60000,0};

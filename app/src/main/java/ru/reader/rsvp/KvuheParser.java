@@ -25,7 +25,9 @@ public final class KvuheParser {
         static Book parse(JSONObject j){Book b=new Book();b.source=j.optString("source");b.title=j.optString("title");b.cover=j.optString("cover");b.warning=j.optString("warning");JSONArray a=j.optJSONArray("chapters");if(a!=null)for(int i=0;i<a.length();i++)if(a.optJSONObject(i)!=null)b.chapters.add(Chapter.parse(a.optJSONObject(i)));return b;}
     }
     public static Book fetch(String address)throws Exception{
-        URI uri=new URI(address.trim());if(!"https".equalsIgnoreCase(uri.getScheme())||!"knigavuhe.org".equalsIgnoreCase(uri.getHost())||!uri.getPath().startsWith("/book/"))throw new IllegalArgumentException("Требуется https-ссылка на книгу knigavuhe.org/book/...");
+        URI uri=new URI(address.trim());if(!"https".equalsIgnoreCase(uri.getScheme())||!("knigavuhe.org".equalsIgnoreCase(uri.getHost())||"www.knigavuhe.org".equalsIgnoreCase(uri.getHost())||"m.knigavuhe.org".equalsIgnoreCase(uri.getHost()))||!uri.getPath().startsWith("/book/"))throw new IllegalArgumentException("Требуется https-ссылка на книгу knigavuhe.org/book/...");
+        // Normalize mobile URLs to the canonical desktop host before requesting HTML.
+        uri = new URI("https", null, "knigavuhe.org", -1, uri.getPath(), uri.getQuery(), null);
         // Only follow public HTTPS redirects on knigavuhe.org. Never follow a login,
         // challenge or external media-host redirect when fetching the book HTML.
         HttpURLConnection c=openBookPage(uri);
@@ -67,46 +69,65 @@ public final class KvuheParser {
                     b.warning="Найдено MP3-ссылок: "+found.size()+", глав: "+b.chapters.size()+". Порядок не подтверждён, автоматическое сопоставление отключено.";
                 }
             }
+            if("m.knigavuhe.org".equalsIgnoreCase(finalUri.getHost())) {
+                String note="Сайт принудительно открыл мобильную страницу. Проверьте количество глав: мобильный плейлист может отличаться от полного.";
+                b.warning=b.warning.isEmpty()?note:b.warning+" " +note;
+            }
             int valid=0;for(Chapter x:b.chapters)if(!x.url.isEmpty())valid++;
             if(valid!=b.chapters.size()&&b.warning.isEmpty())b.warning="Список глав найден, но прямые MP3-ссылки не подтверждены для "+(b.chapters.size()-valid)+" глав. Скачивание недоступно: сайт может загружать адреса динамически либо ограничивать загрузку.";
             return b;
         }finally{c.disconnect();}
     }
+    private static final String DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
     private static HttpURLConnection openBookPage(URI startingUri) throws Exception {
-        URI current=startingUri;
-        HashSet<String> visited=new HashSet<>();
-        for(int redirect=0;redirect<=5;redirect++){
-            if(!allowedBookUri(current))throw new java.io.IOException("Перенаправление за пределы страницы книги запрещено: "+current.getHost());
-            if(!visited.add(current.normalize().toString()))throw new java.io.IOException("Сайт зациклил перенаправления");
-            HttpURLConnection connection=(HttpURLConnection)current.toURL().openConnection();
+        // Desktop site is preferred. A mobile redirect is not an authentication failure.
+        // Prefer an explicit desktop request to the canonical host and retain the full
+        // list of chapters from the desktop HTML. No bypass of access controls is attempted.
+        URI current = startingUri;
+        Set<String> visited = new HashSet<>();
+        for (int count = 0; count <= 7; count++) {
+            if (!allowedBookUri(current))
+                throw new java.io.IOException("Сайт перенаправил запрос на неподдерживаемый адрес: " + current.getHost());
+            if (!visited.add(current.normalize().toString()))
+                throw new java.io.IOException("Повторное перенаправление страницы: " + current);
+            HttpURLConnection connection = (HttpURLConnection) current.toURL().openConnection();
             connection.setInstanceFollowRedirects(false);
-            connection.setConnectTimeout(14000);
-            connection.setReadTimeout(18000);
-            connection.setRequestProperty("User-Agent","Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
-            connection.setRequestProperty("Accept","text/html,application/xhtml+xml;q=0.9,*/*;q=0.8");
-            connection.setRequestProperty("Accept-Language","ru-RU,ru;q=0.9,en;q=0.6");
-            int status=connection.getResponseCode();
-            if(status==200)return connection;
-            if(status==301||status==302||status==303||status==307||status==308){
-                String location=connection.getHeaderField("Location");
+            connection.setConnectTimeout(15000);
+            connection.setReadTimeout(20000);
+            connection.setRequestProperty("User-Agent", DESKTOP_UA);
+            connection.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+            connection.setRequestProperty("Accept-Language", "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
+            connection.setRequestProperty("Upgrade-Insecure-Requests", "1");
+            int status = connection.getResponseCode();
+            if (status == 200) return connection;
+            if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
+                String destination = connection.getHeaderField("Location");
                 connection.disconnect();
-                if(location==null||location.isEmpty())throw new java.io.IOException("HTTP "+status+": сервер не указал адрес перенаправления");
-                URI next=current.resolve(location).normalize();
-                if(!allowedBookUri(next))throw new java.io.IOException("Сайт перенаправил запрос на другой адрес или страницу входа. Импорт остановлен: "+next.getHost());
-                current=next;
+                if (destination == null || destination.trim().isEmpty())
+                    throw new java.io.IOException("HTTP " + status + ": отсутствует адрес перенаправления");
+                URI next = current.resolve(destination).normalize();
+                if (!allowedBookUri(next))
+                    throw new java.io.IOException("Сайт перенаправил запрос за пределы книги: " + next.getHost());
+                // m.knigavuhe.org is the official mobile host. Allow it as a fallback
+                // instead of reporting that the book has moved to an unrelated domain.
+                current = next;
                 continue;
             }
             connection.disconnect();
-            if(status==403||status==429)throw new java.io.IOException("Сайт ограничил доступ (HTTP "+status+"). Проверьте ссылку в браузере, затем попробуйте позже");
-            throw new java.io.IOException("Не удалось открыть страницу книги: HTTP "+status);
+            if (status == 403 || status == 429)
+                throw new java.io.IOException("Сайт временно ограничил доступ (HTTP " + status + "). Откройте страницу в браузере и повторите позже.");
+            throw new java.io.IOException("Не удалось открыть страницу книги: HTTP " + status);
         }
-        throw new java.io.IOException("Слишком много перенаправлений (больше 5)");
+        throw new java.io.IOException("Слишком много перенаправлений страницы книги");
     }
-    private static boolean allowedBookUri(URI uri){
-        if(uri==null||!"https".equalsIgnoreCase(uri.getScheme()))return false;
-        String host=uri.getHost();
-        if(host==null||!(host.equalsIgnoreCase("knigavuhe.org")||host.equalsIgnoreCase("www.knigavuhe.org")))return false;
-        return uri.getPath()!=null&&uri.getPath().startsWith("/book/")&&uri.getUserInfo()==null;
+    private static boolean allowedBookUri(URI uri) {
+        if (uri == null || !"https".equalsIgnoreCase(uri.getScheme()) || uri.getUserInfo() != null) return false;
+        String host = uri.getHost();
+        if (host == null) return false;
+        String normalized = host.toLowerCase(Locale.ROOT);
+        if (!(normalized.equals("knigavuhe.org") || normalized.equals("www.knigavuhe.org") || normalized.equals("m.knigavuhe.org"))) return false;
+        return uri.getPath() != null && uri.getPath().startsWith("/book/");
     }
     /** Equivalent to Python BeautifulSoup string-regex extraction, with de-escaping. */
     static LinkedHashSet<String> extractMp3Urls(String input){
