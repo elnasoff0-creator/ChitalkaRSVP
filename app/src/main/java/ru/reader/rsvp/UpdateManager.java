@@ -60,14 +60,14 @@ public final class UpdateManager {
                         if (digest.startsWith("sha256:")) sha = digest.substring(7);
                     }
                 }
-                long remoteCode = parseVersionCode(release.optString("tag_name", ""));
+                String remoteVersion = release.optString("tag_name", "");
                 final String foundUrl = apkUrl;
                 final String foundSha = sha;
                 final String tag = release.optString("tag_name", "");
                 final String notes = release.optString("body", "");
                 MAIN.post(() -> {
                     busy = false;
-                    if (remoteCode <= getLocalCode()) {
+                    if (compareVersions(remoteVersion, getLocalVersion()) <= 0) {
                         if (!silent) message("Обновлений нет", "Установлена актуальная версия приложения.");
                     } else if (foundUrl == null || foundUrl.isEmpty() || foundSha == null || !foundSha.matches("(?i)[0-9a-f]{64}")) {
                         if (!silent) message("Обновление недоступно", "В выпуске " + tag + " нет APK с SHA-256. Публикуйте подписанный APK через GitHub Releases.");
@@ -92,16 +92,37 @@ public final class UpdateManager {
             return Build.VERSION.SDK_INT >= 28 ? (int)p.getLongVersionCode() : p.versionCode;
         } catch (Exception e) { return 0; }
     }
-    // Tags must be in the form v1.9.0 (versionCode=190), v2.0.0 (200), etc.
-    private long parseVersionCode(String tag) {
+    private String getLocalVersion() {
         try {
-            String t = tag.toLowerCase(Locale.ROOT).replaceFirst("^v", "");
-            String[] a = t.split("\\.");
-            if (a.length < 2) return 0;
-            int major = Integer.parseInt(a[0]); int minor = Integer.parseInt(a[1]);
-            int patch = a.length > 2 ? Integer.parseInt(a[2]) : 0;
-            return major * 10000L + minor * 100L + patch;
-        } catch (Exception e) { return 0; }
+            PackageInfo p = activity.getPackageManager().getPackageInfo(activity.getPackageName(), 0);
+            return p.versionName == null ? "0" : p.versionName;
+        } catch (Exception e) { return "0"; }
+    }
+
+    // GitHub tags and Android versionCode are independent numbering systems.
+    // Compare semantic versionName components numerically, including fourth components.
+    private int compareVersions(String remote, String local) {
+        int[] a = versionParts(remote);
+        int[] b = versionParts(local);
+        for (int i = 0; i < a.length; i++) {
+            if (a[i] != b[i]) return Integer.compare(a[i], b[i]);
+        }
+        return 0;
+    }
+
+    private int[] versionParts(String value) {
+        int[] out = new int[4];
+        if (value == null) return out;
+        String name = value.trim().replaceFirst("^[vV]", "");
+        String[] fields = name.split("[.]", -1);
+        for (int i = 0; i < Math.min(fields.length, out.length); i++) {
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("^([0-9]+)").matcher(fields[i]);
+            if (m.find()) {
+                try { out[i] = Integer.parseInt(m.group(1)); }
+                catch (NumberFormatException ignored) { out[i] = Integer.MAX_VALUE; }
+            }
+        }
+        return out;
     }
 
     private JSONObject readJson(String path) throws Exception {

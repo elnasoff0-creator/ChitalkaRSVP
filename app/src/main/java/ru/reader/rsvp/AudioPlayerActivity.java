@@ -14,7 +14,7 @@ import java.util.*;
 /** Standalone audio interface. Playback remains in AudioPlaybackService on navigation. */
 public class AudioPlayerActivity extends Activity {
     private static final int FILE_PICK=301, FOLDER_PICK=302, COVER_PICK=303;
-    LinearLayout root,playRow; TextView title,info,elapsed,duration,play,spokenText,wholeProgress,speedAction,timerAction; SeekBar progress, totalProgress; TextView chapterElapsed, chapterDuration, chapterPicker, overallTime, overallPercent, overallRemaining, speedValue; android.widget.ImageView coverImage;
+    LinearLayout root,playRow; TextView title,info,elapsed,duration,spokenText,wholeProgress,speedAction,timerAction; SeekBar progress, totalProgress; TextView chapterElapsed, chapterDuration, chapterPicker, overallTime, overallPercent, overallRemaining, speedValue; android.widget.ImageView coverImage, playIcon;
     Handler handler=new Handler(Looper.getMainLooper()); boolean dragging=false, draggingTotal=false;String bookUri=""; AudioLibrary.Book selected;
     final int BACKGROUND=0xfff3e7d5, TEXT=0xff30221e, ACCENT=0xff94583b;
     BroadcastReceiver receiver=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){refresh();}};
@@ -31,6 +31,21 @@ public class AudioPlayerActivity extends Activity {
         view.setGravity(Gravity.CENTER);
         view.setPadding(dp(13),0,0,0);
         return view;
+    }
+    LinearLayout bottomIconControl(int iconRes,String hint,boolean primary,int iconSizeDp,View.OnClickListener action){
+        LinearLayout cell=new LinearLayout(this);cell.setOrientation(1);cell.setGravity(Gravity.CENTER);
+        FrameLayout holder=new FrameLayout(this);holder.setForegroundGravity(Gravity.CENTER);
+        holder.setBackground(primary?bg(ACCENT,99):bg(0xfffff8ef,22));
+        holder.setOnClickListener(action);
+        LinearLayout.LayoutParams holderLp=new LinearLayout.LayoutParams(primary?dp(62):dp(46),primary?dp(62):dp(46));
+        ImageView icon=new ImageView(this);icon.setImageResource(iconRes);icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        icon.setColorFilter(primary?Color.WHITE:TEXT);
+        FrameLayout.LayoutParams ip=new FrameLayout.LayoutParams(dp(iconSizeDp),dp(iconSizeDp),Gravity.CENTER);
+        holder.addView(icon,ip);
+        cell.addView(holder,holderLp);
+        if(hint!=null&&!hint.isEmpty()){TextView cap=label(hint,10);cap.setGravity(Gravity.CENTER);LinearLayout.LayoutParams capLp=new LinearLayout.LayoutParams(-2,-2);capLp.topMargin=dp(4);cell.addView(cap,capLp);}
+        if(primary)playIcon=icon;
+        return cell;
     }
     void command(String action){startService(new Intent(this,AudioPlaybackService.class).setAction(action));handler.postDelayed(this::refresh,150);}
     @Override public void onCreate(Bundle b){super.onCreate(b);bookUri=getIntent().getStringExtra("book_uri");if(bookUri==null||bookUri.isEmpty())bookUri=getSharedPreferences("reader",0).getString("uri","");String id=getIntent().getStringExtra("audio_book_id");if(id!=null)for(AudioLibrary.Book item:AudioLibrary.load(this))if(id.equals(item.id)){selected=item;break;}draw();String audioAction=getIntent().getStringExtra("audio_action");if(audioAction!=null)handler.post(()->{switch(audioAction){case "import":importFolder();break;case "tts":loadTts(bookUri,getSharedPreferences("reader",0).getInt("index",0));break;case "voice":voiceMenu();break;case "marks":showMarks();break;case "cover":chooseCover();break;case "sleep":sleepMenu();break;case "speed":speedMenu();break;}});if(selected!=null&&(AudioPlaybackService.instance==null||AudioPlaybackService.instance.isTtsMode()||!selected.id.equals(AudioPlaybackService.instance.getBookId())))openSelected(selected);if(getIntent().getBooleanExtra("start_tts",false)&&!bookUri.isEmpty())loadTts(bookUri,getIntent().getIntExtra("word_index",0));}
@@ -99,31 +114,26 @@ public class AudioPlayerActivity extends Activity {
                     seekPosition((int)((long)b.getProgress()*service.getDuration()/10000));
                 dragging=false;refresh();}
         });
+        LinearLayout times=new LinearLayout(this);times.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams timesLp=new LinearLayout.LayoutParams(-1,-2);timesLp.topMargin=dp(4);root.addView(times,timesLp);
+        chapterElapsed=label("00:00:00",13);times.addView(chapterElapsed,new LinearLayout.LayoutParams(0,-2,1));
+        chapterDuration=label("00:00:00",13);chapterDuration.setGravity(Gravity.RIGHT);times.addView(chapterDuration,new LinearLayout.LayoutParams(0,-2,1));
+        elapsed=chapterElapsed;duration=chapterDuration;
         playRow=new LinearLayout(this);playRow.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams pl=new LinearLayout.LayoutParams(-1,dp(92));pl.topMargin=dp(14);root.addView(playRow,pl);
-        final String[] buttons={"|◀","◀◀","◀◀","▶","▶▶","▶▶","▶|"};
-        final String[] hints={"","1 м","10 с","","10 с","1 м",""};
+        LinearLayout.LayoutParams pl=new LinearLayout.LayoutParams(-1,dp(96));pl.topMargin=dp(10);root.addView(playRow,pl);
+        String[] hints={"Глава","1 мин","10 сек","","10 сек","1 мин","Глава"};
+        int[] icons={R.drawable.ic_prev_chapter,R.drawable.ic_rewind_1m,R.drawable.ic_rewind_10s,R.drawable.ic_play,R.drawable.ic_forward_10s,R.drawable.ic_forward_1m,R.drawable.ic_next_chapter};
         final int[] offsets={0,-60000,-10000,0,10000,60000,0};
-        for(int n=0;n<buttons.length;n++){
+        for(int n=0;n<icons.length;n++){
             final int buttonIndex=n;
-            LinearLayout cell=new LinearLayout(this);cell.setOrientation(1);cell.setGravity(Gravity.CENTER);
-            TextView button=control(buttons[n],v->{
+            LinearLayout cell=bottomIconControl(icons[n],hints[n],n==3,n==3?26:22,v->{
                 if(buttonIndex==0)changeChapter(-1);
                 else if(buttonIndex==6)changeChapter(1);
                 else if(buttonIndex==3){AudioPlaybackService service=AudioPlaybackService.instance;command(service!=null&&!service.isPaused()?AudioPlaybackService.PAUSE:AudioPlaybackService.PLAY);}
                 else jump(offsets[buttonIndex]);
             });
-            button.setPadding(0,0,0,0);button.setBackground(null);button.setTextSize(n==3?27:17);
-            if(n==3){play=button;button.setTextColor(Color.WHITE);button.setBackground(bg(ACCENT,99));}
-            cell.addView(button,new LinearLayout.LayoutParams(-1,n==3?dp(62):dp(43)));
-            TextView hint=label(hints[n],10);hint.setGravity(Gravity.CENTER);
-            cell.addView(hint,new LinearLayout.LayoutParams(-1,dp(17)));
-            playRow.addView(cell,new LinearLayout.LayoutParams(0,dp(76),n==3?1.35f:1f));
+            playRow.addView(cell,new LinearLayout.LayoutParams(0,-1,n==3?1.32f:1f));
         }
-        LinearLayout times=new LinearLayout(this);times.setGravity(Gravity.CENTER_VERTICAL);root.addView(times);
-        chapterElapsed=label("00:00:00",13);times.addView(chapterElapsed,new LinearLayout.LayoutParams(0,-2,1));
-        chapterDuration=label("00:00:00",13);times.addView(chapterDuration);
-        elapsed=chapterElapsed;duration=chapterDuration;
         refresh();
     }
     void chooseCover(){if(selected==null){Toast.makeText(this,"Выберите аудиокнигу в библиотеке",Toast.LENGTH_LONG).show();return;}Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,COVER_PICK);}
@@ -134,7 +144,7 @@ public class AudioPlayerActivity extends Activity {
     void goChapter(int n){startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.CHAPTER).putExtra("chapter",n));}
     void importFolder(){new AlertDialog.Builder(this).setTitle("Добавление аудиокниг").setItems(new String[]{"Выбранная папка — одна книга","Сканировать вложенные папки как отдельные книги"},(d,n)->{getSharedPreferences("reader",0).edit().putBoolean("audio_recursive",n==1).apply();Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,FOLDER_PICK);}).show();}
     void openAudioSettings(){startActivity(new Intent(this,SettingsActivity.class).putExtra("audio_tab",true).putExtra("audio_book_id",selected==null?"":selected.id));}
-    void openSelected(AudioLibrary.Book b){selected=b;Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.LOAD);i.putExtra("title",b.name);i.putExtra("bookId",b.id);i.putExtra("uris",b.uris.toArray(new String[0]));i.putExtra("chapters",b.chapters.toArray(new String[0]));i.putExtra("autoplay",true);startService(i);updateCover();}
+    void openSelected(AudioLibrary.Book b){selected=b;Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.LOAD);i.putExtra("title",b.name);i.putExtra("bookId",b.id);i.putExtra("uris",b.uris.toArray(new String[0]));i.putExtra("chapters",b.chapters.toArray(new String[0]));i.putExtra("autoplay",false);startService(i);updateCover();}
     void jump(int by){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null)return;Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SEEK);i.putExtra("position",Math.max(0,s.getPosition()+(s.isTtsMode()? (by>0?1:-1):by)));startService(i);}
     void importFiles(){Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("audio/*");i.addCategory(Intent.CATEGORY_OPENABLE);i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,FILE_PICK);}
     @Override protected void onActivityResult(int req,int res,Intent data){super.onActivityResult(req,res,data);if(res!=RESULT_OK||data==null)return;
@@ -153,9 +163,10 @@ public class AudioPlayerActivity extends Activity {
     String format(int ms){long sec=ms/1000;return String.format(Locale.ROOT,"%02d:%02d:%02d",sec/3600,(sec/60)%60,sec%60);}
     void refresh(){
         AudioPlaybackService service=AudioPlaybackService.instance;
-        if(title==null||play==null)return;
-        if(service==null){play.setText("▶");return;}
-        play.setText(service.isPaused()?"▶":"Ⅱ");
+        if(title==null||playIcon==null)return;
+        if(service==null){playIcon.setImageResource(R.drawable.ic_play);playIcon.setColorFilter(Color.WHITE);return;}
+        playIcon.setImageResource(service.isPaused()?R.drawable.ic_play:R.drawable.ic_pause);
+        playIcon.setColorFilter(Color.WHITE);
         if(speedValue!=null){float rate=service.getSpeed();speedValue.setText((rate==(int)rate?Integer.toString((int)rate):Float.toString(rate))+"×");}
         if(timerAction!=null)timerAction.setAlpha(service.getSleepRemainingMillis()>0?1f:.70f);
         if(selected==null && !service.getBookId().isEmpty())for(AudioLibrary.Book item:AudioLibrary.load(this))if(item.id.equals(service.getBookId())){selected=item;updateCover();break;}
