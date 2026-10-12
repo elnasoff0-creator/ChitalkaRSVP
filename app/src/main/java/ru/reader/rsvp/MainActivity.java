@@ -305,7 +305,11 @@ public class MainActivity extends Activity {
         }
 
         add(contentWrap, gap(12));
-        add(contentWrap, sectionHeader("Библиотека", library.isEmpty() ? "" : ""));
+        boolean bookExpanded=prefs.getBoolean("book_library_expanded",false);
+        TextView bookToggle=buttonish("Библиотека ("+library.size()+")  "+(bookExpanded?"⌃":"⌄"),softPanel(),fg,true);
+        bookToggle.setOnClickListener(v->{prefs.edit().putBoolean("book_library_expanded",!bookExpanded).apply();draw();});
+        add(contentWrap,bookToggle);
+        if(bookExpanded){
         if (library.isEmpty()) {
             TextView empty = text("Здесь появятся добавленные книги с мини-обложками и сохранённым прогрессом.", 15, false);
             empty.setTextColor(faintText());
@@ -322,6 +326,7 @@ public class MainActivity extends Activity {
             add(contentWrap, libPanel);
         }
 
+        }
         add(contentWrap, gap(12));
         // Theme presets moved to SettingsActivity.
         add(contentWrap, gap(16));
@@ -336,15 +341,18 @@ public class MainActivity extends Activity {
             add(contentWrap,gap(12));
             add(contentWrap,sectionHeader("Продолжить аудиокнигу",""));
             LinearLayout recentCard=column();recentCard.setBackground(shape(panelColor(),22));pad(recentCard,14);
-            TextView name=text(lastBook.name,18,true);name.setMaxLines(2);name.setEllipsize(TextUtils.TruncateAt.END);name.setSingleLine(false);recentCard.addView(name);
+            LinearLayout recentBody=row();recentBody.setGravity(Gravity.CENTER_VERTICAL);recentCard.addView(recentBody);
+            recentBody.addView(audioCover(lastBook,88),new LinearLayout.LayoutParams(dp(88),dp(88)));
+            LinearLayout recentInfo=column();LinearLayout.LayoutParams ri=new LinearLayout.LayoutParams(0,-2,1);ri.leftMargin=dp(12);recentBody.addView(recentInfo,ri);
+            TextView name=text(lastBook.name,18,true);name.setMaxLines(2);name.setEllipsize(TextUtils.TruncateAt.END);name.setSingleLine(false);recentInfo.addView(name);
             int chapter=Math.min(Math.max(0,prefs.getInt("audio_segment:"+lastBook.id,0)),Math.max(0,lastBook.chapters.size()-1));
             String chapterName=lastBook.chapters.isEmpty()?"":lastBook.chapters.get(chapter);
             TextView pos=text("Глава "+(chapter+1)+" из "+lastBook.uris.size()+" · "+chapterName,13,false);
-            pos.setSingleLine(true);pos.setEllipsize(TextUtils.TruncateAt.END);pos.setTextColor(faintText());recentCard.addView(pos);
+            pos.setSingleLine(true);pos.setEllipsize(TextUtils.TruncateAt.END);pos.setTextColor(faintText());recentInfo.addView(pos);
             TextView continueAudio=buttonish("▶  Продолжить",accent(),0xffffffff,true);
             continueAudio.setOnClickListener(v->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_book_id",lastBook.id)));
             LinearLayout.LayoutParams resumeLp=new LinearLayout.LayoutParams(-2,dp(44));resumeLp.topMargin=dp(8);
-            recentCard.addView(continueAudio,resumeLp);
+            recentInfo.addView(continueAudio,resumeLp);
             recentCard.setOnClickListener(v->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_book_id",lastBook.id)));
             add(contentWrap,recentCard);
             add(contentWrap,gap(12));
@@ -356,11 +364,11 @@ public class MainActivity extends Activity {
                 LinearLayout audioList=column();audioList.setBackground(shape(panelColor(),18));
                 for(AudioLibrary.Book ab:audioBooks){
                     LinearLayout r=row();pad(r,12,10,12,10);
-                    TextView icon=text("♫",23,false);r.addView(icon,new LinearLayout.LayoutParams(dp(38),-2));
+                    r.addView(audioCover(ab,82),new LinearLayout.LayoutParams(dp(82),dp(82)));
                     LinearLayout info=column();TextView label=text(ab.name,16,true);label.setSingleLine(false);label.setMaxLines(2);label.setEllipsize(TextUtils.TruncateAt.END);info.addView(label);
                     int saved=prefs.getInt("audio_segment:"+ab.id,0);
                     TextView detail=text("Глава "+(saved+1)+" из "+ab.uris.size(),12,false);detail.setTextColor(faintText());info.addView(detail);
-                    r.addView(info,new LinearLayout.LayoutParams(0,-2,1));
+                    LinearLayout.LayoutParams audioInfoLp=new LinearLayout.LayoutParams(0,dp(82),1);audioInfoLp.leftMargin=dp(10);r.addView(info,audioInfoLp);
                     r.setOnClickListener(v->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_book_id",ab.id)));
                     audioList.addView(r);audioList.addView(divider());
                 }
@@ -455,6 +463,20 @@ public class MainActivity extends Activity {
         card.addView(info,infoLp);
         card.setOnClickListener(v->openBook(m.uri,false,true));
         return card;
+    }
+
+    View audioCover(AudioLibrary.Book b,int side){
+        android.widget.FrameLayout frame=new android.widget.FrameLayout(this);
+        GradientDrawable background=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xff42342e,0xff8f624c});
+        background.setCornerRadius(dp(14));frame.setBackground(background);frame.setClipToOutline(true);
+        TextView fallback=text("♫\n"+coverTitle(b.name),12,true);fallback.setGravity(Gravity.CENTER);fallback.setTextColor(0xfff6ebdc);fallback.setMaxLines(4);
+        frame.addView(fallback,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        String imageUri=prefs.getString("audio_cover:"+b.id,"");
+        if(!imageUri.isEmpty()){
+            android.widget.ImageView image=new android.widget.ImageView(this);image.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+            try{image.setImageURI(android.net.Uri.parse(imageUri));frame.addView(image,new android.widget.FrameLayout.LayoutParams(-1,-1));}catch(Exception ignored){}
+        }
+        return frame;
     }
 
     View libraryRow(BookMeta m) {
@@ -596,6 +618,7 @@ public class MainActivity extends Activity {
         nav.addView(navItem("📚", "Библиотека", active == 0, v -> { screen = 0; saveAll(); draw(); }), new LinearLayout.LayoutParams(0, -2, 1));
         nav.addView(navItem("📖", "Чтение", active == 1, v -> { if (currentUri.isEmpty()) pick(); else { openBook(currentUri, false, true); } }), new LinearLayout.LayoutParams(0, -2, 1));
         nav.addView(navItem("🎙", "Аудиокнига", false, v -> startActivity(new Intent(this,AudioPlayerActivity.class))), new LinearLayout.LayoutParams(0, -2, 1));
+        nav.addView(navItem("", "Загрузки", false, v -> startActivity(new Intent(this,DownloadActivity.class))), new LinearLayout.LayoutParams(0, -2, 1));
         nav.addView(navItem("⚙️", "Настройки", false, v -> settings()), new LinearLayout.LayoutParams(0, -2, 1));
         return nav;
     }
@@ -605,9 +628,9 @@ public class MainActivity extends Activity {
         item.setGravity(Gravity.CENTER);
         item.setBackground(active ? shape(softPanel(), 16) : null);
         pad(item, 6, 10, 6, 10);
-        if (label.equals("Настройки") || label.equals("Библиотека") || label.equals("Чтение") || label.equals("Закладки") || label.equals("Аудиокнига")) {
+        if (label.equals("Настройки") || label.equals("Библиотека") || label.equals("Чтение") || label.equals("Закладки") || label.equals("Аудиокнига") || label.equals("Загрузки")) {
             int image = label.equals("Настройки") ? R.drawable.ic_settings :
-                    label.equals("Библиотека") ? R.drawable.ic_library : label.equals("Аудиокнига") ? R.drawable.ic_microphone : label.equals("Закладки") ? R.drawable.ic_bookmark : R.drawable.ic_book;
+                    label.equals("Библиотека") ? R.drawable.ic_library : label.equals("Загрузки") ? R.drawable.ic_downloads : label.equals("Аудиокнига") ? R.drawable.ic_microphone : label.equals("Закладки") ? R.drawable.ic_bookmark : R.drawable.ic_book;
             ImageView iv = new ImageView(this);
             iv.setImageResource(image);
             iv.setColorFilter(active ? accent() : fg);
