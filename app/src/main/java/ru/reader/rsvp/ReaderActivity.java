@@ -28,6 +28,7 @@ public class ReaderActivity extends Activity {
         }
       }
     } catch(Exception ignored){}
+    if(!getIntent().getBooleanExtra("reset",false))index=prefs.getInt("tts_word:"+docUri,index);
     if(getIntent().getBooleanExtra("reset",false)){index=0;normalY=0;}
     draw();
     if(!docUri.isEmpty())load(Uri.parse(docUri),getIntent().getBooleanExtra("reset",false));
