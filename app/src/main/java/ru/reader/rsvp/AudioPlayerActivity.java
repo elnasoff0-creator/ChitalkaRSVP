@@ -55,7 +55,7 @@ public class AudioPlayerActivity extends Activity {
         top.addView(speedGroup,new LinearLayout.LayoutParams(dp(49),dp(51)));
         timerAction=topAction(R.drawable.ic_audio_timer,"Таймер сна",v->sleepMenu());
         top.addView(timerAction,new LinearLayout.LayoutParams(dp(46),dp(50)));
-        top.addView(control("+",v->importFolder()),new LinearLayout.LayoutParams(dp(42),dp(50)));
+        top.addView(control("+",v->new AlertDialog.Builder(this).setTitle("Добавить аудиокнигу").setItems(new String[]{"Из папки","Импорт по ссылке"},(dialog,index)->{if(index==0)importFolder();else startActivity(new Intent(this,UrlImportActivity.class));}).show()),new LinearLayout.LayoutParams(dp(42),dp(50)));
         top.addView(topAction(R.drawable.ic_settings,"Аудионастройки",v->openAudioSettings()),new LinearLayout.LayoutParams(dp(46),dp(50)));
         title=label("Аудиокнига",21);title.setGravity(Gravity.CENTER);title.setTypeface(android.graphics.Typeface.SERIF,1);
         title.setMaxLines(2);title.setOnClickListener(v->selectBook());

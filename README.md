@@ -17,3 +17,18 @@
 
 ## Релиз
 Используйте прежние `RELEASE_*` секреты, один и тот же ключ подписи для обновлений и workflow `.github/workflows/release.yml`. Установку из GitHub Releases запускайте после успешного теста.
+
+## URL audio import (v1.11.0)
+
+From AudioPlayerActivity press `+` → `Импорт по ссылке`. The independent UrlImportActivity previews the public HTML's title, cover, chapter names and runtimes. Downloads are enabled only when each selected track has a direct, unambiguous HTTPS `.mp3` link bound to its chapter in page markup. Global playlist lists are **not** guessed or paired by their order. If the site uses dynamic/obfuscated player URLs or prohibits downloading, the app displays an explicit explanation and does not circumvent access controls. Only download works you are authorized to save.
+
+The foreground DownloadWorker stores its queue in the existing `reader` SharedPreferences and stores verified files in app-specific external music/Audiobooks/<title>. Incomplete files remain `.part`. Completed items are merged into the existing AudioLibrary model, without touching existing TTS reading state.
+
+Known limitations requiring device/site verification: the example site's currently accessible HTML exposes chapter names and durations but no verified chapter-bound MP3 sources; there is no claim of a successful end-to-end MP3 download. App-specific storage is removed when the app is uninstalled. Queue state survives process restart; if Android terminates the download process, the user may need to press Continue to resume. Foreground Android dataSync restrictions vary by Android version. Background download is a foreground service rather than WorkManager. Data size, ETA and speed are best-effort when HTTP Content-Length is provided. Android SDK build was not performed in this environment.
+
+
+## v1.11.1 - поиск MP3 как в Python-скрипте
+
+KvuheParser дополнительно ищет MP3 в строках JavaScript в порядке их появления, снимает экранирование `\/` и `\u002F`, убирает дубликаты. Сопоставление с главами по позиции разрешено только при совпадении количества уникальных ссылок с количеством глав и отсутствии конфликтов с URL, явно привязанными к DOM-элементам. Перед скачиванием пользователь получает уведомление о том, что соответствие основано на порядке в JavaScript; его необходимо сверить с главами. Если количество не совпадает, соответствие не предполагается и скачивание неподтвержденных файлов блокируется.
+
+Полная сборка Android и онлайн-загрузка MP3 не тестировались в этой среде.
