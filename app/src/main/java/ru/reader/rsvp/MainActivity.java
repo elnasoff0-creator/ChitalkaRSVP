@@ -276,7 +276,7 @@ public class MainActivity extends Activity {
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
 
         LinearLayout top = row();
-        TextView titleView = text("Читалка RSVP", 23, true);
+        TextView titleView = text("", 23, true);
         titleView.setTypeface(Typeface.SERIF, Typeface.BOLD);
         top.addView(titleView, new LinearLayout.LayoutParams(0, -2, 1));
         View search = iconButton(R.drawable.ic_search, v -> showLibraryChooser());
@@ -287,9 +287,7 @@ public class MainActivity extends Activity {
         top.addView(menuBtn, new LinearLayout.LayoutParams(dp(45), dp(46)));
         add(contentWrap, top);
 
-        TextView sub = text("Быстрое чтение. Больше смысла.", 13, false);
-        sub.setTextColor(faintText());
-        add(contentWrap, sub);
+
 
         add(contentWrap, gap(10));
 
@@ -357,7 +355,7 @@ public class MainActivity extends Activity {
             add(contentWrap,recentCard);
             add(contentWrap,gap(12));
             boolean expanded=prefs.getBoolean("audio_library_expanded",false);
-            TextView toggle=buttonish("Аудиобиблиотека ("+audioBooks.size()+")  "+(expanded?"⌃":"⌄"),softPanel(),fg,true);
+            TextView toggle=buttonish("Аудиотека ("+audioBooks.size()+")  "+(expanded?"⌃":"⌄"),softPanel(),fg,true);
             toggle.setOnClickListener(v->{prefs.edit().putBoolean("audio_library_expanded",!expanded).apply();draw();});
             add(contentWrap,toggle);
             if(expanded){
@@ -474,7 +472,17 @@ public class MainActivity extends Activity {
         String imageUri=prefs.getString("audio_cover:"+b.id,"");
         if(!imageUri.isEmpty()){
             android.widget.ImageView image=new android.widget.ImageView(this);image.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
-            try{image.setImageURI(android.net.Uri.parse(imageUri));frame.addView(image,new android.widget.FrameLayout.LayoutParams(-1,-1));}catch(Exception ignored){}
+            try{
+                android.graphics.Bitmap bitmap=BOOK_COVERS.get(imageUri);
+                if(bitmap==null){
+                    try(java.io.InputStream input=getContentResolver().openInputStream(android.net.Uri.parse(imageUri))){
+                        android.graphics.BitmapFactory.Options opts=new android.graphics.BitmapFactory.Options();opts.inSampleSize=2;
+                        bitmap=android.graphics.BitmapFactory.decodeStream(input,null,opts);
+                    }
+                    if(bitmap!=null)BOOK_COVERS.put(imageUri,bitmap);
+                }
+                if(bitmap!=null){image.setImageBitmap(bitmap);frame.addView(image,new android.widget.FrameLayout.LayoutParams(-1,-1));}
+            }catch(Exception ignored){}
         }
         return frame;
     }
@@ -506,6 +514,8 @@ public class MainActivity extends Activity {
         row.setOnClickListener(v->openBook(m.uri,false,true));
         return row;
     }
+
+    private static final android.util.LruCache<String,android.graphics.Bitmap> BOOK_COVERS = new android.util.LruCache<>(20);
 
     View coverView(String title, String uri) {
         android.widget.FrameLayout frame=new android.widget.FrameLayout(this);
@@ -541,6 +551,8 @@ public class MainActivity extends Activity {
         frame.addView(card,new android.widget.FrameLayout.LayoutParams(-1,-1));
         frame.setClipToOutline(true);
         if(uri!=null && !uri.isEmpty()){
+            android.graphics.Bitmap cached=BOOK_COVERS.get(uri);
+            if(cached!=null){image.setImageBitmap(cached);image.setVisibility(View.VISIBLE);frame.bringChildToFront(image);return frame;}
             new Thread(()->{
                 byte[] bytes=CoverLoader.get(getApplicationContext(),uri);
                 if(bytes==null)return;
@@ -550,7 +562,7 @@ public class MainActivity extends Activity {
                 opts.inSampleSize=Math.max(1,Math.max(opts.outWidth/400,opts.outHeight/600));
                 opts.inJustDecodeBounds=false;
                 android.graphics.Bitmap bmp=android.graphics.BitmapFactory.decodeByteArray(bytes,0,bytes.length,opts);
-                if(bmp!=null)runOnUiThread(()->{image.setImageBitmap(bmp);image.setVisibility(View.VISIBLE);frame.bringChildToFront(image);});
+                if(bmp!=null){BOOK_COVERS.put(uri,bmp);runOnUiThread(()->{if(frame.isAttachedToWindow()){image.setImageBitmap(bmp);image.setVisibility(View.VISIBLE);frame.bringChildToFront(image);}});}
             }).start();
         }
         return frame;
@@ -619,7 +631,6 @@ public class MainActivity extends Activity {
         nav.addView(navItem("📖", "Чтение", active == 1, v -> { if (currentUri.isEmpty()) pick(); else { openBook(currentUri, false, true); } }), new LinearLayout.LayoutParams(0, -2, 1));
         nav.addView(navItem("🎙", "Аудиокнига", false, v -> startActivity(new Intent(this,AudioPlayerActivity.class))), new LinearLayout.LayoutParams(0, -2, 1));
         nav.addView(navItem("", "Загрузки", false, v -> startActivity(new Intent(this,DownloadActivity.class))), new LinearLayout.LayoutParams(0, -2, 1));
-        nav.addView(navItem("⚙️", "Настройки", false, v -> settings()), new LinearLayout.LayoutParams(0, -2, 1));
         return nav;
     }
 
@@ -630,7 +641,7 @@ public class MainActivity extends Activity {
         pad(item, 6, 10, 6, 10);
         if (label.equals("Настройки") || label.equals("Библиотека") || label.equals("Чтение") || label.equals("Закладки") || label.equals("Аудиокнига") || label.equals("Загрузки")) {
             int image = label.equals("Настройки") ? R.drawable.ic_settings :
-                    label.equals("Библиотека") ? R.drawable.ic_library : label.equals("Загрузки") ? R.drawable.ic_downloads : label.equals("Аудиокнига") ? R.drawable.ic_microphone : label.equals("Закладки") ? R.drawable.ic_bookmark : R.drawable.ic_book;
+                    label.equals("Библиотека") ? R.drawable.ic_audio_chapters : label.equals("Загрузки") ? R.drawable.ic_downloads : label.equals("Аудиокнига") ? R.drawable.ic_microphone : label.equals("Закладки") ? R.drawable.ic_bookmark : R.drawable.ic_book;
             ImageView iv = new ImageView(this);
             iv.setImageResource(image);
             iv.setColorFilter(active ? accent() : fg);

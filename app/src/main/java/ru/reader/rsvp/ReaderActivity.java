@@ -138,7 +138,7 @@ public class ReaderActivity extends Activity {
     if(pauseLong && w.length()>=12)mult+=0.5;
     if(pausePunctuation && w.matches(".*[,;:—–]$"))mult+=0.6;
     if(pauseSentence && (w.endsWith(".") || w.endsWith("!") || w.endsWith("?") || w.endsWith("…") || w.endsWith("»")))mult+=1.2;
-    return (long)(base*mult);
+    return (long)(base*(1+(mult-1)*prefs.getInt("pausePercent",100)/100.0));
   }
   // While dragging, show connected book text and a prominent current word.
   void showSeekingWords(){

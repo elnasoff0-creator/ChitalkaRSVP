@@ -48,14 +48,14 @@ public class SettingsActivity extends Activity {
         ScrollView sc=new ScrollView(this);list=col();sc.addView(list);root.addView(sc,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout tabs=new LinearLayout(this);
         TextView reading=action("Чтение",()->{audioTab=false;draw();});
-        TextView audio=action("🎙  Аудионастройки",()->{audioTab=true;draw();});
+        TextView audio=action("Аудио",()->{audioTab=true;draw();});
         tabs.addView(reading,new LinearLayout.LayoutParams(0,dp(55),1));tabs.addView(audio,new LinearLayout.LayoutParams(0,dp(55),1));list.addView(tabs);
         if(audioTab){drawAudioSettings();return;}
         header("Предпросмотр текста");
         preview=new TextView(this);preview.setText("Глава 1\n\nВ дороге солнце мягко освещало страницы книги. Читать должно быть удобно для глаз.");preview.setLineSpacing(dp(5),1.18f);preview.setPadding(dp(19),dp(21),dp(19),dp(21));list.addView(preview,new LinearLayout.LayoutParams(-1,-2));applyPreview();
         header("Шрифт");
         list.addView(action(fontNames[font]+"   ▾",()->new AlertDialog.Builder(this).setTitle("Выбор шрифта").setSingleChoiceItems(fontNames,font,(d,n)->{font=n;put("font",font);d.dismiss();draw();}).setNegativeButton("Отмена",null).show()));
-        gap(9);header("Размер шрифта");
+        gap(9);header("Шрифт");
         LinearLayout sizing=new LinearLayout(this);sizing.setGravity(Gravity.CENTER_VERTICAL);
         Button minus=new Button(this);minus.setText("−");minus.setOnClickListener(v->changeSize(-2));sizing.addView(minus,new LinearLayout.LayoutParams(dp(70),dp(54)));
         sizeValue=text(String.valueOf(size),20,true);sizeValue.setGravity(Gravity.CENTER);sizing.addView(sizeValue,new LinearLayout.LayoutParams(0,dp(54),1));
@@ -79,20 +79,45 @@ public class SettingsActivity extends Activity {
         list.addView(action("Озвучить текущую текстовую книгу",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","tts"))));gap(8);
         list.addView(action("Голос TTS и высота тона",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","voice"))));gap(8);
         list.addView(action("Аудиозакладки",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","marks"))));gap(8);
-        list.addView(action("Выбрать обложку аудиокниги",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","cover").putExtra("audio_book_id",getIntent().getStringExtra("audio_book_id")))));gap(8);
-        list.addView(action("Таймер сна",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","sleep"))));gap(8);
-        list.addView(action("Скорость воспроизведения",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","speed"))));
     }
-    void theme(LinearLayout row,String name,int background,int ink){TextView chip=text(name,13,false);chip.setTextColor(ink);chip.setGravity(Gravity.CENTER);chip.setBackground(rounded(background,14));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(56),1);lp.setMargins(dp(2),0,dp(2),0);row.addView(chip,lp);chip.setOnClickListener(v->{bg=background;fg=ink;put("bg",bg);put("fg",fg);draw();});}
+    GradientDrawable outlined(int color,int radius){GradientDrawable d=rounded(color,radius);d.setStroke(dp(1),0xff938475);return d;}
+    void theme(LinearLayout row,String name,int background,int ink){TextView chip=text(name,13,false);chip.setTextColor(ink);chip.setGravity(Gravity.CENTER);chip.setBackground(outlined(background,14));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(56),1);lp.setMargins(dp(2),0,dp(2),0);row.addView(chip,lp);chip.setOnClickListener(v->{bg=background;fg=ink;put("bg",bg);put("fg",fg);draw();});}
     void palette(int[] colors,boolean background){
         for(int rowStart=0;rowStart<colors.length;rowStart+=4){LinearLayout row=new LinearLayout(this);for(int k=rowStart;k<Math.min(colors.length,rowStart+4);k++){
-            int color=colors[k];TextView tile=new TextView(this);tile.setText(color==(background?bg:fg)?"✓":" ");tile.setGravity(Gravity.CENTER);tile.setTextSize(19);tile.setTextColor(contrast(color));tile.setBackground(rounded(color,13));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(54),1);lp.setMargins(dp(3),dp(3),dp(3),dp(3));row.addView(tile,lp);
+            int color=colors[k];TextView tile=new TextView(this);tile.setText(color==(background?bg:fg)?"✓":" ");tile.setGravity(Gravity.CENTER);tile.setTextSize(19);tile.setTextColor(contrast(color));tile.setBackground(outlined(color,13));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(54),1);lp.setMargins(dp(3),dp(3),dp(3),dp(3));row.addView(tile,lp);
             tile.setOnClickListener(v->{if(background){bg=color;put("bg",bg);if(contrast(bg)==contrast(fg)) {fg=contrast(bg);put("fg",fg);}draw();}else{fg=color;put("fg",fg);draw();}});
         }list.addView(row);}
         list.addView(action("Настроить RGB вручную",()->colorDialog(background)));
     }
     void applyPreview(){if(preview==null)return;preview.setTextColor(fg);preview.setTextSize(Math.max(16,(int)(size*.60f)));preview.setTypeface(face());preview.setBackground(rounded(bg==0xff1e2025?0xff31343a:0xfffff9f1,20));}
     void changeSize(int delta){size=Math.max(16,Math.min(76,size+delta));put("size",size);sizeValue.setText(String.valueOf(size));applyPreview();}
-    void pauses(){String[] labels={"После знаков пунктуации","На длинных словах (12+ букв)","В конце предложения"};String[] keys={"pausePunctuation","pauseLong","pauseSentence"};boolean[] checked=new boolean[3];for(int i=0;i<3;i++)checked[i]=prefs.getBoolean(keys[i],true);new AlertDialog.Builder(this).setTitle("Паузы в скорочтении").setMultiChoiceItems(labels,checked,(d,n,v)->checked[n]=v).setPositiveButton("Сохранить",(d,w)->{SharedPreferences.Editor e=prefs.edit();for(int i=0;i<3;i++)e.putBoolean(keys[i],checked[i]);e.apply();}).setNegativeButton("Отмена",null).show();}
-    void colorDialog(boolean background){int c=background?bg:fg;LinearLayout wrapper=col();wrapper.setPadding(dp(20),0,dp(20),0);SeekBar[] bars=new SeekBar[3];String[] channels={"Красный","Зелёный","Синий"};int[] rgb={Color.red(c),Color.green(c),Color.blue(c)};for(int i=0;i<3;i++){wrapper.addView(text(channels[i],14,false));SeekBar b=new SeekBar(this);b.setMax(255);b.setProgress(rgb[i]);bars[i]=b;wrapper.addView(b);}new AlertDialog.Builder(this).setTitle("Выбор RGB").setView(wrapper).setPositiveButton("Применить",(d,w)->{int color=Color.rgb(bars[0].getProgress(),bars[1].getProgress(),bars[2].getProgress());if(background){bg=color;put("bg",bg);}else{fg=color;put("fg",fg);}draw();}).setNegativeButton("Отмена",null).show();}
+    void pauses(){
+        String[] labels={"После знаков пунктуации","На длинных словах (12+ букв)","В конце предложения"};
+        String[] keys={"pausePunctuation","pauseLong","pauseSentence"};
+        boolean[] checked=new boolean[3];for(int i=0;i<3;i++)checked[i]=prefs.getBoolean(keys[i],true);
+        LinearLayout panel=col();panel.setPadding(dp(14),dp(8),dp(14),0);
+        TextView pct=text("Дополнительная задержка: "+prefs.getInt("pausePercent",100)+"%",15,true);panel.addView(pct);
+        SeekBar strength=new SeekBar(this);strength.setMax(300);strength.setProgress(prefs.getInt("pausePercent",100));panel.addView(strength);
+        strength.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int n,boolean user){pct.setText("Дополнительная задержка: "+n+"%");}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}});
+        new AlertDialog.Builder(this).setTitle("Паузы в скорочтении").setMultiChoiceItems(labels,checked,(d,n,v)->checked[n]=v)
+            .setView(panel).setPositiveButton("Сохранить",(d,w)->{SharedPreferences.Editor e=prefs.edit();for(int i=0;i<3;i++)e.putBoolean(keys[i],checked[i]);e.putInt("pausePercent",strength.getProgress());e.apply();})
+            .setNegativeButton("Отмена",null).show();
+    }
+    void colorDialog(boolean background){
+        int c=background?bg:fg;
+        LinearLayout wrapper=col();wrapper.setPadding(dp(20),0,dp(20),0);
+        View sample=new View(this);sample.setBackground(outlined(c,8));
+        LinearLayout.LayoutParams sampleLp=new LinearLayout.LayoutParams(dp(58),dp(58));sampleLp.gravity=Gravity.CENTER_HORIZONTAL;sampleLp.bottomMargin=dp(12);
+        wrapper.addView(sample,sampleLp);
+        SeekBar[] bars=new SeekBar[3];String[] channels={"Красный","Зелёный","Синий"};
+        int[] rgb={Color.red(c),Color.green(c),Color.blue(c)};
+        for(int i=0;i<3;i++){wrapper.addView(text(channels[i],14,false));SeekBar bar=new SeekBar(this);bar.setMax(255);bar.setProgress(rgb[i]);bars[i]=bar;wrapper.addView(bar);}
+        for(SeekBar bar:bars)bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            public void onProgressChanged(SeekBar b,int value,boolean from){sample.setBackground(outlined(Color.rgb(bars[0].getProgress(),bars[1].getProgress(),bars[2].getProgress()),8));}
+            public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
+        });
+        new AlertDialog.Builder(this).setTitle("Выбор RGB").setView(wrapper)
+            .setPositiveButton("Применить",(d,w)->{int color=Color.rgb(bars[0].getProgress(),bars[1].getProgress(),bars[2].getProgress());if(background){bg=color;put("bg",bg);}else{fg=color;put("fg",fg);}draw();})
+            .setNegativeButton("Отмена",null).show();
+    }
 }

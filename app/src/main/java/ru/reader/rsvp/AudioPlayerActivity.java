@@ -22,14 +22,14 @@ public class AudioPlayerActivity extends Activity {
     int dp(int n){return (int)(getResources().getDisplayMetrics().density*n+.5f);}
     GradientDrawable bg(int color,int radius){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(radius));return d;}
     TextView label(String s,int size){TextView v=new TextView(this);v.setText(s);v.setTextSize(size);v.setTextColor(TEXT);return v;}
-    TextView control(String text,View.OnClickListener action){TextView t=label(text,19);t.setGravity(Gravity.CENTER);t.setBackground(bg(0xfffff8ef,20));t.setOnClickListener(action);t.setPadding(dp(10),dp(12),dp(10),dp(12));return t;}
+    TextView control(String text,View.OnClickListener action){TextView t=label(text,19);t.setGravity(Gravity.CENTER);t.setBackground(bg(0xfffff8ef,13));t.setOnClickListener(action);t.setPadding(dp(10),dp(12),dp(10),dp(12));return t;}
     TextView topAction(int icon, String description, View.OnClickListener action){
         TextView view=control("",action);
         view.setContentDescription(description);
         android.graphics.drawable.Drawable drawable=getDrawable(icon);
         if(drawable!=null){drawable=drawable.mutate();drawable.setTint(TEXT);drawable.setBounds(0,0,dp(23),dp(23));view.setCompoundDrawables(drawable,null,null,null);}
         view.setGravity(Gravity.CENTER);
-        view.setPadding(dp(13),0,0,0);
+        view.setPadding(dp(11),0,0,0);
         return view;
     }
     LinearLayout bottomIconControl(int iconRes,String hint,boolean primary,int iconSizeDp,View.OnClickListener action){
@@ -43,16 +43,17 @@ public class AudioPlayerActivity extends Activity {
         GradientDrawable buttonBackground;
         if(primary){
             buttonBackground=new GradientDrawable();
-            buttonBackground.setShape(GradientDrawable.OVAL);
+            buttonBackground.setShape(GradientDrawable.RECTANGLE);
+            buttonBackground.setCornerRadius(dp(16));
             buttonBackground.setColor(ACCENT);
         }else{
-            buttonBackground=bg(0xfffff8ef,22);
+            buttonBackground=bg(0xfffff8ef,13);
         }
         holder.setBackground(buttonBackground);
         holder.setClipToOutline(false);
         holder.setOnClickListener(action);
         holder.setContentDescription(primary?"Воспроизвести или поставить на паузу":hint);
-        int holderSize=primary?dp(60):dp(44);
+        int holderSize=dp(43);
         FrameLayout.LayoutParams hp=new FrameLayout.LayoutParams(holderSize,holderSize,Gravity.CENTER);
         buttonSlot.addView(holder,hp);
         ImageView icon=new ImageView(this);
@@ -70,7 +71,10 @@ public class AudioPlayerActivity extends Activity {
     }
     void command(String action){startService(new Intent(this,AudioPlaybackService.class).setAction(action));handler.postDelayed(this::refresh,150);}
     @Override public void onCreate(Bundle b){super.onCreate(b);bookUri=getIntent().getStringExtra("book_uri");if(bookUri==null||bookUri.isEmpty())bookUri=getSharedPreferences("reader",0).getString("uri","");String id=getIntent().getStringExtra("audio_book_id");if(id!=null)for(AudioLibrary.Book item:AudioLibrary.load(this))if(id.equals(item.id)){selected=item;break;}draw();String audioAction=getIntent().getStringExtra("audio_action");if(audioAction!=null)handler.post(()->{switch(audioAction){case "import":importFolder();break;case "tts":loadTts(bookUri,getSharedPreferences("reader",0).getInt("index",0));break;case "voice":voiceMenu();break;case "marks":showMarks();break;case "cover":chooseCover();break;case "sleep":sleepMenu();break;case "speed":speedMenu();break;}});if(selected!=null&&(AudioPlaybackService.instance==null||AudioPlaybackService.instance.isTtsMode()||!selected.id.equals(AudioPlaybackService.instance.getBookId())))openSelected(selected);if(getIntent().getBooleanExtra("start_tts",false)&&!bookUri.isEmpty())loadTts(bookUri,getIntent().getIntExtra("word_index",0));}
-    @Override protected void onResume(){super.onResume();if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPlaybackService.ACTION_STATE),Context.RECEIVER_NOT_EXPORTED);else registerReceiver(receiver,new IntentFilter(AudioPlaybackService.ACTION_STATE));handler.post(updater);}
+    @Override protected void onResume(){super.onResume();
+        if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)
+            requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},427);
+if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPlaybackService.ACTION_STATE),Context.RECEIVER_NOT_EXPORTED);else registerReceiver(receiver,new IntentFilter(AudioPlaybackService.ACTION_STATE));handler.post(updater);}
     @Override protected void onPause(){handler.removeCallbacks(updater);try{unregisterReceiver(receiver);}catch(Exception ignored){}super.onPause();}
     void draw(){
         root=new LinearLayout(this);root.setOrientation(1);root.setBackgroundColor(BACKGROUND);
@@ -79,7 +83,7 @@ public class AudioPlayerActivity extends Activity {
         root.addView(top,new LinearLayout.LayoutParams(-1,dp(54)));
         top.addView(topAction(R.drawable.ic_back,"Назад",v->finish()),new LinearLayout.LayoutParams(dp(44),dp(46)));
         chapterPicker=topAction(R.drawable.ic_audio_chapters,"Выбрать главу",v->chapters());
-        top.addView(chapterPicker,new LinearLayout.LayoutParams(0,dp(50),1));
+        top.addView(chapterPicker,new LinearLayout.LayoutParams(dp(48),dp(50)));
         LinearLayout speedGroup=new LinearLayout(this);speedGroup.setOrientation(1);speedGroup.setGravity(Gravity.CENTER);
         speedGroup.setBackground(bg(0xfffff8ef,15));
         android.widget.ImageView speedIcon=new android.widget.ImageView(this);
@@ -122,6 +126,8 @@ public class AudioPlayerActivity extends Activity {
         coverArea.setBackground(bg(0xfffff8ef,26));
         LinearLayout.LayoutParams cap=new LinearLayout.LayoutParams(-1,0,1);
         cap.topMargin=dp(12);cap.bottomMargin=dp(12);root.addView(coverArea,cap);
+        coverArea.setOnLongClickListener(v->{chooseCover();return true;});
+        coverArea.setOnClickListener(v->chooseCover());
         coverImage=new ImageView(this);coverImage.setScaleType(ImageView.ScaleType.FIT_CENTER);
         coverArea.addView(coverImage,new android.widget.FrameLayout.LayoutParams(-1,-1));
         updateCover();
@@ -159,7 +165,7 @@ public class AudioPlayerActivity extends Activity {
     }
     void chooseCover(){if(selected==null){Toast.makeText(this,"Выберите аудиокнигу в библиотеке",Toast.LENGTH_LONG).show();return;}Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,COVER_PICK);}
     void updateCover(){if(coverImage==null)return;String id=selected==null?"":selected.id;String uri=getSharedPreferences("reader",0).getString("audio_cover:"+id,"");if(uri.isEmpty()){coverImage.setImageDrawable(null);coverImage.setVisibility(View.INVISIBLE);return;}try{coverImage.setImageURI(Uri.parse(uri));coverImage.setVisibility(View.VISIBLE);}catch(Exception e){coverImage.setVisibility(View.INVISIBLE);}}
-    void selectBook(){ArrayList<AudioLibrary.Book> all=AudioLibrary.load(this);if(all.isEmpty()){importFolder();return;}String[] names=new String[all.size()];for(int k=0;k<all.size();k++)names[k]=all.get(k).name;new AlertDialog.Builder(this).setTitle("Выбрать аудиокнигу").setItems(names,(d,n)->{openSelected(all.get(n));draw();}).setNegativeButton("Отмена",null).show();}
+    void selectBook(){ArrayList<AudioLibrary.Book> all=AudioLibrary.load(this);if(all.isEmpty()){importFolder();return;}String[] names=new String[all.size()];for(int k=0;k<all.size();k++)names[k]=all.get(k).name;new AlertDialog.Builder(this).setTitle("Выбрать аудиокнигу (удерживайте обложку для изменения)").setItems(names,(d,n)->{openSelected(all.get(n));draw();}).setNeutralButton("Обложка выбранной книги",(d,w)->chooseCover()).setNegativeButton("Отмена",null).show();}
     void seekPosition(int pos){startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SEEK).putExtra("position",pos));}
     void changeChapter(int delta){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null||s.isTtsMode())return;goChapter(Math.max(0,Math.min(s.getChapterCount()-1,s.getSegment()+delta)));}
     void goChapter(int n){startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.CHAPTER).putExtra("chapter",n));}
