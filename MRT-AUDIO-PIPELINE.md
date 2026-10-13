@@ -9,7 +9,7 @@
 
 ## Lifecycle
 
-1. Press **Слушать**. Controller fills queue of `1 + prefetchAhead` clips (play clip + 1..3 next clips). Cached MP3 paths are reused.
+1. Press **Слушать**. Controller fills a window of `prefetchAhead` clips (current + 2..9 future clips, configurable 3..10). Cached MP3 paths are reused.
 2. Missing first MP3: MRT receives its text, WebView decodes original encoded chunks, JS emits `audioPart` with `session` id. Writer queues data and validates final MP3.
 3. File ready: playback engine starts first clip (only after MP3 validation), while synthesis continues on the next missing clip.
 4. Standby second MP3 may be decoded/prepared early but MUST NOT play before active completion.

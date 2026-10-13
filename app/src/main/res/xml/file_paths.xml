@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <external-files-path name="update_apk" path="Download/" />
+    <external-files-path name="mrt_book_audio" path="Documents/ChitalkaRSVP/Books/" />
+    <files-path name="mrt_book_audio_internal" path="ChitalkaRSVP/Books/" />
 </paths>

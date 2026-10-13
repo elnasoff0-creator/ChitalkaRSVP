@@ -16,6 +16,7 @@
         <service android:name=".AudioPlaybackService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <activity android:name=".AudioPlayerActivity" android:exported="false" />
         <activity android:name=".MrtOnlineActivity" android:exported="false" />
+        <activity android:name=".MrtFileExplorerActivity" android:exported="false" />
         <activity android:name=".SettingsActivity" android:exported="false" />
         <activity android:name=".ReaderActivity" android:exported="false" />
         <activity android:name=".MainActivity" android:exported="true">
