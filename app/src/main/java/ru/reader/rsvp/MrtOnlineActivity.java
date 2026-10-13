@@ -83,11 +83,11 @@ public class MrtOnlineActivity extends Activity {
     private final ArrayList<Integer> wordOffsets = new ArrayList<>();
     private final ArrayList<Integer> history = new ArrayList<>();
     private WebView web;
-    private TextView info, captureInfo, hint, fragmentText;
+    private TextView info, captureInfo, hint, fragmentText, queueStatus;
     private LinearLayout nativeReader;
     private ScrollView nativeTextScroll;
     private int optionsLoadAttempts;
-    private Button voiceChoice, speedChoice, emotionChoice, fallbackButton;
+    private Button voiceChoice, speedChoice, emotionChoice, fallbackButton, autoloadButton, stopButton;
     private final LinkedHashMap<String, String> voices = new LinkedHashMap<>();
     private final LinkedHashMap<String, String> speeds = new LinkedHashMap<>();
     private final LinkedHashMap<String, String> emotions = new LinkedHashMap<>();
@@ -175,6 +175,37 @@ public class MrtOnlineActivity extends Activity {
         b.setBackground(rounded(0xfffff9f0, 14));
         return b;
     }
+    private TextView topAction(int icon, String description, View.OnClickListener action) {
+        TextView view = new TextView(this);
+        view.setGravity(Gravity.CENTER);
+        view.setBackground(rounded(0xfffff9f0, 13));
+        view.setPadding(dp(11), 0, dp(11), 0);
+        view.setContentDescription(description);
+        android.graphics.drawable.Drawable drawable = getDrawable(icon);
+        if (drawable != null) {
+            drawable = drawable.mutate();
+            drawable.setTint(INK);
+            drawable.setBounds(0, 0, dp(22), dp(22));
+            view.setCompoundDrawables(drawable, null, null, null);
+        }
+        view.setOnClickListener(action);
+        return view;
+    }
+    private Button iconPill(int icon, String title, int bgColor, int textColor) {
+        Button b = button(title);
+        b.setTextColor(textColor);
+        b.setBackground(rounded(bgColor, 15));
+        android.graphics.drawable.Drawable drawable = getDrawable(icon);
+        if (drawable != null) {
+            drawable = drawable.mutate();
+            drawable.setTint(textColor);
+            drawable.setBounds(0, 0, dp(18), dp(18));
+            b.setCompoundDrawables(drawable, null, null, null);
+            b.setCompoundDrawablePadding(dp(8));
+        }
+        b.setPadding(dp(12), dp(5), dp(12), dp(5));
+        return b;
+    }
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -221,26 +252,30 @@ public class MrtOnlineActivity extends Activity {
 
         LinearLayout titleRow = new LinearLayout(this);
         titleRow.setGravity(Gravity.CENTER_VERTICAL);
-        root.addView(titleRow, new LinearLayout.LayoutParams(-1, dp(50)));
-        Button back = button("‹");
-        back.setContentDescription("Назад к чтению");
-        back.setOnClickListener(v -> finish());
-        titleRow.addView(back, new LinearLayout.LayoutParams(dp(45), dp(45)));
+        root.addView(titleRow, new LinearLayout.LayoutParams(-1, dp(52)));
+        titleRow.addView(topAction(R.drawable.ic_back, "Назад к чтению", v -> finish()), new LinearLayout.LayoutParams(dp(44), dp(46)));
         TextView heading = new TextView(this);
         heading.setText("Слушать онлайн · MRT");
         heading.setTextColor(INK);
         heading.setTextSize(20);
         heading.setTypeface(Typeface.SERIF, Typeface.BOLD);
-        heading.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams headLp = new LinearLayout.LayoutParams(0, -1, 1);
+        LinearLayout.LayoutParams headLp = new LinearLayout.LayoutParams(0, -2, 1);
         headLp.leftMargin = dp(8);
         titleRow.addView(heading, headLp);
+        LinearLayout.LayoutParams topBtnLp = new LinearLayout.LayoutParams(dp(46), dp(46));
+        titleRow.addView(topAction(R.drawable.ic_queue, "Список очереди", v -> showQueueDialog()), topBtnLp);
+        LinearLayout.LayoutParams topBtnLp2 = new LinearLayout.LayoutParams(dp(46), dp(46));
+        topBtnLp2.leftMargin = dp(6);
+        titleRow.addView(topAction(R.drawable.ic_folder_audio, "Папка аудио", v -> openAudioFolder()), topBtnLp2);
+        LinearLayout.LayoutParams topBtnLp3 = new LinearLayout.LayoutParams(dp(46), dp(46));
+        topBtnLp3.leftMargin = dp(6);
+        titleRow.addView(topAction(R.drawable.ic_settings, "Онлайн-настройки", v -> startActivity(new Intent(this, SettingsActivity.class).putExtra("online_tab", true))), topBtnLp3);
 
         info = new TextView(this);
         info.setText("Открываю электронную книгу…");
         info.setTextColor(INK);
         info.setTextSize(13);
-        info.setPadding(dp(5), dp(6), dp(5), dp(3));
+        info.setPadding(dp(5), dp(6), dp(5), dp(2));
         root.addView(info);
 
         captureInfo = new TextView(this);
@@ -250,125 +285,72 @@ public class MrtOnlineActivity extends Activity {
         captureInfo.setPadding(dp(5), 0, dp(5), dp(4));
         root.addView(captureInfo);
 
-        LinearLayout transport = new LinearLayout(this);
-        transport.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams transportLp = new LinearLayout.LayoutParams(-1, dp(50));
-        transportLp.topMargin = dp(5);
-        root.addView(transport, transportLp);
+        LinearLayout autoloadRow = new LinearLayout(this);
+        autoloadRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams autoloadLp = new LinearLayout.LayoutParams(-1, dp(44));
+        autoloadLp.topMargin = dp(4);
+        root.addView(autoloadRow, autoloadLp);
+        autoloadButton = iconPill(R.drawable.ic_autoload, "Автоподгрузка", 0xffa26949, Color.WHITE);
+        autoloadButton.setOnClickListener(v -> toggleAutoload());
+        autoloadRow.addView(autoloadButton, new LinearLayout.LayoutParams(0, -1, 1.05f));
+        queueStatus = new TextView(this);
+        queueStatus.setTextColor(INK);
+        queueStatus.setTextSize(13);
+        queueStatus.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+        LinearLayout.LayoutParams statusLp = new LinearLayout.LayoutParams(0, -1, 1f);
+        statusLp.leftMargin = dp(10);
+        autoloadRow.addView(queueStatus, statusLp);
 
-        play = button("▶ Слушать");
-        play.setBackground(rounded(0xffa26949, 14));
-        play.setTextColor(Color.WHITE);
-        play.setOnClickListener(v -> startPlayback());
-        transport.addView(play, new LinearLayout.LayoutParams(0, dp(48), 1.25f));
-        pause = button("Ⅱ Пауза");
-        pause.setEnabled(false);
-        pause.setOnClickListener(v -> togglePause());
-        LinearLayout.LayoutParams pauseLp = new LinearLayout.LayoutParams(0, dp(48), 1);
-        pauseLp.leftMargin = dp(6);
-        transport.addView(pause, pauseLp);
-        Button stop = button("■ Стоп");
-        stop.setOnClickListener(v -> stopListeningKeepCache());
-        LinearLayout.LayoutParams stopLp = new LinearLayout.LayoutParams(0, dp(48), 1);
-        stopLp.leftMargin = dp(6);
-        transport.addView(stop, stopLp);
-
-        LinearLayout navigation = new LinearLayout(this);
-        navigation.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams navLp = new LinearLayout.LayoutParams(-1, dp(46));
-        navLp.topMargin = dp(7);
-        root.addView(navigation, navLp);
-        previous = button("‹ Фрагмент");
-        previous.setEnabled(false);
+        LinearLayout controls = new LinearLayout(this);
+        controls.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams controlsLp = new LinearLayout.LayoutParams(-1, dp(56));
+        controlsLp.topMargin = dp(8);
+        root.addView(controls, controlsLp);
+        previous = button("");
+        previous.setBackground(rounded(0xfffff9f0, 16));
         previous.setOnClickListener(v -> previousSegment());
-        navigation.addView(previous, new LinearLayout.LayoutParams(0, -1, 1));
-        next = button("Фрагмент ›");
-        next.setEnabled(false);
+        setButtonIcon(previous, R.drawable.ic_prev_chapter, INK);
+        controls.addView(previous, new LinearLayout.LayoutParams(0, -1, 1));
+        play = button("");
+        play.setBackground(rounded(0xffa26949, 16));
+        play.setOnClickListener(v -> startPlayback());
+        setButtonIcon(play, R.drawable.ic_play, Color.WHITE);
+        LinearLayout.LayoutParams playLp = new LinearLayout.LayoutParams(0, -1, 1);
+        playLp.leftMargin = dp(8);
+        controls.addView(play, playLp);
+        stopButton = button("");
+        stopButton.setBackground(rounded(0xfffff9f0, 16));
+        stopButton.setOnClickListener(v -> stopListeningKeepCache());
+        setButtonIcon(stopButton, R.drawable.ic_stop, INK);
+        LinearLayout.LayoutParams stopLp = new LinearLayout.LayoutParams(0, -1, 1);
+        stopLp.leftMargin = dp(8);
+        controls.addView(stopButton, stopLp);
+        next = button("");
+        next.setBackground(rounded(0xfffff9f0, 16));
         next.setOnClickListener(v -> nextSegment(false));
+        setButtonIcon(next, R.drawable.ic_next_chapter, INK);
         LinearLayout.LayoutParams nextLp = new LinearLayout.LayoutParams(0, -1, 1);
-        nextLp.leftMargin = dp(7);
-        navigation.addView(next, nextLp);
+        nextLp.leftMargin = dp(8);
+        controls.addView(next, nextLp);
 
-        lengthButton = button("Размер фрагмента: " + segmentLimit + " символов ▾");
-        lengthButton.setTextSize(12);
-        lengthButton.setContentDescription("Настроить количество символов в текстовом фрагменте MRT");
-        lengthButton.setOnClickListener(v -> MrtSegmentSettings.show(this, getSharedPreferences("reader", 0), this::changeSegmentLength));
-        LinearLayout.LayoutParams lengthLp = new LinearLayout.LayoutParams(-1, dp(40));
-        lengthLp.topMargin = dp(7);
-        root.addView(lengthButton, lengthLp);
-
+        pause = button("");
+        pause.setVisibility(View.GONE);
+        lengthButton = button("Размер фрагмента");
+        lengthButton.setVisibility(View.GONE);
         continuous = new CheckBox(this);
-        continuous.setText("Автоматически озвучивать следующий фрагмент");
-        continuous.setTextSize(12);
-        continuous.setTextColor(INK);
-        continuous.setButtonTintList(android.content.res.ColorStateList.valueOf(0xff94583b));
         continuous.setChecked(getSharedPreferences("reader", 0).getBoolean("mrt_auto_continue", true));
-        continuous.setOnCheckedChangeListener((v, isChecked) -> getSharedPreferences("reader", 0).edit().putBoolean("mrt_auto_continue", isChecked).apply());
-        root.addView(continuous);
-
+        continuous.setVisibility(View.GONE);
         prefetchToggle = new CheckBox(this);
-        prefetchToggle.setText("Предзагрузка аудио в кэш · beta");
-        prefetchToggle.setTextColor(INK);
-        prefetchToggle.setTextSize(12);
-        prefetchToggle.setButtonTintList(android.content.res.ColorStateList.valueOf(0xff94583b));
         prefetchToggle.setChecked(getSharedPreferences("reader", 0).getBoolean("mrt_prefetch", true));
-        prefetchToggle.setOnCheckedChangeListener((view, enabled) -> {
-            getSharedPreferences("reader", 0).edit().putBoolean("mrt_prefetch", enabled).apply();
-            if (suppressPrefetchToggle) return;
-            if (!enabled) {
-                if (prefetchActive) {
-                    stopPrefetch();
-                    requestStop(() -> {
-                        if (!closed) {
-                            eval("window.__rsvpMrt && window.__rsvpMrt.captureDisable(true)", null);
-                            insertSegment(false);
-                        }
-                    });
-                } else eval("window.__rsvpMrt && window.__rsvpMrt.captureDisable(true)", null);
-            } else if (prefetchActive) {
-                // Enabling/changing the setting must NEVER stop native playback.
-                drivePrefetch();
-            } else if (playing || paused) {
-                // A manually running WebUI cannot generate in parallel with native audio.
-                requestStop(this::beginPrefetch);
-            }
-        });
-        root.addView(prefetchToggle);
+        prefetchToggle.setVisibility(View.GONE);
         prefetchAhead = MrtPrefetchSettings.get(getSharedPreferences("reader", 0));
-        aheadButton = button(MrtPrefetchSettings.label(prefetchAhead) + " ▾");
-        aheadButton.setTextSize(12);
-        aheadButton.setOnClickListener(v -> MrtPrefetchSettings.show(this,
-                getSharedPreferences("reader", 0), count -> {
-                    prefetchAhead = count;
-                    aheadButton.setText(MrtPrefetchSettings.label(prefetchAhead) + " ▾");
-                    // Increasing the window fills the extra slots without stopping audio.
-                    if (prefetchActive) drivePrefetch();
-                }));
-        root.addView(aheadButton, new LinearLayout.LayoutParams(-1, dp(36)));
-
-        LinearLayout storageActions = new LinearLayout(this);
-        LinearLayout.LayoutParams actionsLp = new LinearLayout.LayoutParams(-1, dp(39));
-        actionsLp.topMargin = dp(4);
-        root.addView(storageActions, actionsLp);
-        Button openFolder = button("📁 Папка аудио");
-        openFolder.setOnClickListener(v -> openAudioFolder());
-        storageActions.addView(openFolder, new LinearLayout.LayoutParams(0, -1, 1));
-        Button clearFiles = button("Очистить MP3 и очередь");
-        clearFiles.setOnClickListener(v -> confirmClearAudio());
-        LinearLayout.LayoutParams clearLp = new LinearLayout.LayoutParams(0, -1, 1.25f);
-        clearLp.leftMargin = dp(6);
-        storageActions.addView(clearFiles, clearLp);
-
-        hint = new TextView(this);
-        hint.setText("Текст отображается в читалке. Движок MRT работает в фоне экрана. Для проверки автоперехода выберите 100–300 символов; для обычного прослушивания удобнее 800–2000.");
-        hint.setTextColor(MUTED);
-        hint.setTextSize(12);
-        hint.setPadding(dp(5), 0, dp(5), dp(5));
-        root.addView(hint);
+        aheadButton = button(MrtPrefetchSettings.label(prefetchAhead));
+        aheadButton.setVisibility(View.GONE);
 
         LinearLayout selectors = new LinearLayout(this);
         selectors.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams selectorLp = new LinearLayout.LayoutParams(-1, dp(48));
+        selectorLp.topMargin = dp(10);
         selectorLp.bottomMargin = dp(8);
         root.addView(selectors, selectorLp);
         voiceChoice = button("Голос ▾");
@@ -395,8 +377,6 @@ public class MrtOnlineActivity extends Activity {
         selectors.addView(emotionChoice, emotionLp);
 
         web = new WebView(this) {
-            // A native transport sends touches to the actual MRT button.
-            // The source page's editable textarea must never summon Android's keyboard.
             @Override public boolean onCheckIsTextEditor() { return false; }
             @Override public InputConnection onCreateInputConnection(EditorInfo outAttrs) { return null; }
         };
@@ -418,21 +398,17 @@ public class MrtOnlineActivity extends Activity {
             @Override public void onPageFinished(WebView view, String url) {
                 if (!isTrustedPage(Uri.parse(url))) return;
                 pageLoaded = true;
-                // A provider can advertise document-start support even if its
-                // injection fails on this page. Recover with a late observer.
                 eval("!!window.__rsvpMrt", present -> {
                     if (!"true".equals(present)) installLateObserverIfNeeded();
                     waitForEngine(0);
                 });
             }
             @Override public void onReceivedError(WebView view, WebResourceRequest req, WebResourceError error) {
-                if (req.isForMainFrame()) {
-                    info.setText("Страница MRT недоступна. Проверьте подключение и повторите попытку.");
-                }
+                if (req.isForMainFrame()) info.setText("Страница MRT недоступна. Проверьте подключение и повторите попытку.");
             }
         });
         FrameLayout engineRegion = new FrameLayout(this);
-        LinearLayout.LayoutParams engineLp = new LinearLayout.LayoutParams(-1, dp(390));
+        LinearLayout.LayoutParams engineLp = new LinearLayout.LayoutParams(-1, dp(430));
         root.addView(engineRegion, engineLp);
         engineRegion.addView(web, new FrameLayout.LayoutParams(-1, -1));
         web.setFocusable(false);
@@ -449,13 +425,10 @@ public class MrtOnlineActivity extends Activity {
         currentLabel.setTextSize(13);
         nativeReader.addView(currentLabel);
         queueTitle = new TextView(this);
-        queueTitle.setText("Очередь MP3 · нажмите, чтобы свернуть");
-        queueTitle.setTextColor(MUTED);
-        queueTitle.setTextSize(12);
-        LinearLayout.LayoutParams queueTitleLp = new LinearLayout.LayoutParams(-1, -2);
-        queueTitleLp.topMargin = dp(5);
-        nativeReader.addView(queueTitle, queueTitleLp);
+        queueTitle.setVisibility(View.GONE);
+        nativeReader.addView(queueTitle, new LinearLayout.LayoutParams(-1, -2));
         queueList = new ListView(this);
+        queueList.setVisibility(View.GONE);
         queueList.setDividerHeight(1);
         queueList.setCacheColorHint(Color.TRANSPARENT);
         queueList.setBackground(rounded(0xfff5ebdd, 9));
@@ -466,7 +439,7 @@ public class MrtOnlineActivity extends Activity {
             @Override public View getView(int index, View convertView, android.view.ViewGroup parent) {
                 LinearLayout item = convertView instanceof LinearLayout ? (LinearLayout)convertView : new LinearLayout(MrtOnlineActivity.this);
                 item.setOrientation(LinearLayout.VERTICAL);
-                item.setPadding(dp(8), dp(3), dp(8), dp(3));
+                item.setPadding(dp(10), dp(6), dp(10), dp(6));
                 TextView heading, details;
                 if (item.getChildCount() == 2) {
                     heading = (TextView)item.getChildAt(0);
@@ -483,29 +456,23 @@ public class MrtOnlineActivity extends Activity {
                 PrefetchClip clip = audioArchive.get(index);
                 boolean loading = clip == generatingClip;
                 boolean ready = clip.file != null && clip.file.isFile();
-                boolean current = prefetchActive && !audioQueue.isEmpty() && audioQueue.get(0)==clip;
-                String status = clip.played ? "Прослушан" :
-                        loading ? "Скачивается" : ready ? (current ? "Воспроизводится / завершён" : "Завершён") : "Ожидает";
+                boolean current = prefetchActive && !audioQueue.isEmpty() && audioQueue.get(0) == clip;
+                String status = clip.played ? "Прослушан" : loading ? "Скачивается" : ready ? (current ? "Текущий" : "Готов") : "Ожидает";
                 int n = clip.chunkCount;
                 long bytes = clip.fileBytes;
                 if (loading) { n = encodedChunks; bytes = encodedBytes; }
                 else if (ready && bytes == 0) bytes = clip.file.length();
-                heading.setText("№" + (index+1) + " · " + clip.text.length() + " символов · " + status);
-                details.setText(clip.cacheKey.substring(0,Math.min(10,clip.cacheKey.length())) + ".mp3 · "
-                        + "чанков: " + n + " · " + String.format(java.util.Locale.ROOT, "%.1f",bytes/1024.0) + " КБ");
-                int color = clip.played ? 0xff999999 : (loading ? 0xff9b603e : INK);
+                heading.setText("№" + (index + 1) + " · " + clip.text.length() + " символов · " + status);
+                details.setText(clip.cacheKey.substring(0, Math.min(10, clip.cacheKey.length())) + ".mp3 · чанков: " + n + " · " + String.format(java.util.Locale.ROOT, "%.1f", bytes / 1024.0) + " КБ");
+                int color = clip.played ? 0xff999999 : (loading ? 0xff9b603e : current ? 0xff305c35 : INK);
                 heading.setTextColor(color);
                 details.setTextColor(clip.played ? 0xffaaaaaa : MUTED);
                 return item;
             }
         };
         queueList.setAdapter(queueAdapter);
-        nativeReader.addView(queueList, new LinearLayout.LayoutParams(-1, dp(137)));
-        queueTitle.setOnClickListener(v -> {
-            boolean expanded = queueList.getVisibility() == View.VISIBLE;
-            queueList.setVisibility(expanded ? View.GONE : View.VISIBLE);
-            queueTitle.setContentDescription(expanded ? "Развернуть очередь MP3" : "Свернуть очередь MP3");
-        });
+        nativeReader.addView(queueList, new LinearLayout.LayoutParams(-1, 1));
+
         nativeTextScroll = new ScrollView(this);
         nativeTextScroll.setFillViewport(true);
         nativeTextScroll.setVerticalScrollBarEnabled(true);
@@ -521,6 +488,9 @@ public class MrtOnlineActivity extends Activity {
         fragmentText.setTextIsSelectable(false);
         nativeTextScroll.addView(fragmentText, new ScrollView.LayoutParams(-1, -2));
 
+        hint = new TextView(this);
+        hint.setVisibility(View.GONE);
+        root.addView(hint, new LinearLayout.LayoutParams(-1, -2));
         fallbackButton = button("Показать веб-панель MRT");
         fallbackButton.setTextSize(11);
         fallbackButton.setVisibility(View.GONE);
@@ -530,6 +500,19 @@ public class MrtOnlineActivity extends Activity {
         root.addView(fallbackButton, fallbackLp);
         installEarlyObserver();
         web.loadUrl(PAGE);
+    }
+
+    private void setButtonIcon(Button button, int iconRes, int tint) {
+        android.graphics.drawable.Drawable drawable = getDrawable(iconRes);
+        if (drawable != null) {
+            drawable = drawable.mutate();
+            drawable.setTint(tint);
+            drawable.setBounds(0, 0, dp(22), dp(22));
+            button.setCompoundDrawables(drawable, null, null, null);
+        }
+        button.setPadding(0, 0, 0, 0);
+        button.setText("");
+        button.setGravity(Gravity.CENTER);
     }
 
     /** Never give IME focus to the hidden third-party textarea. */
@@ -547,6 +530,66 @@ public class MrtOnlineActivity extends Activity {
         if (fallbackButton != null) fallbackButton.setText(visible ? "Скрыть веб-панель MRT" : "Показать веб-панель MRT");
         eval("window.__rsvpMrt && window.__rsvpMrt.setNativeUiHidden(" + (!visible) + ")", null);
         if (!visible) hideKeyboard();
+    }
+
+    private void toggleAutoload() {
+        if (prefetchActive) {
+            stopPrefetch();
+            captureInfo.setText("Автоподгрузка остановлена.");
+            updateUi();
+            return;
+        }
+        beginPrefetch(false);
+        captureInfo.setText("Автоподгрузка включена. Фрагменты будут сохраняться в очередь без автозапуска звука.");
+        updateUi();
+    }
+
+    private void startPrefetchAt(int startWord, boolean autoplay) {
+        stopPrefetch();
+        requestStop(() -> {
+            if (closed) return;
+            wordIndex = Math.max(0, Math.min(startWord, Math.max(0, wordOffsets.size() - 1)));
+            nextWord = wordIndex;
+            history.add(wordIndex);
+            savePosition();
+            beginPrefetch(autoplay);
+        });
+    }
+
+    private void showQueueDialog() {
+        if (audioArchive.isEmpty()) {
+            Toast.makeText(this, "Очередь MP3 пока пуста", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final AlertDialog[] holder = new AlertDialog[1];
+        ListView list = new ListView(this);
+        list.setDividerHeight(1);
+        list.setAdapter(queueAdapter);
+        list.setOnItemClickListener((parent, view, position, id) -> {
+            PrefetchClip clip = audioArchive.get(position);
+            if (holder[0] != null) holder[0].dismiss();
+            startPrefetchAt(clip.start, clip.file != null && clip.file.isFile());
+        });
+        LinearLayout wrapper = new LinearLayout(this);
+        wrapper.setOrientation(LinearLayout.VERTICAL);
+        TextView note = new TextView(this);
+        note.setText("Выберите, с какого фрагмента продолжить.");
+        note.setTextColor(MUTED);
+        note.setTextSize(12);
+        note.setPadding(dp(16), dp(12), dp(16), dp(8));
+        wrapper.addView(note);
+        wrapper.addView(list, new LinearLayout.LayoutParams(-1, dp(360)));
+        Button clear = iconPill(R.drawable.ic_clear_audio, "Очистить MP3", 0xfffff9f0, INK);
+        clear.setOnClickListener(v -> confirmClearAudio());
+        LinearLayout footer = new LinearLayout(this);
+        footer.setGravity(Gravity.END);
+        footer.setPadding(dp(12), dp(10), dp(12), dp(10));
+        footer.addView(clear, new LinearLayout.LayoutParams(-2, dp(42)));
+        wrapper.addView(footer);
+        holder[0] = new AlertDialog.Builder(this).setTitle("Список очереди")
+                .setView(wrapper)
+                .setNegativeButton("Закрыть", null)
+                .show();
     }
 
     private void loadMrtOptions() {
@@ -816,22 +859,42 @@ public class MrtOnlineActivity extends Activity {
 
     private void updateUi() {
         if (info == null || !bookLoaded) return;
+        continuous.setChecked(getSharedPreferences("reader", 0).getBoolean("mrt_auto_continue", true));
+        prefetchToggle.setChecked(getSharedPreferences("reader", 0).getBoolean("mrt_prefetch", true));
+        prefetchAhead = MrtPrefetchSettings.get(getSharedPreferences("reader", 0));
         updateQueueDisplay();
         int percent = Math.min(100, (int)((long)(wordIndex + 1) * 100 / wordOffsets.size()));
-        info.setText("Прочитано: " + percent + "% · слова " + (wordIndex + 1) + "–" + nextWord + " из " + wordOffsets.size());
+        info.setText("Прочитано: " + percent + "% · слова " + (wordIndex + 1) + "–" + Math.max(wordIndex + 1, nextWord) + " из " + wordOffsets.size());
         if (prefetchActive) {
-            String status = playback.hasCurrent() ? (prefetchPaused ? " · пауза" : " · воспроизведение") : " · ожидание аудио";
-            captureInfo.setText("Аудиокэш · готово: " + prefetchedClips + " · чанков: " + encodedChunks
-                    + " · " + (encodedBytes / 1024) + " КБ" + status);
+            String status = generatingClip != null ? "Идёт загрузка фрагмента…" : (playback.hasCurrent() ? (prefetchPaused ? "Пауза" : "Воспроизведение") : "Ожидание запуска");
+            captureInfo.setText("Аудиокэш · готово: " + prefetchedClips + " · чанков: " + encodedChunks + " · " + (encodedBytes / 1024) + " КБ · " + status);
         } else {
-            captureInfo.setText("Фрагмент " + segmentNumber + " · чанков: " + encodedChunks + " · данных: "
-                    + (encodedBytes / 1024) + " КБ" + (playing ? " · воспроизведение" : (paused ? " · пауза" : "")));
+            captureInfo.setText("Автоподгрузка выключена. Запустите её или нажмите Play для старта с текущего фрагмента.");
         }
-        previous.setEnabled(history.size() > 1);
-        next.setEnabled(nextWord < wordOffsets.size());
-        pause.setEnabled(prefetchActive ? playback.hasCurrent() : (playing || paused));
-        pause.setText((prefetchActive ? prefetchPaused : paused) ? "▶ Продолжить" : "Ⅱ Пауза");
-        play.setText((prefetchActive ? prefetchPaused : paused) ? "▶ Продолжить" : "▶ Слушать");
+        if (autoloadButton != null) {
+            autoloadButton.setText(prefetchActive ? "Остановить" : "Автоподгрузка");
+        }
+        int ready = 0;
+        int currentIndex = 0;
+        for (int i = 0; i < audioArchive.size(); i++) {
+            PrefetchClip clip = audioArchive.get(i);
+            boolean clipReady = clip.file != null && clip.file.isFile();
+            if (clipReady) ready++;
+            if (clipReady && clip.start <= wordIndex) currentIndex = ready;
+        }
+        if (queueStatus != null) {
+            if (ready <= 0) {
+                queueStatus.setText(android.text.Html.fromHtml("<font color='#30221E'>0/0</font> <font color='#B53930'>запустите автоподгрузку</font>", android.text.Html.FROM_HTML_MODE_LEGACY));
+            } else {
+                queueStatus.setTextColor(0xff305c35);
+                queueStatus.setText(Math.max(1, currentIndex) + "/" + ready);
+            }
+        }
+        previous.setEnabled(history.size() > 1 || prefetchActive);
+        next.setEnabled(nextWord < wordOffsets.size() || (prefetchActive && !audioQueue.isEmpty()));
+        stopButton.setEnabled(prefetchActive || playing || paused);
+        if (prefetchActive) setButtonIcon(play, prefetchPaused ? R.drawable.ic_play : R.drawable.ic_pause, Color.WHITE);
+        else setButtonIcon(play, R.drawable.ic_play, Color.WHITE);
         updateHeadsetState();
     }
 
@@ -850,7 +913,7 @@ public class MrtOnlineActivity extends Activity {
             segmentNumber = 1;
             insertFailures = 0;
             insertSegment(false);
-            hint.setText("Новая длина применена. Нажмите «Слушать», затем проверьте автоматический переход.");
+            hint.setText("Новая длина применена.");
         });
     }
 
@@ -906,26 +969,42 @@ public class MrtOnlineActivity extends Activity {
     }
 
     private void startPlayback() {
+        if (prefetchActive) {
+            awaitingManualNext = false;
+            if (prefetchPaused) {
+                if (!audioFocus.acquire()) {
+                    Toast.makeText(this, "Звук занят другим приложением или звонком", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                prefetchPaused = false;
+                updateHeadsetState();
+                if (playback.hasCurrent()) playback.resume();
+                drivePrefetch();
+                updateUi();
+                return;
+            }
+            if (playback.hasCurrent()) {
+                togglePause();
+                return;
+            }
+            if (!audioFocus.acquire()) {
+                Toast.makeText(this, "Звук занят другим приложением или звонком", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            prefetchPaused = false;
+            drivePrefetch();
+            updateUi();
+            return;
+        }
+        if (getSharedPreferences("reader", 0).getBoolean("mrt_prefetch", true) && captureSupported && bookLoaded && engineReady) {
+            beginPrefetch(true);
+            return;
+        }
         if (!audioFocus.acquire()) {
             Toast.makeText(this, "Звук занят другим приложением или звонком", Toast.LENGTH_SHORT).show();
             return;
         }
         if (mediaSession != null) mediaSession.setActive(true);
-        if (prefetchActive) {
-            awaitingManualNext = false;
-            if (prefetchPaused) {
-                prefetchPaused = false;
-                updateHeadsetState();
-                playback.resume();
-                drivePrefetch();
-                updateUi();
-            } else drivePrefetch();
-            return;
-        }
-        if (prefetchToggle != null && prefetchToggle.isChecked() && captureSupported && bookLoaded && engineReady) {
-            beginPrefetch();
-            return;
-        }
         if (closed || !engineReady || !segmentInserted) {
             Toast.makeText(this, "Подождите загрузки текста и движка MRT", Toast.LENGTH_SHORT).show();
             return;
@@ -957,7 +1036,6 @@ public class MrtOnlineActivity extends Activity {
                         paused = false;
                         updateUi();
                     } else {
-                        hint.setText("MRT не подтвердил запуск. Нажмите «Показать веб-панель MRT» для диагностики и ручного запуска.");
                         captureInfo.setText("Запуск не подтверждён движком MRT.");
                         fallbackButton.setVisibility(View.VISIBLE);
                     }
@@ -1048,13 +1126,9 @@ public class MrtOnlineActivity extends Activity {
     private void nextSegment(boolean autoplay) {
         if (prefetchActive) {
             int target = audioQueue.isEmpty() ? nextWord : audioQueue.get(0).end;
-            stopPrefetch();
-            requestStop(() -> {
-                if (closed || target >= wordOffsets.size()) return;
-                wordIndex = target; segmentNumber++; history.add(wordIndex);
-                savePosition(); insertSegment(false);
-                if (autoplay && prefetchToggle.isChecked()) main.postDelayed(this::beginPrefetch, 150);
-            });
+            if (target >= wordOffsets.size()) return;
+            segmentNumber++;
+            startPrefetchAt(target, autoplay);
             return;
         }
         if (!bookLoaded || nextWord >= wordOffsets.size()) {
@@ -1079,14 +1153,11 @@ public class MrtOnlineActivity extends Activity {
 
     private void previousSegment() {
         if (prefetchActive) {
-            stopPrefetch();
-            requestStop(() -> {
-                if (closed || history.size() <= 1) return;
-                history.remove(history.size()-1);
-                wordIndex = history.get(history.size()-1);
-                segmentNumber = Math.max(1, segmentNumber-1);
-                savePosition(); insertSegment(false);
-            });
+            if (history.size() <= 1) return;
+            history.remove(history.size()-1);
+            int target = history.get(history.size()-1);
+            segmentNumber = Math.max(1, segmentNumber-1);
+            startPrefetchAt(target, false);
             return;
         }
         if (history.size() <= 1) return;
@@ -1189,10 +1260,13 @@ public class MrtOnlineActivity extends Activity {
      * MrtPlaybackEngine owns both Android MediaPlayers and NEVER reacts to
      * WebView errors; errors only reschedule synthesis.
      */
-    private void beginPrefetch() {
+    private void beginPrefetch() { beginPrefetch(false); }
+
+    private void beginPrefetch(boolean startAudible) {
         if (closed || !bookLoaded || !engineReady || !captureSupported || prefetchActive) return;
         prefetchActive = true;
-        prefetchPaused = !audioFocus.acquire();
+        prefetchPaused = !startAudible;
+        if (startAudible && !audioFocus.acquire()) prefetchPaused = true;
         if (mediaSession != null) mediaSession.setActive(true);
         awaitingManualNext = false;
         prefetchedClips = 0;
@@ -1423,7 +1497,7 @@ public class MrtOnlineActivity extends Activity {
         }
         if (!continuous.isChecked()) {
             awaitingManualNext = true;
-            captureInfo.setText("Фрагмент завершён. Нажмите «Слушать» для продолжения.");
+            captureInfo.setText("Фрагмент завершён. Нажмите Play для продолжения.");
         }
         // If next file is ready, start it now. Otherwise wait only for cache;
         // synthesis never owns/cancels native playback.
@@ -1520,7 +1594,7 @@ public class MrtOnlineActivity extends Activity {
                         clearingCache=false;
                         prefetchedClips=0;
                         updateQueueDisplay();
-                        captureInfo.setText("Аудиокэш этой книги очищен. Нажмите «Слушать» для новой загрузки.");
+                        captureInfo.setText("Аудиокэш этой книги очищен. Запустите автоподгрузку заново.");
                     });
                 }).show();
     }
