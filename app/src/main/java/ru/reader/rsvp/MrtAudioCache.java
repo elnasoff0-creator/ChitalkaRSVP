@@ -2,6 +2,7 @@ package ru.reader.rsvp;
 
 import android.content.Context;
 import android.media.MediaMetadataRetriever;
+import android.util.Log;
 import android.os.Environment;
 import android.net.Uri;
 import android.provider.OpenableColumns;
@@ -52,6 +53,7 @@ public final class MrtAudioCache {
         maxBytes = Math.max(20, Math.min(500, limitMb)) * 1024L * 1024L;
     }
 
+    private static final String TAG = "MRT-AudioCache";
     private static File bookRoot(Context context) {
         File root = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS);
         if (root == null) root = context.getFilesDir();
@@ -165,21 +167,22 @@ public final class MrtAudioCache {
     }
 
     public File cached(String key) {
-        File file = new File(directory, key + ".mp3");
-        // Migrate already downloaded v1.11.17-1.11.19 MP3s on demand.
-        if (!file.isFile() && !new File(bookDirectory,".legacy_migration_disabled").exists()) {
+        for(String ext:MrtAudioFormat.EXTENSIONS){
+            File ready=new File(directory,key+ext);
+            if(ready.isFile()&&ready.length()>1024){ready.setLastModified(System.currentTimeMillis());return ready;}
+        }
+        File legacyFile = new File(directory,key+".mp3");
+        // Migrate previously downloaded encoded audio once, keeping the original bytes.
+        if (!new File(bookDirectory,".legacy_migration_disabled").exists()) {
             File old = new File(legacyDirectory,key + ".mp3");
             if (old.isFile() && old.length() > 1024 && old.length() <= 24L*1024*1024) {
                 try (FileInputStream in = new FileInputStream(old);
-                     FileOutputStream out = new FileOutputStream(file)) {
+                     FileOutputStream out = new FileOutputStream(legacyFile)) {
                     byte[] block = new byte[16384]; int n;
                     while ((n=in.read(block))!=-1)out.write(block,0,n);
-                } catch (Exception ex) { file.delete(); }
+                } catch (Exception ex) { legacyFile.delete(); }
+                if(legacyFile.isFile()&&legacyFile.length()>1024)return legacyFile;
             }
-        }
-        if (file.isFile() && file.length() > 1024) {
-            file.setLastModified(System.currentTimeMillis());
-            return file;
         }
         return null;
     }
@@ -223,18 +226,25 @@ public final class MrtAudioCache {
                     output.close();
                     output = null;
                     if (written < 2048 || chunks == 0) throw new Exception("MRT не передал достаточно аудиоданных");
-                    if (!looksLikeMp3(temporary)) throw new Exception("Перехваченные данные не похожи на MP3");
-                    // MediaMetadataRetriever is the same framework that the audiobook player uses.
+                    // decodeAudioData may receive WAV/OGG/AAC/WebM, not only MP3.
+                    MrtAudioFormat format = MrtAudioFormat.identify(temporary);
+                    if (format == null) throw new Exception("Неизвестный аудиоформат; первые байты: "
+                            + MrtAudioFormat.signature(temporary));
+                    // The Android platform metadata retriever may be stricter than
+                    // Media3 for uncommon encodings. Non-fatal: the player validates by decoding.
                     MediaMetadataRetriever probe = new MediaMetadataRetriever();
                     try {
                         probe.setDataSource(temporary.getAbsolutePath());
                         String duration = probe.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
                         if (duration == null || Long.parseLong(duration) <= 0)
-                            throw new Exception("Android не смог определить длительность MP3");
+                            Log.w(TAG,"No platform duration for "+format.label+"; will ask ExoPlayer to decode");
+                    } catch (Exception ex) {
+                        Log.w(TAG,"Android metadata probe unavailable for "+format.label,ex);
                     } finally { try { probe.release(); } catch (Exception ignored) {} }
-                    File target = new File(directory, currentKey + ".mp3");
+                    File target = new File(directory, currentKey + format.extension);
                     if (target.exists() && !target.delete()) throw new Exception("Ошибка замены кэша");
-                    if (!temporary.renameTo(target)) throw new Exception("Не удалось сохранить MP3 в кэш");
+                    if (!temporary.renameTo(target)) throw new Exception("Не удалось сохранить "+format.label+" в кэш");
+                    Log.i(TAG,"Saved "+format.label+" "+written+" bytes to "+target.getName());
                     result = target;
                     // Persistent book cache: intentionally do not evict earlier played clips.
                 } catch (Exception e) { error = e.getMessage(); }
@@ -247,21 +257,6 @@ public final class MrtAudioCache {
         });
     }
 
-    /** Reject obvious HTML/JSON/WAV/OGG instead of passing them off as MP3. */
-    private boolean looksLikeMp3(File file) {
-        try (java.io.FileInputStream in = new java.io.FileInputStream(file)) {
-            byte[] head = new byte[4096];
-            int n = in.read(head);
-            if (n < 4) return false;
-            if (head[0]=='I' && head[1]=='D' && head[2]=='3') return true;
-            for (int i=0;i<n-3;i++) {
-                int b=head[i]&255,c=head[i+1]&255;
-                if (b==0xff && (c&0xe0)==0xe0 && ((c>>1)&3)!=0 && ((c>>3)&3)!=1) return true;
-            }
-        } catch (Exception ignored) {}
-        return false;
-    }
-
     public void abort() { writer.execute(this::discard); }
     private void discard() {
         try { if (output != null) output.close(); } catch (Exception ignored) {}
@@ -270,7 +265,7 @@ public final class MrtAudioCache {
         temporary = null; currentSession = -1; currentKey = ""; chunks = 0; written = 0;
     }
     private void cleanup() {
-        File[] files = directory.listFiles((dir, name) -> name.endsWith(".mp3"));
+        File[] files = directory.listFiles((dir, name) -> MrtAudioFormat.forFilename(name)!=null);
         if (files == null) return;
         long total = 0;
         for (File file : files) total += file.length();

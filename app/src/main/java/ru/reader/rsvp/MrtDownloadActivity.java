@@ -92,7 +92,7 @@ public final class MrtDownloadActivity extends Activity {
         LinearLayout.LayoutParams listLp=new LinearLayout.LayoutParams(-1,0,1);listLp.topMargin=dp(10);root.addView(list,listLp);
         list.setOnItemClickListener((p,v,index,id)->{
             MrtDownloadService.Clip c=clips.get(index);
-            if(!c.ready()||download==null||player==null){Toast.makeText(this,"Дождитесь готовности MP3",Toast.LENGTH_SHORT).show();return;}
+            if(!c.ready()||download==null||player==null){Toast.makeText(this,"Дождитесь готовности аудиофайла",Toast.LENGTH_SHORT).show();return;}
             // Explicit user choice is a playback command. Download queue cannot start audio itself.
             download.setAnchor(c.start,true);
             player.play();
@@ -106,7 +106,9 @@ public final class MrtDownloadActivity extends Activity {
     private void refresh(){
         if(download==null){if(subtitle!=null)subtitle.setText("Подключение к фоновой очереди…");return;}
         clips=download.snapshot();
-        if(subtitle!=null)subtitle.setText("Готово: "+download.countReady()+" · всего: "+clips.size()+(download.error().isEmpty()?"":"\n"+download.error()));
+        if(subtitle!=null)subtitle.setText("Готово: "+download.countReady()+" · всего: "+clips.size()
+                +(download.error().isEmpty()?"":"\n"+download.error())
+                +(player==null||player.playbackError().isEmpty()?"":"\n"+player.playbackError()));
         if(autoload!=null)autoload.setText(download.isActive()?"Приостановить автоподгрузку":"Включить автоподгрузку");
         if(list!=null)((BaseAdapter)list.getAdapter()).notifyDataSetChanged();
     }

@@ -133,6 +133,10 @@ KvuheParser дополнительно ищет MP3 в строках JavaScript
 * Предзагрузка MRT: 3–10 MP3-фрагментов (включая текущий), шаг 1. Параметр доступен в «Настройки → Аудио» и на экране MRT.
 
 
-## MRT v1.11.23-beta — фоновая очередь
+## MRT v1.11.24-beta — фоновая очередь
 
 См. `MRT-BACKGROUND-QUEUE-v1.11.23.md`: отдельный `MrtDownloadService` и `MrtDownloadActivity`, ExoPlayer управляется только готовыми MP3, одна шкала текущего файла, автономное окно загрузки 3–10 относительно текущего фрагмента. Фоновый WebView требует проверки на устройстве.
+
+
+### v1.11.24-beta — Original encoded audio format detection
+MRT WebAudio can send non-MP3 encoded buffers. Keep the bytes, detect source audio MIME/extension, and play recognized formats without transcoding. See `MRT-AUDIO-FORMAT-FIX-1.11.24.md`.

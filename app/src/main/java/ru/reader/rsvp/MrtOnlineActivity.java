@@ -220,7 +220,9 @@ public final class MrtOnlineActivity extends Activity {
         voiceChoice.setText(chosen("voice","Голос ▾"));speedChoice.setText(chosen("speed","Скорость ▾"));emotionChoice.setText(chosen("emotion","Эмоция ▾"));
         String state=downloads.generatingStart()>=0?"Скачивается: "+downloads.progressChunks()+" чанков · "+(downloads.progressBytes()/1024)+" КБ"
                 :downloads.isActive()?"Автоподгрузка ожидает необходимости в новых MP3":"Автоподгрузка выключена";
-        if(!downloads.error().isEmpty())state+=" · "+downloads.error();downloadStatus.setText(state);
+        if(!downloads.error().isEmpty())state+=" · "+downloads.error();
+        if(playback!=null&&!playback.playbackError().isEmpty())state+=" · "+playback.playbackError();
+        downloadStatus.setText(state);
     }
     @Override protected void onResume(){super.onResume();if(downloads!=null)downloads.refreshSettings();if(playback!=null)playback.setAutoContinue(getSharedPreferences("reader",0).getBoolean("mrt_auto_continue",true));main.post(ticker);}
     @Override protected void onPause(){main.removeCallbacks(ticker);super.onPause();}

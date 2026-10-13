@@ -369,7 +369,7 @@ public final class MrtDownloadService extends Service {
             if(!same(c,s))return;
             generating=null;finishing=false;
             releaseWakeLock();
-            if(file==null){failed(c,"Неверный MP3: "+failure);return;}
+            if(file==null){failed(c,"Аудиофайл не распознан: "+failure);return;}
             c.file=file;c.bytes=bytes;c.chunks=chunks;c.errors=0;error="";
             persist();pump();
         });

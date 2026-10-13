@@ -57,7 +57,7 @@ public class MrtFileExplorerActivity extends Activity {
         rootView.setPadding(10,18,10,8);
         rootView.setBackgroundColor(0xfff3e7d5);
         setContentView(rootView);
-        rootView.addView(label("Проводник MP3 · "+folder.getParentFile().getName(),18));
+        rootView.addView(label("Проводник аудио · "+folder.getParentFile().getName(),18));
         subtitle=label(folder.getAbsolutePath(),11);
         rootView.addView(subtitle);
         LinearLayout actions=new LinearLayout(this);
@@ -76,7 +76,7 @@ public class MrtFileExplorerActivity extends Activity {
 
     private void refresh() {
         files.clear();
-        File[] list=folder.listFiles(f->f.isFile() && (f.getName().endsWith(".mp3")||f.getName().equals("queue.json")));
+        File[] list=folder.listFiles(f->f.isFile() && (MrtAudioFormat.forFilename(f.getName())!=null||f.getName().equals("queue.json")));
         if(list!=null) {
             Arrays.sort(list,Comparator.comparing(File::getName));
             files.addAll(Arrays.asList(list));
@@ -95,7 +95,7 @@ public class MrtFileExplorerActivity extends Activity {
         try {
             Uri content=FileProvider.getUriForFile(this,getPackageName()+".fileprovider",file);
             Intent intent=new Intent(Intent.ACTION_VIEW);
-            intent.setDataAndType(content,file.getName().endsWith(".mp3")?"audio/mpeg":"application/json");
+            intent.setDataAndType(content,MrtAudioFormat.forFilename(file.getName())!=null?MrtAudioFormat.forFilename(file.getName()).mime:"application/json");
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             startActivity(Intent.createChooser(intent,"Открыть файл"));
         } catch(Exception ex) {
@@ -121,10 +121,10 @@ public class MrtFileExplorerActivity extends Activity {
                 Uri outDir=DocumentsContract.createDocument(getContentResolver(),parent,
                         DocumentsContract.Document.MIME_TYPE_DIR,"ChitalkaRSVP - " + folder.getParentFile().getName());
                 if(outDir==null)throw new Exception("Не удалось создать папку");
-                File[] clips=folder.listFiles(f->f.isFile() && (f.getName().endsWith(".mp3")||f.getName().equals("queue.json")));
+                File[] clips=folder.listFiles(f->f.isFile() && (MrtAudioFormat.forFilename(f.getName())!=null||f.getName().equals("queue.json")));
                 if(clips!=null)for(File f:clips) {
                     Uri doc=DocumentsContract.createDocument(getContentResolver(),outDir,
-                            f.getName().endsWith(".mp3")?"audio/mpeg":"application/json",f.getName());
+                            MrtAudioFormat.forFilename(f.getName())!=null?MrtAudioFormat.forFilename(f.getName()).mime:"application/json",f.getName());
                     if(doc==null)continue;
                     try(InputStream in=new FileInputStream(f);OutputStream out=getContentResolver().openOutputStream(doc)) {
                         if(out==null)continue;

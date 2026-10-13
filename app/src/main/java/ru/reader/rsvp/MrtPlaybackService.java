@@ -62,6 +62,7 @@ public final class MrtPlaybackService extends Service {
     private boolean autoContinue = true;
     private String activeBookId = "";
     private boolean notificationShowing;
+    private String playbackError = "";
     private int lastIndex = -1;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final BroadcastReceiver exclusiveSource = new BroadcastReceiver() {
@@ -111,6 +112,8 @@ public final class MrtPlaybackService extends Service {
             @Override public void onIsPlayingChanged(boolean isPlaying) { updateSession(); updateNotification(); notifyState(); }
             @Override public void onPlayerError(androidx.media3.common.PlaybackException error) {
                 requestedPlay = false;
+                playbackError = "Android не смог воспроизвести аудиофайл: "
+                        + error.getErrorCodeName();
                 player.pause();
                 notifyState();
             }
@@ -191,6 +194,7 @@ public final class MrtPlaybackService extends Service {
     public int currentEndWord() {
         int i=trackIndex();return i<0||i>=tracks.size()?-1:tracks.get(i).end;
     }
+    public String playbackError() { return playbackError; }
     public long positionMs() { return player==null?0:Math.max(0,player.getCurrentPosition()); }
     public long durationMs() {
         if (player==null) return 0;
@@ -202,6 +206,7 @@ public final class MrtPlaybackService extends Service {
     }
     public void clearQueue() {
         requestedPlay=false;
+        playbackError="";
         player.stop();
         player.clearMediaItems();
         tracks.clear();
@@ -211,15 +216,19 @@ public final class MrtPlaybackService extends Service {
         updateSession();
         notifyState();
     }
-    /** Only called with fully assembled and validated on-disk MP3 files. */
+    /** Only called with fully assembled encoded audio files. */
     public void appendReady(String key,int start,int end,File file) {
         if (key==null || file==null || !file.isFile()) return;
         for (Track t:tracks) if (t.key.equals(key)) return;
         int oldCount = tracks.size();
         Track t=new Track(key,start,end,file);
         tracks.add(t);
-        MediaItem item=new MediaItem.Builder().setMediaId(key)
-                .setUri(android.net.Uri.fromFile(file)).build();
+        MrtAudioFormat format=MrtAudioFormat.forFilename(file.getName());
+        playbackError="";
+        MediaItem.Builder itemBuilder=new MediaItem.Builder().setMediaId(key)
+                .setUri(android.net.Uri.fromFile(file));
+        if(format!=null)itemBuilder.setMimeType(format.mime);
+        MediaItem item=itemBuilder.build();
         player.addMediaItem(item);
         if (oldCount==0) {
             player.prepare();
