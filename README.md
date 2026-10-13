@@ -1,3 +1,18 @@
+# ChitalkaRSVP v1.11.17-beta — MRT Audio Prefetch
+
+Experimental **online listening with ahead-of-time audio caching**. Based on v1.11.16-beta; app ID and existing library remain unchanged.
+
+- Toggle **«Предзагрузка аудио в кэш · beta»** on the «Слушать онлайн · MRT» screen (enabled by default). Choose 1–3 clips ahead and a character limit (100–19000, try 300 or 600 for quick testing).
+- MRT's original WebView performs synthesis; an early JavaScript AudioContext hook observes encoded buffers and transfers small ordered Base64 blocks via a trusted-origin WebMessage bridge to `MrtAudioCache`.
+- A zero-gain WebAudio destination keeps the synth browser silent; Android `MediaPlayer` alone produces audible speech. The next cached file can be prepared with a second MediaPlayer without starting it prematurely.
+- Cache is private (`cacheDir/mrt_encoded_audio`), SHA-256 indexed by text, voice, speed and emotion, with an LRU ceiling of 100 MB. Output is only promoted from `.part` after an MP3 header check and Android media metadata probe. No cloud API key and no export feature are added.
+- If the encoded data cannot form a valid MP3 or WebView fails, the experimental mode stops, displays an error and disables prefetch. Turn off the prefetch toggle and use the previously working direct-WebView mode.
+- **LIMITATION**: concatenating independent MPEG buffers is not guaranteed to yield a perfectly timed/gapless file; the desktop prototype uses FFmpeg to rebuild files, and Android does not include that step here. MRT may deliver bytes no faster than audible speech; prefetch can reduce gaps only when the next file is ready in time. Android media notification/background service support for the new experimental cached playback is not implemented. Real-phone end-to-end and Android APK build remain unverified in this environment.
+
+Verification included: Node JavaScript hook tests, XML parsing, full ZIP integrity. Build and sign with the project's existing GitHub Actions workflow.
+
+---
+
 # Читалка RSVP — экспериментальная ветка MRT
 
 ## v1.11.15-beta — короткие фрагменты MRT и управление воспроизведением

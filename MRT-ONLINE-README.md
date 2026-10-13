@@ -1,3 +1,12 @@
+## v1.11.17-beta: MRT Audio Prefetch (experimental)
+
+- In the online reading screen, **«Предзагрузка аудио в кэш · beta»** activates separate silent WebView synthesis and native Android playback.
+- Choose how many future clips to prepare (1–3), and adjust the existing fragment length. Try 300 characters and automatic continuation for a short transition test.
+- MP3 fragments are stored only in app-private cache and reused on subsequent runs with matching voice/speed/emotion/text. MP3 export is **not** implemented.
+- The next file is prepared before the current one ends, but never played early. This is a best-effort prefetch; the next file may still be delayed if the MRT service synthesizes slowly.
+- If a file fails MP3 validation or playback, the app stops experimental prefetch and exposes the old non-caching WebView mode. Intercepting original audio from `decodeAudioData` may yield invalid joined MP3 on some configurations; a real-device test is mandatory.
+- To revert without changing the system TTS or audio library: uncheck **«Предзагрузка аудио в кэш · beta»**.
+
 # Online listening in Chitalka RSVP 1.11.12-beta
 
 This update builds on 1.11.11-beta and uses the original hosted Machine Reading Text WebSpeechKit UI, **not** the official Yandex Cloud API.

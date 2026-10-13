@@ -7,6 +7,9 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
+import android.media.MediaPlayer;
+import android.media.AudioAttributes;
+import java.io.File;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -55,9 +58,10 @@ import java.util.regex.Pattern;
  * Online reading through the original public MRT WebSpeechKit page.
  *
  * The user-supplied MRT Desktop TTS inspired the early AudioContext hook.
- * In this version the hook only reports encoded buffer counts and lifecycle
- * events. Audio is PLAYED by MRT's own WebAudio: no MP3 export, ffmpeg, or
- * private synthesis endpoint is used. The electronic book has its own progress
+ * The experimental prefetch path captures the original encoded audio buffers,
+ * caches MP3 candidates, and plays them in sequence through Android MediaPlayer.
+ * The old direct WebAudio path remains available as a compatibility fallback.
+ * The electronic book has its own progress
  * and does not overwrite locally imported MP3 audiobook progress.
  */
 public class MrtOnlineActivity extends Activity {
@@ -92,6 +96,28 @@ public class MrtOnlineActivity extends Activity {
     private int insertFailures = 0;
     private int playbackStartRetries = 0;
     private long lastUiUpdate;
+    private CheckBox prefetchToggle;
+    private Button aheadButton;
+    private MrtAudioCache audioCache;
+    private final ArrayList<PrefetchClip> audioQueue = new ArrayList<>();
+    private PrefetchClip generatingClip;
+    private MediaPlayer nativePlayer;
+    private MediaPlayer warmedPlayer;
+    private PrefetchClip warmedClip;
+    private boolean warmedReady;
+    private boolean prefetchActive, prefetchPaused, awaitingManualNext, preparingNative, suppressPrefetchToggle;
+    private int prefetchAhead = 2, captureSession = 0;
+    private int prefetchedClips;
+    private String prefetchError = "";
+
+    private static final class PrefetchClip {
+        int start, end;
+        String text, cacheKey;
+        File file;
+        PrefetchClip(int start, int end, String text, String key) {
+            this.start = start; this.end = end; this.text = text; this.cacheKey = key;
+        }
+    }
 
     private int dp(int size) { return Math.round(size * getResources().getDisplayMetrics().density); }
     private GradientDrawable rounded(int color, int radius) {
@@ -119,6 +145,7 @@ public class MrtOnlineActivity extends Activity {
         if (bookUri == null || bookUri.isEmpty()) bookUri = getSharedPreferences("reader", 0).getString("uri", "");
         wordIndex = Math.max(0, getIntent().getIntExtra("word_index", 0));
         segmentLimit = MrtSegmentSettings.get(getSharedPreferences("reader", 0));
+        audioCache = new MrtAudioCache(this, getSharedPreferences("reader", 0).getInt("mrt_cache_limit_mb", 100));
         // Prevent two simultaneous audio sources without changing audiobook position.
         AudioPlaybackService service = AudioPlaybackService.instance;
         if (service != null && !service.isPaused()) {
@@ -225,6 +252,39 @@ public class MrtOnlineActivity extends Activity {
         continuous.setChecked(getSharedPreferences("reader", 0).getBoolean("mrt_auto_continue", true));
         continuous.setOnCheckedChangeListener((v, isChecked) -> getSharedPreferences("reader", 0).edit().putBoolean("mrt_auto_continue", isChecked).apply());
         root.addView(continuous);
+
+        prefetchToggle = new CheckBox(this);
+        prefetchToggle.setText("Предзагрузка аудио в кэш · beta");
+        prefetchToggle.setTextColor(INK);
+        prefetchToggle.setTextSize(12);
+        prefetchToggle.setButtonTintList(android.content.res.ColorStateList.valueOf(0xff94583b));
+        prefetchToggle.setChecked(getSharedPreferences("reader", 0).getBoolean("mrt_prefetch", true));
+        prefetchToggle.setOnCheckedChangeListener((view, enabled) -> {
+            getSharedPreferences("reader", 0).edit().putBoolean("mrt_prefetch", enabled).apply();
+            if (suppressPrefetchToggle) return;
+            if (prefetchActive) {
+                stopPrefetch();
+                requestStop(() -> {
+                    if (closed) return;
+                    eval("window.__rsvpMrt && window.__rsvpMrt.captureDisable(true)", null);
+                    insertSegment(false);
+                });
+            } else if (!enabled) eval("window.__rsvpMrt && window.__rsvpMrt.captureDisable(true)", null);
+        });
+        root.addView(prefetchToggle);
+        prefetchAhead = Math.max(1, Math.min(3, getSharedPreferences("reader", 0).getInt("mrt_prefetch_ahead", 2)));
+        aheadButton = button("Заранее готовить: " + prefetchAhead + " фрагм. ▾");
+        aheadButton.setTextSize(12);
+        aheadButton.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle("Сколько фрагментов предзагружать")
+                .setSingleChoiceItems(new String[]{"1 фрагмент", "2 фрагмента", "3 фрагмента"}, prefetchAhead - 1,
+                        (dialog, index) -> {
+                            prefetchAhead = index + 1;
+                            getSharedPreferences("reader", 0).edit().putInt("mrt_prefetch_ahead", prefetchAhead).apply();
+                            aheadButton.setText("Заранее готовить: " + prefetchAhead + " фрагм. ▾");
+                            dialog.dismiss();
+                            if (prefetchActive) drivePrefetch();
+                        }).setNegativeButton("Отмена", null).show());
+        root.addView(aheadButton, new LinearLayout.LayoutParams(-1, dp(36)));
 
         hint = new TextView(this);
         hint.setText("Текст отображается в читалке. Движок MRT работает в фоне экрана. Для проверки автоперехода выберите 100–300 символов; для обычного прослушивания удобнее 800–2000.");
@@ -623,13 +683,19 @@ public class MrtOnlineActivity extends Activity {
         if (info == null || !bookLoaded) return;
         int percent = Math.min(100, (int)((long)(wordIndex + 1) * 100 / wordOffsets.size()));
         info.setText("Прочитано: " + percent + "% · слова " + (wordIndex + 1) + "–" + nextWord + " из " + wordOffsets.size());
-        captureInfo.setText("Фрагмент " + segmentNumber + " · чанков: " + encodedChunks + " · данных: "
-                + (encodedBytes / 1024) + " КБ" + (playing ? " · воспроизведение" : (paused ? " · пауза" : "")));
+        if (prefetchActive) {
+            String status = nativePlayer != null ? (prefetchPaused ? " · пауза" : " · воспроизведение") : " · ожидание аудио";
+            captureInfo.setText("Аудиокэш · готово: " + prefetchedClips + " · чанков: " + encodedChunks
+                    + " · " + (encodedBytes / 1024) + " КБ" + status);
+        } else {
+            captureInfo.setText("Фрагмент " + segmentNumber + " · чанков: " + encodedChunks + " · данных: "
+                    + (encodedBytes / 1024) + " КБ" + (playing ? " · воспроизведение" : (paused ? " · пауза" : "")));
+        }
         previous.setEnabled(history.size() > 1);
         next.setEnabled(nextWord < wordOffsets.size());
-        pause.setEnabled(playing || paused);
-        pause.setText(paused ? "▶ Продолжить" : "Ⅱ Пауза");
-        play.setText(paused ? "▶ Продолжить" : "▶ Слушать");
+        pause.setEnabled(prefetchActive ? nativePlayer != null : (playing || paused));
+        pause.setText((prefetchActive ? prefetchPaused : paused) ? "▶ Продолжить" : "Ⅱ Пауза");
+        play.setText((prefetchActive ? prefetchPaused : paused) ? "▶ Продолжить" : "▶ Слушать");
     }
 
     private void changeSegmentLength(int count) {
@@ -639,6 +705,7 @@ public class MrtOnlineActivity extends Activity {
         segmentLimit = count;
         lengthButton.setText("Размер фрагмента: " + segmentLimit + " символов ▾");
         // Preserve the first word of the current segment; do not skip anything.
+        if (prefetchActive) stopPrefetch();
         requestStop(() -> {
             if (closed || !bookLoaded) return;
             history.clear();
@@ -702,6 +769,20 @@ public class MrtOnlineActivity extends Activity {
     }
 
     private void startPlayback() {
+        if (prefetchActive) {
+            awaitingManualNext = false;
+            if (prefetchPaused) {
+                prefetchPaused = false;
+                if (nativePlayer != null) try { nativePlayer.start(); } catch (Exception ignored) {}
+                drivePrefetch();
+                updateUi();
+            } else drivePrefetch();
+            return;
+        }
+        if (prefetchToggle != null && prefetchToggle.isChecked() && captureSupported && bookLoaded && engineReady) {
+            beginPrefetch();
+            return;
+        }
         if (closed || !engineReady || !segmentInserted) {
             Toast.makeText(this, "Подождите загрузки текста и движка MRT", Toast.LENGTH_SHORT).show();
             return;
@@ -711,6 +792,7 @@ public class MrtOnlineActivity extends Activity {
             return;
         }
         final int token = ++startToken;
+        eval("window.__rsvpMrt && window.__rsvpMrt.captureDisable(true)", null);
         eval("window.__rsvpMrt && window.__rsvpMrt.prepareStart()", result -> {
             if (closed || token != startToken) return;
             if ("2".equals(result)) {
@@ -742,6 +824,14 @@ public class MrtOnlineActivity extends Activity {
     }
 
     private void togglePause() {
+        if (prefetchActive) {
+            if (nativePlayer == null) return;
+            prefetchPaused = !prefetchPaused;
+            try { if (prefetchPaused) nativePlayer.pause(); else nativePlayer.start(); }
+            catch (Exception e) { prefetchError = e.getMessage(); }
+            updateUi();
+            return;
+        }
         if (!engineReady) return;
         eval("window.__rsvpMrt && window.__rsvpMrt.togglePause()", result -> {
             if (!"true".equals(result)) Toast.makeText(this, "Пауза доступна на странице MRT", Toast.LENGTH_SHORT).show();
@@ -784,6 +874,7 @@ public class MrtOnlineActivity extends Activity {
     }
 
     private void stopPlayback() {
+        if (prefetchActive) stopPrefetch();
         requestStop(() -> {
             if (!closed) {
                 updateUi();
@@ -793,6 +884,17 @@ public class MrtOnlineActivity extends Activity {
     }
 
     private void nextSegment(boolean autoplay) {
+        if (prefetchActive) {
+            int target = audioQueue.isEmpty() ? nextWord : audioQueue.get(0).end;
+            stopPrefetch();
+            requestStop(() -> {
+                if (closed || target >= wordOffsets.size()) return;
+                wordIndex = target; segmentNumber++; history.add(wordIndex);
+                savePosition(); insertSegment(false);
+                if (autoplay && prefetchToggle.isChecked()) main.postDelayed(this::beginPrefetch, 150);
+            });
+            return;
+        }
         if (!bookLoaded || nextWord >= wordOffsets.size()) {
             if (bookLoaded) {
                 wordIndex = wordOffsets.size() - 1;
@@ -814,6 +916,17 @@ public class MrtOnlineActivity extends Activity {
     }
 
     private void previousSegment() {
+        if (prefetchActive) {
+            stopPrefetch();
+            requestStop(() -> {
+                if (closed || history.size() <= 1) return;
+                history.remove(history.size()-1);
+                wordIndex = history.get(history.size()-1);
+                segmentNumber = Math.max(1, segmentNumber-1);
+                savePosition(); insertSegment(false);
+            });
+            return;
+        }
         if (history.size() <= 1) return;
         requestStop(() -> {
             if (closed) return;
@@ -832,6 +945,28 @@ public class MrtOnlineActivity extends Activity {
         try {
             JSONObject message = new JSONObject(raw);
             String type = message.optString("type", "");
+            if (prefetchActive) {
+                if ("audioPart".equals(type)) {
+                    if (generatingClip != null && message.optInt("session",-1)==captureSession)
+                        audioCache.append(captureSession, message.optString("data", ""));
+                    return;
+                }
+                if ("chunk".equals(type)) {
+                    encodedChunks = message.optInt("chunks", encodedChunks);
+                    encodedBytes = message.optLong("bytes", encodedBytes);
+                    long now = android.os.SystemClock.uptimeMillis();
+                    if (now - lastUiUpdate > 600) { lastUiUpdate=now; updateUi(); }
+                    return;
+                }
+                if ("finished".equals(type)) {
+                    finishSynthesis(); return;
+                }
+                if ("error".equals(type)) {
+                    failPrefetch("Ошибка веб-движка: " + message.optString("detail", "неизвестная"));
+                    return;
+                }
+                return;
+            }
             switch (type) {
                 case "ready":
                     // Engine readiness is checked separately after JS app loads.
@@ -886,6 +1021,251 @@ public class MrtOnlineActivity extends Activity {
         } catch (Exception ignored) {}
     }
 
+    /** The current clip is audible only through MediaPlayer. WebView silently generates the queue. */
+    private void beginPrefetch() {
+        if (closed || !bookLoaded || !engineReady || !captureSupported || prefetchActive) return;
+        prefetchActive = true;
+        prefetchPaused = false;
+        awaitingManualNext = false;
+        prefetchedClips = 0;
+        prefetchError = "";
+        audioQueue.clear();
+        generatingClip = null;
+        drivePrefetch();
+        updateUi();
+    }
+
+    private PrefetchClip clipFromWord(int start) {
+        if (start >= wordOffsets.size()) return null;
+        int begin = wordOffsets.get(start);
+        int end = Math.min(bookText.length(), begin + segmentLimit);
+        if (end < bookText.length()) {
+            int sentence = -1;
+            for (char c : new char[]{'.','!','?','\n'}) sentence = Math.max(sentence, bookText.lastIndexOf(c, end-1));
+            if (sentence >= begin + segmentLimit/2) end = sentence+1;
+            else { int space = bookText.lastIndexOf(' ',end-1); if (space>begin+segmentLimit/2) end=space+1; }
+            if (end<bookText.length() && !Character.isWhitespace(bookText.charAt(end-1))
+                    && !Character.isWhitespace(bookText.charAt(end))) {
+                int space = bookText.lastIndexOf(' ',end-1);
+                if (space > begin) end=space+1;
+            }
+        }
+        int after = Collections.binarySearch(wordOffsets,end);
+        if (after<0) after=-after-1;
+        after=Math.min(wordOffsets.size(),Math.max(start+1,after));
+        String text = bookText.substring(begin,end).trim();
+        SharedPreferences prefs=getSharedPreferences("reader",0);
+        String key=MrtAudioCache.key(text,prefs.getString("mrt_selected_voice",""),
+                prefs.getString("mrt_selected_speed",""),prefs.getString("mrt_selected_emotion",""));
+        PrefetchClip clip=new PrefetchClip(start,after,text,key);
+        clip.file=audioCache.cached(key);
+        return clip;
+    }
+
+    private void drivePrefetch() {
+        if (!prefetchActive || closed || !bookLoaded) return;
+        while (audioQueue.size() < prefetchAhead + 1) {
+            int start = audioQueue.isEmpty() ? wordIndex : audioQueue.get(audioQueue.size()-1).end;
+            if (start >= wordOffsets.size()) break;
+            PrefetchClip clip=clipFromWord(start);
+            if (clip == null || clip.text.isEmpty()) break;
+            audioQueue.add(clip);
+        }
+        if (nativePlayer == null && !preparingNative && !awaitingManualNext && !audioQueue.isEmpty()) {
+            PrefetchClip first=audioQueue.get(0);
+            if (first.file != null) startNativeClip(first);
+        }
+        if (nativePlayer != null && audioQueue.size() > 1) warmNextClip(audioQueue.get(1));
+        if (generatingClip == null) {
+            for (PrefetchClip clip : audioQueue) {
+                if (clip.file == null) { startSynthesis(clip); break; }
+            }
+        }
+        updateUi();
+    }
+
+    private void startSynthesis(PrefetchClip clip) {
+        if (!prefetchActive || closed || clip.file != null || generatingClip != null) return;
+        generatingClip = clip;
+        captureSession++;
+        int session = captureSession;
+        audioCache.begin(session, clip.cacheKey);
+        encodedBytes = 0;
+        encodedChunks = 0;
+        String js = "(function(){var m=window.__rsvpMrt;return !!m&&m.setText("
+                + JSONObject.quote(clip.text) + ")&&m.captureBegin(" + session + ");})()";
+        eval(js, value -> {
+            if (!prefetchActive || closed || session != captureSession) return;
+            if (!"true".equals(value)) { failPrefetch("MRT не принял текст для предзагрузки"); return; }
+            final int token=++startToken;
+            eval("window.__rsvpMrt && window.__rsvpMrt.prepareStart()", state -> {
+                if (!prefetchActive || closed || session != captureSession) return;
+                if (!"1".equals(state)) { failPrefetch("MRT не готов к следующему синтезу"); return; }
+                tapNativeMrtButton(token, () -> main.postDelayed(() -> {
+                    if (closed || !prefetchActive || session != captureSession) return;
+                    if (encodedChunks==0) {
+                        eval("window.__rsvpMrt && window.__rsvpMrt.isPlaying()", playingState -> {
+                            if (!prefetchActive || session!=captureSession) return;
+                            if (!"true".equals(playingState))
+                                failPrefetch("Синтез не начался. Отключите предзагрузку для обычного MRT.");
+                        });
+                    }
+                }, 5000));
+            });
+        });
+        // Do not hang the whole native queue forever on a server or WebView failure.
+        main.postDelayed(() -> {
+            if (prefetchActive && generatingClip==clip && captureSession==session)
+                failPrefetch("Превышено время ожидания озвучивания. Попробуйте меньший фрагмент.");
+        }, 120000);
+    }
+
+    private void finishSynthesis() {
+        PrefetchClip clip=generatingClip;
+        if (!prefetchActive || clip==null) return;
+        int session=captureSession;
+        generatingClip=null;
+        eval("window.__rsvpMrt && window.__rsvpMrt.captureEnd()",null);
+        audioCache.finish(session,(file,error)->{
+            if (!prefetchActive || closed || session!=captureSession) return;
+            if (file == null) {
+                failPrefetch("Аудиокэш: " + (error == null ? "неизвестная ошибка" : error));
+                return;
+            }
+            clip.file=file;
+            prefetchedClips++;
+            drivePrefetch();
+        });
+    }
+
+    private void preparePlayerCommon(MediaPlayer player, PrefetchClip clip) throws Exception {
+        player.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
+        player.setDataSource(clip.file.getAbsolutePath());
+        player.setOnCompletionListener(mp -> completeNativeClip(clip, mp));
+        player.setOnErrorListener((mp,what,extra) -> {
+            failPrefetch("Android MediaPlayer не смог воспроизвести MP3 ("+what+"/"+extra+")");
+            return true;
+        });
+    }
+
+    private void displayNativeClip(PrefetchClip clip, MediaPlayer player) {
+        if (!prefetchActive || nativePlayer != player) return;
+        preparingNative = false;
+        wordIndex = clip.start;
+        nextWord = clip.end;
+        if (fragmentText != null) fragmentText.setText(clip.text);
+        if (nativeTextScroll != null) nativeTextScroll.post(() -> nativeTextScroll.scrollTo(0,0));
+        try { if (!prefetchPaused) player.start(); } catch (Exception ignored) {}
+        savePosition();
+        updateUi();
+        drivePrefetch();
+    }
+
+    private void startNativeClip(PrefetchClip clip) {
+        if (!prefetchActive || clip.file == null || nativePlayer != null || preparingNative) return;
+        preparingNative = true;
+        final MediaPlayer player = new MediaPlayer();
+        nativePlayer = player;
+        try {
+            preparePlayerCommon(player, clip);
+            player.setOnPreparedListener(mp -> displayNativeClip(clip, mp));
+            player.prepareAsync();
+        } catch (Exception error) { failPrefetch("Ошибка MP3-плеера: " + error.getMessage()); }
+    }
+
+    /** Keep the next cached MP3 prepared but NOT playing until the current one ends. */
+    private void warmNextClip(PrefetchClip clip) {
+        if (!prefetchActive || clip.file == null || nativePlayer == null) return;
+        if (warmedClip == clip) return;
+        clearWarm();
+        warmedClip=clip;
+        warmedReady=false;
+        MediaPlayer player = new MediaPlayer();
+        warmedPlayer=player;
+        try {
+            preparePlayerCommon(player, clip);
+            player.setOnPreparedListener(mp -> {
+                if (!prefetchActive || warmedPlayer!=mp || warmedClip!=clip) return;
+                warmedReady=true;
+            });
+            player.prepareAsync();
+        } catch(Exception ignored) { clearWarm(); }
+    }
+
+    private void completeNativeClip(PrefetchClip clip, MediaPlayer completed) {
+        if (!prefetchActive || nativePlayer != completed) return;
+        nativePlayer=null;
+        try { completed.release(); } catch(Exception ignored) {}
+        preparingNative=false;
+        wordIndex=clip.end;
+        savePosition();
+        if (!audioQueue.isEmpty() && audioQueue.get(0)==clip) audioQueue.remove(0);
+        segmentNumber++;
+        history.add(Math.min(wordIndex,Math.max(0,wordOffsets.size()-1)));
+        if (wordIndex>=wordOffsets.size()) {
+            stopPrefetch();
+            captureInfo.setText("Книга прослушана до конца.");
+            return;
+        }
+        if (!continuous.isChecked()) awaitingManualNext=true;
+        PrefetchClip first = audioQueue.isEmpty() ? null : audioQueue.get(0);
+        if (!awaitingManualNext && warmedPlayer != null && warmedClip==first && warmedReady) {
+            nativePlayer=warmedPlayer;
+            warmedPlayer=null; warmedClip=null; warmedReady=false;
+            displayNativeClip(first,nativePlayer);
+        } else {
+            clearWarm();
+            if (awaitingManualNext) captureInfo.setText("Фрагмент завершён. Нажмите «Слушать» для продолжения.");
+        }
+        drivePrefetch();
+    }
+
+    private void clearWarm() {
+        if (warmedPlayer != null) {
+            try { warmedPlayer.release(); } catch(Exception ignored) {}
+        }
+        warmedPlayer=null;
+        warmedClip=null;
+        warmedReady=false;
+    }
+
+    private void stopPrefetch() {
+        prefetchActive=false;
+        captureSession++;
+        if (audioCache!=null) audioCache.abort();
+        if (nativePlayer!=null) {
+            try { nativePlayer.reset(); nativePlayer.release(); } catch(Exception ignored) {}
+            nativePlayer=null;
+        }
+        preparingNative=false;
+        clearWarm();
+        generatingClip=null;
+        audioQueue.clear();
+        prefetchPaused=false;
+        awaitingManualNext=false;
+        eval("window.__rsvpMrt && window.__rsvpMrt.captureDisable(false)",null);
+    }
+
+    private void failPrefetch(String reason) {
+        if (closed || !prefetchActive) return;
+        prefetchError=reason;
+        stopPrefetch();
+        if (prefetchToggle!=null) {
+            suppressPrefetchToggle=true;
+            prefetchToggle.setChecked(false);
+            suppressPrefetchToggle=false;
+        }
+        captureInfo.setText("Предзагрузка недоступна: " + reason);
+        hint.setText("Попробуйте обычное прослушивание MRT: отключена предзагрузка, нажмите «Слушать». Голос и текст сохраняются.");
+        fallbackButton.setVisibility(View.VISIBLE);
+        requestStop(() -> {
+            if (closed) return;
+            eval("window.__rsvpMrt && window.__rsvpMrt.captureDisable(true)", null);
+            insertSegment(false);
+        });
+    }
+
     private void savePosition() {
         if (wordOffsets.isEmpty() || bookUri.isEmpty()) return;
         SharedPreferences prefs = getSharedPreferences("reader", MODE_PRIVATE);
@@ -917,6 +1297,8 @@ public class MrtOnlineActivity extends Activity {
 
     @Override protected void onDestroy() {
         closed = true;
+        stopPrefetch();
+        if (audioCache != null) audioCache.close();
         ++startToken;
         main.removeCallbacksAndMessages(null);
         if (web != null) {

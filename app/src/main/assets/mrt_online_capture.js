@@ -2,7 +2,7 @@
  * Chitalka RSVP: original monitor for MRT WebAudio playback.
  * Inspired by the user's MRT Desktop TTS: observe encoded buffers at
  * AudioContext.decodeAudioData before the original decoder consumes them.
- * This edition counts chunks only. It does NOT copy, transfer or save audio.
+ * In optional prefetch mode, transfers small encoded blocks to an Android cache.
  * Injected at document start into the trusted MRT origin via AndroidX WebKit.
  */
 (function () {
@@ -20,7 +20,13 @@
     manuallyStopped: false,
     endTimer: null,
     hookedButton: false,
-    originalContext: null
+    originalContext: null,
+    nativeCapture: false,
+    nativeMute: false,
+    captureSession: 0,
+    mutePatched: false,
+    mutedGates: new WeakMap(),
+    muteGateSet: new Set()
   };
 
   function notify(type, extra) {
@@ -30,6 +36,49 @@
       if (extra) Object.keys(extra).forEach(function (k) { message[k] = extra[k]; });
       window.RsvpMrtBridge.postMessage(JSON.stringify(message));
     } catch (ignored) {}
+  }
+
+  // If synthesis is routed through WebAudio's destination, redirect only the
+  // destination connection via a zero-gain node. The context must continue
+  // running so its encoded buffers and scheduling still proceed.
+  function patchSilentDestination() {
+    if (state.mutePatched || !window.AudioNode || !window.AudioNode.prototype) return;
+    try {
+      var originalConnect = window.AudioNode.prototype.connect;
+      window.AudioNode.prototype.connect = function (destination) {
+        try {
+          if (destination && window.AudioDestinationNode &&
+              destination instanceof window.AudioDestinationNode && this.context) {
+            var gate = state.mutedGates.get(this.context);
+            if (!gate) {
+              gate = this.context.createGain(); gate.gain.value = state.nativeMute ? 0 : 1;
+              originalConnect.call(gate, destination);
+              state.mutedGates.set(this.context, gate);
+              state.muteGateSet.add(gate);
+            }
+            var args = Array.prototype.slice.call(arguments);
+            args[0] = gate;
+            return originalConnect.apply(this, args);
+          }
+        } catch (ignored) {}
+        return originalConnect.apply(this, arguments);
+      };
+      state.mutePatched = true;
+    } catch (ignored) {}
+  }
+
+  function encodedPart(arrayBuffer) {
+    if (!state.nativeCapture || !arrayBuffer || arrayBuffer.byteLength < 1024) return;
+    try {
+      var bytes = new Uint8Array(arrayBuffer);
+      // Avoid a multi-megabyte Base64 result crossing the WebMessage bridge.
+      for (var start = 0; start < bytes.length; start += 12288) {
+        var part = bytes.subarray(start, Math.min(start + 12288, bytes.length));
+        var binary = '';
+        for (var i = 0; i < part.length; i++) binary += String.fromCharCode(part[i]);
+        notify('audioPart', {session: state.captureSession, data: btoa(binary)});
+      }
+    } catch (err) { notify('error', {detail: 'MRT encoded audio bridge: ' + String(err)}); }
   }
 
   function patchContext(context) {
@@ -42,6 +91,7 @@
           if (arrayBuffer && typeof arrayBuffer.byteLength === 'number' && arrayBuffer.byteLength > 1024) {
             state.encodedChunks++;
             state.encodedBytes += arrayBuffer.byteLength;
+            encodedPart(arrayBuffer);
             notify('chunk');
           }
         } catch (ignored) {}
@@ -144,6 +194,30 @@
       }
     }
   }
+
+  state.captureBegin = function (session) {
+    state.captureSession = Number(session);
+    state.nativeMute = true;
+    state.muteGateSet.forEach(function (gate) { try { gate.gain.value = 0; } catch (ignored) {} });
+    state.nativeCapture = true;
+    state.encodedChunks = 0;
+    state.encodedBytes = 0;
+    patchSilentDestination();
+    patchExisting();
+    return true;
+  };
+
+  state.captureEnd = function () {
+    state.nativeCapture = false;
+    return true;
+  };
+
+  state.captureDisable = function (unmute) {
+    state.nativeCapture = false;
+    state.nativeMute = unmute !== false ? false : true;
+    state.muteGateSet.forEach(function (gate) { try { gate.gain.value = state.nativeMute ? 0 : 1; } catch (ignored) {} });
+    return true;
+  };
 
   state.setText = function (text) {
     try {
@@ -272,6 +346,7 @@
   };
 
   window.__rsvpMrt = state;
+  patchSilentDestination();
   patchConstructor();
   setInterval(poll, 280);
   if (document.readyState === 'loading') {
