@@ -102,27 +102,10 @@ public class SettingsActivity extends Activity {
         header("Управление аудиокнигами");
         list.addView(action("+ Добавить папку с аудиокнигой",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","import"))));gap(8);
         list.addView(action("Озвучить текущую текстовую книгу",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","tts"))));gap(8);
-        TextView mrtListen=action("♫  Слушать онлайн · MRT (beta)",()->openMrtOnline());
-        mrtListen.setTextColor(contrast(bg));
-        mrtListen.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
-        mrtListen.setContentDescription("Слушать онлайн через Machine Reading Text");
-        list.addView(mrtListen);gap(8);
         list.addView(action("Размер фрагмента MRT: " + MrtSegmentSettings.get(prefs) + " символов",
                 () -> MrtSegmentSettings.show(this, prefs, value -> draw())));gap(8);
         list.addView(action("Голос TTS и высота тона",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","voice"))));gap(8);
         list.addView(action("Аудиозакладки",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","marks"))));gap(8);
-    }
-    void openMrtOnline(){
-        String uri=prefs.getString("uri", "");
-        if(uri==null || uri.isEmpty()){
-            new AlertDialog.Builder(this).setTitle("Слушать онлайн · MRT")
-                .setMessage("Для онлайн-озвучивания сначала откройте электронную книгу EPUB, FB2 или HTML.")
-                .setPositiveButton("Понятно",null).show();
-            return;
-        }
-        int index=prefs.getInt("tts_word:"+uri,prefs.getInt("index",0));
-        startActivity(new Intent(this,MrtOnlineActivity.class)
-                .putExtra("book_uri",uri).putExtra("word_index",index));
     }
     GradientDrawable outlined(int color,int radius){GradientDrawable d=rounded(color,radius);d.setStroke(dp(1),0xff938475);return d;}
     void theme(LinearLayout row,String name,int background,int ink){TextView chip=text(name,13,false);chip.setTextColor(ink);chip.setGravity(Gravity.CENTER);chip.setBackground(outlined(background,14));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(56),1);lp.setMargins(dp(2),0,dp(2),0);row.addView(chip,lp);chip.setOnClickListener(v->{bg=background;fg=ink;put("bg",bg);put("fg",fg);draw();});}

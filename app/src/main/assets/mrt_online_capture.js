@@ -32,7 +32,7 @@
   function notify(type, extra) {
     try {
       if (!window.RsvpMrtBridge || typeof window.RsvpMrtBridge.postMessage !== 'function') return;
-      var message = {type: type, chunks: state.encodedChunks, bytes: state.encodedBytes};
+      var message = {type: type, chunks: state.encodedChunks, bytes: state.encodedBytes, session: state.captureSession};
       if (extra) Object.keys(extra).forEach(function (k) { message[k] = extra[k]; });
       window.RsvpMrtBridge.postMessage(JSON.stringify(message));
     } catch (ignored) {}

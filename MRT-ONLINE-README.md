@@ -1,10 +1,21 @@
+## v1.11.18-beta: независимое воспроизведение и автономная предзагрузка
+
+- Кнопка «Слушать»: первый готовый MP3 из кэша запускается сразу; иначе сначала происходит генерация, захват чанков, сохранение и проверка MP3, после чего Android начинает воспроизведение.
+- `MrtPlaybackEngine` — выделенный класс Android-плеера. Держит один активный и один подготовленный MP3. Подготовленный файл не воспроизводится, пока активный не закончится.
+- WebView MRT **не управляет** воспроизведением готовых MP3. Задача WebView — последовательно готовить 1–3 следующих фрагмента в фоновом кэше.
+- При завершении звучащего MP3 очередь смещается, подаётся следующий готовый файл и запускается подготовка нового, чтобы запас сохранялся на уровне настройки предзагрузки.
+- Если MRT не готов к очередному синтезу, приложение ожидает его готовность и повторяет попытку. Ошибка следующей загрузки не должна останавливать текущий MP3 или снимать галочку.
+- Для диагностики ошибок WebUI используйте `adb logcat -s MRT-Prefetch MRT-Playback` (ошибки также показаны в текстовой подсказке экрана MRT).
+- Повторная генерация при устойчивом сбое не создаёт новый плеер; если MP3 следующего фрагмента не сформирован вовремя, после текущего будет ожидание.
+- **Не проверено** на телефоне/реальном сервисе MRT; поведение WebView зависит от Android System WebView. Отдельной Android foreground service для MRT в этой версии нет.
+
 ## v1.11.17-beta: MRT Audio Prefetch (experimental)
 
 - In the online reading screen, **«Предзагрузка аудио в кэш · beta»** activates separate silent WebView synthesis and native Android playback.
 - Choose how many future clips to prepare (1–3), and adjust the existing fragment length. Try 300 characters and automatic continuation for a short transition test.
 - MP3 fragments are stored only in app-private cache and reused on subsequent runs with matching voice/speed/emotion/text. MP3 export is **not** implemented.
 - The next file is prepared before the current one ends, but never played early. This is a best-effort prefetch; the next file may still be delayed if the MRT service synthesizes slowly.
-- If a file fails MP3 validation or playback, the app stops experimental prefetch and exposes the old non-caching WebView mode. Intercepting original audio from `decodeAudioData` may yield invalid joined MP3 on some configurations; a real-device test is mandatory.
+- If an MP3 fails validation, the generator retries without stopping the currently audible MP3 or automatically disabling prefetch. Intercepting original audio from `decodeAudioData` may yield invalid joined MP3 on some configurations; a real-device test is mandatory.
 - To revert without changing the system TTS or audio library: uncheck **«Предзагрузка аудио в кэш · beta»**.
 
 # Online listening in Chitalka RSVP 1.11.12-beta

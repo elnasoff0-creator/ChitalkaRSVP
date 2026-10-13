@@ -14,8 +14,10 @@ import java.util.*;
 /** Standalone audio interface. Playback remains in AudioPlaybackService on navigation. */
 public class AudioPlayerActivity extends Activity {
     private static final int FILE_PICK=301, FOLDER_PICK=302, COVER_PICK=303;
-    LinearLayout root,playRow; TextView title,info,elapsed,duration,spokenText,wholeProgress,speedAction,timerAction; SeekBar progress, totalProgress; TextView chapterElapsed, chapterDuration, chapterPicker, overallTime, overallPercent, overallRemaining, speedValue; android.widget.ImageView coverImage, playIcon, coverPlaceholderIcon; TextView coverPlaceholderText;
+    LinearLayout root,playRow; ScrollView ttsTextFrame; TextView title,info,elapsed,duration,spokenText,wholeProgress,speedAction,timerAction; SeekBar progress, totalProgress; TextView chapterElapsed, chapterDuration, chapterPicker, overallTime, overallPercent, overallRemaining, speedValue; android.widget.ImageView coverImage, playIcon, coverPlaceholderIcon; TextView coverPlaceholderText;
     Handler handler=new Handler(Looper.getMainLooper()); boolean dragging=false, draggingTotal=false;String bookUri=""; AudioLibrary.Book selected;
+    private int shownTtsPosition = -1;
+    private boolean shownTtsMode = false;
     final int BACKGROUND=0xfff3e7d5, TEXT=0xff30221e, ACCENT=0xff94583b;
     BroadcastReceiver receiver=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){refresh();}};
     Runnable updater=new Runnable(){public void run(){refresh();handler.postDelayed(this,1000);}};
@@ -105,7 +107,18 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         title.setMaxLines(2);title.setOnClickListener(v->selectBook());
         LinearLayout.LayoutParams tl=new LinearLayout.LayoutParams(-1,-2);tl.topMargin=dp(10);root.addView(title,tl);
         info=label("",14);info.setGravity(Gravity.CENTER);root.addView(info);
-        spokenText=label("",14);spokenText.setGravity(Gravity.CENTER);root.addView(spokenText);
+        // Fixed-size text viewport: switching utterances cannot remeasure/shift cover,
+        // progress, buttons or any other audiobook frames.
+        spokenText=label("",14);
+        spokenText.setGravity(Gravity.TOP | Gravity.START);
+        spokenText.setPadding(dp(10),dp(7),dp(10),dp(7));
+        spokenText.setTextIsSelectable(false);
+        ttsTextFrame=new ScrollView(this);
+        ttsTextFrame.setFillViewport(true);
+        ttsTextFrame.setBackground(bg(0xfffff8ef,13));
+        ttsTextFrame.addView(spokenText,new ScrollView.LayoutParams(-1,-2));
+        root.addView(ttsTextFrame,new LinearLayout.LayoutParams(-1,dp(84)));
+        shownTtsPosition=-1;shownTtsMode=false;ttsTextFrame.setVisibility(View.GONE);
         TextView overallLabel=label("Вся аудиокнига",14);
         LinearLayout.LayoutParams overallLabelLp=new LinearLayout.LayoutParams(-1,-2);
         overallLabelLp.topMargin=dp(13);root.addView(overallLabel,overallLabelLp);
@@ -194,27 +207,24 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
     void voiceMenu(){String[] choices={"Обычный голос", "Ниже", "Выше", "Выбрать системный движок"};new AlertDialog.Builder(this).setTitle("Озвучивание текста").setItems(choices,(d,n)->{if(n==3){try{startActivity(new Intent("com.android.settings.TTS_SETTINGS"));}catch(Exception e){Toast.makeText(this,"Настройки TTS недоступны",Toast.LENGTH_SHORT).show();}return;}Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.VOICE);i.putExtra("pitch",n==1?.8f:n==2?1.2f:1f);startService(i);}).show();}
     void chapters(){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null){Toast.makeText(this,"Сначала выберите книгу",Toast.LENGTH_SHORT).show();return;}if(s.isTtsMode()){Toast.makeText(this,"Для TTS доступны переходы по фрагментам",Toast.LENGTH_SHORT).show();return;}int count=s.getChapterCount();if(count<1)return;String[] labels=new String[count];for(int j=0;j<count;j++)labels[j]=s.getChapterName(j);new AlertDialog.Builder(this).setTitle("Части аудиокниги").setSingleChoiceItems(labels,s.getSegment(),(d,n)->{Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.CHAPTER);i.putExtra("chapter",n);startService(i);d.dismiss();}).setNegativeButton("Отмена",null).show();}
     void bookmark(){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null)return;String key="audio_marks:"+s.getTitle();Set<String> marks=new HashSet<>(getSharedPreferences("reader",0).getStringSet(key,new HashSet<>()));marks.add(String.valueOf(s.getPosition()));getSharedPreferences("reader",0).edit().putStringSet(key,marks).apply();Toast.makeText(this,"Аудиозакладка сохранена",Toast.LENGTH_SHORT).show();}
-    void openOnlineReading(){
-        String uri=bookUri==null||bookUri.isEmpty()?getSharedPreferences("reader",0).getString("uri",""):bookUri;
-        if(uri.isEmpty()){Toast.makeText(this,"Сначала выберите электронную EPUB/FB2-книгу",Toast.LENGTH_LONG).show();return;}
-        int word=getSharedPreferences("reader",0).getInt("tts_word:"+uri,getSharedPreferences("reader",0).getInt("index",0));
-        startActivity(new Intent(this,MrtOnlineActivity.class).putExtra("book_uri",uri).putExtra("word_index",word));
-    }
-    void options(){String[] choices={"Добавить аудиокнигу","Слушать онлайн (MRT)","Аудиозакладки","Скорость","Таймер сна","Остановить звук"};new AlertDialog.Builder(this).setItems(choices,(d,n)->{if(n==0)importFiles();if(n==1)openOnlineReading();if(n==2)showMarks();if(n==3)speedMenu();if(n==4)sleepMenu();if(n==5)command(AudioPlaybackService.STOP);}).show();}
+    void options(){String[] choices={"Добавить аудиокнигу","Аудиозакладки","Скорость","Таймер сна","Остановить звук"};new AlertDialog.Builder(this).setItems(choices,(d,n)->{if(n==0)importFiles();if(n==1)showMarks();if(n==2)speedMenu();if(n==3)sleepMenu();if(n==4)command(AudioPlaybackService.STOP);}).show();}
     void showMarks(){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null)return;Set<String> ms=getSharedPreferences("reader",0).getStringSet("audio_marks:"+s.getTitle(),new HashSet<>());ArrayList<Integer> vals=new ArrayList<>();for(String v:ms)try{vals.add(Integer.parseInt(v));}catch(Exception ignored){}Collections.sort(vals);String[] names=new String[vals.size()];for(int j=0;j<vals.size();j++)names[j]=s.isTtsMode()?"Фрагмент "+vals.get(j):format(vals.get(j));new AlertDialog.Builder(this).setTitle("Аудиозакладки").setItems(names,(d,n)->{Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SEEK);i.putExtra("position",vals.get(n));startService(i);}).setPositiveButton("Закрыть",null).show();}
     String formatLong(long ms){long sec=Math.max(0,ms)/1000;return String.format(Locale.ROOT,"%d:%02d:%02d",sec/3600,(sec/60)%60,sec%60);}
     String format(int ms){long sec=ms/1000;return String.format(Locale.ROOT,"%02d:%02d:%02d",sec/3600,(sec/60)%60,sec%60);}
+    private static void setTextIfDifferent(TextView view, String value) {
+        if (view != null && !value.contentEquals(view.getText())) view.setText(value);
+    }
     void refresh(){
         AudioPlaybackService service=AudioPlaybackService.instance;
         if(title==null||playIcon==null)return;
         if(service==null){playIcon.setImageResource(R.drawable.ic_play);playIcon.setColorFilter(Color.WHITE);return;}
         playIcon.setImageResource(service.isPaused()?R.drawable.ic_play:R.drawable.ic_pause);
         playIcon.setColorFilter(Color.WHITE);
-        if(speedValue!=null){float rate=service.getSpeed();speedValue.setText((rate==(int)rate?Integer.toString((int)rate):Float.toString(rate))+"×");}
+        if(speedValue!=null){float rate=service.getSpeed();setTextIfDifferent(speedValue,(rate==(int)rate?Integer.toString((int)rate):Float.toString(rate))+"×");}
         if(timerAction!=null)timerAction.setAlpha(service.getSleepRemainingMillis()>0?1f:.70f);
         if(selected==null && !service.getBookId().isEmpty())for(AudioLibrary.Book item:AudioLibrary.load(this))if(item.id.equals(service.getBookId())){selected=item;updateCover();break;}
-        title.setText(service.getTitle());
-        info.setText(service.isTtsMode()?"Озвучивание · "+service.getSpeed()+"×":"Аудиокнига · "+service.getSpeed()+"×");
+        setTextIfDifferent(title, service.getTitle());
+        setTextIfDifferent(info, service.isTtsMode()?"Озвучивание · "+service.getSpeed()+"×":"Аудиокнига · "+service.getSpeed()+"×");
         if(chapterPicker!=null)chapterPicker.setContentDescription("Глава "+(service.getSegment()+1)+". Выбрать главу");
         int d=service.getDuration(), position=service.getPosition(), segments=Math.max(1,service.getChapterCount());
         long total=service.isTtsMode()?0:service.getTotalDuration();
@@ -233,10 +243,20 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
 
         int whole=d>0?(int)((long)position*100/d):0;
         if(!dragging)progress.setProgress(d>0?(int)((long)position*10000/d):0);
-        wholeProgress.setText(service.isTtsMode()?"Озвучивание текста · "+(service.getDuration()>0?(int)((long)position*100/service.getDuration()):0)+"%":"Глава "+(service.getSegment()+1)+" из "+segments+" · "+service.getChapterName(service.getSegment())+" · "+whole+"%");
-        chapterElapsed.setText(service.isTtsMode()?"Фрагмент "+(position+1):format(position));
-        chapterDuration.setText(service.isTtsMode()?"Всего "+d:format(d));
-        spokenText.setVisibility(service.isTtsMode()?View.VISIBLE:View.GONE);
-        if(service.isTtsMode())spokenText.setText(service.getCurrentText());
+        setTextIfDifferent(wholeProgress,service.isTtsMode()?"Озвучивание текста · "+(service.getDuration()>0?(int)((long)position*100/service.getDuration()):0)+"%":"Глава "+(service.getSegment()+1)+" из "+segments+" · "+service.getChapterName(service.getSegment())+" · "+whole+"%");
+        setTextIfDifferent(chapterElapsed,service.isTtsMode()?"Фрагмент "+(position+1):format(position));
+        setTextIfDifferent(chapterDuration,service.isTtsMode()?"Всего "+d:format(d));
+        boolean inTts = service.isTtsMode();
+        // Fixed height only while in TTS; MP3 audiobook screen keeps its original layout.
+        if (inTts != shownTtsMode) {
+            shownTtsMode = inTts;
+            shownTtsPosition = -1;
+            ttsTextFrame.setVisibility(inTts ? View.VISIBLE : View.GONE);
+        }
+        if (inTts && shownTtsPosition != position) {
+            shownTtsPosition = position;
+            spokenText.setText(service.getCurrentText());
+            ttsTextFrame.post(() -> { if (ttsTextFrame != null) ttsTextFrame.scrollTo(0,0); });
+        }
     }
 }

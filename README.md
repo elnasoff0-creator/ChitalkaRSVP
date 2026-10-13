@@ -1,15 +1,35 @@
-# ChitalkaRSVP v1.11.17-beta — MRT Audio Prefetch
+# ChitalkaRSVP v1.11.19-beta — гарнитура, TTS и единое аудиоуправление
 
-Experimental **online listening with ahead-of-time audio caching**. Based on v1.11.16-beta; app ID and existing library remain unchanged.
+Изменения поверх v1.11.18-beta:
 
-- Toggle **«Предзагрузка аудио в кэш · beta»** on the «Слушать онлайн · MRT» screen (enabled by default). Choose 1–3 clips ahead and a character limit (100–19000, try 300 or 600 for quick testing).
-- MRT's original WebView performs synthesis; an early JavaScript AudioContext hook observes encoded buffers and transfers small ordered Base64 blocks via a trusted-origin WebMessage bridge to `MrtAudioCache`.
-- A zero-gain WebAudio destination keeps the synth browser silent; Android `MediaPlayer` alone produces audible speech. The next cached file can be prepared with a second MediaPlayer without starting it prematurely.
-- Cache is private (`cacheDir/mrt_encoded_audio`), SHA-256 indexed by text, voice, speed and emotion, with an LRU ceiling of 100 MB. Output is only promoted from `.part` after an MP3 header check and Android media metadata probe. No cloud API key and no export feature are added.
-- If the encoded data cannot form a valid MP3 or WebView fails, the experimental mode stops, displays an error and disables prefetch. Turn off the prefetch toggle and use the previously working direct-WebView mode.
-- **LIMITATION**: concatenating independent MPEG buffers is not guaranteed to yield a perfectly timed/gapless file; the desktop prototype uses FFmpeg to rebuild files, and Android does not include that step here. MRT may deliver bytes no faster than audible speech; prefetch can reduce gaps only when the next file is ready in time. Android media notification/background service support for the new experimental cached playback is not implemented. Real-phone end-to-end and Android APK build remain unverified in this environment.
+- Гарнитура Bluetooth/проводная: Play/Pause/Stop через стандартную Android MediaSession как для TTS/аудиокниг, так и для MRT MP3. Кнопки надо проверить на реальном устройстве.
+- Android AudioFocus: при телефонном звонке или перехвате аудиофокуса другим приложением все активные звуковые движки ставятся на паузу **без автоматического возобновления**. Отключение наушников (`ACTION_AUDIO_BECOMING_NOISY`) также ставит звук на паузу.
+- При переходе к онлайн MRT останавливается фоновый `AudioPlaybackService` (TTS/аудиокнига). При запуске TTS или аудиокниги предыдущий MRT получает команду остановки.
+- TTS: фиксированное по высоте прокручиваемое окно для всех фрагментов. Обложка и остальные блоки не меняют положение, текст обновляется только при смене `ttsPosition`; повторная установка неизменных заголовков отключена.
+- Вход MRT на главной странице, в настройках и в меню аудиоплеера удалён. Выбор системного TTS/MRT остался в **открытой книге → кнопка ♫** (`ReaderActivity`). Настройка размера фрагмента MRT в настройках сохранена.
+- Предзагрузка и кэш MRT из v1.11.18-beta сохранены.
 
-Verification included: Node JavaScript hook tests, XML parsing, full ZIP integrity. Build and sign with the project's existing GitHub Actions workflow.
+Версия APK: **1.11.19-beta**, versionCode **11026**. Собрать и проверить на телефоне через GitHub Actions (Android SDK недоступен здесь). ZIP содержит файлы проекта для размещения непосредственно в корне репозитория, включая скрытую папку `.github`.
+
+---
+
+# ChitalkaRSVP v1.11.18-beta — автономная очередь MRT MP3
+
+Экспериментальное онлайн-чтение с предзагрузкой и независимым Android-плеером. Проект обновляется поверх v1.11.17-beta; `applicationId` и библиотека не изменяются.
+
+- Кнопка **«Слушать»** сначала проверяет кэш первого фрагмента. Если MP3 ещё нет, WebView MRT беззвучно получает аудиочанки, `MrtAudioCache` сохраняет и проверяет MP3, после чего **`MrtPlaybackEngine`** запускает Android MediaPlayer.
+- В то время как плеер воспроизводит текущий фрагмент, WebView генерирует очередные MP3, до **1–3 вперёд**, согласно настройке. Подготовленный второй `MediaPlayer` НЕ запускается раньше события окончания первого.
+- На каждом переключении очередь сдвигается и освобождается место для нового MP3. Если следующего файла ещё нет, плеер ждёт его независимо от синтеза — уже играющее аудио не может быть остановлено из-за проблем MRT.
+- Состояния MRT `0` (кнопка временно отключена) и `2` (веб-движок ещё занят) **ожидаются до 18 секунд** с опросом раз в 250 мс; это больше не мгновенная ошибка.
+- Ошибка синтеза приводит только к повтору **этого же** фрагмента с задержкой. Повтор не снимает галочку предзагрузки, не очищает MP3-очередь и не прерывает MediaPlayer. Повторяемые ошибки отражаются в подсказке и Logcat (`MRT-Prefetch`).
+- JavaScript сообщения содержат идентификатор сеанса; запоздавшие `finished`, `chunk`, `error` другого сеанса игнорируются. Пока файл завершается в фоновом файловом потоке, новый синтез не запускается.
+- Кэш остаётся приватным (`cacheDir/mrt_encoded_audio`), индекс SHA-256 от текста, голоса, скорости и эмоции, лимит 100 МБ по умолчанию. Есть запасной режим старого MRT без кэша (снимите галочку).
+
+**Почему не отдельная Activity:** `Activity` — экран, а не изолированный аудиодвижок. Вместо второго экрана выделен `MrtPlaybackEngine.java`, который владеет двумя MediaPlayer и не зависит от методов синтеза WebView. Для гарантированной работы после закрытия экрана в будущем понадобится отдельный foreground service, он в этот выпуск не входит.
+
+**Известные ограничения:** MRT/WebView по-прежнему требуется для генерации каждого MP3. Если облачный синтез работает медленнее реального чтения, между файлами может возникнуть пауза; очередность и отсутствие одновременного звучания гарантируются состояниями приложения, но полная бесшовность зависит от формата MP3. У исходного Python-перехватчика есть FFmpeg-пересборка; в Android её пока нет. APK и работа на физическом телефоне в данной среде не проверялись.
+
+**Проверки:** Java-тест `tests/test_native_playback.sh` с имитацией Android MediaPlayer, тесты JS в `tests`, проверка XML и ZIP. Сборка и подпись APK выполняются через существующий GitHub Actions workflow, используя прежний keystore.
 
 ---
 
