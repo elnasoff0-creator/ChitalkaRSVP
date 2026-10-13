@@ -1381,7 +1381,7 @@ public class MrtOnlineActivity extends Activity {
                 KeyEvent event=intent==null?null:intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
                 if(event!=null && event.getAction()==KeyEvent.ACTION_DOWN && event.getRepeatCount()==0) {
                     switch (event.getKeyCode()) {
-                        case KeyEvent.KEYCODE_HEADSETOOK:
+                        case KeyEvent.KEYCODE_HEADSETHOOK:
                         case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
                             if (prefetchActive ? (!prefetchPaused && playback.hasCurrent()) : (playing && !paused)) onPause();
                             else onPlay();
