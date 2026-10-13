@@ -140,7 +140,7 @@
             state.started = false;
             notify('finished');
           }
-        }, 1400);
+        }, 850);
       }
     }
   }
@@ -169,6 +169,37 @@
       cancelEnd();
       return true;
     } catch (err) { notify('error', {detail: String(err)}); return false; }
+  };
+
+  // Hide the hosted page without breaking its real hit-testable transport.
+  // All visible reading text and selectors live in native Android views.
+  state.setNativeUiHidden = function (hidden) {
+    try {
+      var id = 'rsvp-headless-mrt-css';
+      var style = document.getElementById(id);
+      if (!style) {
+        style = document.createElement('style');
+        style.id = id;
+        style.textContent = [
+          'html.rsvp-headless-mrt #textSpeaker {position:fixed!important;left:12px!important;top:12px!important;width:65px!important;height:56px!important;min-width:65px!important;min-height:56px!important;transform:none!important;margin:0!important;z-index:2147483647!important;pointer-events:auto!important;display:block!important;}',
+          'html.rsvp-headless-mrt #textarea {caret-color:transparent!important;}'
+        ].join('\n');
+        document.head.appendChild(style);
+      }
+      document.documentElement.classList.toggle('rsvp-headless-mrt', !!hidden);
+      document.body.style.opacity = hidden ? '0.001' : '';
+      document.body.style.overflow = hidden ? 'hidden' : '';
+      var area = document.getElementById('textarea');
+      if (area) {
+        area.readOnly = true;
+        area.tabIndex = -1;
+        try { area.blur(); } catch (ignored) {}
+      }
+      if (document.activeElement && document.activeElement !== document.body) {
+        try { document.activeElement.blur(); } catch (ignored) {}
+      }
+      return true;
+    } catch (err) { notify('error', {detail:'Headless UI: ' + String(err)}); return false; }
   };
 
   // Native Android sends MotionEvent touches to #textSpeaker. Calling

@@ -10,7 +10,7 @@ import android.widget.Toast;
 /** Persisted input length for the hosted MRT text-to-speech page. */
 public final class MrtSegmentSettings {
     public static final String KEY = "mrt_segment_characters";
-    public static final int DEFAULT = 8000;
+    public static final int DEFAULT = 1200;
     public static final int MIN = 100;
     public static final int MAX = 19000; // Below the hosted MRT 20,000-character limit.
     private static final int[] PRESETS = {100, 200, 300, 500, 800, 1000, 2000, 4000, 8000, 12000, 19000};

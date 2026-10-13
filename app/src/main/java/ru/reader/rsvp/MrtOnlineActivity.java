@@ -12,6 +12,10 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.view.Gravity;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputConnection;
+import android.view.inputmethod.InputMethodManager;
+import android.content.Context;
 import android.view.MotionEvent;
 import android.view.InputDevice;
 import android.view.View;
@@ -24,6 +28,8 @@ import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.LinearLayout;
+import android.widget.FrameLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -41,6 +47,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.LinkedHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -64,7 +71,15 @@ public class MrtOnlineActivity extends Activity {
     private final ArrayList<Integer> wordOffsets = new ArrayList<>();
     private final ArrayList<Integer> history = new ArrayList<>();
     private WebView web;
-    private TextView info, captureInfo, hint;
+    private TextView info, captureInfo, hint, fragmentText;
+    private LinearLayout nativeReader;
+    private ScrollView nativeTextScroll;
+    private int optionsLoadAttempts;
+    private Button voiceChoice, speedChoice, emotionChoice, fallbackButton;
+    private final LinkedHashMap<String, String> voices = new LinkedHashMap<>();
+    private final LinkedHashMap<String, String> speeds = new LinkedHashMap<>();
+    private final LinkedHashMap<String, String> emotions = new LinkedHashMap<>();
+    private boolean webPanelVisible;
     private Button play, pause, previous, next, lengthButton;
     private CheckBox continuous;
     private String bookUri = "", bookText = "";
@@ -212,13 +227,46 @@ public class MrtOnlineActivity extends Activity {
         root.addView(continuous);
 
         hint = new TextView(this);
-        hint.setText("Голос и скорость выбираются в MRT. Кнопки «Слушать» и «Стоп» нажимают штатный элемент веб-страницы через Android WebView. Для проверки автоперехода выберите 100–300 символов.");
+        hint.setText("Текст отображается в читалке. Движок MRT работает в фоне экрана. Для проверки автоперехода выберите 100–300 символов; для обычного прослушивания удобнее 800–2000.");
         hint.setTextColor(MUTED);
         hint.setTextSize(12);
         hint.setPadding(dp(5), 0, dp(5), dp(5));
         root.addView(hint);
 
-        web = new WebView(this);
+        LinearLayout selectors = new LinearLayout(this);
+        selectors.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams selectorLp = new LinearLayout.LayoutParams(-1, dp(48));
+        selectorLp.bottomMargin = dp(8);
+        root.addView(selectors, selectorLp);
+        voiceChoice = button("Голос ▾");
+        voiceChoice.setContentDescription("Выбрать голос MRT");
+        voiceChoice.setSingleLine(true);
+        voiceChoice.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        voiceChoice.setOnClickListener(v -> chooseMrtOption("ttsModel", voices, "Голос"));
+        selectors.addView(voiceChoice, new LinearLayout.LayoutParams(0, -1, 1.6f));
+        speedChoice = button("Скорость ▾");
+        speedChoice.setTextSize(11);
+        speedChoice.setSingleLine(true);
+        speedChoice.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        speedChoice.setOnClickListener(v -> chooseMrtOption("ttsSpeed", speeds, "Скорость"));
+        LinearLayout.LayoutParams speedLp = new LinearLayout.LayoutParams(0, -1, 1f);
+        speedLp.leftMargin = dp(5);
+        selectors.addView(speedChoice, speedLp);
+        emotionChoice = button("Эмоция ▾");
+        emotionChoice.setTextSize(11);
+        emotionChoice.setSingleLine(true);
+        emotionChoice.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        emotionChoice.setOnClickListener(v -> chooseMrtOption("ttsEmotion", emotions, "Эмоция"));
+        LinearLayout.LayoutParams emotionLp = new LinearLayout.LayoutParams(0, -1, 1.1f);
+        emotionLp.leftMargin = dp(5);
+        selectors.addView(emotionChoice, emotionLp);
+
+        web = new WebView(this) {
+            // A native transport sends touches to the actual MRT button.
+            // The source page's editable textarea must never summon Android's keyboard.
+            @Override public boolean onCheckIsTextEditor() { return false; }
+            @Override public InputConnection onCreateInputConnection(EditorInfo outAttrs) { return null; }
+        };
         WebSettings settings = web.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
@@ -250,9 +298,156 @@ public class MrtOnlineActivity extends Activity {
                 }
             }
         });
-        root.addView(web, new LinearLayout.LayoutParams(-1, 0, 1));
+        FrameLayout engineRegion = new FrameLayout(this);
+        LinearLayout.LayoutParams engineLp = new LinearLayout.LayoutParams(-1, 0, 1);
+        root.addView(engineRegion, engineLp);
+        engineRegion.addView(web, new FrameLayout.LayoutParams(-1, -1));
+        web.setFocusable(false);
+        web.setFocusableInTouchMode(false);
+
+        nativeReader = new LinearLayout(this);
+        nativeReader.setOrientation(LinearLayout.VERTICAL);
+        nativeReader.setBackground(rounded(0xfffff9f1, 20));
+        nativeReader.setPadding(dp(16), dp(13), dp(16), dp(10));
+        engineRegion.addView(nativeReader, new FrameLayout.LayoutParams(-1, -1));
+        TextView currentLabel = new TextView(this);
+        currentLabel.setText("Текст текущего фрагмента");
+        currentLabel.setTextColor(MUTED);
+        currentLabel.setTextSize(13);
+        nativeReader.addView(currentLabel);
+        nativeTextScroll = new ScrollView(this);
+        nativeTextScroll.setFillViewport(true);
+        nativeTextScroll.setVerticalScrollBarEnabled(true);
+        LinearLayout.LayoutParams scrollLp = new LinearLayout.LayoutParams(-1, 0, 1);
+        scrollLp.topMargin = dp(8);
+        nativeReader.addView(nativeTextScroll, scrollLp);
+        fragmentText = new TextView(this);
+        fragmentText.setText("Загружаю текст книги…");
+        fragmentText.setTextSize(19);
+        fragmentText.setTypeface(Typeface.SERIF);
+        fragmentText.setTextColor(INK);
+        fragmentText.setLineSpacing(dp(5), 1.1f);
+        fragmentText.setTextIsSelectable(false);
+        nativeTextScroll.addView(fragmentText, new ScrollView.LayoutParams(-1, -2));
+
+        fallbackButton = button("Показать веб-панель MRT");
+        fallbackButton.setTextSize(11);
+        fallbackButton.setVisibility(View.GONE);
+        fallbackButton.setOnClickListener(v -> showWebPanel(!webPanelVisible));
+        LinearLayout.LayoutParams fallbackLp = new LinearLayout.LayoutParams(-1, dp(35));
+        fallbackLp.topMargin = dp(6);
+        root.addView(fallbackButton, fallbackLp);
         installEarlyObserver();
         web.loadUrl(PAGE);
+    }
+
+    /** Never give IME focus to the hidden third-party textarea. */
+    private void hideKeyboard() {
+        try {
+            InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null && web != null) imm.hideSoftInputFromWindow(web.getWindowToken(), 0);
+        } catch (Exception ignored) {}
+    }
+
+    /** Native-only reading by default; original web UI is a diagnostic fallback. */
+    private void showWebPanel(boolean visible) {
+        webPanelVisible = visible;
+        if (nativeReader != null) nativeReader.setVisibility(visible ? View.GONE : View.VISIBLE);
+        if (fallbackButton != null) fallbackButton.setText(visible ? "Скрыть веб-панель MRT" : "Показать веб-панель MRT");
+        eval("window.__rsvpMrt && window.__rsvpMrt.setNativeUiHidden(" + (!visible) + ")", null);
+        if (!visible) hideKeyboard();
+    }
+
+    private void loadMrtOptions() {
+        String query = "(function(){function options(id){var el=document.getElementById(id);"
+                + "return el?Array.from(el.options).filter(function(o){return !!o.value}).map(function(o){"
+                + "return {value:o.value,label:(o.textContent||o.value).trim()};}):[];}"
+                + "function value(id){var el=document.getElementById(id);return el?el.value:'';}"
+                + "return {voices:options('ttsModel'),speeds:options('ttsSpeed'),emotions:options('ttsEmotion'),"
+                + "selectedVoice:value('ttsModel'),selectedSpeed:value('ttsSpeed'),selectedEmotion:value('ttsEmotion')};})()";
+        eval(query, result -> {
+            if (closed || result == null) return;
+            try {
+                JSONObject all = new JSONObject(result);
+                fillOptions(voices, all.optJSONArray("voices"));
+                fillOptions(speeds, all.optJSONArray("speeds"));
+                fillOptions(emotions, all.optJSONArray("emotions"));
+                if (voices.isEmpty() && ++optionsLoadAttempts < 15) {
+                    main.postDelayed(this::loadMrtOptions, 450);
+                    return;
+                }
+                if (voices.isEmpty()) {
+                    fallbackButton.setVisibility(View.VISIBLE);
+                    hint.setText("Веб-движок не предоставил список голосов. Откройте веб-панель, чтобы выбрать голос вручную.");
+                }
+                String selectedVoice = getSharedPreferences("reader", 0).getString("mrt_selected_voice", "");
+                String selectedSpeed = getSharedPreferences("reader", 0).getString("mrt_selected_speed", "");
+                String selectedEmotion = getSharedPreferences("reader", 0).getString("mrt_selected_emotion", "");
+                if (selectedVoice.isEmpty()) selectedVoice = all.optString("selectedVoice", "");
+                if (selectedSpeed.isEmpty()) selectedSpeed = all.optString("selectedSpeed", "");
+                if (selectedEmotion.isEmpty()) selectedEmotion = all.optString("selectedEmotion", "");
+                if (voices.containsKey(selectedVoice) || speeds.containsKey(selectedSpeed) || emotions.containsKey(selectedEmotion)) {
+                    SharedPreferences.Editor ed = getSharedPreferences("reader", 0).edit();
+                    if (voices.containsKey(selectedVoice)) ed.putString("mrt_selected_voice", selectedVoice);
+                    if (speeds.containsKey(selectedSpeed)) ed.putString("mrt_selected_speed", selectedSpeed);
+                    if (emotions.containsKey(selectedEmotion)) ed.putString("mrt_selected_emotion", selectedEmotion);
+                    ed.apply();
+                }
+                if (voices.containsKey(selectedVoice)) applyMrtOption("ttsModel", selectedVoice);
+                if (speeds.containsKey(selectedSpeed)) applyMrtOption("ttsSpeed", selectedSpeed);
+                if (emotions.containsKey(selectedEmotion)) applyMrtOption("ttsEmotion", selectedEmotion);
+                updateChoiceLabels();
+            } catch (Exception error) {
+                captureInfo.setText("Не удалось получить голоса MRT: " + error.getMessage());
+                if (fallbackButton != null) fallbackButton.setVisibility(View.VISIBLE);
+            }
+        });
+    }
+
+    private void fillOptions(LinkedHashMap<String, String> target, JSONArray data) {
+        target.clear();
+        if (data == null) return;
+        for (int i = 0; i < data.length(); i++) {
+            JSONObject item = data.optJSONObject(i);
+            if (item == null) continue;
+            String key = item.optString("value", "");
+            if (!key.isEmpty()) target.put(key, item.optString("label", key));
+        }
+    }
+
+    private void chooseMrtOption(String selectId, LinkedHashMap<String, String> options, String title) {
+        if (options.isEmpty()) {
+            Toast.makeText(this, "Ожидаю список настроек MRT…", Toast.LENGTH_SHORT).show();
+            loadMrtOptions();
+            return;
+        }
+        String[] keys = options.keySet().toArray(new String[0]);
+        String[] labels = options.values().toArray(new String[0]);
+        new AlertDialog.Builder(this).setTitle(title).setItems(labels, (dialog, position) -> {
+            String chosen = keys[position];
+            String preference = selectId.equals("ttsModel") ? "mrt_selected_voice" :
+                    selectId.equals("ttsSpeed") ? "mrt_selected_speed" : "mrt_selected_emotion";
+            getSharedPreferences("reader", 0).edit().putString(preference, chosen).apply();
+            applyMrtOption(selectId, chosen);
+            updateChoiceLabels();
+        }).setNegativeButton("Отмена", null).show();
+    }
+
+    private void applyMrtOption(String selectId, String choice) {
+        String js = "(function(){var x=document.getElementById(" + JSONObject.quote(selectId) + ");"
+                + "if(!x)return false;x.value=" + JSONObject.quote(choice) + ";"
+                + "x.dispatchEvent(new Event('change',{bubbles:true}));return true;})()";
+        eval(js, null);
+    }
+
+    private void updateChoiceLabels() {
+        SharedPreferences preferences = getSharedPreferences("reader", 0);
+        String voice = preferences.getString("mrt_selected_voice", "");
+        String speed = preferences.getString("mrt_selected_speed", "");
+        String mood = preferences.getString("mrt_selected_emotion", "");
+        if (voiceChoice != null) voiceChoice.setText(voices.containsKey(voice) ? voices.get(voice) + " ▾" : "Голос ▾");
+        if (speedChoice != null) speedChoice.setText(speeds.containsKey(speed) ? speeds.get(speed) + " ▾" : "Скорость ▾");
+        if (emotionChoice != null) emotionChoice.setText(emotions.containsKey(mood) ? emotions.get(mood) + " ▾" : "Эмоция ▾");
     }
 
     private boolean isTrustedPage(Uri uri) {
@@ -339,6 +534,8 @@ public class MrtOnlineActivity extends Activity {
                     if (closed) return;
                     if ("true".equals(value)) {
                         engineReady = true;
+                        eval("window.__rsvpMrt && window.__rsvpMrt.setNativeUiHidden(true)", null);
+                        loadMrtOptions();
                         insertSegment(false);
                     } else if (attempt < 70) {
                         main.postDelayed(() -> waitForEngine(attempt + 1), 300);
@@ -384,6 +581,10 @@ public class MrtOnlineActivity extends Activity {
             }
             return;
         }
+        if (fragmentText != null) {
+            fragmentText.setText(part);
+            if (nativeTextScroll != null) nativeTextScroll.post(() -> nativeTextScroll.scrollTo(0, 0));
+        }
         segmentInserted = false;
         encodedChunks = 0;
         encodedBytes = 0;
@@ -412,7 +613,7 @@ public class MrtOnlineActivity extends Activity {
             if (startAutomatically) {
                 main.postDelayed(() -> {
                     if (!closed && token == startToken) startPlayback();
-                }, 700);
+                }, 80);
             }
         });
         updateUi();
@@ -479,7 +680,6 @@ public class MrtOnlineActivity extends Activity {
                     if (callback != null) callback.run();
                     return;
                 }
-                web.requestFocus();
                 long downTime = SystemClock.uptimeMillis();
                 MotionEvent down = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, x, y, 0);
                 down.setSource(InputDevice.SOURCE_TOUCHSCREEN);
@@ -491,6 +691,7 @@ public class MrtOnlineActivity extends Activity {
                     up.setSource(InputDevice.SOURCE_TOUCHSCREEN);
                     web.dispatchTouchEvent(up);
                     up.recycle();
+                    hideKeyboard();
                     if (callback != null) callback.run();
                 }, 85);
             } catch (Exception error) {
@@ -531,11 +732,12 @@ public class MrtOnlineActivity extends Activity {
                         paused = false;
                         updateUi();
                     } else {
-                        hint.setText("MRT не начал воспроизведение. Нажмите ▶ непосредственно в веб-панели MRT; на этом устройстве программное касание WebView могло быть отклонено.");
-                        captureInfo.setText("Запуск не подтверждён MRT — попробуйте кнопку в веб-панели ниже.");
+                        hint.setText("MRT не подтвердил запуск. Нажмите «Показать веб-панель MRT» для диагностики и ручного запуска.");
+                        captureInfo.setText("Запуск не подтверждён движком MRT.");
+                        fallbackButton.setVisibility(View.VISIBLE);
                     }
                 });
-            }, 1600));
+            }, 4500));
         });
     }
 
@@ -672,7 +874,7 @@ public class MrtOnlineActivity extends Activity {
                     } else if (continuous.isChecked()) {
                         main.postDelayed(() -> {
                             if (!closed && finishing) nextSegment(true);
-                        }, 300);
+                        }, 40);
                     } else {
                         captureInfo.setText("Фрагмент завершён. Нажмите «Фрагмент ›» для продолжения.");
                     }
