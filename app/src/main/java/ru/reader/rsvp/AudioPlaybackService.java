@@ -222,7 +222,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
                 KeyEvent e=intent==null?null:intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
                 if (e!=null && e.getAction()==KeyEvent.ACTION_DOWN && e.getRepeatCount()==0) {
                     switch (e.getKeyCode()) {
-                        case KeyEvent.KEYCODE_HEADSETOOK:
+                        case KeyEvent.KEYCODE_HEADSETHOOK:
                         case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
                             if(paused)onPlay();else onPause();return true;
                         case KeyEvent.KEYCODE_MEDIA_PLAY:onPlay();return true;
