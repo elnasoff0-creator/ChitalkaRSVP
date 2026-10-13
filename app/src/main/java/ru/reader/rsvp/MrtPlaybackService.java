@@ -216,28 +216,50 @@ public final class MrtPlaybackService extends Service {
         updateSession();
         notifyState();
     }
-    /** Only called with fully assembled encoded audio files. */
+    /** Remove an invalid clip from the playlist without clearing other MP3 files.
+     * A currently audible clip is protected against deletion; caller can retry later.
+     */
+    public boolean evictCachedTrack(String key) {
+        if (key == null) return false;
+        for (int i = 0; i < tracks.size(); i++) {
+            if (!tracks.get(i).key.equals(key)) continue;
+            if (i == player.getCurrentMediaItemIndex() && player.isPlaying()) return false;
+            tracks.remove(i);
+            player.removeMediaItem(i);
+            lastIndex = player.getCurrentMediaItemIndex();
+            playbackError = "";
+            updateSession();
+            notifyState();
+            return true;
+        }
+        return true;
+    }
+
+    /** Only called with fully assembled encoded audio files.
+     * Use word-order insertion so a manually redownloaded clip returns to its original
+     * position rather than being appended behind later, already downloaded clips.
+     */
     public void appendReady(String key,int start,int end,File file) {
         if (key==null || file==null || !file.isFile()) return;
         for (Track t:tracks) if (t.key.equals(key)) return;
         int oldCount = tracks.size();
         Track t=new Track(key,start,end,file);
-        tracks.add(t);
+        int insertion = 0;
+        while (insertion < tracks.size() && tracks.get(insertion).start < start) insertion++;
+        tracks.add(insertion,t);
         MrtAudioFormat format=MrtAudioFormat.forFilename(file.getName());
         playbackError="";
         MediaItem.Builder itemBuilder=new MediaItem.Builder().setMediaId(key)
                 .setUri(android.net.Uri.fromFile(file));
         if(format!=null)itemBuilder.setMimeType(format.mime);
-        MediaItem item=itemBuilder.build();
-        player.addMediaItem(item);
+        player.addMediaItem(insertion,itemBuilder.build());
         if (oldCount==0) {
             player.prepare();
-        } else if (player.getPlaybackState()==Player.STATE_ENDED && requestedPlay) {
-            // Playlist grew while waiting; do not replay the already completed file.
+        } else if (insertion==oldCount && player.getPlaybackState()==Player.STATE_ENDED && requestedPlay) {
             player.seekTo(oldCount,0);
             player.prepare();
         }
-        if (requestedPlay && !player.isPlaying()) player.play();
+        if (requestedPlay && !player.isPlaying() && player.getPlaybackState()!=Player.STATE_ENDED) player.play();
         updateSession();
         notifyState();
     }

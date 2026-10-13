@@ -14,6 +14,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.BaseAdapter;
 import android.widget.Button;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
@@ -75,10 +76,29 @@ public final class MrtDownloadActivity extends Activity {
                 MrtDownloadService.Clip c=clips.get(pos);
                 boolean downloading=download!=null&&download.generatingStart()==c.start;
                 boolean current=download!=null&&download.anchor()==c.start;
-                String status=c.played?"Прослушан":downloading?"Скачивается":c.ready()?(current?"Текущий":"Готов"):"Ожидает";
+                boolean redownloading=download!=null && download.isRedownloading(c.start);
+                String status=c.played?"Прослушан":downloading?"Скачивается":redownloading?"Перезагрузка":c.ready()?(current?"Текущий":"Готов"):"Ожидает";
                 int tint=c.played?0xff999999:current?0xff356443:INK;
-                TextView title=new TextView(MrtDownloadActivity.this);title.setText("Фрагмент "+(pos+1)+" · "+status);title.setTextColor(tint);title.setTextSize(15);
-                title.setTypeface(android.graphics.Typeface.DEFAULT,1);row.addView(title);
+                LinearLayout header=new LinearLayout(MrtDownloadActivity.this);
+                header.setOrientation(LinearLayout.HORIZONTAL);
+                header.setGravity(Gravity.CENTER_VERTICAL);
+                TextView title=new TextView(MrtDownloadActivity.this);
+                title.setText("Фрагмент "+(pos+1)+" · "+status);
+                title.setTextColor(tint);title.setTextSize(15);
+                title.setTypeface(android.graphics.Typeface.DEFAULT,1);
+                header.addView(title,new LinearLayout.LayoutParams(0,-2,1));
+                ImageButton reload=new ImageButton(MrtDownloadActivity.this);
+                reload.setImageResource(R.drawable.ic_retry_fragment);
+                reload.setScaleType(android.widget.ImageView.ScaleType.CENTER_INSIDE);
+                reload.setPadding(dp(9),dp(9),dp(9),dp(9));
+                reload.setBackground(background(0xfff3e7d5,0));
+                reload.setContentDescription("Перезагрузить фрагмент "+(pos+1));
+                reload.setFocusable(false);
+                reload.setOnClickListener(v->confirmRedownload(c,pos+1));
+                LinearLayout.LayoutParams reloadLp=new LinearLayout.LayoutParams(dp(43),dp(43));
+                reloadLp.leftMargin=dp(8);
+                header.addView(reload,reloadLp);
+                row.addView(header,new LinearLayout.LayoutParams(-1,-2));
                 TextView size=new TextView(MrtDownloadActivity.this);size.setTextColor(c.played?0xff999999:MUTED);size.setTextSize(12);
                 long bytes=downloading?download.progressBytes():c.bytes;int chunks=downloading?download.progressChunks():c.chunks;
                 size.setText(c.text.length()+" символов · "+chunks+" чанков · "+String.format(Locale.ROOT,"%.1f",bytes/1024.0)+" КБ");row.addView(size);
@@ -119,6 +139,28 @@ public final class MrtDownloadActivity extends Activity {
             androidx.core.content.ContextCompat.startForegroundService(this,i);}
         refresh();
     }
+    private void confirmRedownload(MrtDownloadService.Clip clip,int ordinal) {
+        if(download==null)return;
+        new AlertDialog.Builder(this)
+                .setTitle("Перезагрузить фрагмент №"+ordinal+"?")
+                .setMessage("Будет удалён только аудиофайл этого фрагмента и создан заново. Остальные файлы, книга и история очереди сохранятся. Если формат OGG не поддерживается проигрывателем, повторная загрузка может не решить проблему.")
+                .setNegativeButton("Отмена",null)
+                .setPositiveButton("Перезагрузить",(dialog,which)->{
+                    if(download==null)return;
+                    String uri=download.bookUri();
+                    if(!download.isActive()){
+                        Intent start=new Intent(this,MrtDownloadService.class).setAction(MrtDownloadService.ACTION_BEGIN)
+                                .putExtra(MrtDownloadService.EXTRA_URI,uri)
+                                .putExtra(MrtDownloadService.EXTRA_ANCHOR,download.anchor());
+                        androidx.core.content.ContextCompat.startForegroundService(this,start);
+                    }
+                    boolean accepted=download.redownloadClip(clip.start);
+                    if(accepted)Toast.makeText(this,"Фрагмент №"+ordinal+" поставлен на повторную загрузку",Toast.LENGTH_LONG).show();
+                    else Toast.makeText(this,download.error(),Toast.LENGTH_LONG).show();
+                    refresh();
+                }).show();
+    }
+
     private void openFolder(){File directory=download==null?null:download.folder();if(directory==null){Toast.makeText(this,"Папка ещё не готова",Toast.LENGTH_SHORT).show();return;}
         startActivity(new Intent(this,MrtFileExplorerActivity.class).putExtra("book_folder",directory.getAbsolutePath()));}
     private void confirmClear(){if(download==null)return;

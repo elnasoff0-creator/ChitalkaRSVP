@@ -29,6 +29,7 @@ import java.util.concurrent.Executors;
 public final class MrtAudioCache {
     public interface Callback { void onReady(File file, long bytes, int chunks, String error); }
     public interface ClearCallback { void onCleared(); }
+    public interface InvalidateCallback { void onInvalidated(boolean success); }
     private final File directory;
     private final File bookDirectory;
     private final File legacyDirectory;
@@ -185,6 +186,34 @@ public final class MrtAudioCache {
             }
         }
         return null;
+    }
+
+    /** Delete ONLY one encoded fragment, including older format variants.
+     * Serialized on the same writer thread as begin/append/finish to avoid races.
+     * The old shared cache copy is removed as well, so it cannot be re-imported.
+     * Does not touch queue.json or other book audio files.
+     */
+    public void invalidate(String key, InvalidateCallback callback) {
+        if (key == null || !key.matches("[a-fA-F0-9]{64}")) {
+            if (callback != null) ui.post(() -> callback.onInvalidated(false));
+            return;
+        }
+        writer.execute(() -> {
+            boolean success = !closed;
+            if (success) {
+                if (key.equals(currentKey)) discard();
+                for (String ext : MrtAudioFormat.EXTENSIONS) {
+                    File file = new File(directory, key + ext);
+                    if (file.isFile() && !file.delete()) success = false;
+                }
+                File partial = new File(directory, key + ".part");
+                if (partial.isFile() && !partial.delete()) success = false;
+                File legacy = new File(legacyDirectory, key + ".mp3");
+                if (legacy.isFile() && !legacy.delete()) success = false;
+            }
+            final boolean result = success;
+            if (callback != null) ui.post(() -> callback.onInvalidated(result));
+        });
     }
 
     public void begin(int session, String key) {

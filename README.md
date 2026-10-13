@@ -1,3 +1,15 @@
+## ChitalkaRSVP v1.11.25-beta — selective MRT fragment redownload
+
+In **Список очереди**, each fragment now has a rounded reload icon (↻). Tap it and confirm to re-download only that fragment. A damaged or incompatible cached audio file is evicted from the native playlist, deleted from the book-local audio cache (all supported extensions, temporary .part and its legacy duplicate), and regenerated with priority by the existing background `MrtDownloadService`. Other downloaded fragments and `queue.json` are preserved, and playback of another fragment is not interrupted. The currently *audible* fragment is protected: pause it before requesting replacement.
+
+If auto-download is paused, confirming a reload starts it. The queue explicitly shows «Перезагрузка»/«Скачивается» and live chunks/KB. Forced redownload works even when the selected fragment is outside the normal prefetch window. ExoPlayer reinserts the rebuilt media item in correct word order.
+
+Caveat: Some external Android file browsers lack OGG codecs. If a newly generated file is OGG, redownloading does not automatically convert it into MP3 and may not resolve external player incompatibility.
+
+Tests: `bash tests/test_mrt_selective_redownload.sh` plus existing MRT tests. Build APK through GitHub Actions.
+
+---
+
 # ChitalkaRSVP v1.11.22-beta
 
 Новая архитектура независимого MRT MP3 Player (Media3 ExoPlayer) — см. `MRT-PLAYBACK-1.11.22.md`.

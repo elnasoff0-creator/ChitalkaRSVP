@@ -51,6 +51,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
@@ -76,6 +77,8 @@ public final class MrtDownloadService extends Service {
     private final Handler main=new Handler(Looper.getMainLooper());
     private final ArrayList<Observer> observers=new ArrayList<>();
     private final ArrayList<Clip> archive=new ArrayList<>();
+    private final LinkedHashSet<Integer> manualRedownloads = new LinkedHashSet<>();
+    private final Set<String> invalidatingKeys = new HashSet<>();
     private final ArrayList<Integer> offsets=new ArrayList<>();
     private final LinkedHashMap<String,String> voices=new LinkedHashMap<>(),speeds=new LinkedHashMap<>(),emotions=new LinkedHashMap<>();
     private MrtAudioCache cache;
@@ -201,6 +204,7 @@ public final class MrtDownloadService extends Service {
     public long progressBytes(){return chunkBytes;}
     public int progressChunks(){return chunkCount;}
     public int generatingStart(){return generating==null?-1:generating.start;}
+    public boolean isRedownloading(int start){return manualRedownloads.contains(start);}
     public LinkedHashMap<String,String> options(String kind){return new LinkedHashMap<>("voice".equals(kind)?voices:"speed".equals(kind)?speeds:emotions);}
     public void selectOption(String kind,String value){
         String element="voice".equals(kind)?"ttsModel":"speed".equals(kind)?"ttsSpeed":"ttsEmotion";
@@ -221,6 +225,7 @@ public final class MrtDownloadService extends Service {
         stopCapture();
         if(cache!=null)cache.close();
         bookUri=uri;bookReady=false; // engine readiness is independent of book
+        manualRedownloads.clear();invalidatingKeys.clear();
         anchorWord=Math.max(0,anchor);archive.clear();offsets.clear();bookText="";title="";
         if(player!=null)player.prepareBook(uri);
         changed();
@@ -243,6 +248,59 @@ public final class MrtDownloadService extends Service {
         },"mrt-download-book").start();
     }
     public void refreshSettings(){pump();}
+
+    /** User-requested re-download: invalidate only the selected cached audio.
+     * This does not stop another fragment currently playing in ExoPlayer.
+     * Queued regeneration has priority even if the chosen entry is outside the
+     * automatic prefetch window.
+     */
+    public boolean redownloadClip(int start) {
+        if(!bookReady || cache==null){error="Книга и очередь ещё не загружены";changed();return false;}
+        Clip selected=null;
+        for(Clip c:archive)if(c.start==start){selected=c;break;}
+        if(selected==null){error="Фрагмент не найден в очереди";changed();return false;}
+        final Clip clip=selected;
+        if(manualRedownloads.contains(clip.start) || invalidatingKeys.contains(clip.key)){
+            error="Этот фрагмент уже подготавливается к повторной загрузке";changed();return false;
+        }
+        // A repeated passage can share the same cached bytes at several word
+        // positions. Check ALL references before removing any playlist entry.
+        if(player!=null && player.isPlaying()){
+            for(Clip c:archive) if(c.key.equals(clip.key)
+                    && (c.key+":"+c.start).equals(player.currentKey())){
+                error="Сначала поставьте текущий фрагмент на паузу, затем повторите загрузку";
+                changed();return false;
+            }
+        }
+        if(player!=null) for(Clip c:archive) if(c.key.equals(clip.key))
+            player.evictCachedTrack(c.key+":"+c.start);
+        if(generating!=null && generating.key.equals(clip.key))stopCapture();
+        invalidatingKeys.add(clip.key);
+        manualRedownloads.add(clip.start);
+        for(Clip c:archive) if(c.key.equals(clip.key)){
+            c.file=null;c.bytes=0;c.chunks=0;c.played=false;
+            c.errors=0;c.retryAfter=0;
+        }
+        error="Фрагмент "+(archive.indexOf(clip)+1)+": удаление старого файла…";
+        persist();changed();
+        final String requestedBook = bookUri;
+        final MrtAudioCache requestedCache = cache;
+        requestedCache.invalidate(clip.key, ok->{
+            if(destroyed || !requestedBook.equals(bookUri) || requestedCache != cache) return;
+            invalidatingKeys.remove(clip.key);
+            if(!ok){
+                manualRedownloads.remove(clip.start);
+                error="Не удалось удалить старое аудио фрагмента "+(archive.indexOf(clip)+1);
+                // Do not report success or load stale bytes back into ExoPlayer.
+                changed();return;
+            }
+            error="Фрагмент "+(archive.indexOf(clip)+1)+": повторная загрузка поставлена в очередь";
+            if(!active) setActive(true);
+            else pump();
+            changed();
+        });
+        return true;
+    }
     public void setActive(boolean enabled){
         if(active==enabled)return;
         active=enabled;
@@ -268,7 +326,7 @@ public final class MrtDownloadService extends Service {
     public void clearAudio(Runnable completed){
         setActive(false);
         if(player!=null)player.clearQueue();
-        archive.clear();
+        archive.clear();manualRedownloads.clear();invalidatingKeys.clear();
         if(cache==null){changed();if(completed!=null)completed.run();return;}
         cache.clear(()->{changed();if(completed!=null)completed.run();});
     }
@@ -304,8 +362,18 @@ public final class MrtDownloadService extends Service {
             for(Clip c:window){if(!c.ready())break;player.appendReady(c.key+":"+c.start,c.start,c.end,c.file);}
         }
         if(active&&ready&&generating==null){
-            for(Clip c:window){
-                if(c.ready())continue;
+            boolean started=false;
+            // A manually requested replacement has priority over speculative
+            // prefetch; failed attempts keep their own retry delay.
+            for(Integer start:new ArrayList<>(manualRedownloads)){
+                Clip c=null;
+                for(Clip candidate:archive)if(candidate.start==start){c=candidate;break;}
+                if(c==null || c.ready()){manualRedownloads.remove(start);continue;}
+                if(invalidatingKeys.contains(c.key) || SystemClock.uptimeMillis()<c.retryAfter)continue;
+                generate(c);started=true;break;
+            }
+            if(!started)for(Clip c:window){
+                if(c.ready() || invalidatingKeys.contains(c.key))continue;
                 if(SystemClock.uptimeMillis()<c.retryAfter)break;
                 generate(c);break;
             }
@@ -370,7 +438,14 @@ public final class MrtDownloadService extends Service {
             generating=null;finishing=false;
             releaseWakeLock();
             if(file==null){failed(c,"Аудиофайл не распознан: "+failure);return;}
-            c.file=file;c.bytes=bytes;c.chunks=chunks;c.errors=0;error="";
+            // Same text can appear multiple times in a book; one encoded cache
+            // file is shared, while playlist positions remain distinct.
+            for(Clip item:archive)if(item.key.equals(c.key)){
+                item.file=file;item.bytes=bytes;item.chunks=chunks;item.errors=0;
+                item.retryAfter=0;
+                manualRedownloads.remove(item.start);
+            }
+            error="";
             persist();pump();
         });
     }
