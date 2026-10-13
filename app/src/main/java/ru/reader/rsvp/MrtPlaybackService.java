@@ -55,7 +55,7 @@ public final class MrtPlaybackService extends Service {
     private final IBinder binder = new LocalBinder();
     private final ArrayList<Track> tracks = new ArrayList<>();
     private ExoPlayer player;
-    private Listener listener;
+    private final ArrayList<Listener> listeners = new ArrayList<>();
     private PlaybackAudioFocus focus;
     private MediaSession mediaSession;
     private boolean requestedPlay;
@@ -96,7 +96,7 @@ public final class MrtPlaybackService extends Service {
                 }
                 if (index >= 0 && index < tracks.size()) {
                     Track track=tracks.get(index);
-                    if (listener!=null) listener.onTrackChanged(track.start, track.end, track.key, completed);
+                    for (Listener listener:new ArrayList<>(listeners)) listener.onTrackChanged(track.start, track.end, track.key, completed);
                 }
                 notifyState();
             }
@@ -161,17 +161,19 @@ public final class MrtPlaybackService extends Service {
         }
         return START_STICKY;
     }
-    public void setListener(Listener value) {
-        listener=value;
-        if(listener!=null) {
-            int index=trackIndex();
-            if(index>=0 && index<tracks.size()) {
-                Track current=tracks.get(index);
-                listener.onTrackChanged(current.start,current.end,current.key,false);
-            }
+    public void addListener(Listener value) {
+        if(value==null || listeners.contains(value))return;
+        listeners.add(value);
+        int index=trackIndex();
+        if(index>=0 && index<tracks.size()) {
+            Track current=tracks.get(index);
+            value.onTrackChanged(current.start,current.end,current.key,false);
         }
-        notifyState();
+        value.onPlaybackStateChanged();
     }
+    public void removeListener(Listener value){listeners.remove(value);}
+    /** Backwards-compatible registration; new callers should use addListener/removeListener. */
+    public void setListener(Listener value) {listeners.clear();addListener(value);}
     public void prepareBook(String id) {
         String requested=id==null?"":id;
         if (!requested.equals(activeBookId)) {clearQueue(); activeBookId=requested;}
@@ -306,15 +308,12 @@ public final class MrtPlaybackService extends Service {
                 .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         PendingIntent toggle=PendingIntent.getService(this,1,new Intent(this,MrtPlaybackService.class)
                 .setAction(ACTION_TOGGLE),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-        PendingIntent stop=PendingIntent.getService(this,2,new Intent(this,MrtPlaybackService.class)
-                .setAction(ACTION_STOP),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         return new NotificationCompat.Builder(this,CHANNEL)
                 .setSmallIcon(R.drawable.ic_reader).setColor(Color.rgb(153,97,68))
                 .setContentTitle("Читалка RSVP · MRT")
                 .setContentText(isPlaying()?"Воспроизведение MP3":"Пауза")
                 .setContentIntent(open).setOnlyAlertOnce(true).setOngoing(isPlaying())
                 .addAction(isPlaying()?R.drawable.ic_pause:R.drawable.ic_play,isPlaying()?"Пауза":"Play",toggle)
-                .addAction(R.drawable.ic_stop,"Стоп",stop)
                 .build();
     }
     private void updateNotification() {
@@ -332,7 +331,7 @@ public final class MrtPlaybackService extends Service {
             notificationShowing=false;
         }
     }
-    private void notifyState(){if(listener!=null) listener.onPlaybackStateChanged();}
+    private void notifyState(){for(Listener listener:new ArrayList<>(listeners))listener.onPlaybackStateChanged();}
     @Override public void onDestroy() {
         try {unregisterReceiver(noisy);}catch(Exception ignored){}
         try {unregisterReceiver(exclusiveSource);}catch(Exception ignored){}

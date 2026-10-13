@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
@@ -16,6 +17,8 @@
         <service android:name=".AudioPlaybackService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <activity android:name=".AudioPlayerActivity" android:exported="false" />
         <service android:name=".MrtPlaybackService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
+        <service android:name=".MrtDownloadService" android:exported="false" android:foregroundServiceType="dataSync" />
+        <activity android:name=".MrtDownloadActivity" android:exported="false" />
         <activity android:name=".MrtOnlineActivity" android:exported="false" />
         <activity android:name=".MrtFileExplorerActivity" android:exported="false" />
         <activity android:name=".SettingsActivity" android:exported="false" />
