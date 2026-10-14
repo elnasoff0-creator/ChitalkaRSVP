@@ -91,6 +91,8 @@ public final class EdgePlaybackService extends Service {
 
     @Override public void onCreate() {
         super.onCreate();
+        playbackSpeed=getSharedPreferences("reader",0).getFloat("edge_playback_speed",1f);
+        playbackSpeed=Math.max(0.5f,Math.min(3f,playbackSpeed));
         player = new ExoPlayer.Builder(this).build();
         player.setPlaybackParameters(new PlaybackParameters(playbackSpeed));
         player.setAudioAttributes(new androidx.media3.common.AudioAttributes.Builder()
@@ -120,6 +122,7 @@ public final class EdgePlaybackService extends Service {
                 notifyState();
             }
             @Override public void onIsPlayingChanged(boolean isPlaying) { updateSession(); updateNotification(); notifyState(); }
+            @Override public void onAudioSessionIdChanged(int audioSessionId) { AudioEqualizer.attach(EdgePlaybackService.this,audioSessionId); }
             @Override public void onPlayerError(androidx.media3.common.PlaybackException error) {
                 requestedPlay = false;
                 playbackError = "Android не смог воспроизвести аудиофайл: "
@@ -208,6 +211,7 @@ public final class EdgePlaybackService extends Service {
     public float playbackSpeed() { return playbackSpeed; }
     public void setPlaybackSpeed(float value) {
         playbackSpeed = Math.max(0.5f, Math.min(3f, value));
+        getSharedPreferences("reader",0).edit().putFloat("edge_playback_speed",playbackSpeed).apply();
         if (player != null) player.setPlaybackParameters(new PlaybackParameters(playbackSpeed));
         updateSession();
         notifyState();
@@ -400,6 +404,7 @@ public final class EdgePlaybackService extends Service {
         hideNotification();
         if(mediaSession!=null){mediaSession.setActive(false);mediaSession.release();mediaSession=null;}
         if(player!=null){player.release();player=null;}
+        AudioEqualizer.release();
         super.onDestroy();
     }
 }

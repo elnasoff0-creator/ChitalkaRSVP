@@ -16,7 +16,7 @@ import java.util.*;
 /** Background playback for local audio and system TTS. Never stores private files in a public directory. */
 public class AudioPlaybackService extends Service implements TextToSpeech.OnInitListener {
     public static final String CHANNEL="reader_audio", ACTION_STATE="ru.reader.rsvp.AUDIO_STATE";
-    public static final String LOAD="load", PLAY="play", PAUSE="pause", SEEK="seek", NEXT="next", PREV="prev", STOP="stop", SPEED="speed", SLEEP="sleep", TTS="tts", VOICE="voice", CHAPTER="chapter";
+    public static final String LOAD="load", PLAY="play", PAUSE="pause", SEEK="seek", NEXT="next", PREV="prev", STOP="stop", SPEED="speed", SLEEP="sleep", TTS="tts", VOICE="voice", CHAPTER="chapter", ENGINE="engine";
     public static AudioPlaybackService instance;
     private MediaPlayer player;
     private TextToSpeech tts;
@@ -50,7 +50,9 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         IntentFilter noisyFilter=new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY);
         if(Build.VERSION.SDK_INT>=33)registerReceiver(noisyReceiver,noisyFilter,Context.RECEIVER_NOT_EXPORTED);
         else registerReceiver(noisyReceiver,noisyFilter);
-        tts=new TextToSpeech(this,this);handler.post(tick);}
+        String preferred=getSharedPreferences("reader",0).getString("tts_engine","");
+        tts=preferred.isEmpty()?new TextToSpeech(this,this):new TextToSpeech(this,this,preferred);
+        handler.post(tick);}
     @Override public int onStartCommand(Intent intent,int flags,int startId){if(intent==null)return START_STICKY;String action=intent.getAction();if(action==null)return START_STICKY;switch(action){
         case LOAD: {AudioModeCoordinator.stopEdge(this);interruptedByExternalAudio=false;if(active)saveProgress(); if(tts!=null&&ttsMode)tts.stop(); String[] uris=intent.getStringArrayExtra("uris");playlist.clear();if(uris!=null)for(String u:uris)if(u!=null)playlist.add(u);title=intent.getStringExtra("title");if(title==null)title="Аудиокнига";
           bookId=intent.getStringExtra("bookId");if(bookId==null)bookId=playlistKey();getSharedPreferences("reader",0).edit().putString("audio_last_book",bookId).apply();
@@ -70,6 +72,12 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         case SEEK:seekTo(intent.getIntExtra("position",0));break;
         case SPEED: speed=Math.max(.5f,Math.min(3f,intent.getFloatExtra("speed",1)));if(tts!=null)tts.setSpeechRate(speed);if(!paused)applySpeed();saveProgress();notifyState();break;
         case SLEEP: {int minutes=intent.getIntExtra("minutes",0);sleepDeadline=minutes<=0?0:System.currentTimeMillis()+minutes*60000L;getSharedPreferences("reader",0).edit().putLong("audio_sleep_deadline",sleepDeadline).apply();break;}
+        case ENGINE: {boolean wasPlaying=active&&ttsMode&&!paused;
+            if(tts!=null){tts.stop();tts.shutdown();}
+            if(ttsMode)paused=true;
+            ttsReady=false;ttsStartRequested=wasPlaying;
+            String selected=getSharedPreferences("reader",0).getString("tts_engine","");
+            tts=selected.isEmpty()?new TextToSpeech(this,this):new TextToSpeech(this,this,selected);break;}
         case VOICE: {float p=intent.getFloatExtra("pitch",1f);pitch=Math.max(.6f,Math.min(1.5f,p));if(tts!=null)tts.setPitch(pitch);break;}
         case CHAPTER: {int target=intent.getIntExtra("chapter",0);if(!ttsMode&&target>=0&&target<playlist.size()){boolean shouldPlay=false;segment=target;pendingChapterFraction=Math.max(0,Math.min(1,intent.getDoubleExtra("fraction",0)));prepareAudio(0,shouldPlay);}break;}
     }notifyState();return START_STICKY;}
@@ -114,7 +122,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         }
     }
     private String playlistKey(){return playlist.isEmpty()?"":playlist.get(0);}
-    private void prepareAudio(int offset,boolean autoplay){releasePlayer();paused=true;duration=0;notifyState();if(playlist.isEmpty())return;try{Uri uri=Uri.parse(playlist.get(segment));player=new MediaPlayer();player.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());player.setDataSource(this,uri);player.setOnPreparedListener(mp->{duration=mp.getDuration();if(segment>=0&&segment<chapterDurations.size()&&duration>0)chapterDurations.set(segment,(long)duration);int target=pendingChapterFraction>0?(int)(pendingChapterFraction*duration):offset;pendingChapterFraction=0;mp.seekTo(Math.max(0,Math.min(target,duration)));if(autoplay && !interruptedByExternalAudio && audioFocus.acquire()){mp.start();paused=false;applySpeed();}else{paused=true;}saveProgress();notifyState();});player.setOnCompletionListener(mp->{if(segment+1<playlist.size()){segment++;prepareAudio(0,true);}else pausePlayback();});player.prepareAsync();}catch(Exception e){paused=true;notifyState();}}
+    private void prepareAudio(int offset,boolean autoplay){releasePlayer();paused=true;duration=0;notifyState();if(playlist.isEmpty())return;try{Uri uri=Uri.parse(playlist.get(segment));player=new MediaPlayer();player.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());player.setDataSource(this,uri);player.setOnPreparedListener(mp->{duration=mp.getDuration();if(segment>=0&&segment<chapterDurations.size()&&duration>0)chapterDurations.set(segment,(long)duration);int target=pendingChapterFraction>0?(int)(pendingChapterFraction*duration):offset;pendingChapterFraction=0;mp.seekTo(Math.max(0,Math.min(target,duration)));AudioEqualizer.attach(this,mp.getAudioSessionId());if(autoplay && !interruptedByExternalAudio && audioFocus.acquire()){mp.start();paused=false;applySpeed();}else{paused=true;}saveProgress();notifyState();});player.setOnCompletionListener(mp->{if(segment+1<playlist.size()){segment++;prepareAudio(0,true);}else pausePlayback();});player.prepareAsync();}catch(Exception e){paused=true;notifyState();}}
     private void releasePlayer(){if(player!=null){try{player.reset();player.release();}catch(Exception ignored){}player=null;}}
     private void applySpeed(){if(player!=null&&!paused)try{player.setPlaybackParams(player.getPlaybackParams().setSpeed(speed));}catch(Exception ignored){}}
     private void resume(){
@@ -252,5 +260,5 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
                         paused?0f:speed).build());
     }
     @Override public android.os.IBinder onBind(Intent i){return null;}
-    @Override public void onDestroy(){active=false;handler.removeCallbacks(tick);try{unregisterReceiver(noisyReceiver);}catch(Exception ignored){}audioFocus.release();if(mediaSession!=null){mediaSession.setActive(false);mediaSession.release();mediaSession=null;}saveProgress();releasePlayer();if(tts!=null){tts.stop();tts.shutdown();}instance=null;super.onDestroy();}
+    @Override public void onDestroy(){active=false;handler.removeCallbacks(tick);try{unregisterReceiver(noisyReceiver);}catch(Exception ignored){}audioFocus.release();if(mediaSession!=null){mediaSession.setActive(false);mediaSession.release();mediaSession=null;}saveProgress();releasePlayer();if(tts!=null){tts.stop();tts.shutdown();}AudioEqualizer.release();instance=null;super.onDestroy();}
 }

@@ -22,7 +22,7 @@ import android.widget.TextView;
 /** Separate, persistent reader settings with live typography/background preview. */
 public class SettingsActivity extends Activity {
     private SharedPreferences prefs;
-    private int currentTab=0; // 0 reading, 1 audio, 2 online
+    private int currentTab=0; // 0 appearance, 1 RSVP, 2 audio, 3 online
     private LinearLayout root, list;
     private TextView preview, sizeValue;
     private int bg, fg, font, size, display;
@@ -33,8 +33,8 @@ public class SettingsActivity extends Activity {
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
         prefs=getSharedPreferences("reader",MODE_PRIVATE);
-        if(getIntent().getBooleanExtra("audio_tab",false)) currentTab=1;
-        if(getIntent().getBooleanExtra("online_tab",false)) currentTab=2;
+        if(getIntent().getBooleanExtra("audio_tab",false)) currentTab=2;
+        if(getIntent().getBooleanExtra("online_tab",false)) currentTab=3;
         load();draw();
     }
     int dp(int n){return (int)(getResources().getDisplayMetrics().density*n+.5f);}    
@@ -54,7 +54,14 @@ public class SettingsActivity extends Activity {
     void header(String name){TextView t=text(name,18,true);t.setPadding(0,dp(14),0,dp(9));list.addView(t);}    
     TextView action(String name,Runnable click){TextView t=text(name,16,false);t.setBackground(rounded(contrast(bg)==Color.WHITE?0xff404348:0xfffff9f1,15));t.setPadding(dp(14),dp(14),dp(14),dp(14));t.setOnClickListener(v->click.run());return t;}
     TextView action(String name,int icon,Runnable click){TextView t=action(name,click);t.setCompoundDrawablesWithIntrinsicBounds(icon,0,0,0);t.setCompoundDrawablePadding(dp(10));return t;}
-    TextView tabAction(String name,int icon,boolean active,Runnable click){TextView t=text(name,15,true);t.setGravity(Gravity.CENTER);t.setCompoundDrawablesWithIntrinsicBounds(icon,0,0,0);t.setCompoundDrawablePadding(dp(8));t.setBackground(rounded(active?(contrast(bg)==Color.WHITE?0xff5c4234:0xfff0d8c0):(contrast(bg)==Color.WHITE?0xff404348:0xfffff9f1),15));t.setPadding(dp(10),dp(14),dp(10),dp(14));t.setOnClickListener(v->click.run());return t;}
+    TextView tabAction(String name,int icon,boolean active,Runnable click){
+        TextView t=text(name,11,false);t.setGravity(Gravity.CENTER);
+        android.graphics.drawable.Drawable d=getDrawable(icon);
+        if(d!=null){d=d.mutate();d.setTint(active?0xffffffff:contrast(bg));d.setBounds(0,0,dp(24),dp(24));t.setCompoundDrawables(null,d,null,null);}
+        t.setCompoundDrawablePadding(dp(3));t.setTextColor(active?0xffffffff:contrast(bg));
+        t.setBackground(rounded(active?0xffa26949:(contrast(bg)==Color.WHITE?0xff404348:0xfffff9f1),15));
+        t.setPadding(dp(2),dp(8),dp(2),dp(7));t.setOnClickListener(v->click.run());return t;
+    }
     String onOff(boolean value){return value?"включено":"выключено";}
     void toggle(String key, Runnable after){prefs.edit().putBoolean(key,!prefs.getBoolean(key,true)).apply(); if(after!=null) after.run();}
     void draw(){
@@ -64,14 +71,18 @@ public class SettingsActivity extends Activity {
         TextView name=text("Настройки чтения",24,true);name.setTypeface(Typeface.SERIF,Typeface.BOLD);top.addView(name,new LinearLayout.LayoutParams(0,-2,1));root.addView(top);
         ScrollView sc=new ScrollView(this);list=col();sc.addView(list);root.addView(sc,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout tabs=new LinearLayout(this);
-        tabs.addView(tabAction("Чтение",R.drawable.ic_reader,currentTab==0,()->{currentTab=0;draw();}),new LinearLayout.LayoutParams(0,dp(55),1));
-        LinearLayout.LayoutParams midLp=new LinearLayout.LayoutParams(0,dp(55),1); midLp.leftMargin=dp(6);
-        tabs.addView(tabAction("Аудио",R.drawable.ic_microphone,currentTab==1,()->{currentTab=1;draw();}),midLp);
-        LinearLayout.LayoutParams lastLp=new LinearLayout.LayoutParams(0,dp(55),1); lastLp.leftMargin=dp(6);
-        tabs.addView(tabAction("Онлайн",R.drawable.ic_autoload,currentTab==2,()->{currentTab=2;draw();}),lastLp);
+        int[] icons={R.drawable.ic_tab_appearance,R.drawable.ic_tab_rsvp,R.drawable.ic_tab_audio,R.drawable.ic_tab_online};
+        String[] names={"Оформление","Скорочтение","Аудио","Онлайн"};
+        for(int i=0;i<names.length;i++){
+            final int tab=i;
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(67),1);
+            if(i>0)lp.leftMargin=dp(5);
+            tabs.addView(tabAction(names[i],icons[i],currentTab==i,()->{currentTab=tab;draw();}),lp);
+        }
         list.addView(tabs);
-        if(currentTab==1){drawAudioSettings();return;}
-        if(currentTab==2){drawOnlineSettings();return;}
+        if(currentTab==1){drawRsvpSettings();return;}
+        if(currentTab==2){drawAudioSettings();return;}
+        if(currentTab==3){drawOnlineSettings();return;}
         header("Предпросмотр текста");
         preview=new TextView(this);preview.setText("Текст");preview.setLineSpacing(dp(5),1.18f);preview.setPadding(dp(19),dp(21),dp(19),dp(21));list.addView(preview,new LinearLayout.LayoutParams(-1,-2));applyPreview();
         header("Шрифт");
@@ -87,17 +98,62 @@ public class SettingsActivity extends Activity {
         theme(themes,"Светлая",0xffffffff,0xff202020);theme(themes,"Сепия",0xfff3e7d5,0xff30221e);theme(themes,"Ночная",0xff1e2025,0xffe8e5db);theme(themes,"Мягкая",0xffdfe9d9,0xff223a29);list.addView(themes);
         header("Цвет фона — палитра");palette(backgrounds,true);
         header("Цвет текста — палитра");palette(textColors,false);
-        gap(8);header("Скорочтение");
+        gap(18);
+    }
+    void drawRsvpSettings(){
+        header("Скорочтение");
         String[] modes={"Только одно слово","Предыдущее и следующее","Текущее и следующее"};
         list.addView(action("Показ слов: "+modes[display],()->new AlertDialog.Builder(this).setTitle("Показ слов").setSingleChoiceItems(modes,display,(d,i)->{display=i;put("display",i);d.dismiss();draw();}).setNegativeButton("Отмена",null).show()));
         gap(8);list.addView(action("Дополнительные паузы",this::pauses));gap(18);
     }
     void drawAudioSettings(){
-        header("Управление аудиокнигами");
-        list.addView(action("+ Добавить папку с аудиокнигой",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","import"))));gap(8);
-        list.addView(action("Озвучить текущую текстовую книгу",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","tts"))));gap(8);
-        list.addView(action("Голос TTS и высота тона",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","voice"))));gap(8);
-        list.addView(action("Аудиозакладки",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","marks"))));gap(8);
+        header("Настройки аудио");
+        list.addView(action("Эквалайзер · "+equalizerLabel(),R.drawable.ic_equalizer,this::equalizerDialog));gap(8);
+        list.addView(action("Выбор движка TTS",R.drawable.ic_tts_engine,this::ttsEngineDialog));gap(8);
+        list.addView(action("Голос TTS и высота тона",R.drawable.ic_microphone,()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","voice"))));gap(18);
+    }
+    String equalizerLabel(){
+        String v=prefs.getString("audio_equalizer","off");
+        switch(v){case "flat":return "Ровный";case "bass":return "Басы";case "treble":return "Высокие";case "voice":return "Речь";default:return "Выключен";}
+    }
+    void equalizerDialog(){
+        String[] values={"off","flat","bass","treble","voice"};
+        String[] labels={"Выключен","Ровный","Усиление басов","Высокие частоты","Разборчивая речь"};
+        int selected=0;String chosen=prefs.getString("audio_equalizer","off");
+        for(int i=0;i<values.length;i++)if(values[i].equals(chosen))selected=i;
+        new AlertDialog.Builder(this).setTitle("Эквалайзер").setSingleChoiceItems(labels,selected,(d,i)->{
+            prefs.edit().putString("audio_equalizer",values[i]).apply();AudioEqualizer.apply(this);d.dismiss();draw();
+        }).setNegativeButton("Отмена",null).show();
+    }
+    void ttsEngineDialog(){
+        // Android owns engine discovery and setup; use a fresh lightweight probe.
+        final android.speech.tts.TextToSpeech[] probe=new android.speech.tts.TextToSpeech[1];
+        probe[0]=new android.speech.tts.TextToSpeech(this,status->{
+            runOnUiThread(()->{
+                if(probe[0]==null)return;
+                if(isFinishing()) {probe[0].shutdown();return;}
+                if(status!=android.speech.tts.TextToSpeech.SUCCESS){
+                    probe[0].shutdown();new AlertDialog.Builder(this).setMessage("Не удалось получить список TTS-движков")
+                            .setPositiveButton("OK",null).show();return;
+                }
+                java.util.List<android.speech.tts.TextToSpeech.EngineInfo> engines=probe[0].getEngines();
+                if(engines==null)engines=java.util.Collections.emptyList();
+                String[] labels=new String[engines.size()+1];
+                String[] packages=new String[engines.size()+1];
+                labels[0]="Системный (по умолчанию)";packages[0]="";
+                for(int i=0;i<engines.size();i++){
+                    labels[i+1]=engines.get(i).label;packages[i+1]=engines.get(i).name;
+                }
+                probe[0].shutdown();
+                new AlertDialog.Builder(this).setTitle("Движок озвучивания текста")
+                    .setItems(labels,(d,index)->{
+                        prefs.edit().putString("tts_engine",packages[index]).apply();
+                        if(AudioPlaybackService.instance!=null)
+                            startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.ENGINE));
+                        draw();
+                    }).setNegativeButton("Отмена",null).show();
+            });
+        });
     }
     void drawOnlineSettings(){
         header("Версия и обновления");

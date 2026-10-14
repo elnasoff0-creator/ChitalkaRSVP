@@ -14,7 +14,7 @@ import java.util.*;
 /** Standalone audio interface. Playback remains in AudioPlaybackService on navigation. */
 public class AudioPlayerActivity extends Activity {
     private static final int FILE_PICK=301, FOLDER_PICK=302, COVER_PICK=303;
-    LinearLayout root,playRow; ScrollView ttsTextFrame; TextView title,info,elapsed,duration,spokenText,wholeProgress,speedAction,timerAction; SeekBar progress, totalProgress; TextView chapterElapsed, chapterDuration, chapterPicker, overallTime, overallPercent, overallRemaining, speedValue; android.widget.ImageView coverImage, playIcon, coverPlaceholderIcon; TextView coverPlaceholderText;
+    LinearLayout root,playRow,overallTimes; FrameLayout coverArea; TextView overallLabel; ScrollView ttsTextFrame; TextView title,info,elapsed,duration,spokenText,wholeProgress,speedAction,timerAction; SeekBar progress, totalProgress; TextView chapterElapsed, chapterDuration, chapterPicker, overallTime, overallPercent, overallRemaining, speedValue; android.widget.ImageView coverImage, playIcon, coverPlaceholderIcon; TextView coverPlaceholderText;
     Handler handler=new Handler(Looper.getMainLooper()); boolean dragging=false, draggingTotal=false;String bookUri=""; AudioLibrary.Book selected;
     private int shownTtsPosition = -1;
     private boolean shownTtsMode = false;
@@ -122,7 +122,7 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         ttsTextFrame.addView(spokenText,new ScrollView.LayoutParams(-1,-2));
         root.addView(ttsTextFrame,new LinearLayout.LayoutParams(-1,dp(84)));
         shownTtsPosition=-1;shownTtsMode=false;ttsTextFrame.setVisibility(View.GONE);
-        TextView overallLabel=label("Вся аудиокнига",14);
+        overallLabel=label("Вся аудиокнига",14);
         LinearLayout.LayoutParams overallLabelLp=new LinearLayout.LayoutParams(-1,-2);
         overallLabelLp.topMargin=dp(13);root.addView(overallLabel,overallLabelLp);
         totalProgress=new SeekBar(this);totalProgress.setMax(10000);root.addView(totalProgress);
@@ -135,14 +135,14 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
                 draggingTotal=false;refresh();
             }
         });
-        LinearLayout overallTimes=new LinearLayout(this);
+        overallTimes=new LinearLayout(this);
         overallTimes.setGravity(Gravity.CENTER_VERTICAL);root.addView(overallTimes);
         overallTime=label("— / —",12);overallTimes.addView(overallTime,new LinearLayout.LayoutParams(0,-2,1));
         overallPercent=label("—",12);overallPercent.setGravity(Gravity.CENTER);
         overallTimes.addView(overallPercent,new LinearLayout.LayoutParams(dp(55),-2));
         overallRemaining=label("—",12);overallRemaining.setGravity(Gravity.RIGHT);
         overallTimes.addView(overallRemaining,new LinearLayout.LayoutParams(0,-2,1));
-        android.widget.FrameLayout coverArea=new android.widget.FrameLayout(this);
+        coverArea=new android.widget.FrameLayout(this);
         coverArea.setBackground(bg(0xfffff8ef,26));
         LinearLayout.LayoutParams cap=new LinearLayout.LayoutParams(-1,0,1);
         cap.topMargin=dp(12);cap.bottomMargin=dp(12);root.addView(coverArea,cap);
@@ -175,20 +175,59 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         elapsed=chapterElapsed;duration=chapterDuration;
         playRow=new LinearLayout(this);playRow.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams pl=new LinearLayout.LayoutParams(-1,dp(90));pl.topMargin=dp(10);root.addView(playRow,pl);
-        String[] hints={"Глава","1 мин","10 сек","","10 сек","1 мин","Глава"};
-        int[] icons={R.drawable.ic_prev_chapter,R.drawable.ic_rewind_1m,R.drawable.ic_rewind_10s,R.drawable.ic_play,R.drawable.ic_forward_10s,R.drawable.ic_forward_1m,R.drawable.ic_next_chapter};
+        buildPlaybackButtons(false);
+        refresh();
+    }
+    void buildPlaybackButtons(boolean isTts){
+        playRow.removeAllViews();
+        // TTS positions are text fragments, not seconds. MP3 audiobook keeps its own seek buttons.
+        String[] hints=isTts?new String[]{"Фрагмент","","Фрагмент"}:
+                new String[]{"Глава","1 мин","10 сек","","10 сек","1 мин","Глава"};
+        int[] icons=isTts?new int[]{R.drawable.ic_prev_chapter,R.drawable.ic_play,R.drawable.ic_next_chapter}:
+                new int[]{R.drawable.ic_prev_chapter,R.drawable.ic_rewind_1m,R.drawable.ic_rewind_10s,R.drawable.ic_play,R.drawable.ic_forward_10s,R.drawable.ic_forward_1m,R.drawable.ic_next_chapter};
         final int[] offsets={0,-60000,-10000,0,10000,60000,0};
         for(int n=0;n<icons.length;n++){
-            final int buttonIndex=n;
-            LinearLayout cell=bottomIconControl(icons[n],hints[n],n==3,n==3?26:22,v->{
-                if(buttonIndex==0)changeChapter(-1);
-                else if(buttonIndex==6)changeChapter(1);
-                else if(buttonIndex==3){AudioPlaybackService service=AudioPlaybackService.instance;command(service!=null&&!service.isPaused()?AudioPlaybackService.PAUSE:AudioPlaybackService.PLAY);}
-                else jump(offsets[buttonIndex]);
+            final int k=n,center=isTts?1:3;
+            LinearLayout cell=bottomIconControl(icons[n],hints[n],n==center,n==center?26:22,v->{
+                if(isTts){
+                    if(k==0)command(AudioPlaybackService.PREV);
+                    else if(k==2)command(AudioPlaybackService.NEXT);
+                    else {AudioPlaybackService service=AudioPlaybackService.instance;
+                        command(service!=null&&!service.isPaused()?AudioPlaybackService.PAUSE:AudioPlaybackService.PLAY);}
+                }else{
+                    if(k==0)changeChapter(-1);
+                    else if(k==6)changeChapter(1);
+                    else if(k==3){AudioPlaybackService service=AudioPlaybackService.instance;
+                        command(service!=null&&!service.isPaused()?AudioPlaybackService.PAUSE:AudioPlaybackService.PLAY);}
+                    else jump(offsets[k]);
+                }
             });
-            playRow.addView(cell,new LinearLayout.LayoutParams(0,-1,n==3?1.32f:1f));
+            playRow.addView(cell,new LinearLayout.LayoutParams(0,-1,n==center?1.32f:1f));
         }
-        refresh();
+    }
+    void updateTtsLayout(boolean inTts){
+        // Reposition only on a mode switch: ordinary audiobooks keep their original layout.
+        if(ttsTextFrame.getParent()!=null)root.removeView(ttsTextFrame);
+        if(coverArea.getParent()!=null)root.removeView(coverArea);
+        if(inTts){
+            int insert=root.indexOfChild(info)+1;
+            LinearLayout.LayoutParams coverLp=new LinearLayout.LayoutParams(-1,dp(170));
+            coverLp.topMargin=dp(10);coverLp.bottomMargin=dp(7);
+            root.addView(coverArea,insert,coverLp);
+            LinearLayout.LayoutParams textLp=new LinearLayout.LayoutParams(-1,0,1);
+            textLp.topMargin=dp(9);root.addView(ttsTextFrame,textLp);
+        }else{
+            root.addView(ttsTextFrame,root.indexOfChild(info)+1,new LinearLayout.LayoutParams(-1,dp(84)));
+            LinearLayout.LayoutParams coverLp=new LinearLayout.LayoutParams(-1,0,1);
+            coverLp.topMargin=dp(12);coverLp.bottomMargin=dp(12);
+            root.addView(coverArea,root.indexOfChild(overallTimes)+1,coverLp);
+        }
+        overallLabel.setVisibility(inTts?View.GONE:View.VISIBLE);
+        totalProgress.setVisibility(inTts?View.GONE:View.VISIBLE);
+        overallTimes.setVisibility(inTts?View.GONE:View.VISIBLE);
+        ttsTextFrame.setVisibility(inTts?View.VISIBLE:View.GONE);
+        buildPlaybackButtons(inTts);
+        chapterPicker.setContentDescription(inTts?"Выбрать фрагмент":"Выбрать главу");
     }
     void chooseCover(){if(selected==null){Toast.makeText(this,"Выберите аудиокнигу в библиотеке",Toast.LENGTH_LONG).show();return;}Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,COVER_PICK);}
     void updateCover(){
@@ -280,7 +319,18 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
     void speedMenu(){final String[] labels={"0.5×","0.75×","1×","1.1×","1.25×","1.5×","1.75×","2×","2.5×","3×"};final float[] rates={.5f,.75f,1f,1.1f,1.25f,1.5f,1.75f,2f,2.5f,3f};new AlertDialog.Builder(this).setTitle("Скорость").setItems(labels,(d,n)->{Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SPEED);i.putExtra("speed",rates[n]);startService(i);}).show();}
     void sleepMenu(){final int[] minutes={0,5,10,15,30,60};String[] labels={"Выключить","5 мин","10 мин","15 мин","30 мин","60 мин"};new AlertDialog.Builder(this).setTitle("Таймер сна").setItems(labels,(d,n)->{Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SLEEP);i.putExtra("minutes",minutes[n]);startService(i);Toast.makeText(this,"Таймер сохранён",Toast.LENGTH_SHORT).show();}).show();}
     void voiceMenu(){String[] choices={"Обычный голос", "Ниже", "Выше", "Выбрать системный движок"};new AlertDialog.Builder(this).setTitle("Озвучивание текста").setItems(choices,(d,n)->{if(n==3){try{startActivity(new Intent("com.android.settings.TTS_SETTINGS"));}catch(Exception e){Toast.makeText(this,"Настройки TTS недоступны",Toast.LENGTH_SHORT).show();}return;}Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.VOICE);i.putExtra("pitch",n==1?.8f:n==2?1.2f:1f);startService(i);}).show();}
-    void chapters(){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null){Toast.makeText(this,"Сначала выберите книгу",Toast.LENGTH_SHORT).show();return;}if(s.isTtsMode()){Toast.makeText(this,"Для TTS доступны переходы по фрагментам",Toast.LENGTH_SHORT).show();return;}int count=s.getChapterCount();if(count<1)return;String[] labels=new String[count];for(int j=0;j<count;j++)labels[j]=s.getChapterName(j);new AlertDialog.Builder(this).setTitle("Части аудиокниги").setSingleChoiceItems(labels,s.getSegment(),(d,n)->{Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.CHAPTER);i.putExtra("chapter",n);startService(i);d.dismiss();}).setNegativeButton("Отмена",null).show();}
+    void chapters(){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null){Toast.makeText(this,"Сначала выберите книгу",Toast.LENGTH_SHORT).show();return;}if(s.isTtsMode()){chooseTtsFragment(s);return;}int count=s.getChapterCount();if(count<1)return;String[] labels=new String[count];for(int j=0;j<count;j++)labels[j]=s.getChapterName(j);new AlertDialog.Builder(this).setTitle("Части аудиокниги").setSingleChoiceItems(labels,s.getSegment(),(d,n)->{Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.CHAPTER);i.putExtra("chapter",n);startService(i);d.dismiss();}).setNegativeButton("Отмена",null).show();}
+    void chooseTtsFragment(AudioPlaybackService s){
+        int count=s.getDuration(),current=s.getPosition();
+        if(count<=0)return;
+        int start=Math.max(0,current-12),end=Math.min(count,start+25);
+        String[] labels=new String[end-start];
+        for(int i=start;i<end;i++)labels[i-start]="Фрагмент "+(i+1)+" из "+count;
+        new AlertDialog.Builder(this).setTitle("Выбор фрагмента")
+            .setSingleChoiceItems(labels,current-start,(d,index)->{
+                seekPosition(start+index);d.dismiss();
+            }).setNegativeButton("Отмена",null).show();
+    }
     void bookmark(){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null)return;String key="audio_marks:"+s.getTitle();Set<String> marks=new HashSet<>(getSharedPreferences("reader",0).getStringSet(key,new HashSet<>()));marks.add(String.valueOf(s.getPosition()));getSharedPreferences("reader",0).edit().putStringSet(key,marks).apply();Toast.makeText(this,"Аудиозакладка сохранена",Toast.LENGTH_SHORT).show();}
     void options(){String[] choices={"Добавить аудиокнигу","Аудиозакладки","Скорость","Таймер сна","Остановить звук"};new AlertDialog.Builder(this).setItems(choices,(d,n)->{if(n==0)importFiles();if(n==1)showMarks();if(n==2)speedMenu();if(n==3)sleepMenu();if(n==4)command(AudioPlaybackService.STOP);}).show();}
     void showMarks(){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null)return;Set<String> ms=getSharedPreferences("reader",0).getStringSet("audio_marks:"+s.getTitle(),new HashSet<>());ArrayList<Integer> vals=new ArrayList<>();for(String v:ms)try{vals.add(Integer.parseInt(v));}catch(Exception ignored){}Collections.sort(vals);String[] names=new String[vals.size()];for(int j=0;j<vals.size();j++)names[j]=s.isTtsMode()?"Фрагмент "+vals.get(j):format(vals.get(j));new AlertDialog.Builder(this).setTitle("Аудиозакладки").setItems(names,(d,n)->{Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SEEK);i.putExtra("position",vals.get(n));startService(i);}).setPositiveButton("Закрыть",null).show();}
@@ -306,7 +356,7 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         }
         setTextIfDifferent(title, service.getTitle());
         setTextIfDifferent(info, service.isTtsMode()?"Озвучивание · "+service.getSpeed()+"×":"Аудиокнига · "+service.getSpeed()+"×");
-        if(chapterPicker!=null)chapterPicker.setContentDescription("Глава "+(service.getSegment()+1)+". Выбрать главу");
+        if(chapterPicker!=null)chapterPicker.setContentDescription(service.isTtsMode()?"Выбрать фрагмент":"Глава "+(service.getSegment()+1)+". Выбрать главу");
         int d=service.getDuration(), position=service.getPosition(), segments=Math.max(1,service.getChapterCount());
         long total=service.isTtsMode()?0:service.getTotalDuration();
         long totalPos=service.getTotalPosition();
@@ -332,7 +382,7 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         if (inTts != shownTtsMode) {
             shownTtsMode = inTts;
             shownTtsPosition = -1;
-            ttsTextFrame.setVisibility(inTts ? View.VISIBLE : View.GONE);
+            updateTtsLayout(inTts);
         }
         if (inTts && shownTtsPosition != position) {
             shownTtsPosition = position;

@@ -46,7 +46,7 @@ public final class EdgeOnlineActivity extends Activity {
     private EdgeDownloadService downloads;
     private boolean playerBound,downloaderBound,dragging;
     private TextView progressText,queueStatus,fileLabel,fileTime,fragmentText,downloadStatus,bookTitleView;
-    private Button autoloadButton,playButton,voiceChoice;
+    private Button autoloadButton,playButton,voiceChoice,speedButton;
     private SeekBar seek;
     private ScrollView textScroller;
     private ImageView coverImage;
@@ -83,7 +83,7 @@ public final class EdgeOnlineActivity extends Activity {
         Button b=new Button(this);b.setText("");b.setMinWidth(0);b.setMinimumWidth(0);b.setPadding(0,0,0,0);
         b.setAllCaps(false);b.setGravity(Gravity.CENTER);b.setBackground(rounded(primary?ACCENT:0xfffff9f0,15));b.setContentDescription(hint);
         android.graphics.drawable.Drawable d=getDrawable(icon);
-        if(d!=null){d=d.mutate();d.setTint(primary?Color.WHITE:INK);d.setBounds(0,0,dp(22),dp(22));b.setCompoundDrawables(d,null,null,null);}
+        if(d!=null){d=d.mutate();d.setTint(primary?Color.WHITE:INK);d.setBounds(0,0,dp(22),dp(22));b.setCompoundDrawables(null,d,null,null);}
         return b;
     }
     private Button captionButton(String value,int icon,boolean primary){
@@ -133,6 +133,7 @@ public final class EdgeOnlineActivity extends Activity {
         for(int i=0;i<toolbarIcons.length;i++){
             final int index=i;
             Button btn=button(toolbarIcons[i],toolbarHints[i],false);
+            if(i==2){speedButton=btn;btn.setText("1×");btn.setTextSize(10);btn.setCompoundDrawablePadding(0);}
             btn.setOnClickListener(v->{
                 switch(index){
                     case 0:startActivity(new Intent(this,EdgeQueueActivity.class).putExtra(EdgeDownloadService.EXTRA_URI,bookUri));break;
@@ -165,7 +166,6 @@ public final class EdgeOnlineActivity extends Activity {
         bookTitleView=text("Загрузка книги…",18);bookTitleView.setTypeface(Typeface.SERIF,Typeface.BOLD);bookTitleView.setMaxLines(3);bookInfo.addView(bookTitleView);
         progressText=text("Прочитано: 0%",13);progressText.setPadding(0,dp(8),0,dp(2));bookInfo.addView(progressText);
         queueStatus=text("0/0 · запустите автоподгрузку",12);queueStatus.setTextColor(MUTED);bookInfo.addView(queueStatus);
-        TextView tip=text("Голос можно менять с предупреждением о замене уже скачанных фрагментов.",12);tip.setTextColor(MUTED);tip.setPadding(0,dp(10),0,0);bookInfo.addView(tip);
 
         LinearLayout controls=new LinearLayout(this);controls.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams controlsLp=new LinearLayout.LayoutParams(-1,dp(60));controlsLp.topMargin=dp(10);screen.addView(controls,controlsLp);
@@ -209,6 +209,12 @@ public final class EdgeOnlineActivity extends Activity {
         fragmentText.setPadding(dp(18),dp(15),dp(18),dp(15));fragmentText.setTextIsSelectable(false);textScroller.addView(fragmentText);
         downloadStatus=text("Ожидание подключения",12);downloadStatus.setTextColor(MUTED);
         downloadStatus.setPadding(dp(5),dp(7),dp(5),dp(6));screen.addView(downloadStatus);
+    }
+    private String speedLabel(float speed){
+        String value=String.format(Locale.US,"%.2f",speed);
+        if(value.endsWith("00"))value=value.substring(0,value.length()-3);
+        else if(value.endsWith("0"))value=value.substring(0,value.length()-1);
+        return value+"×";
     }
     private String format(long ms){long t=Math.max(0,ms/1000);return String.format(Locale.ROOT,"%02d:%02d",t/60,t%60);}
     private void openFolder(){File directory=downloads==null?null:downloads.folder();if(directory==null){Toast.makeText(this,"Папка ещё не готова",Toast.LENGTH_SHORT).show();return;}
@@ -264,6 +270,7 @@ public final class EdgeOnlineActivity extends Activity {
     private void refresh(){
         if(progressText==null)return;
         if(playback!=null){
+            if(speedButton!=null)speedButton.setText(speedLabel(playback.playbackSpeed()));
             int index=playback.trackIndex();
             fileLabel.setText("Фрагмент №"+(downloads!=null?Math.max(1,downloads.currentOrdinal()):Math.max(1,index+1)));
             long duration=playback.durationMs(),position=playback.positionMs();

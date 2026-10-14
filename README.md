@@ -1,62 +1,36 @@
-# ChitalkaRSVP v1.11.32-beta — Edge TTS only
+# ChitalkaRSVP v1.11.33-beta
 
-This project includes system Android TTS, the native Edge TTS client and its
-independent persistent download queue, background playback and MP3 cache.
-No MRT Activity, Java classes or WebView-based TTS engine is present.
+Native Android source project (Java, Gradle 8.7, JDK 17, Android SDK 35).
 
-## Important for an EXISTING GitHub repository
+## Building on GitHub
 
-**Do not simply upload this ZIP over the old project and assume Java files are
-removed.** GitHub retains previously committed `MrtDownloadService.java` and
-`MrtPlaybackService.java` until their deletions are committed to Git.
+Upload the **contents** of this archive to the repository root, including
+`.github/workflows/`. Files removed from this source tree must also be removed
+from the repository: uploading files through the browser does not automatically
+remove older files.
 
-The release and debug workflows include an INLINE cleanup step which
-removes old `Mrt*.java`/`Mrt*.kt` files from their temporary runner checkout
-BEFORE compilation. The job log must contain:
+GitHub Actions workflows: `.github/workflows/build-debug-apk.yml` and
+`.github/workflows/release.yml`. The release workflow uses repository signing
+secrets. Android SDK and signing material are not bundled.
 
-`Remove obsolete MRT Java before compilation`
+## What's new (v1.11.33-beta / versionCode 11040)
 
-If your job still logs `Run gradle assembleRelease --stacktrace` and has no
-cleanup step, you are running the OLD workflow! Commit
-`.github/workflows/release.yml` from THIS archive to the SAME branch/ref used
-by Actions, or delete the obsolete Java sources in the GitHub web interface.
+- Edge toolbar icons centered; the toolbar speed control displays the effective
+  playback rate (1×, 1.25×, etc.) and persists it between service starts.
+- Edge cover card no longer displays the extra voice-change explanation.
+- System TTS screen uses just **Previous fragment / Play-Pause / Next fragment**;
+  chapter and seconds skip buttons remain available for ordinary audio files.
+- In system TTS the embedded book cover is above the fragment text; the
+  whole-audiobook duration slider is hidden. Standard audiobook UI is preserved.
+- Settings tabs: Appearance / Speed Reading / Audio / Online, each with an icon.
+  RSVP settings are separated from appearance settings.
+- Audio settings: equalizer presets for supported MP3 playback audio sessions,
+  installed system TTS engine selection, and voice/pitch. Built-in Android
+  TextToSpeech does not expose an independent audio session for this equalizer.
+- Online settings and existing Edge download/cache workflows are retained.
 
-### Permanent fix (recommended, one-time)
+## Testing
 
-In a local Git clone of the GitHub repository, from its root:
-
-```bash
-find app/src/main/java -type f \( -name 'Mrt*.java' -o -name 'Mrt*.kt' \) -print -delete
-git add -A app/src/main/java
-git commit -m "Remove abandoned MRT Android sources"
-git push
-```
-
-Run these commands on a branch that contains the Edge-only updated source tree.
-If Git reports additional modified files, inspect `git status` before commit.
-Then commit the new `.github/workflows/release.yml` and
-`.github/workflows/build-debug-apk.yml` from this archive as well.
-
-A workflow_dispatch build always uses the workflow revision for the selected
-branch; a tag build uses the workflow/source revision at its tag. Do not reuse
-an old tag when trying to build updated code.
-
-### Build
-
-JDK 17; Android SDK API 35; Gradle 8.7.
-
-Run: `gradle assembleRelease --stacktrace`
-
-Android SDK and signing credentials are not part of this source ZIP. The
-release workflow signs the output using repository GitHub Actions secrets.
-No on-device functional test is claimed.
-
-## What changed in v1.11.32-beta
-
-- System TTS displays the current EPUB/FB2 book title and its embedded book cover.
-- The update/version section is only in Settings > Online, not Reading or Audio.
-- Reading preview now contains just "Текст".
-- Edge playback toolbar does not show the redundant Edge label.
-- Correct queue action label: "Очистить список и файлы".
-- versionCode 11039; versionName 1.11.32-beta.
-
+Run `for script in tests/*.sh; do bash "$script"; done` from project root.
+A full Android Gradle build and on-device testing are required before release;
+local source tests do not validate APK compilation or runtime functionality.
