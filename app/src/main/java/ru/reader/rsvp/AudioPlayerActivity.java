@@ -18,6 +18,9 @@ public class AudioPlayerActivity extends Activity {
     Handler handler=new Handler(Looper.getMainLooper()); boolean dragging=false, draggingTotal=false;String bookUri=""; AudioLibrary.Book selected;
     private int shownTtsPosition = -1;
     private boolean shownTtsMode = false;
+    private boolean showingTtsCover = false;
+    private String displayedTtsCoverUri = "";
+    private int ttsCoverRequest = 0;
     final int BACKGROUND=0xfff3e7d5, TEXT=0xff30221e, ACCENT=0xff94583b;
     BroadcastReceiver receiver=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){refresh();}};
     Runnable updater=new Runnable(){public void run(){refresh();handler.postDelayed(this,1000);}};
@@ -143,8 +146,8 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         coverArea.setBackground(bg(0xfffff8ef,26));
         LinearLayout.LayoutParams cap=new LinearLayout.LayoutParams(-1,0,1);
         cap.topMargin=dp(12);cap.bottomMargin=dp(12);root.addView(coverArea,cap);
-        coverArea.setOnLongClickListener(v->{chooseCover();return true;});
-        coverArea.setOnClickListener(v->chooseCover());
+        coverArea.setOnLongClickListener(v->{if(!showingTtsCover)chooseCover();return true;});
+        coverArea.setOnClickListener(v->{if(!showingTtsCover)chooseCover();});
         LinearLayout coverPlaceholder=new LinearLayout(this);coverPlaceholder.setOrientation(LinearLayout.VERTICAL);coverPlaceholder.setGravity(Gravity.CENTER);
         coverPlaceholderIcon=new ImageView(this);coverPlaceholderIcon.setImageResource(R.drawable.ic_plus);coverPlaceholderIcon.setColorFilter(ACCENT);
         coverPlaceholder.addView(coverPlaceholderIcon,new LinearLayout.LayoutParams(dp(34),dp(34)));
@@ -153,6 +156,7 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         coverArea.addView(coverPlaceholder,new android.widget.FrameLayout.LayoutParams(-1,-1));
         coverImage=new ImageView(this);coverImage.setScaleType(ImageView.ScaleType.FIT_CENTER);
         coverArea.addView(coverImage,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        showingTtsCover=false;displayedTtsCoverUri="";ttsCoverRequest++;
         updateCover();
         wholeProgress=label("Текущая глава · 0%",15);wholeProgress.setGravity(Gravity.CENTER);root.addView(wholeProgress);
         progress=new SeekBar(this);progress.setMax(10000);root.addView(progress);
@@ -187,7 +191,69 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         refresh();
     }
     void chooseCover(){if(selected==null){Toast.makeText(this,"Выберите аудиокнигу в библиотеке",Toast.LENGTH_LONG).show();return;}Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,COVER_PICK);}
-    void updateCover(){if(coverImage==null)return;String id=selected==null?"":selected.id;String uri=getSharedPreferences("reader",0).getString("audio_cover:"+id,"");boolean hasCover=!uri.isEmpty();if(!hasCover){coverImage.setImageDrawable(null);coverImage.setVisibility(View.INVISIBLE);if(coverPlaceholderIcon!=null)coverPlaceholderIcon.setVisibility(View.VISIBLE);if(coverPlaceholderText!=null)coverPlaceholderText.setVisibility(View.VISIBLE);return;}try{coverImage.setImageURI(Uri.parse(uri));coverImage.setVisibility(View.VISIBLE);if(coverPlaceholderIcon!=null)coverPlaceholderIcon.setVisibility(View.GONE);if(coverPlaceholderText!=null)coverPlaceholderText.setVisibility(View.GONE);}catch(Exception e){coverImage.setVisibility(View.INVISIBLE);if(coverPlaceholderIcon!=null)coverPlaceholderIcon.setVisibility(View.VISIBLE);if(coverPlaceholderText!=null)coverPlaceholderText.setVisibility(View.VISIBLE);}}
+    void updateCover(){
+        if(coverImage==null||showingTtsCover)return;
+        String id=selected==null?"":selected.id;
+        String uri=getSharedPreferences("reader",0).getString("audio_cover:"+id,"");
+        boolean hasCover=!uri.isEmpty();
+        if(!hasCover){
+            coverImage.setImageDrawable(null);coverImage.setVisibility(View.INVISIBLE);
+            if(coverPlaceholderIcon!=null)coverPlaceholderIcon.setVisibility(View.VISIBLE);
+            if(coverPlaceholderText!=null){coverPlaceholderText.setText("Выбрать обложку");coverPlaceholderText.setVisibility(View.VISIBLE);}
+            return;
+        }
+        try{
+            coverImage.setImageURI(Uri.parse(uri));coverImage.setVisibility(View.VISIBLE);
+            if(coverPlaceholderIcon!=null)coverPlaceholderIcon.setVisibility(View.GONE);
+            if(coverPlaceholderText!=null)coverPlaceholderText.setVisibility(View.GONE);
+        }catch(Exception e){
+            coverImage.setVisibility(View.INVISIBLE);
+            if(coverPlaceholderIcon!=null)coverPlaceholderIcon.setVisibility(View.VISIBLE);
+            if(coverPlaceholderText!=null)coverPlaceholderText.setVisibility(View.VISIBLE);
+        }
+    }
+    /** Display the embedded EPUB/FB2 cover for system TTS, not the last audio library cover. */
+    void showTtsCover(String uri){
+        if(uri==null||uri.isEmpty()||coverImage==null)return;
+        if(showingTtsCover&&uri.equals(displayedTtsCoverUri))return;
+        showingTtsCover=true;displayedTtsCoverUri=uri;
+        final int request=++ttsCoverRequest;
+        coverImage.setImageDrawable(null);coverImage.setVisibility(View.INVISIBLE);
+        if(coverPlaceholderIcon!=null){coverPlaceholderIcon.setImageResource(R.drawable.ic_book);coverPlaceholderIcon.setVisibility(View.VISIBLE);}
+        if(coverPlaceholderText!=null){coverPlaceholderText.setText("Загрузка обложки…");coverPlaceholderText.setVisibility(View.VISIBLE);}
+        new Thread(()->{
+            android.graphics.Bitmap bitmap=null;
+            try{
+                byte[] bytes=CoverLoader.get(getApplicationContext(),uri);
+                if(bytes!=null){
+                    android.graphics.BitmapFactory.Options options=new android.graphics.BitmapFactory.Options();
+                    options.inJustDecodeBounds=true;
+                    android.graphics.BitmapFactory.decodeByteArray(bytes,0,bytes.length,options);
+                    options.inSampleSize=Math.max(1,Math.max(options.outWidth/720,options.outHeight/1100));
+                    options.inJustDecodeBounds=false;
+                    bitmap=android.graphics.BitmapFactory.decodeByteArray(bytes,0,bytes.length,options);
+                }
+            }catch(Exception ignored){}
+            final android.graphics.Bitmap resolved=bitmap;
+            handler.post(()->{
+                if(isFinishing()||request!=ttsCoverRequest||!showingTtsCover||!uri.equals(displayedTtsCoverUri))return;
+                if(resolved!=null){
+                    coverImage.setImageBitmap(resolved);coverImage.setVisibility(View.VISIBLE);
+                    if(coverPlaceholderIcon!=null)coverPlaceholderIcon.setVisibility(View.GONE);
+                    if(coverPlaceholderText!=null)coverPlaceholderText.setVisibility(View.GONE);
+                }else{
+                    coverImage.setVisibility(View.INVISIBLE);
+                    if(coverPlaceholderText!=null)coverPlaceholderText.setText("Обложка отсутствует");
+                }
+            });
+        },"tts-cover-loader").start();
+    }
+    void returnToAudioCover(){
+        if(!showingTtsCover)return;
+        showingTtsCover=false;displayedTtsCoverUri="";ttsCoverRequest++;
+        if(coverPlaceholderIcon!=null)coverPlaceholderIcon.setImageResource(R.drawable.ic_plus);
+        updateCover();
+    }
     void selectBook(){ArrayList<AudioLibrary.Book> all=sortedBooks(AudioLibrary.load(this));if(all.isEmpty()){importFolder();return;}String[] names=new String[all.size()];for(int k=0;k<all.size();k++)names[k]=all.get(k).name+" · "+audioProgress(all.get(k))+"%";new AlertDialog.Builder(this).setTitle("Выбрать аудиокнигу (удерживайте обложку для изменения)").setItems(names,(d,n)->{bumpAudioUsage(all.get(n).id);openSelected(all.get(n));draw();}).setNeutralButton("Обложка выбранной книги",(d,w)->chooseCover()).setNegativeButton("Отмена",null).show();}
     void seekPosition(int pos){startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SEEK).putExtra("position",pos));}
     void changeChapter(int delta){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null||s.isTtsMode())return;goChapter(Math.max(0,Math.min(s.getChapterCount()-1,s.getSegment()+delta)));}
@@ -201,7 +267,16 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         if(req==COVER_PICK&&data.getData()!=null){try{getContentResolver().takePersistableUriPermission(data.getData(),Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}if(selected!=null)getSharedPreferences("reader",0).edit().putString("audio_cover:"+selected.id,data.getData().toString()).apply();updateCover();return;}
         if(req==FOLDER_PICK&&data.getData()!=null){Uri tree=data.getData();try{getContentResolver().takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}final boolean recursive=getSharedPreferences("reader",0).getBoolean("audio_recursive",true);new Thread(()->{try{ArrayList<AudioLibrary.Book> books=AudioLibrary.importTree(this,tree,recursive);AudioLibrary.merge(this,books);runOnUiThread(()->{if(books.isEmpty())Toast.makeText(this,"Аудиофайлы не найдены",Toast.LENGTH_LONG).show();else{bumpAudioUsage(books.get(0).id);openSelected(books.get(0));draw();Toast.makeText(this,"Добавлено книг: "+books.size(),Toast.LENGTH_LONG).show();}});}catch(Exception e){runOnUiThread(()->Toast.makeText(this,"Ошибка папки: "+e.getMessage(),Toast.LENGTH_LONG).show());}}).start();return;}
         if(req!=FILE_PICK)return;ArrayList<String> uris=new ArrayList<>();if(data.getClipData()!=null){for(int j=0;j<data.getClipData().getItemCount();j++)uris.add(data.getClipData().getItemAt(j).getUri().toString());}else if(data.getData()!=null)uris.add(data.getData().toString());for(String u:uris){try{getContentResolver().takePersistableUriPermission(Uri.parse(u),Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}}Collections.sort(uris);JSONArray arr=new JSONArray();for(String u:uris)arr.put(u);getSharedPreferences("reader",0).edit().putString("audio_playlist",arr.toString()).apply();if(!uris.isEmpty()){Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.LOAD);i.putExtra("uris",uris.toArray(new String[0]));i.putExtra("title","Аудиокнига");startService(i);}}
-    void loadTts(String u,int index){if(u==null||u.isEmpty()){Toast.makeText(this,"Сначала откройте EPUB или FB2",Toast.LENGTH_SHORT).show();return;}title.setText("Загрузка текста…");Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.TTS);i.putExtra("bookUri",u);i.putExtra("title","Озвучивание книги");i.putExtra("word_index",Math.max(0,index));startService(i);}
+    void loadTts(String u,int index){
+        if(u==null||u.isEmpty()){Toast.makeText(this,"Сначала откройте EPUB или FB2",Toast.LENGTH_SHORT).show();return;}
+        bookUri=u;
+        title.setText("Загрузка книги…");
+        showTtsCover(u);
+        Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.TTS);
+        i.putExtra("bookUri",u);
+        i.putExtra("word_index",Math.max(0,index));
+        startService(i);
+    }
     void speedMenu(){final String[] labels={"0.5×","0.75×","1×","1.1×","1.25×","1.5×","1.75×","2×","2.5×","3×"};final float[] rates={.5f,.75f,1f,1.1f,1.25f,1.5f,1.75f,2f,2.5f,3f};new AlertDialog.Builder(this).setTitle("Скорость").setItems(labels,(d,n)->{Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SPEED);i.putExtra("speed",rates[n]);startService(i);}).show();}
     void sleepMenu(){final int[] minutes={0,5,10,15,30,60};String[] labels={"Выключить","5 мин","10 мин","15 мин","30 мин","60 мин"};new AlertDialog.Builder(this).setTitle("Таймер сна").setItems(labels,(d,n)->{Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SLEEP);i.putExtra("minutes",minutes[n]);startService(i);Toast.makeText(this,"Таймер сохранён",Toast.LENGTH_SHORT).show();}).show();}
     void voiceMenu(){String[] choices={"Обычный голос", "Ниже", "Выше", "Выбрать системный движок"};new AlertDialog.Builder(this).setTitle("Озвучивание текста").setItems(choices,(d,n)->{if(n==3){try{startActivity(new Intent("com.android.settings.TTS_SETTINGS"));}catch(Exception e){Toast.makeText(this,"Настройки TTS недоступны",Toast.LENGTH_SHORT).show();}return;}Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.VOICE);i.putExtra("pitch",n==1?.8f:n==2?1.2f:1f);startService(i);}).show();}
@@ -222,7 +297,13 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         playIcon.setColorFilter(Color.WHITE);
         if(speedValue!=null){float rate=service.getSpeed();setTextIfDifferent(speedValue,(rate==(int)rate?Integer.toString((int)rate):Float.toString(rate))+"×");}
         if(timerAction!=null)timerAction.setAlpha(service.getSleepRemainingMillis()>0?1f:.70f);
-        if(selected==null && !service.getBookId().isEmpty())for(AudioLibrary.Book item:AudioLibrary.load(this))if(item.id.equals(service.getBookId())){selected=item;updateCover();break;}
+        if(service.isTtsMode()){
+            String source=service.getTtsBookUri();
+            showTtsCover(source.isEmpty()?bookUri:source);
+        }else{
+            returnToAudioCover();
+            if(selected==null && !service.getBookId().isEmpty())for(AudioLibrary.Book item:AudioLibrary.load(this))if(item.id.equals(service.getBookId())){selected=item;updateCover();break;}
+        }
         setTextIfDifferent(title, service.getTitle());
         setTextIfDifferent(info, service.isTtsMode()?"Озвучивание · "+service.getSpeed()+"×":"Аудиокнига · "+service.getSpeed()+"×");
         if(chapterPicker!=null)chapterPicker.setContentDescription("Глава "+(service.getSegment()+1)+". Выбрать главу");

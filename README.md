@@ -1,4 +1,4 @@
-# ChitalkaRSVP v1.11.30-beta — Edge TTS only
+# ChitalkaRSVP v1.11.32-beta — Edge TTS only
 
 This project includes system Android TTS, the native Edge TTS client and its
 independent persistent download queue, background playback and MP3 cache.
@@ -10,11 +10,11 @@ No MRT Activity, Java classes or WebView-based TTS engine is present.
 removed.** GitHub retains previously committed `MrtDownloadService.java` and
 `MrtPlaybackService.java` until their deletions are committed to Git.
 
-The v1.11.30 release and debug workflows include an INLINE cleanup step which
+The release and debug workflows include an INLINE cleanup step which
 removes old `Mrt*.java`/`Mrt*.kt` files from their temporary runner checkout
 BEFORE compilation. The job log must contain:
 
-`v1.11.30 - remove obsolete MRT Java before compilation`
+`Remove obsolete MRT Java before compilation`
 
 If your job still logs `Run gradle assembleRelease --stacktrace` and has no
 cleanup step, you are running the OLD workflow! Commit
@@ -50,3 +50,13 @@ Run: `gradle assembleRelease --stacktrace`
 Android SDK and signing credentials are not part of this source ZIP. The
 release workflow signs the output using repository GitHub Actions secrets.
 No on-device functional test is claimed.
+
+## What changed in v1.11.32-beta
+
+- System TTS displays the current EPUB/FB2 book title and its embedded book cover.
+- The update/version section is only in Settings > Online, not Reading or Audio.
+- Reading preview now contains just "Текст".
+- Edge playback toolbar does not show the redundant Edge label.
+- Correct queue action label: "Очистить список и файлы".
+- versionCode 11039; versionName 1.11.32-beta.
+

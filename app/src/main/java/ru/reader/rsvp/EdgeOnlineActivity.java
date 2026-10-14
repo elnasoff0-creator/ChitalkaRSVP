@@ -125,8 +125,9 @@ public final class EdgeOnlineActivity extends Activity {
 
         LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);screen.addView(top,new LinearLayout.LayoutParams(-1,dp(50)));
         Button back=button(R.drawable.ic_back,"Назад",false);back.setOnClickListener(v->finish());top.addView(back,new LinearLayout.LayoutParams(dp(42),dp(46)));
-        TextView title=text("Edge TTS",19);title.setTypeface(Typeface.SERIF,Typeface.BOLD);title.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams titleLp=new LinearLayout.LayoutParams(0,-1,1);titleLp.leftMargin=dp(8);top.addView(title,titleLp);
+        // Leave the title area empty: this screen is identified by the book artwork and controls.
+        View spacer=new View(this);
+        top.addView(spacer,new LinearLayout.LayoutParams(0,dp(45),1));
         int[] toolbarIcons={R.drawable.ic_queue,R.drawable.ic_folder_audio,R.drawable.ic_audio_speed,R.drawable.ic_audio_timer,R.drawable.ic_settings};
         String[] toolbarHints={"Список очереди","Папка аудио","Скорость воспроизведения","Таймер сна","Настройки Онлайн"};
         for(int i=0;i<toolbarIcons.length;i++){
@@ -150,7 +151,7 @@ public final class EdgeOnlineActivity extends Activity {
         LinearLayout.LayoutParams quickLp=new LinearLayout.LayoutParams(-1,dp(44));quickLp.topMargin=dp(8);screen.addView(quickRow,quickLp);
         autoloadButton=captionButton("Автоподгрузка",R.drawable.ic_autoload,true);
         autoloadButton.setOnClickListener(v->startDownload());quickRow.addView(autoloadButton,new LinearLayout.LayoutParams(0,-1,1.2f));
-        voiceChoice=captionButton("Голос Edge ▾",R.drawable.ic_microphone,false);
+        voiceChoice=captionButton("Голос ▾",R.drawable.ic_microphone,false);
         voiceChoice.setOnClickListener(v->chooseVoice());
         LinearLayout.LayoutParams voiceLp=new LinearLayout.LayoutParams(0,-1,1);voiceLp.leftMargin=dp(7);quickRow.addView(voiceChoice,voiceLp);
 
@@ -206,7 +207,7 @@ public final class EdgeOnlineActivity extends Activity {
         LinearLayout.LayoutParams textLp=new LinearLayout.LayoutParams(-1,0,1);textLp.topMargin=dp(10);screen.addView(textScroller,textLp);
         fragmentText=text("Ожидание книги и аудиофрагментов…",19);fragmentText.setTypeface(Typeface.SERIF);fragmentText.setLineSpacing(dp(5),1.1f);
         fragmentText.setPadding(dp(18),dp(15),dp(18),dp(15));fragmentText.setTextIsSelectable(false);textScroller.addView(fragmentText);
-        downloadStatus=text("Edge TTS: ожидание подключения",12);downloadStatus.setTextColor(MUTED);
+        downloadStatus=text("Ожидание подключения",12);downloadStatus.setTextColor(MUTED);
         downloadStatus.setPadding(dp(5),dp(7),dp(5),dp(6));screen.addView(downloadStatus);
     }
     private String format(long ms){long t=Math.max(0,ms/1000);return String.format(Locale.ROOT,"%02d:%02d",t/60,t%60);}
@@ -217,11 +218,11 @@ public final class EdgeOnlineActivity extends Activity {
         String[] voices={"Светлана · ru-RU", "Дмитрий · ru-RU"};
         String[] keys={"ru-RU-SvetlanaNeural","ru-RU-DmitryNeural"};
         new AlertDialog.Builder(this)
-            .setTitle("Смена голоса Edge TTS")
+            .setTitle("Смена голоса")
             .setMessage("Смена голоса заменит уже скачанные аудиофайлы новыми фрагментами. Продолжить?")
             .setNegativeButton("Отмена",null)
             .setPositiveButton("Продолжить",(confirm,which)->new AlertDialog.Builder(this)
-                .setTitle("Голос Edge TTS")
+                .setTitle("Голос")
                 .setItems(voices,(dialog,index)->{downloads.choose(keys[index],null);refresh();})
                 .setNegativeButton("Отмена",null)
                 .show())

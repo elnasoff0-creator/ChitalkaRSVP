@@ -98,6 +98,17 @@ public final class EdgeQueueActivity extends Activity {
                 LinearLayout.LayoutParams reloadLp=new LinearLayout.LayoutParams(dp(43),dp(43));
                 reloadLp.leftMargin=dp(8);
                 header.addView(reload,reloadLp);
+                ImageButton delete=new ImageButton(EdgeQueueActivity.this);
+                delete.setImageResource(android.R.drawable.ic_menu_delete);
+                delete.setScaleType(android.widget.ImageView.ScaleType.CENTER_INSIDE);
+                delete.setPadding(dp(9),dp(9),dp(9),dp(9));
+                delete.setBackground(background(0xfff8e8e4,0));
+                delete.setContentDescription("Удалить аудио фрагмента "+(pos+1));
+                delete.setFocusable(false);
+                delete.setOnClickListener(v->confirmDelete(c,pos+1));
+                LinearLayout.LayoutParams deleteLp=new LinearLayout.LayoutParams(dp(43),dp(43));
+                deleteLp.leftMargin=dp(6);
+                header.addView(delete,deleteLp);
                 row.addView(header,new LinearLayout.LayoutParams(-1,-2));
                 TextView size=new TextView(EdgeQueueActivity.this);size.setTextColor(c.played?0xff999999:MUTED);size.setTextSize(12);
                 long bytes=downloading?download.progressBytes():c.bytes;int chunks=downloading?download.progressChunks():c.chunks;
@@ -118,7 +129,7 @@ public final class EdgeQueueActivity extends Activity {
             player.play();
             finish();
         });
-        Button clear=action("Очистить MP3 и очередь");clear.setContentDescription("Удалить все MP3 после подтверждения");
+        Button clear=action("Очистить список и файлы");clear.setContentDescription("Удалить все MP3 и очередь после подтверждения");
         clear.setTextColor(0xffba322d);clear.setBackground(background(0xfffff9f0,0xffd44b44));
         clear.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_clear_audio,0,0,0);
         clear.setOnClickListener(v->confirmClear());LinearLayout.LayoutParams clearLp=new LinearLayout.LayoutParams(-1,dp(48));clearLp.topMargin=dp(12);root.addView(clear,clearLp);
@@ -156,6 +167,22 @@ public final class EdgeQueueActivity extends Activity {
                     }
                     boolean accepted=download.redownloadClip(clip.start);
                     if(accepted)Toast.makeText(this,"Фрагмент №"+ordinal+" поставлен на повторную загрузку",Toast.LENGTH_LONG).show();
+                    else Toast.makeText(this,download.error(),Toast.LENGTH_LONG).show();
+                    refresh();
+                }).show();
+    }
+
+
+    private void confirmDelete(EdgeDownloadService.Clip clip,int ordinal) {
+        if(download==null)return;
+        new AlertDialog.Builder(this)
+                .setTitle("Удалить аудио фрагмента №"+ordinal+"?")
+                .setMessage("Будет удалён только сохранённый MP3 этого фрагмента. Сам текст, очередь и остальные файлы сохранятся. При включённой автоподгрузке этот фрагмент может быть скачан снова при необходимости.")
+                .setNegativeButton("Отмена",null)
+                .setPositiveButton("Удалить",(dialog,which)->{
+                    if(download==null)return;
+                    boolean accepted=download.deleteClipAudio(clip.start);
+                    if(accepted)Toast.makeText(this,"Аудио фрагмента №"+ordinal+" удалено",Toast.LENGTH_LONG).show();
                     else Toast.makeText(this,download.error(),Toast.LENGTH_LONG).show();
                     refresh();
                 }).show();

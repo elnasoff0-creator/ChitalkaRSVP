@@ -53,6 +53,8 @@ public class SettingsActivity extends Activity {
     void gap(int height){View v=new View(this);list.addView(v,new LinearLayout.LayoutParams(-1,dp(height)));}
     void header(String name){TextView t=text(name,18,true);t.setPadding(0,dp(14),0,dp(9));list.addView(t);}    
     TextView action(String name,Runnable click){TextView t=text(name,16,false);t.setBackground(rounded(contrast(bg)==Color.WHITE?0xff404348:0xfffff9f1,15));t.setPadding(dp(14),dp(14),dp(14),dp(14));t.setOnClickListener(v->click.run());return t;}
+    TextView action(String name,int icon,Runnable click){TextView t=action(name,click);t.setCompoundDrawablesWithIntrinsicBounds(icon,0,0,0);t.setCompoundDrawablePadding(dp(10));return t;}
+    TextView tabAction(String name,int icon,boolean active,Runnable click){TextView t=text(name,15,true);t.setGravity(Gravity.CENTER);t.setCompoundDrawablesWithIntrinsicBounds(icon,0,0,0);t.setCompoundDrawablePadding(dp(8));t.setBackground(rounded(active?(contrast(bg)==Color.WHITE?0xff5c4234:0xfff0d8c0):(contrast(bg)==Color.WHITE?0xff404348:0xfffff9f1),15));t.setPadding(dp(10),dp(14),dp(10),dp(14));t.setOnClickListener(v->click.run());return t;}
     String onOff(boolean value){return value?"включено":"выключено";}
     void toggle(String key, Runnable after){prefs.edit().putBoolean(key,!prefs.getBoolean(key,true)).apply(); if(after!=null) after.run();}
     void draw(){
@@ -60,24 +62,18 @@ public class SettingsActivity extends Activity {
         LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);
         ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_back);back.setColorFilter(contrast(bg));back.setPadding(dp(12),dp(12),dp(12),dp(12));back.setOnClickListener(v->finish());top.addView(back,new LinearLayout.LayoutParams(dp(52),dp(52)));
         TextView name=text("Настройки чтения",24,true);name.setTypeface(Typeface.SERIF,Typeface.BOLD);top.addView(name,new LinearLayout.LayoutParams(0,-2,1));root.addView(top);
-        TextView version=text("ChitalkaRSVP v" + installedVersion() + " · сборка " + installedCode(),11,false);
-        version.setGravity(Gravity.END);version.setPadding(0,0,dp(4),dp(8));version.setContentDescription("Текущая установленная версия " + installedVersion() + ", сборка " + installedCode());root.addView(version);
         ScrollView sc=new ScrollView(this);list=col();sc.addView(list);root.addView(sc,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout tabs=new LinearLayout(this);
-        tabs.addView(action("Чтение",()->{currentTab=0;draw();}),new LinearLayout.LayoutParams(0,dp(55),1));
+        tabs.addView(tabAction("Чтение",R.drawable.ic_reader,currentTab==0,()->{currentTab=0;draw();}),new LinearLayout.LayoutParams(0,dp(55),1));
         LinearLayout.LayoutParams midLp=new LinearLayout.LayoutParams(0,dp(55),1); midLp.leftMargin=dp(6);
-        tabs.addView(action("Аудио",()->{currentTab=1;draw();}),midLp);
+        tabs.addView(tabAction("Аудио",R.drawable.ic_microphone,currentTab==1,()->{currentTab=1;draw();}),midLp);
         LinearLayout.LayoutParams lastLp=new LinearLayout.LayoutParams(0,dp(55),1); lastLp.leftMargin=dp(6);
-        tabs.addView(action("Онлайн",()->{currentTab=2;draw();}),lastLp);
+        tabs.addView(tabAction("Онлайн",R.drawable.ic_autoload,currentTab==2,()->{currentTab=2;draw();}),lastLp);
         list.addView(tabs);
-        header("Версия и обновления");
-        TextView installed=text("Установлена: v" + installedVersion() + " (сборка " + installedCode() + ")",14,false);installed.setPadding(dp(4),0,0,dp(9));list.addView(installed);
-        list.addView(action("Проверить версию в GitHub", () -> new UpdateManager(this).checkVersion()));
-        gap(10);
         if(currentTab==1){drawAudioSettings();return;}
         if(currentTab==2){drawOnlineSettings();return;}
         header("Предпросмотр текста");
-        preview=new TextView(this);preview.setText("Глава 1\n\nВ дороге солнце мягко освещало страницы книги. Читать должно быть удобно для глаз.");preview.setLineSpacing(dp(5),1.18f);preview.setPadding(dp(19),dp(21),dp(19),dp(21));list.addView(preview,new LinearLayout.LayoutParams(-1,-2));applyPreview();
+        preview=new TextView(this);preview.setText("Текст");preview.setLineSpacing(dp(5),1.18f);preview.setPadding(dp(19),dp(21),dp(19),dp(21));list.addView(preview,new LinearLayout.LayoutParams(-1,-2));applyPreview();
         header("Шрифт");
         list.addView(action(fontNames[font]+"   ▾",()->new AlertDialog.Builder(this).setTitle("Выбор шрифта").setSingleChoiceItems(fontNames,font,(d,n)->{font=n;put("font",font);d.dismiss();draw();}).setNegativeButton("Отмена",null).show()));
         gap(9);header("Шрифт");
@@ -104,6 +100,10 @@ public class SettingsActivity extends Activity {
         list.addView(action("Аудиозакладки",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","marks"))));gap(8);
     }
     void drawOnlineSettings(){
+        header("Версия и обновления");
+        TextView installed=text("Установлена: v" + installedVersion() + " (сборка " + installedCode() + ")",14,false);installed.setPadding(dp(4),0,0,dp(9));list.addView(installed);
+        list.addView(action("Проверить версию в GitHub", R.drawable.ic_settings, () -> new UpdateManager(this).checkVersion()));
+        gap(10);
         header("Онлайн-озвучивание Edge TTS");
         list.addView(action("Автоозвучка следующих фрагментов: " + onOff(prefs.getBoolean(EdgeSettings.AUTO_CONTINUE,true)),()->{toggle(EdgeSettings.AUTO_CONTINUE, this::draw);}));gap(8);
         list.addView(action("Предзагрузка аудио в кэш: " + onOff(prefs.getBoolean(EdgeSettings.PREFETCH,true)),()->{prefs.edit().putBoolean(EdgeSettings.PREFETCH,!prefs.getBoolean(EdgeSettings.PREFETCH,true)).apply();draw();}));gap(8);
@@ -111,19 +111,17 @@ public class SettingsActivity extends Activity {
         list.addView(action("Размер онлайн-фрагмента: " + EdgeSegmentSettings.get(prefs) + " символов",()-> EdgeSegmentSettings.show(this,prefs,value->draw())));gap(8);
         TextView note=text("Очередь и MP3-кэш Edge TTS работают независимо от системного Android TTS.",13,false);
         note.setPadding(dp(4),0,dp(4),dp(6));list.addView(note);
-        header("Edge TTS · голоса и скорость");
-        list.addView(action("Голос Edge: " + (prefs.getString("edge_voice","ru-RU-SvetlanaNeural").contains("Dmitry")?"Дмитрий":"Светлана"),()->{
+        header("Edge TTS · голос");
+        list.addView(action("Голос Edge: " + (prefs.getString("edge_voice","ru-RU-SvetlanaNeural").contains("Dmitry")?"Дмитрий":"Светлана"),R.drawable.ic_microphone,()->{
             String[] options={"Светлана · русский","Дмитрий · русский"};
             String[] values={"ru-RU-SvetlanaNeural","ru-RU-DmitryNeural"};
-            new AlertDialog.Builder(this).setTitle("Голос Edge TTS").setItems(options,(dialog,index)->{
-                prefs.edit().putString("edge_voice",values[index]).apply();draw();
-            }).setNegativeButton("Отмена",null).show();
-        }));gap(8);
-        list.addView(action("Скорость Edge: " + prefs.getString("edge_rate","+0%"),()->{
-            String[] rates={"-30%","-20%","-10%","+0%","+10%","+20%","+30%","+40%"};
-            new AlertDialog.Builder(this).setTitle("Скорость Edge TTS").setItems(rates,(dialog,index)->{
-                prefs.edit().putString("edge_rate",rates[index]).apply();draw();
-            }).setNegativeButton("Отмена",null).show();
+            new AlertDialog.Builder(this).setTitle("Смена голоса Edge TTS")
+                .setMessage("При смене голоса новые фрагменты будут сгенерированы заново и заменят уже скачанные аудиофайлы. Продолжить?")
+                .setNegativeButton("Отмена",null)
+                .setPositiveButton("Продолжить",(confirm,which)->new AlertDialog.Builder(this).setTitle("Голос Edge TTS").setItems(options,(dialog,index)->{
+                    prefs.edit().putString("edge_voice",values[index]).apply();draw();
+                }).setNegativeButton("Отмена",null).show())
+                .show();
         }));gap(10);
     }
     GradientDrawable outlined(int color,int radius){GradientDrawable d=rounded(color,radius);d.setStroke(dp(1),0xff938475);return d;}
