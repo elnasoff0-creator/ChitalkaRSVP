@@ -1,31 +1,52 @@
-# ChitalkaRSVP 1.11.29-beta
+# ChitalkaRSVP v1.11.30-beta — Edge TTS only
 
-Android book reader with RSVP, local audiobook player, Android system TTS, and **Edge TTS online**.
+This project includes system Android TTS, the native Edge TTS client and its
+independent persistent download queue, background playback and MP3 cache.
+No MRT Activity, Java classes or WebView-based TTS engine is present.
 
-## Speech modes
-- System Android TTS (device-installed voices).
-- Edge TTS online: native Android Activity, independent EdgeDownloadService queue, EdgePlaybackService / Media3 ExoPlayer and validated per-book MP3 cache. No WebView. Cached clips play without a network connection.
-- Edge settings: voice, speed, fragment length, prefetch window, automatic continuation.
-- Per-fragment manual re-download and audio-file export from the Edge queue.
+## Important for an EXISTING GitHub repository
 
-## Migration from 1.11.27
-- Removed the retired browser-based synthesis engine and its Activities, Services, JavaScript and queue.
-- Existing Edge files remain under Documents/ChitalkaRSVP/Books/<book-id>/EdgeTTS; hashes and folder identifiers are unchanged.
-- The old shared queue preferences are migrated to `edge_*` keys once; retired credentials are cleared from app preferences.
-- Old audio files from the deleted engine are NOT automatically deleted during update (to avoid deleting user data).
+**Do not simply upload this ZIP over the old project and assume Java files are
+removed.** GitHub retains previously committed `MrtDownloadService.java` and
+`MrtPlaybackService.java` until their deletions are committed to Git.
 
-## Building
-Open in Android Studio with JDK 17, compileSdk 35. Or use `.github/workflows/build-debug-apk.yml` on GitHub Actions. Android SDK build and end-to-end audio testing on a device are required before treating this as a verified APK release.
+The v1.11.30 release and debug workflows include an INLINE cleanup step which
+removes old `Mrt*.java`/`Mrt*.kt` files from their temporary runner checkout
+BEFORE compilation. The job log must contain:
 
-## Fixing an existing GitHub repository after overlay upgrades
+`v1.11.30 - remove obsolete MRT Java before compilation`
 
-Older tracked `Mrt*.java` files may remain in a GitHub checkout even if the
-latest source ZIP excludes them. This prevents the Java compiler from running.
-Release/debug CI workflows now remove them before compiling. Permanently fix
-your repository by staging deletions of all legacy `Mrt*.java` files and the
-old `mrt_online_capture.js`, and commit the removed paths. The Edge-only ZIP
-contains no such Java source files.
+If your job still logs `Run gradle assembleRelease --stacktrace` and has no
+cleanup step, you are running the OLD workflow! Commit
+`.github/workflows/release.yml` from THIS archive to the SAME branch/ref used
+by Actions, or delete the obsolete Java sources in the GitHub web interface.
 
-Note: the few historical `mrt_` preference strings and `mrt-prefetch-v1` hash
-namespace in Edge helpers are **backward-compatibility identifiers only**.
-They do not run the deleted MRT engine and preserve existing Edge MP3 cache.
+### Permanent fix (recommended, one-time)
+
+In a local Git clone of the GitHub repository, from its root:
+
+```bash
+find app/src/main/java -type f \( -name 'Mrt*.java' -o -name 'Mrt*.kt' \) -print -delete
+git add -A app/src/main/java
+git commit -m "Remove abandoned MRT Android sources"
+git push
+```
+
+Run these commands on a branch that contains the Edge-only updated source tree.
+If Git reports additional modified files, inspect `git status` before commit.
+Then commit the new `.github/workflows/release.yml` and
+`.github/workflows/build-debug-apk.yml` from this archive as well.
+
+A workflow_dispatch build always uses the workflow revision for the selected
+branch; a tag build uses the workflow/source revision at its tag. Do not reuse
+an old tag when trying to build updated code.
+
+### Build
+
+JDK 17; Android SDK API 35; Gradle 8.7.
+
+Run: `gradle assembleRelease --stacktrace`
+
+Android SDK and signing credentials are not part of this source ZIP. The
+release workflow signs the output using repository GitHub Actions secrets.
+No on-device functional test is claimed.
