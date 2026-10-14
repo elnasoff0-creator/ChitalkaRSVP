@@ -1,3 +1,9 @@
+# Chitalka RSVP v1.11.27-beta (source-only test build)
+
+Нативный SpeechKit без WebView добавлен как отдельный экспериментальный режим с собственным API-ключом. Это **не** бесплатный движок MRT/uni.ws. См. [RELEASE-NOTES-1.11.27-NATIVE.md](RELEASE-NOTES-1.11.27-NATIVE.md) для инструкций и ограничений.
+
+---
+
 ## Экспериментальный Edge TTS (v1.11.26-beta)
 
 Озвучивание открытой книги: кнопка ♫ → системный Android TTS / MRT / **Edge TTS · онлайн**. Edge не заменяет MRT; инструкции и ограничения: [EDGE-TTS-EXPERIMENT.md](EDGE-TTS-EXPERIMENT.md).

@@ -19,6 +19,8 @@ import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
+import android.text.InputType;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -94,6 +96,10 @@ public final class MrtOnlineActivity extends Activity {
             Toast.makeText(this,"Дождитесь загрузки текста и движка MRT",Toast.LENGTH_SHORT).show();return;
         }
         if(downloads.isActive()){downloads.setActive(false);return;}
+        if(downloads.nativeBackend()&&!downloads.hasSpeechKitKey()){
+            Toast.makeText(this,"Для нативного SpeechKit требуется личный API-ключ",Toast.LENGTH_LONG).show();
+            editSpeechKitKey();return;
+        }
         Intent i=new Intent(this,MrtDownloadService.class).setAction(MrtDownloadService.ACTION_BEGIN)
                 .putExtra(MrtDownloadService.EXTRA_URI,bookUri).putExtra(MrtDownloadService.EXTRA_ANCHOR,downloads.anchor());
         try{ContextCompat.startForegroundService(this,i);}
@@ -135,10 +141,14 @@ public final class MrtOnlineActivity extends Activity {
         autoloadButton.setOnClickListener(v->startDownload());loadRow.addView(autoloadButton,new LinearLayout.LayoutParams(0,-1,1.1f));
         queueStatus=text("0/0  запустите автоподгрузку",12);queueStatus.setGravity(Gravity.CENTER_VERTICAL|Gravity.END);
         LinearLayout.LayoutParams statLp=new LinearLayout.LayoutParams(0,-1,1);statLp.leftMargin=dp(9);loadRow.addView(queueStatus,statLp);
+        Button nativeOptions=captionButton("Настроить нативный TTS");
+        nativeOptions.setOnClickListener(v->configureEngine());
+        LinearLayout.LayoutParams nativeLp=new LinearLayout.LayoutParams(-1,dp(38));nativeLp.topMargin=dp(5);
+        screen.addView(nativeOptions,nativeLp);
         LinearLayout controls=new LinearLayout(this);controls.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams controlsLp=new LinearLayout.LayoutParams(-1,dp(60));controlsLp.topMargin=dp(9);screen.addView(controls,controlsLp);
         int[] icons={R.drawable.ic_prev_chapter,R.drawable.ic_rewind_10s,R.drawable.ic_play,R.drawable.ic_forward_10s,R.drawable.ic_next_chapter};
-        String[] hints={"Предыдущий MP3","Назад на 10 секунд","Play / Pause","Вперёд на 10 секунд","Следующий MP3"};
+        String[] hints={"Предыдущий фрагмент","Назад на 10 секунд","Play / Pause","Вперёд на 10 секунд","Следующий фрагмент"};
         for(int i=0;i<icons.length;i++){
             final int index=i;Button b=button(icons[i],hints[i],i==2);
             b.setOnClickListener(v->{
@@ -182,6 +192,31 @@ public final class MrtOnlineActivity extends Activity {
     private String format(long ms){long t=Math.max(0,ms/1000);return String.format(Locale.ROOT,"%02d:%02d",t/60,t%60);}
     private void openFolder(){File directory=downloads==null?null:downloads.folder();if(directory==null){Toast.makeText(this,"Папка ещё не готова",Toast.LENGTH_SHORT).show();return;}
         startActivity(new Intent(this,MrtFileExplorerActivity.class).putExtra("book_folder",directory.getAbsolutePath()));}
+    private void configureEngine(){
+        if(downloads==null)return;
+        String[] modes={"MRT (старый WebView, без API-ключа)",
+                "Нативный Yandex SpeechKit API (без WebView, свой API-ключ)"};
+        int current=downloads.nativeBackend()?1:0;
+        new AlertDialog.Builder(this).setTitle("Движок озвучивания")
+                .setSingleChoiceItems(modes,current,(dialog,index)->{
+                    dialog.dismiss();downloads.setBackend(index==1);
+                    if(index==1)editSpeechKitKey();
+                    refresh();
+                }).setNeutralButton("API-ключ",(dialog,which)->editSpeechKitKey())
+                .setNegativeButton("Отмена",null).show();
+    }
+    private void editSpeechKitKey(){
+        EditText input=new EditText(this);
+        input.setSingleLine(true);input.setHint("API-ключ Yandex SpeechKit");
+        input.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        // Never expose stored secret in a text field or notification.
+        new AlertDialog.Builder(this).setTitle("Ключ для нативного SpeechKit")
+            .setMessage("Нужен ваш API-ключ Yandex Cloud. Это отдельный официальный сервис, "
+                    +"а не бесплатный WebSocket MRT. Ключ хранится в настройках приложения.")
+            .setView(input).setPositiveButton("Сохранить",(d,w)->{
+                if(downloads!=null){downloads.setSpeechKitKey(input.getText().toString());refresh();}
+            }).setNegativeButton("Отмена",null).show();
+    }
     private void choose(String kind){
         if(downloads==null)return;
         LinkedHashMap<String,String> map=downloads.options(kind);
@@ -194,7 +229,7 @@ public final class MrtOnlineActivity extends Activity {
     private String chosen(String kind,String fallback){
         if(downloads==null)return fallback;
         SharedPreferences pref=getSharedPreferences("reader",0);
-        String v=pref.getString("mrt_selected_"+kind,"");
+        String v=downloads.selected(kind);
         LinkedHashMap<String,String> m=downloads.options(kind);
         String label=m.get(v);return label==null||label.isEmpty()?fallback:label+" ▾";
     }
@@ -220,7 +255,7 @@ public final class MrtOnlineActivity extends Activity {
         if(clip!=null){String t=clip.text;if(!t.contentEquals(fragmentText.getText())){fragmentText.setText(t);textScroller.scrollTo(0,0);}}
         voiceChoice.setText(chosen("voice","Голос ▾"));speedChoice.setText(chosen("speed","Скорость ▾"));emotionChoice.setText(chosen("emotion","Эмоция ▾"));
         String state=downloads.generatingStart()>=0?"Скачивается: "+downloads.progressChunks()+" чанков · "+(downloads.progressBytes()/1024)+" КБ"
-                :downloads.isActive()?"Автоподгрузка ожидает необходимости в новых MP3":"Автоподгрузка выключена";
+                :downloads.isActive()?"Автоподгрузка ожидает необходимости в новых аудиофрагментах":"Автоподгрузка выключена";
         if(!downloads.error().isEmpty())state+=" · "+downloads.error();
         if(playback!=null&&!playback.playbackError().isEmpty())state+=" · "+playback.playbackError();
         downloadStatus.setText(state);

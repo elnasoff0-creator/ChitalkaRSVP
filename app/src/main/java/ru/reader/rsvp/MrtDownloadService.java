@@ -83,6 +83,7 @@ public final class MrtDownloadService extends Service {
     private final LinkedHashMap<String,String> voices=new LinkedHashMap<>(),speeds=new LinkedHashMap<>(),emotions=new LinkedHashMap<>();
     private MrtAudioCache cache;
     private WebView web;
+    private MrtNativeSpeechKitClient nativeClient;
     private Presentation virtualWindow;
     private VirtualDisplay virtualDisplay;
     private ImageReader virtualFrames;
@@ -155,7 +156,8 @@ public final class MrtDownloadService extends Service {
         IntentFilter filter=new IntentFilter(AudioModeCoordinator.STOP_MRT);
         if(Build.VERSION.SDK_INT>=33)registerReceiver(switchReceiver,filter,Context.RECEIVER_NOT_EXPORTED);
         else registerReceiver(switchReceiver,filter);
-        createEngine();
+        if(nativeBackend()) loadNativeOptions();
+        else createEngine();
     }
     @Override public IBinder onBind(Intent intent){return binder;}
     @Override public int onStartCommand(Intent intent,int flags,int startId){
@@ -177,7 +179,7 @@ public final class MrtDownloadService extends Service {
         PendingIntent open=PendingIntent.getActivity(this,24,new Intent(this,MrtDownloadActivity.class).putExtra(EXTRA_URI,bookUri),
                 PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         String summary=generating!=null?"Синтез: "+(archive.indexOf(generating)+1)+" · "+chunkCount+" чанков · "+(chunkBytes/1024)+" КБ"
-                :"Готовых MP3: "+countReady()+" · ожидание";
+                :"Готовых аудиофрагментов: "+countReady()+" · ожидание";
         return new NotificationCompat.Builder(this,CHANNEL).setSmallIcon(R.drawable.ic_reader)
                 .setContentTitle("MRT · автоподгрузка").setContentText(summary)
                 .setOnlyAlertOnce(true).setOngoing(active).setContentIntent(open).build();
@@ -206,11 +208,38 @@ public final class MrtDownloadService extends Service {
     public int generatingStart(){return generating==null?-1:generating.start;}
     public boolean isRedownloading(int start){return manualRedownloads.contains(start);}
     public LinkedHashMap<String,String> options(String kind){return new LinkedHashMap<>("voice".equals(kind)?voices:"speed".equals(kind)?speeds:emotions);}
+    public boolean nativeBackend(){return "speechkit".equals(getSharedPreferences("reader",0).getString("mrt_backend","web"));}
+    public String selected(String kind){
+        String fallback="voice".equals(kind)?"jane":"speed".equals(kind)?"1.0":"neutral";
+        return getSharedPreferences("reader",0).getString((nativeBackend()?"native_selected_":"mrt_selected_")+kind,nativeBackend()?fallback:"");
+    }
+    public void setBackend(boolean speechkit){
+        if(nativeBackend()==speechkit)return;
+        stopCapture();
+        getSharedPreferences("reader",0).edit().putString("mrt_backend",speechkit?"speechkit":"web").apply();
+        ready=false;
+        if(speechkit){releaseWebEngine();loadNativeOptions();}
+        else {voices.clear();speeds.clear();emotions.clear();createEngine();}
+        pump();changed();
+    }
+    public void setSpeechKitKey(String key){
+        getSharedPreferences("reader",0).edit().putString("speechkit_api_key",key==null?"":key.trim()).apply();
+        error="";pump();changed();
+    }
+    public boolean hasSpeechKitKey(){return !getSharedPreferences("reader",0).getString("speechkit_api_key","").isEmpty();}
+    private void loadNativeOptions(){
+        voices.clear();speeds.clear();emotions.clear();
+        voices.put("jane","Jane");voices.put("alena","Алёна");voices.put("oksana","Оксана");
+        voices.put("filipp","Филипп");voices.put("ermil","Ермил");voices.put("zahar","Захар");
+        for(String rate:new String[]{"0.7","0.8","0.9","1.0","1.1","1.2","1.3","1.5","2.0"})speeds.put(rate,rate+"×");
+        emotions.put("neutral","Нейтрально");emotions.put("good","Позитивно");emotions.put("evil","Негативно");
+        ready=true;changed();pump();
+    }
     public void selectOption(String kind,String value){
         String element="voice".equals(kind)?"ttsModel":"speed".equals(kind)?"ttsSpeed":"ttsEmotion";
-        String pref="voice".equals(kind)?"mrt_selected_voice":"speed".equals(kind)?"mrt_selected_speed":"mrt_selected_emotion";
+        String pref=(nativeBackend()?"native_selected_":"mrt_selected_")+kind;
         getSharedPreferences("reader",0).edit().putString(pref,value).apply();
-        eval("(function(){var e=document.getElementById("+JSONObject.quote(element)+");if(!e)return false;e.value="+JSONObject.quote(value)+";e.dispatchEvent(new Event('change',{bubbles:true}));return true;})()",null);
+        if(!nativeBackend())eval("(function(){var e=document.getElementById("+JSONObject.quote(element)+");if(!e)return false;e.value="+JSONObject.quote(value)+";e.dispatchEvent(new Event('change',{bubbles:true}));return true;})()",null);
         // Rebuild candidates using the new voice key; previous audio remains cached.
         // Existing MP3 remain on disk, and previous listening history is preserved.
         // New settings are included in the content hash for future fragments.
@@ -342,7 +371,8 @@ public final class MrtDownloadService extends Service {
         after=Math.min(offsets.size(),Math.max(start+1,after));
         String text=bookText.substring(begin,end).trim();if(text.isEmpty())return null;
         SharedPreferences prefs=getSharedPreferences("reader",0);
-        String key=MrtAudioCache.key(text,prefs.getString("mrt_selected_voice",""),prefs.getString("mrt_selected_speed",""),prefs.getString("mrt_selected_emotion",""));
+        String voice=selected("voice");
+        String key=MrtAudioCache.key(text,nativeBackend()?"speechkit-v1:"+voice:voice,selected("speed"),selected("emotion"));
         for(Clip c:archive)if(c.start==start && c.end==after && c.key.equals(key))return c;
         Clip c=new Clip(start,after,text,key);c.file=cache.cached(key);if(c.file!=null)c.bytes=c.file.length();
         archive.add(c);Collections.sort(archive,(a,b)->Integer.compare(a.start,b.start));persist();changed();return c;
@@ -350,7 +380,7 @@ public final class MrtDownloadService extends Service {
     private void pump(){
         if(destroyed||!bookReady||cache==null)return;
         SharedPreferences prefs=getSharedPreferences("reader",0);
-        segmentLength=MrtSegmentSettings.get(prefs);windowCount=MrtPrefetchSettings.get(prefs);
+        segmentLength=nativeBackend()?Math.min(4900,MrtSegmentSettings.get(prefs)):MrtSegmentSettings.get(prefs);windowCount=MrtPrefetchSettings.get(prefs);
         int cursor=anchor();
         ArrayList<Clip> window=new ArrayList<>();
         ArrayList<Integer> starts=MrtQueuePlanner.window(cursor,offsets.size(),windowCount,
@@ -386,6 +416,7 @@ public final class MrtDownloadService extends Service {
         try{if(synthesisWakeLock!=null)synthesisWakeLock.acquire(130000L);}catch(Exception ignored){}
         chunkBytes=0;chunkCount=0;
         cache.begin(s,c.key);
+        if(nativeBackend()){generateNative(c,s);changed();return;}
         eval("(function(){var m=window.__rsvpMrt;return !!m&&m.setText("+JSONObject.quote(c.text)+")&&m.captureBegin("+s+");})()",result->{
             if(!same(c,s))return;
             if(!"true".equals(result)){retry("MRT не принял текст");return;}
@@ -393,6 +424,34 @@ public final class MrtDownloadService extends Service {
         });
         main.postDelayed(()->{if(same(c,s)&&!finishing)retry("Тайм-аут синтеза 120 секунд");},120000);
         changed();
+    }
+    private void generateNative(Clip c,int session){
+        SharedPreferences prefs=getSharedPreferences("reader",0);
+        String key=prefs.getString("speechkit_api_key","");
+        if(key.isEmpty()){
+            error="Нативному SpeechKit требуется личный API-ключ. Нажмите «Настроить нативный TTS».";
+            setActive(false);changed();return;
+        }
+        nativeClient=new MrtNativeSpeechKitClient();
+        nativeClient.synthesize(key,c.text,selected("voice"),
+                selected("speed"),selected("emotion"),
+                new MrtNativeSpeechKitClient.Listener(){
+            @Override public void onAudioBlock(String base64,int length){
+                // MrtAudioCache has a serialized background writer, so blocks preserve order.
+                if(!same(c,session))return;
+                cache.append(session,base64);
+                main.post(()->{if(same(c,session)){chunkBytes+=length;chunkCount++;changed();}});
+            }
+            @Override public void onComplete(){main.post(()->{if(same(c,session))endCapture();});}
+            @Override public void onError(String reason){main.post(()->{
+                if(!same(c,session))return;
+                if(reason.contains("HTTP 401") || reason.contains("HTTP 403")){
+                    error=reason+" · автозагрузка остановлена до исправления доступа";
+                    setActive(false);changed();
+                }else retry(reason);
+            });}
+        });
+        main.postDelayed(()->{if(same(c,session)&&!finishing)retry("Тайм-аут нативного синтеза");},125000L);
     }
     private boolean same(Clip c,int s){return !destroyed && active && generating==c && generatingSession==s;}
     private void waitReady(Clip c,int s,long deadline){
@@ -432,10 +491,10 @@ public final class MrtDownloadService extends Service {
     private void endCapture(){
         Clip c=generating;if(c==null||finishing)return;
         int s=generatingSession;finishing=true;
-        eval("window.__rsvpMrt && window.__rsvpMrt.captureEnd()",null);
+        if(!nativeBackend())eval("window.__rsvpMrt && window.__rsvpMrt.captureEnd()",null);
         cache.finish(s,(file,bytes,chunks,failure)->{
             if(!same(c,s))return;
-            generating=null;finishing=false;
+            generating=null;finishing=false;nativeClient=null;
             releaseWakeLock();
             if(file==null){failed(c,"Аудиофайл не распознан: "+failure);return;}
             // Same text can appear multiple times in a book; one encoded cache
@@ -452,7 +511,8 @@ public final class MrtDownloadService extends Service {
     private void retry(String reason){Clip c=generating;if(c==null)return;
         ++generatingSession;generating=null;finishing=false;
         releaseWakeLock();
-        if(cache!=null)cache.abort();eval("window.__rsvpMrt && window.__rsvpMrt.captureEnd()",null);
+        if(nativeClient!=null){nativeClient.cancel();nativeClient=null;}
+        if(cache!=null)cache.abort();if(!nativeBackend())eval("window.__rsvpMrt && window.__rsvpMrt.captureEnd()",null);
         failed(c,reason);
     }
     private void failed(Clip c,String reason){
@@ -471,6 +531,12 @@ public final class MrtDownloadService extends Service {
             else if("finished".equals(type))endCapture();
             else if("error".equals(type)&&!finishing)retry(j.optString("detail","MRT error"));
         }catch(Exception ex){Log.w(TAG,"Bad MRT message",ex);}
+    }
+    private void releaseWebEngine(){
+        if(virtualWindow!=null){try{virtualWindow.dismiss();}catch(Exception ignored){}virtualWindow=null;}
+        if(web!=null){web.stopLoading();web.destroy();web=null;}
+        if(virtualDisplay!=null){virtualDisplay.release();virtualDisplay=null;}
+        if(virtualFrames!=null){virtualFrames.close();virtualFrames=null;}
     }
     private void createEngine(){
         web=new WebView(getApplicationContext()){
@@ -588,8 +654,9 @@ public final class MrtDownloadService extends Service {
     private void releaseWakeLock(){try{if(synthesisWakeLock!=null&&synthesisWakeLock.isHeld())synthesisWakeLock.release();}catch(Exception ignored){}}
     private void stopCapture(){++generatingSession;generating=null;finishing=false;
         releaseWakeLock();
+        if(nativeClient!=null){nativeClient.cancel();nativeClient=null;}
         if(cache!=null)cache.abort();
-        eval("window.__rsvpMrt && (window.__rsvpMrt.captureEnd(),window.__rsvpMrt.stopPlayback())",null);
+        if(!nativeBackend())eval("window.__rsvpMrt && (window.__rsvpMrt.captureEnd(),window.__rsvpMrt.stopPlayback())",null);
     }
     private void restore(){
         archive.clear();if(cache==null)return;
@@ -615,10 +682,7 @@ public final class MrtDownloadService extends Service {
         if(player!=null)player.removeListener(playerListener);
         try{unregisterReceiver(switchReceiver);}catch(Exception ignored){}
         if(playerBound){try{unbindService(playerConnection);}catch(Exception ignored){}}
-        if(web!=null){web.stopLoading();web.destroy();web=null;}
-        if(virtualWindow!=null){try{virtualWindow.dismiss();}catch(Exception ignored){}virtualWindow=null;}
-        if(virtualDisplay!=null){virtualDisplay.release();virtualDisplay=null;}
-        if(virtualFrames!=null){virtualFrames.close();virtualFrames=null;}
+        releaseWebEngine();
         if(cache!=null)cache.close();
         if(foreground)stopForeground(STOP_FOREGROUND_REMOVE);
         super.onDestroy();

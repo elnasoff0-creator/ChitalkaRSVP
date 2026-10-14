@@ -118,7 +118,7 @@ public final class MrtDownloadActivity extends Activity {
             player.play();
             finish();
         });
-        Button clear=action("Очистить MP3 и очередь");clear.setContentDescription("Удалить все MP3 после подтверждения");
+        Button clear=action("Очистить аудио и очередь");clear.setContentDescription("Удалить все аудиофайлы после подтверждения");
         clear.setTextColor(0xffba322d);clear.setBackground(background(0xfffff9f0,0xffd44b44));
         clear.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_clear_audio,0,0,0);
         clear.setOnClickListener(v->confirmClear());LinearLayout.LayoutParams clearLp=new LinearLayout.LayoutParams(-1,dp(48));clearLp.topMargin=dp(12);root.addView(clear,clearLp);
@@ -164,10 +164,10 @@ public final class MrtDownloadActivity extends Activity {
     private void openFolder(){File directory=download==null?null:download.folder();if(directory==null){Toast.makeText(this,"Папка ещё не готова",Toast.LENGTH_SHORT).show();return;}
         startActivity(new Intent(this,MrtFileExplorerActivity.class).putExtra("book_folder",directory.getAbsolutePath()));}
     private void confirmClear(){if(download==null)return;
-        new AlertDialog.Builder(this).setTitle("Удалить MP3 этой книги?")
+        new AlertDialog.Builder(this).setTitle("Удалить аудио этой книги?")
                 .setMessage("Все аудиофрагменты, очередь и история прослушивания будут удалены. Сам текст книги сохранится.")
                 .setNegativeButton("Отмена",null).setPositiveButton("Удалить",(d,w)->download.clearAudio(()->{
-                    Toast.makeText(this,"MP3 и очередь очищены",Toast.LENGTH_SHORT).show();refresh();
+                    Toast.makeText(this,"Аудио и очередь очищены",Toast.LENGTH_SHORT).show();refresh();
                 })).show();
     }
     @Override protected void onDestroy(){if(download!=null)download.removeObserver(observer);
