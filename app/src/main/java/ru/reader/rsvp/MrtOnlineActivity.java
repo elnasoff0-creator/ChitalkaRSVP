@@ -101,6 +101,7 @@ public final class MrtOnlineActivity extends Activity {
     }
     @Override public void onCreate(Bundle saved){
         super.onCreate(saved);
+        AudioModeCoordinator.stopEdge(this);
         bookUri=getIntent().getStringExtra("book_uri");
         if(bookUri==null||bookUri.isEmpty())bookUri=getSharedPreferences("reader",0).getString("uri","");
         // Only the playback service has MediaSession/AudioFocus.

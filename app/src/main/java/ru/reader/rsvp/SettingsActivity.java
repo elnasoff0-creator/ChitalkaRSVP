@@ -104,13 +104,27 @@ public class SettingsActivity extends Activity {
         list.addView(action("Аудиозакладки",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","marks"))));gap(8);
     }
     void drawOnlineSettings(){
-        header("Онлайн-озвучивание MRT");
+        header("Онлайн-озвучивание MRT / Edge TTS");
         list.addView(action("Автоозвучка следующих фрагментов: " + onOff(prefs.getBoolean("mrt_auto_continue",true)),()->{toggle("mrt_auto_continue", this::draw);}));gap(8);
         list.addView(action("Предзагрузка аудио в кэш: " + onOff(prefs.getBoolean("mrt_prefetch",true)),()->{prefs.edit().putBoolean("mrt_prefetch",!prefs.getBoolean("mrt_prefetch",true)).apply();draw();}));gap(8);
         list.addView(action("Количество фрагментов предзагрузки: " + MrtPrefetchSettings.get(prefs),()-> MrtPrefetchSettings.show(this,prefs,count->draw())));gap(8);
-        list.addView(action("Размер фрагмента MRT: " + MrtSegmentSettings.get(prefs) + " символов",()-> MrtSegmentSettings.show(this,prefs,value->draw())));gap(8);
-        TextView note=text("Эти параметры используются на экране «Слушать онлайн · MRT».",13,false);note.setPadding(dp(4),0,dp(4),dp(6));list.addView(note);
-        gap(12);
+        list.addView(action("Размер онлайн-фрагмента: " + MrtSegmentSettings.get(prefs) + " символов",()-> MrtSegmentSettings.show(this,prefs,value->draw())));gap(8);
+        TextView note=text("Количество и размер фрагментов используются в MRT и Edge. Аудио каждого движка хранится отдельно.",13,false);
+        note.setPadding(dp(4),0,dp(4),dp(6));list.addView(note);
+        header("Edge TTS · голоса и скорость");
+        list.addView(action("Голос Edge: " + (prefs.getString("edge_voice","ru-RU-SvetlanaNeural").contains("Dmitry")?"Дмитрий":"Светлана"),()->{
+            String[] options={"Светлана · русский","Дмитрий · русский"};
+            String[] values={"ru-RU-SvetlanaNeural","ru-RU-DmitryNeural"};
+            new AlertDialog.Builder(this).setTitle("Голос Edge TTS").setItems(options,(dialog,index)->{
+                prefs.edit().putString("edge_voice",values[index]).apply();draw();
+            }).setNegativeButton("Отмена",null).show();
+        }));gap(8);
+        list.addView(action("Скорость Edge: " + prefs.getString("edge_rate","+0%"),()->{
+            String[] rates={"-30%","-20%","-10%","+0%","+10%","+20%","+30%","+40%"};
+            new AlertDialog.Builder(this).setTitle("Скорость Edge TTS").setItems(rates,(dialog,index)->{
+                prefs.edit().putString("edge_rate",rates[index]).apply();draw();
+            }).setNegativeButton("Отмена",null).show();
+        }));gap(10);
     }
     GradientDrawable outlined(int color,int radius){GradientDrawable d=rounded(color,radius);d.setStroke(dp(1),0xff938475);return d;}
     void theme(LinearLayout row,String name,int background,int ink){TextView chip=text(name,13,false);chip.setTextColor(ink);chip.setGravity(Gravity.CENTER);chip.setBackground(outlined(background,14));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(56),1);lp.setMargins(dp(2),0,dp(2),0);row.addView(chip,lp);chip.setOnClickListener(v->{bg=background;fg=ink;put("bg",bg);put("fg",fg);draw();});}

@@ -16,6 +16,10 @@
         <activity android:name=".UrlImportActivity" android:exported="false" />
         <service android:name=".AudioPlaybackService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <activity android:name=".AudioPlayerActivity" android:exported="false" />
+        <service android:name=".EdgePlaybackService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
+        <service android:name=".EdgeDownloadService" android:exported="false" android:foregroundServiceType="dataSync" />
+        <activity android:name=".EdgeQueueActivity" android:exported="false" />
+        <activity android:name=".EdgeOnlineActivity" android:exported="false" />
         <service android:name=".MrtPlaybackService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <service android:name=".MrtDownloadService" android:exported="false" android:foregroundServiceType="dataSync" />
         <activity android:name=".MrtDownloadActivity" android:exported="false" />

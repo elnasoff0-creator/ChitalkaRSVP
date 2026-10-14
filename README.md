@@ -1,3 +1,7 @@
+## Экспериментальный Edge TTS (v1.11.26-beta)
+
+Озвучивание открытой книги: кнопка ♫ → системный Android TTS / MRT / **Edge TTS · онлайн**. Edge не заменяет MRT; инструкции и ограничения: [EDGE-TTS-EXPERIMENT.md](EDGE-TTS-EXPERIMENT.md).
+
 ## ChitalkaRSVP v1.11.25-beta — selective MRT fragment redownload
 
 In **Список очереди**, each fragment now has a rounded reload icon (↻). Tap it and confirm to re-download only that fragment. A damaged or incompatible cached audio file is evicted from the native playlist, deleted from the book-local audio cache (all supported extensions, temporary .part and its legacy duplicate), and regenerated with priority by the existing background `MrtDownloadService`. Other downloaded fragments and `queue.json` are preserved, and playback of another fragment is not interrupted. The currently *audible* fragment is protected: pause it before requesting replacement.
