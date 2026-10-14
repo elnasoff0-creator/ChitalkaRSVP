@@ -22,6 +22,7 @@ import android.os.Looper;
 import android.view.KeyEvent;
 
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.PlaybackParameters;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.core.app.NotificationCompat;
@@ -64,7 +65,15 @@ public final class EdgePlaybackService extends Service {
     private boolean notificationShowing;
     private String playbackError = "";
     private int lastIndex = -1;
+    private float playbackSpeed = 1f;
+    private long sleepAtMs;
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private final Runnable sleepRunnable = () -> {
+        sleepAtMs = 0L;
+        stopAudio();
+        clearQueue();
+        stopSelf();
+    };
     private final BroadcastReceiver exclusiveSource = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
             if (AudioModeCoordinator.STOP_EDGE.equals(i.getAction())) {
@@ -83,6 +92,7 @@ public final class EdgePlaybackService extends Service {
     @Override public void onCreate() {
         super.onCreate();
         player = new ExoPlayer.Builder(this).build();
+        player.setPlaybackParameters(new PlaybackParameters(playbackSpeed));
         player.setAudioAttributes(new androidx.media3.common.AudioAttributes.Builder()
                 .setUsage(androidx.media3.common.C.USAGE_MEDIA)
                 .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_SPEECH).build(), false);
@@ -195,6 +205,23 @@ public final class EdgePlaybackService extends Service {
         int i=trackIndex();return i<0||i>=tracks.size()?-1:tracks.get(i).end;
     }
     public String playbackError() { return playbackError; }
+    public float playbackSpeed() { return playbackSpeed; }
+    public void setPlaybackSpeed(float value) {
+        playbackSpeed = Math.max(0.5f, Math.min(3f, value));
+        if (player != null) player.setPlaybackParameters(new PlaybackParameters(playbackSpeed));
+        updateSession();
+        notifyState();
+    }
+    public void setSleepMinutes(int minutes) {
+        handler.removeCallbacks(sleepRunnable);
+        if (minutes <= 0) { sleepAtMs = 0L; notifyState(); return; }
+        sleepAtMs = System.currentTimeMillis() + minutes * 60_000L;
+        handler.postDelayed(sleepRunnable, minutes * 60_000L);
+        notifyState();
+    }
+    public long sleepRemainingMs() {
+        return sleepAtMs <= 0L ? 0L : Math.max(0L, sleepAtMs - System.currentTimeMillis());
+    }
     public long positionMs() { return player==null?0:Math.max(0,player.getCurrentPosition()); }
     public long durationMs() {
         if (player==null) return 0;
@@ -207,6 +234,8 @@ public final class EdgePlaybackService extends Service {
     public void clearQueue() {
         requestedPlay=false;
         playbackError="";
+        handler.removeCallbacks(sleepRunnable);
+        sleepAtMs = 0L;
         player.stop();
         player.clearMediaItems();
         tracks.clear();
@@ -366,6 +395,7 @@ public final class EdgePlaybackService extends Service {
     @Override public void onDestroy() {
         try {unregisterReceiver(noisy);}catch(Exception ignored){}
         try {unregisterReceiver(exclusiveSource);}catch(Exception ignored){}
+        handler.removeCallbacks(sleepRunnable);
         focus.release();
         hideNotification();
         if(mediaSession!=null){mediaSession.setActive(false);mediaSession.release();mediaSession=null;}

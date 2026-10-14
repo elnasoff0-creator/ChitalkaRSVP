@@ -136,6 +136,7 @@ public final class EdgeDownloadService extends Service {
     public boolean isActive(){return active;}
     public String error(){return error;}
     public String bookUri(){return bookUri;}
+    public String title(){return title==null||title.trim().isEmpty()?"Книга":title.trim();}
     public int anchor(){return player!=null&&player.currentStartWord()>=0?player.currentStartWord():anchorWord;}
     public int words(){return offsets.size();}
     public int currentOrdinal(){int n=0;for(Clip c:archive)if(c.start<=anchor())n++;return n;}
@@ -285,6 +286,16 @@ public final class EdgeDownloadService extends Service {
         changed();main.postDelayed(this::pump,seconds*1000+100);
     }
     private void cancelGeneration(){session++;if(transport!=null)transport.cancel();transport=null;generating=null;}
+    public boolean deleteClipAudio(int start){
+        for(Clip c:archive)if(c.start==start){
+            if(player!=null && player.isPlaying() && (c.key+":"+c.start).equals(player.currentKey())){error="Сначала приостановите воспроизведение текущего MP3";changed();return false;}
+            if(generating==c)cancelGeneration();
+            if(player!=null)player.evictCachedTrack(c.key+":"+c.start);
+            c.file=null;c.bytes=0;c.chunks=0;c.played=false;c.failures=0;c.retryAt=0;
+            File item=new File(directory,c.key+".mp3");io.execute(()->{item.delete();main.post(()->{persist();pump();});});
+            error="";changed();return true;
+        }return false;
+    }
     public boolean redownloadClip(int start){
         for(Clip c:archive)if(c.start==start){
             if(player!=null && player.isPlaying() && (c.key+":"+c.start).equals(player.currentKey())){error="Сначала приостановите воспроизведение текущего MP3";changed();return false;}

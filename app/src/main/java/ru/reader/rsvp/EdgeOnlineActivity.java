@@ -6,7 +6,6 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
-import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -19,6 +18,7 @@ import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -28,12 +28,7 @@ import android.widget.Toast;
 
 import androidx.core.content.ContextCompat;
 
-import org.json.JSONArray;
-import org.json.JSONObject;
-
 import java.io.File;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.Locale;
 
 /**
@@ -46,13 +41,16 @@ public final class EdgeOnlineActivity extends Activity {
     private final Handler main=new Handler(Looper.getMainLooper());
     private final Runnable ticker=new Runnable(){@Override public void run(){refresh();main.postDelayed(this,500);}};
     private String bookUri="";
+    private String coverLoadedFor="";
     private EdgePlaybackService playback;
     private EdgeDownloadService downloads;
     private boolean playerBound,downloaderBound,dragging;
-    private TextView progressText,queueStatus,fileLabel,fileTime,fragmentText,downloadStatus;
-    private Button autoloadButton,playButton,voiceChoice,speedChoice,emotionChoice;
+    private TextView progressText,queueStatus,fileLabel,fileTime,fragmentText,downloadStatus,bookTitleView;
+    private Button autoloadButton,playButton,voiceChoice;
     private SeekBar seek;
     private ScrollView textScroller;
+    private ImageView coverImage;
+    private TextView coverPlaceholder;
     private final EdgeDownloadService.Observer queueObserver=this::refresh;
     private final EdgePlaybackService.Listener playbackObserver=new EdgePlaybackService.Listener(){
         @Override public void onTrackChanged(int start,int end,String key,boolean completedPrevious){refresh();}
@@ -62,8 +60,8 @@ public final class EdgeOnlineActivity extends Activity {
         @Override public void onServiceConnected(ComponentName name,IBinder binder){
             playback=((EdgePlaybackService.LocalBinder)binder).getService();
             playback.prepareBook("edge:"+bookUri);
-            playback.addListener(playbackObserver);
             refresh();
+            playback.addListener(playbackObserver);
         }
         @Override public void onServiceDisconnected(ComponentName name){playback=null;refresh();}
     };
@@ -74,6 +72,7 @@ public final class EdgeOnlineActivity extends Activity {
             downloads.openBook(bookUri,word);
             downloads.addObserver(queueObserver);
             refresh();
+            loadCover();
         }
         @Override public void onServiceDisconnected(ComponentName name){downloads=null;refresh();}
     };
@@ -84,11 +83,18 @@ public final class EdgeOnlineActivity extends Activity {
         Button b=new Button(this);b.setText("");b.setMinWidth(0);b.setMinimumWidth(0);b.setPadding(0,0,0,0);
         b.setAllCaps(false);b.setGravity(Gravity.CENTER);b.setBackground(rounded(primary?ACCENT:0xfffff9f0,15));b.setContentDescription(hint);
         android.graphics.drawable.Drawable d=getDrawable(icon);
-        if(d!=null){d=d.mutate();d.setTint(primary?Color.WHITE:INK);d.setBounds(0,0,dp(23),dp(23));b.setCompoundDrawables(d,null,null,null);}
+        if(d!=null){d=d.mutate();d.setTint(primary?Color.WHITE:INK);d.setBounds(0,0,dp(22),dp(22));b.setCompoundDrawables(d,null,null,null);}
         return b;
     }
-    private Button captionButton(String value){Button b=new Button(this);b.setAllCaps(false);b.setText(value);b.setTextSize(12);b.setTextColor(INK);
-        b.setBackground(rounded(0xfffff9f0,14));b.setPadding(dp(4),0,dp(4),0);return b;}
+    private Button captionButton(String value,int icon,boolean primary){
+        Button b=new Button(this);b.setAllCaps(false);b.setText(value);b.setTextSize(12);b.setTextColor(primary?Color.WHITE:INK);
+        b.setBackground(rounded(primary?ACCENT:0xfffff9f0,14));b.setPadding(dp(8),0,dp(8),0);
+        b.setGravity(Gravity.CENTER);
+        b.setCompoundDrawablePadding(dp(7));
+        b.setCompoundDrawablesWithIntrinsicBounds(icon,0,0,0);
+        for(android.graphics.drawable.Drawable d:b.getCompoundDrawables())if(d!=null)d.setTint(primary?Color.WHITE:INK);
+        return b;
+    }
     private void startDownload(){
         if(downloads==null||!downloads.isReady()){
             Toast.makeText(this,"Подождите загрузки текста книги",Toast.LENGTH_SHORT).show();return;
@@ -103,7 +109,6 @@ public final class EdgeOnlineActivity extends Activity {
         super.onCreate(saved);
         bookUri=getIntent().getStringExtra("book_uri");
         if(bookUri==null||bookUri.isEmpty())bookUri=getSharedPreferences("reader",0).getString("uri","");
-        // Only the playback service has MediaSession/AudioFocus.
         if(AudioPlaybackService.instance!=null){
             startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.STOP));
         }
@@ -112,46 +117,77 @@ public final class EdgeOnlineActivity extends Activity {
         downloaderBound=bindService(new Intent(this,EdgeDownloadService.class),queueConnection,BIND_AUTO_CREATE);
         if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)
             requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},1123);
+        loadCover();
     }
     private void buildUi(){
         LinearLayout screen=new LinearLayout(this);screen.setOrientation(LinearLayout.VERTICAL);screen.setBackgroundColor(BG);
-        screen.setPadding(dp(12),dp(25),dp(12),dp(10));setContentView(screen);
+        screen.setPadding(dp(12),dp(22),dp(12),dp(10));setContentView(screen);
+
         LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);screen.addView(top,new LinearLayout.LayoutParams(-1,dp(50)));
         Button back=button(R.drawable.ic_back,"Назад",false);back.setOnClickListener(v->finish());top.addView(back,new LinearLayout.LayoutParams(dp(42),dp(46)));
-        TextView title=text("Слушать · Edge TTS",19);title.setTypeface(Typeface.SERIF,Typeface.BOLD);title.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title=text("Edge TTS",19);title.setTypeface(Typeface.SERIF,Typeface.BOLD);title.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams titleLp=new LinearLayout.LayoutParams(0,-1,1);titleLp.leftMargin=dp(8);top.addView(title,titleLp);
-        Button queue=button(R.drawable.ic_queue,"Список очереди",false);queue.setOnClickListener(v->startActivity(new Intent(this,EdgeQueueActivity.class)
-                .putExtra(EdgeDownloadService.EXTRA_URI,bookUri)));top.addView(queue,new LinearLayout.LayoutParams(dp(43),dp(45)));
-        Button folder=button(R.drawable.ic_folder_audio,"Папка аудио",false);folder.setOnClickListener(v->openFolder());
-        LinearLayout.LayoutParams folderLp=new LinearLayout.LayoutParams(dp(43),dp(45));folderLp.leftMargin=dp(5);top.addView(folder,folderLp);
-        Button settings=button(R.drawable.ic_settings,"Настройки Онлайн",false);settings.setOnClickListener(v->startActivity(new Intent(this,SettingsActivity.class).putExtra("online_tab",true)));
-        LinearLayout.LayoutParams settingsLp=new LinearLayout.LayoutParams(dp(43),dp(45));settingsLp.leftMargin=dp(5);top.addView(settings,settingsLp);
-        progressText=text("Прочитано: 0%",13);progressText.setPadding(dp(4),dp(12),0,dp(6));screen.addView(progressText);
-        LinearLayout loadRow=new LinearLayout(this);loadRow.setGravity(Gravity.CENTER_VERTICAL);
-        screen.addView(loadRow,new LinearLayout.LayoutParams(-1,dp(44)));
-        autoloadButton=captionButton("Автоподгрузка");autoloadButton.setBackground(rounded(ACCENT,15));autoloadButton.setTextColor(Color.WHITE);
-        autoloadButton.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_autoload,0,0,0);
-        autoloadButton.setOnClickListener(v->startDownload());loadRow.addView(autoloadButton,new LinearLayout.LayoutParams(0,-1,1.1f));
-        queueStatus=text("0/0  запустите автоподгрузку",12);queueStatus.setGravity(Gravity.CENTER_VERTICAL|Gravity.END);
-        LinearLayout.LayoutParams statLp=new LinearLayout.LayoutParams(0,-1,1);statLp.leftMargin=dp(9);loadRow.addView(queueStatus,statLp);
+        int[] toolbarIcons={R.drawable.ic_queue,R.drawable.ic_folder_audio,R.drawable.ic_audio_speed,R.drawable.ic_audio_timer,R.drawable.ic_settings};
+        String[] toolbarHints={"Список очереди","Папка аудио","Скорость воспроизведения","Таймер сна","Настройки Онлайн"};
+        for(int i=0;i<toolbarIcons.length;i++){
+            final int index=i;
+            Button btn=button(toolbarIcons[i],toolbarHints[i],false);
+            btn.setOnClickListener(v->{
+                switch(index){
+                    case 0:startActivity(new Intent(this,EdgeQueueActivity.class).putExtra(EdgeDownloadService.EXTRA_URI,bookUri));break;
+                    case 1:openFolder();break;
+                    case 2:showSpeedMenu();break;
+                    case 3:showSleepMenu();break;
+                    default:startActivity(new Intent(this,SettingsActivity.class).putExtra("online_tab",true));break;
+                }
+            });
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(dp(42),dp(45));
+            if(i>0)lp.leftMargin=dp(5);
+            top.addView(btn,lp);
+        }
+
+        LinearLayout quickRow=new LinearLayout(this);quickRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams quickLp=new LinearLayout.LayoutParams(-1,dp(44));quickLp.topMargin=dp(8);screen.addView(quickRow,quickLp);
+        autoloadButton=captionButton("Автоподгрузка",R.drawable.ic_autoload,true);
+        autoloadButton.setOnClickListener(v->startDownload());quickRow.addView(autoloadButton,new LinearLayout.LayoutParams(0,-1,1.2f));
+        voiceChoice=captionButton("Голос Edge ▾",R.drawable.ic_microphone,false);
+        voiceChoice.setOnClickListener(v->chooseVoice());
+        LinearLayout.LayoutParams voiceLp=new LinearLayout.LayoutParams(0,-1,1);voiceLp.leftMargin=dp(7);quickRow.addView(voiceChoice,voiceLp);
+
+        LinearLayout bookCard=new LinearLayout(this);bookCard.setOrientation(LinearLayout.HORIZONTAL);bookCard.setBackground(rounded(0xfffff9f0,18));
+        bookCard.setPadding(dp(12),dp(12),dp(12),dp(12));LinearLayout.LayoutParams cardLp=new LinearLayout.LayoutParams(-1,dp(142));cardLp.topMargin=dp(10);screen.addView(bookCard,cardLp);
+        FrameLayout coverFrame=new FrameLayout(this);coverFrame.setBackground(rounded(0xff4a352b,16));bookCard.addView(coverFrame,new LinearLayout.LayoutParams(dp(92),-1));
+        coverPlaceholder=text("Книга",14);coverPlaceholder.setTextColor(0xfff7e5c7);coverPlaceholder.setGravity(Gravity.CENTER);coverPlaceholder.setTypeface(Typeface.SERIF,Typeface.BOLD);
+        coverPlaceholder.setPadding(dp(8),dp(8),dp(8),dp(8));coverFrame.addView(coverPlaceholder,new FrameLayout.LayoutParams(-1,-1));
+        coverImage=new ImageView(this);coverImage.setScaleType(ImageView.ScaleType.CENTER_CROP);coverImage.setVisibility(View.GONE);coverFrame.addView(coverImage,new FrameLayout.LayoutParams(-1,-1));
+        LinearLayout bookInfo=new LinearLayout(this);bookInfo.setOrientation(LinearLayout.VERTICAL);LinearLayout.LayoutParams infoLp=new LinearLayout.LayoutParams(0,-1,1);infoLp.leftMargin=dp(12);bookCard.addView(bookInfo,infoLp);
+        bookTitleView=text("Загрузка книги…",18);bookTitleView.setTypeface(Typeface.SERIF,Typeface.BOLD);bookTitleView.setMaxLines(3);bookInfo.addView(bookTitleView);
+        progressText=text("Прочитано: 0%",13);progressText.setPadding(0,dp(8),0,dp(2));bookInfo.addView(progressText);
+        queueStatus=text("0/0 · запустите автоподгрузку",12);queueStatus.setTextColor(MUTED);bookInfo.addView(queueStatus);
+        TextView tip=text("Голос можно менять с предупреждением о замене уже скачанных фрагментов.",12);tip.setTextColor(MUTED);tip.setPadding(0,dp(10),0,0);bookInfo.addView(tip);
+
         LinearLayout controls=new LinearLayout(this);controls.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams controlsLp=new LinearLayout.LayoutParams(-1,dp(60));controlsLp.topMargin=dp(9);screen.addView(controls,controlsLp);
+        LinearLayout.LayoutParams controlsLp=new LinearLayout.LayoutParams(-1,dp(60));controlsLp.topMargin=dp(10);screen.addView(controls,controlsLp);
         int[] icons={R.drawable.ic_prev_chapter,R.drawable.ic_rewind_10s,R.drawable.ic_play,R.drawable.ic_forward_10s,R.drawable.ic_next_chapter};
-        String[] hints={"Предыдущий MP3","Назад на 10 секунд","Play / Pause","Вперёд на 10 секунд","Следующий MP3"};
+        String[] hints={"Предыдущий фрагмент","Назад на 10 секунд","Play / Pause","Вперёд на 10 секунд","Следующий фрагмент"};
         for(int i=0;i<icons.length;i++){
             final int index=i;Button b=button(icons[i],hints[i],i==2);
             b.setOnClickListener(v->{
                 if(playback==null)return;
-                switch(index){case 0:playback.previous();break;case 1:playback.rewind10();break;
-                    case 2:if(playback.isPlaying())playback.pause();else{
-                        startService(new Intent(this,EdgePlaybackService.class));playback.play();
-                    }break;case 3:playback.forward10();break;case 4:playback.next();break;}
+                switch(index){
+                    case 0:playback.previous();break;
+                    case 1:playback.rewind10();break;
+                    case 2:if(playback.isPlaying())playback.pause();else{startService(new Intent(this,EdgePlaybackService.class));playback.play();}break;
+                    case 3:playback.forward10();break;
+                    case 4:playback.next();break;
+                }
                 refresh();
             });
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(55),i==2?1.17f:1);
             if(i!=0)lp.leftMargin=dp(6);controls.addView(b,lp);
             if(i==2)playButton=b;
         }
+
         LinearLayout track=new LinearLayout(this);track.setOrientation(LinearLayout.VERTICAL);track.setPadding(dp(10),dp(8),dp(10),dp(8));
         track.setBackground(rounded(0xfffff9f0,15));LinearLayout.LayoutParams trackLp=new LinearLayout.LayoutParams(-1,-2);
         trackLp.topMargin=dp(9);screen.addView(track,trackLp);
@@ -165,14 +201,7 @@ public final class EdgeOnlineActivity extends Activity {
             @Override public void onStartTrackingTouch(SeekBar bar){dragging=true;}
             @Override public void onStopTrackingTouch(SeekBar bar){dragging=false;if(playback!=null)playback.seekWithin(playback.durationMs()*bar.getProgress()/1000);}
         });
-        LinearLayout selections=new LinearLayout(this);selections.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams selectLp=new LinearLayout.LayoutParams(-1,dp(48));selectLp.topMargin=dp(10);screen.addView(selections,selectLp);
-        voiceChoice=captionButton("Голос Edge ▾");speedChoice=captionButton("Скорость ▾");
-        emotionChoice=captionButton("");emotionChoice.setVisibility(View.GONE);
-        selections.addView(voiceChoice,new LinearLayout.LayoutParams(0,-1,1.6f));
-        LinearLayout.LayoutParams rateLp=new LinearLayout.LayoutParams(0,-1,1f);rateLp.leftMargin=dp(7);
-        selections.addView(speedChoice,rateLp);
-        voiceChoice.setOnClickListener(v->choose("voice"));speedChoice.setOnClickListener(v->choose("rate"));
+
         textScroller=new ScrollView(this);textScroller.setFillViewport(true);textScroller.setBackground(rounded(0xfffff9f0,18));
         LinearLayout.LayoutParams textLp=new LinearLayout.LayoutParams(-1,0,1);textLp.topMargin=dp(10);screen.addView(textScroller,textLp);
         fragmentText=text("Ожидание книги и аудиофрагментов…",19);fragmentText.setTypeface(Typeface.SERIF);fragmentText.setLineSpacing(dp(5),1.1f);
@@ -183,17 +212,53 @@ public final class EdgeOnlineActivity extends Activity {
     private String format(long ms){long t=Math.max(0,ms/1000);return String.format(Locale.ROOT,"%02d:%02d",t/60,t%60);}
     private void openFolder(){File directory=downloads==null?null:downloads.folder();if(directory==null){Toast.makeText(this,"Папка ещё не готова",Toast.LENGTH_SHORT).show();return;}
         startActivity(new Intent(this,EdgeFileExplorerActivity.class).putExtra("book_folder",directory.getAbsolutePath()));}
-    private void choose(String kind){
+    private void chooseVoice(){
         if(downloads==null)return;
-        final boolean voice="voice".equals(kind);
         String[] voices={"Светлана · ru-RU", "Дмитрий · ru-RU"};
         String[] keys={"ru-RU-SvetlanaNeural","ru-RU-DmitryNeural"};
-        String[] rates={"−30%","−20%","−10%","Обычная","+10%","+20%","+30%","+40%"};
-        String[] rateKeys={"-30%","-20%","-10%","+0%","+10%","+20%","+30%","+40%"};
-        new AlertDialog.Builder(this).setTitle(voice?"Голос Edge TTS":"Скорость Edge TTS")
-            .setItems(voice?voices:rates,(dialog,index)->{
-                if(voice)downloads.choose(keys[index],null);else downloads.choose(null,rateKeys[index]);refresh();
-            }).setNegativeButton("Отмена",null).show();
+        new AlertDialog.Builder(this)
+            .setTitle("Смена голоса Edge TTS")
+            .setMessage("Смена голоса заменит уже скачанные аудиофайлы новыми фрагментами. Продолжить?")
+            .setNegativeButton("Отмена",null)
+            .setPositiveButton("Продолжить",(confirm,which)->new AlertDialog.Builder(this)
+                .setTitle("Голос Edge TTS")
+                .setItems(voices,(dialog,index)->{downloads.choose(keys[index],null);refresh();})
+                .setNegativeButton("Отмена",null)
+                .show())
+            .show();
+    }
+    private void showSpeedMenu(){
+        if(playback==null){Toast.makeText(this,"Плеер ещё подключается",Toast.LENGTH_SHORT).show();return;}
+        final String[] labels={"0.75×","1×","1.1×","1.25×","1.5×","1.75×","2×"};
+        final float[] rates={0.75f,1f,1.1f,1.25f,1.5f,1.75f,2f};
+        int checked=1;float current=playback.playbackSpeed();
+        for(int i=0;i<rates.length;i++)if(Math.abs(rates[i]-current)<0.01f)checked=i;
+        new AlertDialog.Builder(this).setTitle("Скорость воспроизведения")
+                .setSingleChoiceItems(labels,checked,(d,which)->{playback.setPlaybackSpeed(rates[which]);d.dismiss();refresh();})
+                .setNegativeButton("Отмена",null).show();
+    }
+    private void showSleepMenu(){
+        if(playback==null){Toast.makeText(this,"Плеер ещё подключается",Toast.LENGTH_SHORT).show();return;}
+        final int[] minutes={0,5,10,15,30,60};
+        String[] labels={"Выключить","5 мин","10 мин","15 мин","30 мин","60 мин"};
+        new AlertDialog.Builder(this).setTitle("Таймер сна")
+                .setItems(labels,(d,which)->{playback.setSleepMinutes(minutes[which]);refresh();Toast.makeText(this,"Таймер сохранён",Toast.LENGTH_SHORT).show();})
+                .setNegativeButton("Отмена",null).show();
+    }
+    private void loadCover(){
+        if(bookUri==null||bookUri.isEmpty()||bookUri.equals(coverLoadedFor))return;
+        coverLoadedFor=bookUri;
+        coverImage.setVisibility(View.GONE);
+        new Thread(()->{
+            try{
+                byte[] bytes=CoverLoader.get(getApplicationContext(),bookUri);
+                final android.graphics.Bitmap bitmap=bytes==null?null:android.graphics.BitmapFactory.decodeByteArray(bytes,0,bytes.length);
+                main.post(()->{
+                    if(isFinishing())return;
+                    if(bitmap!=null){coverImage.setImageBitmap(bitmap);coverImage.setVisibility(View.VISIBLE);}else coverImage.setVisibility(View.GONE);
+                });
+            }catch(Exception ignored){main.post(()->coverImage.setVisibility(View.GONE));}
+        }).start();
     }
     private void refresh(){
         if(progressText==null)return;
@@ -206,9 +271,13 @@ public final class EdgeOnlineActivity extends Activity {
             if(img!=null){img=img.mutate();img.setTint(Color.WHITE);img.setBounds(0,0,dp(23),dp(23));playButton.setCompoundDrawables(img,null,null,null);}
         }
         if(downloads==null){downloadStatus.setText("Подключение фоновой очереди…");return;}
+        loadCover();
+        String bookTitle=downloads.title();
+        bookTitleView.setText(bookTitle);
+        coverPlaceholder.setText(bookTitle.replace(' ','\n'));
         int n=downloads.countReady();int current=downloads.currentOrdinal();
-        if(n==0)queueStatus.setText(android.text.Html.fromHtml("<font color='#30221E'>0/0</font> <font color='#b53930'>запустите автоподгрузку</font>",android.text.Html.FROM_HTML_MODE_LEGACY));
-        else {queueStatus.setTextColor(0xff305c35);queueStatus.setText(Math.max(1,current)+"/"+n);}
+        if(n==0){queueStatus.setTextColor(MUTED);queueStatus.setText("0/0 · запустите автоподгрузку");}
+        else {queueStatus.setTextColor(0xff305c35);queueStatus.setText("Фрагменты: "+Math.max(1,current)+"/"+n);}
         int words=downloads.words(),anchor=downloads.anchor();
         int percent=words>0?(int)Math.min(100,100L*(anchor+1)/words):0;
         progressText.setText("Прочитано: "+percent+"% · слово "+(anchor+1)+" из "+words);
@@ -217,14 +286,18 @@ public final class EdgeOnlineActivity extends Activity {
         if(clip!=null){String t=clip.text;if(!t.contentEquals(fragmentText.getText())){fragmentText.setText(t);textScroller.scrollTo(0,0);}}
         String selected=downloads.voice();
         voiceChoice.setText(selected.contains("Dmitry")?"Дмитрий ▾":"Светлана ▾");
-        speedChoice.setText(downloads.rate()+" ▾");
         String state=downloads.generatingStart()>=0?"Скачивается: "+downloads.progressChunks()+" чанков · "+(downloads.progressBytes()/1024)+" КБ"
                 :downloads.isActive()?"Автоподгрузка ожидает необходимости в новых MP3":"Автоподгрузка выключена";
+        if(playback!=null){
+            if(playback.playbackSpeed()!=1f)state+=" · скорость "+String.format(Locale.ROOT,"%.2f",playback.playbackSpeed()).replace('.',',')+"×";
+            long sleep=playback.sleepRemainingMs();
+            if(sleep>0)state+=" · таймер сна "+Math.max(1,(sleep+59999)/60000)+" мин";
+        }
         if(!downloads.error().isEmpty())state+=" · "+downloads.error();
         if(playback!=null&&!playback.playbackError().isEmpty())state+=" · "+playback.playbackError();
         downloadStatus.setText(state);
     }
-    @Override protected void onResume(){super.onResume();if(downloads!=null)downloads.refreshSettings();if(playback!=null)playback.setAutoContinue(getSharedPreferences("reader",0).getBoolean(EdgeSettings.AUTO_CONTINUE,true));main.post(ticker);}
+    @Override protected void onResume(){super.onResume();if(downloads!=null)downloads.refreshSettings();if(playback!=null)playback.setAutoContinue(getSharedPreferences("reader",0).getBoolean(EdgeSettings.AUTO_CONTINUE,true));main.post(ticker);loadCover();}
     @Override protected void onPause(){main.removeCallbacks(ticker);super.onPause();}
     @Override protected void onDestroy(){if(downloads!=null)downloads.removeObserver(queueObserver);if(playback!=null)playback.removeListener(playbackObserver);
         if(downloaderBound)unbindService(queueConnection);if(playerBound)unbindService(playerConnection);main.removeCallbacksAndMessages(null);super.onDestroy();}
