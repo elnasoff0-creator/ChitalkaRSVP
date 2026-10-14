@@ -86,14 +86,14 @@ public class ReaderActivity extends Activity {
     Button audio=button("♫",v->{
       if(docUri==null||docUri.isEmpty()){Toast.makeText(this,"Сначала откройте книгу",Toast.LENGTH_SHORT).show();return;}
       new AlertDialog.Builder(this).setTitle("Способ озвучивания")
-        .setItems(new String[]{"Системный Android TTS", "Слушать онлайн (MRT)", "Edge TTS · онлайн"},(dialog,which)->{
+        .setItems(new String[]{"Системный Android TTS", "Edge TTS · онлайн"},(dialog,which)->{
           stop();save();
           if(which==0){
             Intent ai=new Intent(this,AudioPlayerActivity.class);
             ai.putExtra("book_uri",docUri);ai.putExtra("start_tts",true);ai.putExtra("word_index",index);
             startActivity(ai);
           }else{
-            Intent online=new Intent(this,which==1?MrtOnlineActivity.class:EdgeOnlineActivity.class);
+            Intent online=new Intent(this,EdgeOnlineActivity.class);
             online.putExtra("book_uri",docUri);online.putExtra("word_index",index);
             startActivity(online);
           }

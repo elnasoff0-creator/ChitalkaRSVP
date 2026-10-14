@@ -7,7 +7,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    <application android:allowBackup="true" android:label="Читалка RSVP β" android:icon="@drawable/ic_reader" android:roundIcon="@drawable/ic_reader" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:usesCleartextTraffic="false">
+    <application android:name=".ReaderApp" android:allowBackup="true" android:label="Читалка RSVP β" android:icon="@drawable/ic_reader" android:roundIcon="@drawable/ic_reader" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:usesCleartextTraffic="false">
         <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.fileprovider" android:exported="false" android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
         </provider>
@@ -19,12 +19,8 @@
         <service android:name=".EdgePlaybackService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <service android:name=".EdgeDownloadService" android:exported="false" android:foregroundServiceType="dataSync" />
         <activity android:name=".EdgeQueueActivity" android:exported="false" />
+        <activity android:name=".EdgeFileExplorerActivity" android:exported="false" />
         <activity android:name=".EdgeOnlineActivity" android:exported="false" />
-        <service android:name=".MrtPlaybackService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
-        <service android:name=".MrtDownloadService" android:exported="false" android:foregroundServiceType="dataSync" />
-        <activity android:name=".MrtDownloadActivity" android:exported="false" />
-        <activity android:name=".MrtOnlineActivity" android:exported="false" />
-        <activity android:name=".MrtFileExplorerActivity" android:exported="false" />
         <activity android:name=".SettingsActivity" android:exported="false" />
         <activity android:name=".ReaderActivity" android:exported="false" />
         <activity android:name=".MainActivity" android:exported="true">

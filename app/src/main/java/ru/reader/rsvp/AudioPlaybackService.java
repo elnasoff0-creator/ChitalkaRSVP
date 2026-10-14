@@ -52,17 +52,17 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         else registerReceiver(noisyReceiver,noisyFilter);
         tts=new TextToSpeech(this,this);handler.post(tick);}
     @Override public int onStartCommand(Intent intent,int flags,int startId){if(intent==null)return START_STICKY;String action=intent.getAction();if(action==null)return START_STICKY;switch(action){
-        case LOAD: {AudioModeCoordinator.stopMrt(this);interruptedByExternalAudio=false;if(active)saveProgress(); if(tts!=null&&ttsMode)tts.stop(); String[] uris=intent.getStringArrayExtra("uris");playlist.clear();if(uris!=null)for(String u:uris)if(u!=null)playlist.add(u);title=intent.getStringExtra("title");if(title==null)title="Аудиокнига";
+        case LOAD: {AudioModeCoordinator.stopEdge(this);interruptedByExternalAudio=false;if(active)saveProgress(); if(tts!=null&&ttsMode)tts.stop(); String[] uris=intent.getStringArrayExtra("uris");playlist.clear();if(uris!=null)for(String u:uris)if(u!=null)playlist.add(u);title=intent.getStringExtra("title");if(title==null)title="Аудиокнига";
           bookId=intent.getStringExtra("bookId");if(bookId==null)bookId=playlistKey();getSharedPreferences("reader",0).edit().putString("audio_last_book",bookId).apply();
           chapterNames.clear();String[] names=intent.getStringArrayExtra("chapters");if(names!=null)chapterNames.addAll(Arrays.asList(names));
           ttsMode=false;active=true;loadChapterDurations();speed=getSharedPreferences("reader",0).getFloat("audio_speed",1f);
           segment=Math.max(0,Math.min(Math.max(0,playlist.size()-1),getSharedPreferences("reader",0).getInt("audio_segment:"+bookId,0)));
           int resume=getSharedPreferences("reader",0).getInt("audio_pos:"+bookId,0);
           prepareAudio(resume,intent.getBooleanExtra("autoplay",false));break;}
-        case TTS: {AudioModeCoordinator.stopMrt(this);interruptedByExternalAudio=false;if(active)saveProgress(); if(tts!=null)tts.stop(); title=intent.getStringExtra("title");currentBook=intent.getStringExtra("bookUri");final String source=currentBook;
+        case TTS: {AudioModeCoordinator.stopEdge(this);interruptedByExternalAudio=false;if(active)saveProgress(); if(tts!=null)tts.stop(); title=intent.getStringExtra("title");currentBook=intent.getStringExtra("bookUri");final String source=currentBook;
           ttsMode=true;active=true;paused=true;releasePlayer();
           new Thread(()->{try{BookLoader.Book book=BookLoader.load(this,Uri.parse(source));handler.post(()->{if(!ttsMode||!source.equals(currentBook))return;makeChunks(book.text);int requestedWord=intent.getIntExtra("word_index",-1); int fallback=getSharedPreferences("reader",0).getInt("tts_pos:"+source,0); ttsPosition=requestedWord>=0?chunkForWord(requestedWord):Math.max(0,Math.min(chunks.size()-1,fallback));ttsStartRequested=true;startTts();});}catch(Exception ignored){handler.post(()->{paused=true;notifyState();});}}).start();break;}
-        case PLAY: AudioModeCoordinator.stopMrt(this);resume();break;case PAUSE: pausePlayback();break;
+        case PLAY: AudioModeCoordinator.stopEdge(this);resume();break;case PAUSE: pausePlayback();break;
         case STOP: stopServicePlayback();break;
         case NEXT: jump(ttsMode?1:1);break;case PREV:jump(-1);break;
         case SEEK:seekTo(intent.getIntExtra("position",0));break;
@@ -213,7 +213,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         mediaSession.setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS
                 | MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS);
         mediaSession.setCallback(new MediaSession.Callback() {
-            @Override public void onPlay() { AudioModeCoordinator.stopMrt(AudioPlaybackService.this);resume(); }
+            @Override public void onPlay() { AudioModeCoordinator.stopEdge(AudioPlaybackService.this);resume(); }
             @Override public void onPause() { pausePlayback(); }
             @Override public void onStop() { stopServicePlayback(); }
             @Override public void onSkipToNext() { jump(1); }

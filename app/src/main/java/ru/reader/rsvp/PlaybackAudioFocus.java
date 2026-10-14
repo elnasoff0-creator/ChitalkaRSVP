@@ -6,7 +6,7 @@ import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.os.Build;
 
-/** Exclusive audio focus shared by the audiobook/TTS service and the MRT activity.
+/** Exclusive audio focus shared by the audiobook/TTS service and the Edge TTS player.
  * Focus is never used to restart playback automatically after another app or call. */
 final class PlaybackAudioFocus {
     private final AudioManager manager;

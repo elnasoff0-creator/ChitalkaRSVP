@@ -104,6 +104,7 @@ public final class EdgeDownloadService extends Service {
     @Override public void onCreate(){super.onCreate();
         if(Build.VERSION.SDK_INT>=26){NotificationManager manager=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
             if(manager!=null)manager.createNotificationChannel(new NotificationChannel(CHANNEL,"Edge TTS: загрузка",NotificationManager.IMPORTANCE_LOW));}
+        EdgeSettings.migrate(getSharedPreferences("reader",0));
         playerBound=bindService(new Intent(this,EdgePlaybackService.class),playbackConnection,BIND_AUTO_CREATE);
         IntentFilter filter=new IntentFilter(AudioModeCoordinator.STOP_EDGE);
         if(Build.VERSION.SDK_INT>=33)registerReceiver(switchReceiver,filter,Context.RECEIVER_NOT_EXPORTED);
@@ -171,7 +172,7 @@ public final class EdgeDownloadService extends Service {
                 String name=book.title==null?"Книга":book.title;
                 ArrayList<Integer> positions=new ArrayList<>();
                 Matcher matcher=Pattern.compile("\\S+").matcher(raw);while(matcher.find())positions.add(matcher.start());
-                File dir=new File(MrtAudioCache.bookFolder(this,requested,name),"EdgeTTS");dir.mkdirs();
+                File dir=new File(EdgeBookStorage.bookFolder(this,requested,name),"EdgeTTS");dir.mkdirs();
                 main.post(()->{
                     if(destroyed||!requested.equals(bookUri))return;
                     bookText=raw;title=name;offsets.addAll(positions);directory=dir;
@@ -204,7 +205,7 @@ public final class EdgeDownloadService extends Service {
         int after=Collections.binarySearch(offsets,end);if(after<0)after=-after-1;
         after=Math.max(start+1,Math.min(offsets.size(),after));
         String text=bookText.substring(begin,end).trim();if(text.isEmpty())return null;
-        String key=MrtAudioCache.key(text,voice(),rate(),"edge-direct-v1");
+        String key=EdgeBookStorage.key(text,voice(),rate(),"edge-direct-v1");
         for(Clip c:archive)if(c.start==start&&c.end==after&&c.key.equals(key))return c;
         Clip c=new Clip(start,after,text,key);
         c.file=new File(directory,key+".mp3");if(!c.ready())c.file=null;
@@ -214,12 +215,12 @@ public final class EdgeDownloadService extends Service {
     private void pump(){
         if(!bookReady||directory==null||destroyed)return;
         SharedPreferences pref=getSharedPreferences("reader",0);
-        segmentLength=MrtSegmentSettings.get(pref);windowCount=MrtPrefetchSettings.get(pref);
+        segmentLength=EdgeSegmentSettings.get(pref);windowCount=pref.getBoolean(EdgeSettings.PREFETCH,true)?EdgePrefetchSettings.get(pref):1;
         int from=anchor();ArrayList<Clip> window=new ArrayList<>();
-        ArrayList<Integer> indices=MrtQueuePlanner.window(from,offsets.size(),windowCount,st->{Clip item=clipAt(st);return item==null?st:item.end;});
+        ArrayList<Integer> indices=EdgeQueuePlanner.window(from,offsets.size(),windowCount,st->{Clip item=clipAt(st);return item==null?st:item.end;});
         for(int at:indices){Clip c=clipAt(at);if(c!=null)window.add(c);}
         if(player!=null){
-            player.setAutoContinue(pref.getBoolean("mrt_auto_continue",true));
+            player.setAutoContinue(pref.getBoolean(EdgeSettings.AUTO_CONTINUE,true));
             for(Clip c:window){if(!c.ready())break;player.appendReady(c.key+":"+c.start,c.start,c.end,c.file);}
         }
         if(active&&generating==null){

@@ -2,16 +2,18 @@
 set -eu
 cd "$(dirname "$0")/.."
 ROOT=app/src/main/java/ru/reader/rsvp
-[ -f "$ROOT/EdgeOnlineActivity.java" ]
-[ -f "$ROOT/EdgeDownloadService.java" ]
-[ -f "$ROOT/EdgePlaybackService.java" ]
-[ -f "$ROOT/EdgeTtsClient.java" ]
-grep -q 'EdgeOnlineActivity' app/src/main/AndroidManifest.xml
-grep -q 'Слушать онлайн (MRT)' "$ROOT/ReaderActivity.java"
+for unit in EdgeOnlineActivity EdgeDownloadService EdgePlaybackService EdgeQueueActivity EdgeTtsClient EdgeBookStorage EdgeAudioFormat EdgeQueuePlanner EdgeFileExplorerActivity EdgePrefetchSettings EdgeSegmentSettings; do
+  test -f "$ROOT/$unit.java"
+done
+! find "$ROOT" -maxdepth 1 -name 'Mrt*.java' | grep .
+! grep -q 'Mrt' app/src/main/AndroidManifest.xml
+! grep -q 'Mrt' "$ROOT/ReaderActivity.java"
+! grep -q 'androidx.webkit' app/build.gradle
+! grep -RIl 'android.webkit' "$ROOT" --include='*.java' | grep .
+grep -q 'EdgeFileExplorerActivity' app/src/main/AndroidManifest.xml
 grep -q 'Edge TTS · онлайн' "$ROOT/ReaderActivity.java"
-! grep -E '(android.webkit|WebView|evaluateJavascript|\.play\(|\.pause\()' "$ROOT/EdgeTtsClient.java" | grep -v '^ *\*'
-! grep -E '(android.webkit|WebView|evaluateJavascript)' "$ROOT/EdgePlaybackService.java" | grep -v '^ *\*'
-grep -q 'edge-direct-v1' "$ROOT/EdgeDownloadService.java"
-[ -f "$ROOT/MrtDownloadService.java" ]
-[ -f "$ROOT/MrtOnlineActivity.java" ]
-echo 'Edge source isolation and MRT preserved: PASS'
+grep -q 'EdgeQueuePlanner.window' "$ROOT/EdgeDownloadService.java"
+grep -q 'EdgeTtsClient.synthesize' "$ROOT/EdgeDownloadService.java"
+grep -q 'EdgeDownloadService' "$ROOT/EdgeQueueActivity.java"
+grep -q 'EdgeSettings.AUTO_CONTINUE' "$ROOT/EdgeDownloadService.java"
+echo 'Edge-only native source isolation: PASS'

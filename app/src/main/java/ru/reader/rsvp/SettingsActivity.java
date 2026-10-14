@@ -104,12 +104,12 @@ public class SettingsActivity extends Activity {
         list.addView(action("Аудиозакладки",()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","marks"))));gap(8);
     }
     void drawOnlineSettings(){
-        header("Онлайн-озвучивание MRT / Edge TTS");
-        list.addView(action("Автоозвучка следующих фрагментов: " + onOff(prefs.getBoolean("mrt_auto_continue",true)),()->{toggle("mrt_auto_continue", this::draw);}));gap(8);
-        list.addView(action("Предзагрузка аудио в кэш: " + onOff(prefs.getBoolean("mrt_prefetch",true)),()->{prefs.edit().putBoolean("mrt_prefetch",!prefs.getBoolean("mrt_prefetch",true)).apply();draw();}));gap(8);
-        list.addView(action("Количество фрагментов предзагрузки: " + MrtPrefetchSettings.get(prefs),()-> MrtPrefetchSettings.show(this,prefs,count->draw())));gap(8);
-        list.addView(action("Размер онлайн-фрагмента: " + MrtSegmentSettings.get(prefs) + " символов",()-> MrtSegmentSettings.show(this,prefs,value->draw())));gap(8);
-        TextView note=text("Количество и размер фрагментов используются в MRT и Edge. Аудио каждого движка хранится отдельно.",13,false);
+        header("Онлайн-озвучивание Edge TTS");
+        list.addView(action("Автоозвучка следующих фрагментов: " + onOff(prefs.getBoolean(EdgeSettings.AUTO_CONTINUE,true)),()->{toggle(EdgeSettings.AUTO_CONTINUE, this::draw);}));gap(8);
+        list.addView(action("Предзагрузка аудио в кэш: " + onOff(prefs.getBoolean(EdgeSettings.PREFETCH,true)),()->{prefs.edit().putBoolean(EdgeSettings.PREFETCH,!prefs.getBoolean(EdgeSettings.PREFETCH,true)).apply();draw();}));gap(8);
+        list.addView(action("Количество фрагментов предзагрузки: " + EdgePrefetchSettings.get(prefs),()-> EdgePrefetchSettings.show(this,prefs,count->draw())));gap(8);
+        list.addView(action("Размер онлайн-фрагмента: " + EdgeSegmentSettings.get(prefs) + " символов",()-> EdgeSegmentSettings.show(this,prefs,value->draw())));gap(8);
+        TextView note=text("Очередь и MP3-кэш Edge TTS работают независимо от системного Android TTS.",13,false);
         note.setPadding(dp(4),0,dp(4),dp(6));list.addView(note);
         header("Edge TTS · голоса и скорость");
         list.addView(action("Голос Edge: " + (prefs.getString("edge_voice","ru-RU-SvetlanaNeural").contains("Dmitry")?"Дмитрий":"Светлана"),()->{

@@ -1155,7 +1155,7 @@ public class MainActivity extends Activity {
                         draw();
                     } else if (which == 2) {
                         library.remove(m);
-                        MrtAudioCache.removeBook(this, m.uri);
+                        EdgeBookStorage.removeBook(this, m.uri);
                         if (m.uri.equals(currentUri)) {
                             currentUri = ""; body = ""; title = ""; author = ""; words = new String[0]; wordStarts = new int[0]; screen = 0;
                         }

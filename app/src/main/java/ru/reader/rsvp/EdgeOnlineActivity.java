@@ -103,8 +103,6 @@ public final class EdgeOnlineActivity extends Activity {
         super.onCreate(saved);
         bookUri=getIntent().getStringExtra("book_uri");
         if(bookUri==null||bookUri.isEmpty())bookUri=getSharedPreferences("reader",0).getString("uri","");
-        // Stop the older MRT source; Edge has an independent downloader and player.
-        Intent stopMrt=new Intent(AudioModeCoordinator.STOP_MRT);stopMrt.setPackage(getPackageName());sendBroadcast(stopMrt);
         // Only the playback service has MediaSession/AudioFocus.
         if(AudioPlaybackService.instance!=null){
             startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.STOP));
@@ -184,7 +182,7 @@ public final class EdgeOnlineActivity extends Activity {
     }
     private String format(long ms){long t=Math.max(0,ms/1000);return String.format(Locale.ROOT,"%02d:%02d",t/60,t%60);}
     private void openFolder(){File directory=downloads==null?null:downloads.folder();if(directory==null){Toast.makeText(this,"Папка ещё не готова",Toast.LENGTH_SHORT).show();return;}
-        startActivity(new Intent(this,MrtFileExplorerActivity.class).putExtra("book_folder",directory.getAbsolutePath()));}
+        startActivity(new Intent(this,EdgeFileExplorerActivity.class).putExtra("book_folder",directory.getAbsolutePath()));}
     private void choose(String kind){
         if(downloads==null)return;
         final boolean voice="voice".equals(kind);
@@ -226,7 +224,7 @@ public final class EdgeOnlineActivity extends Activity {
         if(playback!=null&&!playback.playbackError().isEmpty())state+=" · "+playback.playbackError();
         downloadStatus.setText(state);
     }
-    @Override protected void onResume(){super.onResume();if(downloads!=null)downloads.refreshSettings();if(playback!=null)playback.setAutoContinue(getSharedPreferences("reader",0).getBoolean("mrt_auto_continue",true));main.post(ticker);}
+    @Override protected void onResume(){super.onResume();if(downloads!=null)downloads.refreshSettings();if(playback!=null)playback.setAutoContinue(getSharedPreferences("reader",0).getBoolean(EdgeSettings.AUTO_CONTINUE,true));main.post(ticker);}
     @Override protected void onPause(){main.removeCallbacks(ticker);super.onPause();}
     @Override protected void onDestroy(){if(downloads!=null)downloads.removeObserver(queueObserver);if(playback!=null)playback.removeListener(playbackObserver);
         if(downloaderBound)unbindService(queueConnection);if(playerBound)unbindService(playerConnection);main.removeCallbacksAndMessages(null);super.onDestroy();}

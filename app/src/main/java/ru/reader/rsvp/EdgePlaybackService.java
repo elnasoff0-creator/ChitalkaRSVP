@@ -30,7 +30,7 @@ import java.io.File;
 import java.util.ArrayList;
 
 /**
- * Independent native MP3 playlist. It neither imports nor invokes WebView / JS / MRT.
+ * Independent native MP3 playlist. Independent of any browser-based synthesis engine.
  * Only ready local files enter ExoPlayer; loading a new file never starts playback.
  * All binder calls are expected on Android main thread.
  */
@@ -247,7 +247,7 @@ public final class EdgePlaybackService extends Service {
         int insertion = 0;
         while (insertion < tracks.size() && tracks.get(insertion).start < start) insertion++;
         tracks.add(insertion,t);
-        MrtAudioFormat format=MrtAudioFormat.forFilename(file.getName());
+        EdgeAudioFormat format=EdgeAudioFormat.forFilename(file.getName());
         playbackError="";
         MediaItem.Builder itemBuilder=new MediaItem.Builder().setMediaId(key)
                 .setUri(android.net.Uri.fromFile(file));
@@ -351,7 +351,7 @@ public final class EdgePlaybackService extends Service {
         if (player==null)return;
         if(isPlaying()) {
             try {startForeground(NOTIFY,notification());notificationShowing=true;}
-            catch(Exception e) {android.util.Log.w("MRT-Player","Foreground playback notification",e);}
+            catch(Exception e) {android.util.Log.w("Edge-Player","Foreground playback notification",e);}
         } else if(notificationShowing) {
             ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(NOTIFY,notification());
         }

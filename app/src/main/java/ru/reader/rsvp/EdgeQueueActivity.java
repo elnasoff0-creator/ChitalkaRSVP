@@ -162,7 +162,7 @@ public final class EdgeQueueActivity extends Activity {
     }
 
     private void openFolder(){File directory=download==null?null:download.folder();if(directory==null){Toast.makeText(this,"Папка ещё не готова",Toast.LENGTH_SHORT).show();return;}
-        startActivity(new Intent(this,MrtFileExplorerActivity.class).putExtra("book_folder",directory.getAbsolutePath()));}
+        startActivity(new Intent(this,EdgeFileExplorerActivity.class).putExtra("book_folder",directory.getAbsolutePath()));}
     private void confirmClear(){if(download==null)return;
         new AlertDialog.Builder(this).setTitle("Удалить MP3 этой книги?")
                 .setMessage("Все аудиофрагменты, очередь и история прослушивания будут удалены. Сам текст книги сохранится.")
