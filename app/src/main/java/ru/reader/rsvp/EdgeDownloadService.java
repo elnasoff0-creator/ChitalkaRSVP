@@ -173,7 +173,9 @@ public final class EdgeDownloadService extends Service {
                 String name=book.title==null?"Книга":book.title;
                 ArrayList<Integer> positions=new ArrayList<>();
                 Matcher matcher=Pattern.compile("\\S+").matcher(raw);while(matcher.find())positions.add(matcher.start());
-                File dir=new File(EdgeBookStorage.bookFolder(this,requested,name),"EdgeTTS");dir.mkdirs();
+                File bookDir=EdgeBookStorage.bookFolder(this,requested,name);
+                File dir=new File(bookDir,"EdgeTTS");dir.mkdirs();
+                DownloadsRepository.storeEdgeMeta(bookDir,requested,name,positions.size());
                 main.post(()->{
                     if(destroyed||!requested.equals(bookUri))return;
                     bookText=raw;title=name;offsets.addAll(positions);directory=dir;
@@ -187,7 +189,7 @@ public final class EdgeDownloadService extends Service {
     public void refreshSettings(){pump();}
     public void setActive(boolean enabled){
         if(active==enabled)return;active=enabled;
-        if(enabled){promote();pump();}
+        if(enabled){if(!bookUri.isEmpty())DownloadsRepository.showEdge(this,bookUri);promote();pump();}
         else {cancelGeneration();if(foreground){stopForeground(STOP_FOREGROUND_REMOVE);foreground=false;}changed();stopSelf();}
     }
     public void setAnchor(int word,boolean selected){

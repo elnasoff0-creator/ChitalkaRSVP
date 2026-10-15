@@ -15,6 +15,7 @@
         <service android:name=".DownloadWorker" android:exported="false" android:foregroundServiceType="dataSync" />
         <activity android:name=".DownloadActivity" android:exported="false" />
         <activity android:name=".UrlImportActivity" android:exported="false" />
+        <activity android:name=".KvuheSearchActivity" android:exported="false" />
         <service android:name=".AudioPlaybackService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <activity android:name=".AudioPlayerActivity" android:exported="false" />
         <service android:name=".EdgePlaybackService" android:exported="false" android:foregroundServiceType="mediaPlayback" />

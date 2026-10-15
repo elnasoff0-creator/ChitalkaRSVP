@@ -542,6 +542,7 @@ public class MainActivity extends Activity {
         TextView fallback=text("♫\n"+coverTitle(b.name),12,true);fallback.setGravity(Gravity.CENTER);fallback.setTextColor(0xfff6ebdc);fallback.setMaxLines(4);
         frame.addView(fallback,new android.widget.FrameLayout.LayoutParams(-1,-1));
         String imageUri=prefs.getString("audio_cover:"+b.id,"");
+        if(imageUri.isEmpty())imageUri=AudiobookCoverStore.localUri(this,b.id);
         if(!imageUri.isEmpty()){
             android.widget.ImageView image=new android.widget.ImageView(this);image.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
             try{
@@ -1281,6 +1282,7 @@ public class MainActivity extends Activity {
     private boolean hasResumedOnce = false;
     @Override protected void onResume() {
         super.onResume();
+        AudiobookCoverStore.backfill(this,()->{if(screen==0)draw();});
         if (hasResumedOnce) {
             loadPrefs();
             screen = 0;

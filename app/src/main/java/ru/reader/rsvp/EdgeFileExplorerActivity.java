@@ -47,17 +47,20 @@ public class EdgeFileExplorerActivity extends Activity {
         try {
             File root=getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS);
             if(root==null)root=getFilesDir();
-            File allowed=new File(root,"ChitalkaRSVP/Books").getCanonicalFile();
+            File edgeAllowed=new File(root,"ChitalkaRSVP/Books").getCanonicalFile();
+            File music=getExternalFilesDir(android.os.Environment.DIRECTORY_MUSIC);
+            File audioAllowed=music==null?null:new File(music,"Audiobooks").getCanonicalFile();
             folder=new File(path==null?"":path).getCanonicalFile();
-            if(!folder.getAbsolutePath().startsWith(allowed.getAbsolutePath()+File.separator)
-                    || !folder.getName().equals("EdgeTTS")) {finish();return;}
+            boolean edgeFolder=folder.getName().equals("EdgeTTS")&&folder.getAbsolutePath().startsWith(edgeAllowed.getAbsolutePath()+File.separator);
+            boolean audiobookFolder=audioAllowed!=null&&folder.getAbsolutePath().startsWith(audioAllowed.getAbsolutePath()+File.separator);
+            if(!edgeFolder&&!audiobookFolder){finish();return;}
         } catch(Exception e) {finish();return;}
         LinearLayout rootView=new LinearLayout(this);
         rootView.setOrientation(LinearLayout.VERTICAL);
         rootView.setPadding(10,18,10,8);
         rootView.setBackgroundColor(0xfff3e7d5);
         setContentView(rootView);
-        rootView.addView(label("Проводник аудио · "+folder.getParentFile().getName(),18));
+        rootView.addView(label("Файлы аудиокниги · "+(folder.getName().equals("EdgeTTS")?folder.getParentFile().getName():folder.getName()),18));
         subtitle=label(folder.getAbsolutePath(),11);
         rootView.addView(subtitle);
         LinearLayout actions=new LinearLayout(this);

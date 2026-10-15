@@ -10,7 +10,7 @@ import java.util.Locale;
 /** Stable folder identity and cache-file identity for Edge TTS. */
 public final class EdgeBookStorage {
     private EdgeBookStorage() {}
-    private static File booksRoot(Context context) {
+    static File booksRoot(Context context) {
         File root=context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS);
         if (root==null) root=context.getFilesDir();
         return new File(root,"ChitalkaRSVP/Books");

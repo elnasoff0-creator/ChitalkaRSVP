@@ -2,8 +2,8 @@ plugins { id 'com.android.application' }
 android {
     namespace 'ru.reader.rsvp'
     compileSdk 35
-    defaultConfig { applicationId 'ru.reader.rsvp'; minSdk 24; targetSdk 35; versionCode 11041; versionName '1.11.34-beta' }
+    defaultConfig { applicationId 'ru.reader.rsvp'; minSdk 24; targetSdk 35; versionCode 11043; versionName '1.11.36-beta' }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
 
-dependencies { implementation 'androidx.core:core:1.13.1'; implementation 'org.jsoup:jsoup:1.18.3'; implementation 'androidx.media3:media3-exoplayer:1.5.1'; implementation 'com.squareup.okhttp3:okhttp:4.12.0' }
+dependencies { implementation 'androidx.core:core:1.13.1'; implementation 'org.jsoup:jsoup:1.18.3'; implementation 'androidx.media3:media3-exoplayer:1.5.1'; implementation 'com.squareup.okhttp3:okhttp:4.12.0'; implementation 'androidx.recyclerview:recyclerview:1.3.2' }

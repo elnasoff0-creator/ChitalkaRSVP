@@ -33,7 +33,21 @@ public final class KvuheParser {
         HttpURLConnection c=openBookPage(uri);
         try{String ct=c.getContentType();if(ct==null||!ct.toLowerCase(Locale.ROOT).contains("text/html"))throw new java.io.IOException("Ответ сайта не HTML: "+ct);
             URI finalUri=c.getURL().toURI();
-            Document d=Jsoup.parse(c.getInputStream(),"UTF-8",finalUri.toString()); Book b=new Book();b.source=finalUri.toString();Element title=d.selectFirst("span.book_title_elem.book_title_name");if(title==null)title=d.selectFirst("h1");b.title=title==null?"Аудиокнига":title.text().trim();Element cover=d.selectFirst("meta[property=og:image]");if(cover!=null)b.cover=cover.attr("abs:content");
+            Document d=Jsoup.parse(c.getInputStream(),"UTF-8",finalUri.toString()); Book b=new Book();b.source=finalUri.toString();Element title=d.selectFirst("span.book_title_elem.book_title_name");if(title==null)title=d.selectFirst("h1");b.title=title==null?"Аудиокнига":title.text().trim();Element cover=d.selectFirst("meta[property=og:image]");
+            if(cover!=null)b.cover=cover.absUrl("content");
+            if(b.cover.isEmpty()){
+                cover=d.selectFirst("meta[name=twitter:image], meta[property=twitter:image]");
+                if(cover!=null)b.cover=cover.absUrl("content");
+            }
+            if(b.cover.isEmpty()){
+                cover=d.selectFirst(".book_cover img, .book_img img, .book_image img, .book_detail img");
+                if(cover!=null){
+                    for(String attr:new String[]{"data-src","data-original","src"}){
+                        String value=cover.absUrl(attr);
+                        if(!value.isEmpty()&&value.startsWith("https://")){b.cover=value;break;}
+                    }
+                }
+            }
             Elements names=d.select("div.book_playlist_item_name");Elements times=d.select("div.book_playlist_item_time");for(int i=0;i<names.size();i++){Chapter ch=new Chapter();ch.name=names.get(i).text().trim();ch.time=i<times.size()?times.get(i).text().trim():"";ch.seconds=parseTime(ch.time);b.chapters.add(ch);}
             // Direct chapter-bound URLs only. Global JS URLs cannot safely be mapped by order.
             Elements items=d.select(".book_playlist_item");if(items.size()==b.chapters.size())for(int i=0;i<items.size();i++){
