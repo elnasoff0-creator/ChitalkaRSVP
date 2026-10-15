@@ -71,7 +71,7 @@ public class SettingsActivity extends Activity {
         TextView name=text("Настройки чтения",24,true);name.setTypeface(Typeface.SERIF,Typeface.BOLD);top.addView(name,new LinearLayout.LayoutParams(0,-2,1));root.addView(top);
         ScrollView sc=new ScrollView(this);list=col();sc.addView(list);root.addView(sc,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout tabs=new LinearLayout(this);
-        int[] icons={R.drawable.ic_tab_appearance,R.drawable.ic_tab_rsvp,R.drawable.ic_tab_audio,R.drawable.ic_tab_online};
+        int[] icons={R.drawable.ic_tab_appearance,R.drawable.ic_tab_rsvp,R.drawable.ic_tab_music,R.drawable.ic_tab_online};
         String[] names={"Оформление","Скорочтение","Аудио","Онлайн"};
         for(int i=0;i<names.length;i++){
             final int tab=i;
@@ -83,8 +83,7 @@ public class SettingsActivity extends Activity {
         if(currentTab==1){drawRsvpSettings();return;}
         if(currentTab==2){drawAudioSettings();return;}
         if(currentTab==3){drawOnlineSettings();return;}
-        header("Предпросмотр текста");
-        preview=new TextView(this);preview.setText("Текст");preview.setLineSpacing(dp(5),1.18f);preview.setPadding(dp(19),dp(21),dp(19),dp(21));list.addView(preview,new LinearLayout.LayoutParams(-1,-2));applyPreview();
+        preview=new TextView(this);preview.setText("Предпросмотр текста");preview.setGravity(Gravity.CENTER);preview.setLineSpacing(dp(5),1.18f);preview.setPadding(dp(19),dp(21),dp(19),dp(21));LinearLayout.LayoutParams previewLp=new LinearLayout.LayoutParams(-1,dp(90));previewLp.topMargin=dp(15);list.addView(preview,previewLp);applyPreview();
         header("Шрифт");
         list.addView(action(fontNames[font]+"   ▾",()->new AlertDialog.Builder(this).setTitle("Выбор шрифта").setSingleChoiceItems(fontNames,font,(d,n)->{font=n;put("font",font);d.dismiss();draw();}).setNegativeButton("Отмена",null).show()));
         gap(9);header("Шрифт");
@@ -96,8 +95,8 @@ public class SettingsActivity extends Activity {
         header("Тема чтения");
         LinearLayout themes=new LinearLayout(this);themes.setOrientation(LinearLayout.HORIZONTAL);
         theme(themes,"Светлая",0xffffffff,0xff202020);theme(themes,"Сепия",0xfff3e7d5,0xff30221e);theme(themes,"Ночная",0xff1e2025,0xffe8e5db);theme(themes,"Мягкая",0xffdfe9d9,0xff223a29);list.addView(themes);
-        header("Цвет фона — палитра");palette(backgrounds,true);
-        header("Цвет текста — палитра");palette(textColors,false);
+        header("Цвет фона");palette(backgrounds,true);
+        header("Цвет текста");palette(textColors,false);
         gap(18);
     }
     void drawRsvpSettings(){
@@ -110,75 +109,102 @@ public class SettingsActivity extends Activity {
         header("Настройки аудио");
         list.addView(action("Эквалайзер · "+equalizerLabel(),R.drawable.ic_equalizer,this::equalizerDialog));gap(8);
         list.addView(action("Выбор движка TTS",R.drawable.ic_tts_engine,this::ttsEngineDialog));gap(8);
-        list.addView(action("Голос TTS и высота тона",R.drawable.ic_microphone,()->startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_action","voice"))));gap(18);
+        gap(18);
     }
     String equalizerLabel(){
-        String v=prefs.getString("audio_equalizer","off");
-        switch(v){case "flat":return "Ровный";case "bass":return "Басы";case "treble":return "Высокие";case "voice":return "Речь";default:return "Выключен";}
+        String current=prefs.getString("audio_equalizer","off");
+        for(int i=0;i<AudioEqualizer.KEYS.length;i++)if(AudioEqualizer.KEYS[i].equals(current))
+            return "custom".equals(current)?prefs.getString("eq_custom_name","Пользовательский"):AudioEqualizer.LABELS[i];
+        return "Выключен";
     }
     void equalizerDialog(){
-        String[] values={"off","flat","bass","treble","voice"};
-        String[] labels={"Выключен","Ровный","Усиление басов","Высокие частоты","Разборчивая речь"};
-        int selected=0;String chosen=prefs.getString("audio_equalizer","off");
-        for(int i=0;i<values.length;i++)if(values[i].equals(chosen))selected=i;
-        new AlertDialog.Builder(this).setTitle("Эквалайзер").setSingleChoiceItems(labels,selected,(d,i)->{
-            prefs.edit().putString("audio_equalizer",values[i]).apply();AudioEqualizer.apply(this);d.dismiss();draw();
-        }).setNegativeButton("Отмена",null).show();
+        java.util.ArrayList<String> labels=new java.util.ArrayList<>(java.util.Arrays.asList(AudioEqualizer.LABELS));
+        java.util.ArrayList<String> values=new java.util.ArrayList<>(java.util.Arrays.asList(AudioEqualizer.KEYS));
+        try{
+            org.json.JSONObject saved=new org.json.JSONObject(prefs.getString("eq_saved_profiles","{}"));
+            java.util.Iterator<String> keys=saved.keys();
+            while(keys.hasNext()){
+                String key=keys.next();labels.add("Сохранённый · "+key);values.add("saved:"+key);
+            }
+        }catch(Exception ignored){}
+        new AlertDialog.Builder(this).setTitle("Эквалайзер")
+            .setItems(labels.toArray(new String[0]),(d,which)->{
+                String choice=values.get(which);
+                if("custom".equals(choice)){customEqualizerDialog();return;}
+                if(choice.startsWith("saved:")){
+                    try{org.json.JSONObject saved=new org.json.JSONObject(prefs.getString("eq_saved_profiles","{}"));
+                        String key=choice.substring(6);org.json.JSONArray arr=saved.getJSONArray(key);
+                        float[] curve=new float[5];for(int i=0;i<5;i++)curve[i]=(float)arr.optDouble(i,0);
+                        saveCustomCurve(curve,key);
+                    }catch(Exception ignored){}
+                }else prefs.edit().putString("audio_equalizer",choice).apply();
+                AudioEqualizer.apply(this);draw();
+            }).setNegativeButton("Отмена",null).show();
+    }
+    void saveCustomCurve(float[] curve,String name){
+        StringBuilder csv=new StringBuilder();for(int i=0;i<5;i++){if(i>0)csv.append(',');csv.append(curve[i]);}
+        prefs.edit().putString("audio_equalizer","custom")
+            .putString("eq_custom_bands",csv.toString()).putString("eq_custom_name",name).apply();
+        AudioEqualizer.apply(this);
+    }
+    void customEqualizerDialog(){
+        float[] initial=AudioEqualizer.gains(this);
+        LinearLayout panel=col();panel.setPadding(dp(16),0,dp(16),dp(2));
+        int[] freq={60,230,910,3600,14000};
+        final SeekBar[] sliders=new SeekBar[5];final TextView[] indicators=new TextView[5];
+        for(int i=0;i<5;i++){
+            LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);panel.addView(row);
+            TextView name=text(freq[i]>=1000?String.format(java.util.Locale.ROOT,"%.1f кГц",freq[i]/1000f):freq[i]+" Гц",12,false);
+            row.addView(name,new LinearLayout.LayoutParams(dp(71),-2));
+            SeekBar slider=new SeekBar(this);slider.setMax(24);
+            slider.setProgress(Math.max(0,Math.min(24,Math.round(initial[i])+12)));
+            row.addView(slider,new LinearLayout.LayoutParams(0,dp(56),1));
+            final int index=i;
+            TextView val=text(String.valueOf(slider.getProgress()-12)+" дБ",12,false);
+            row.addView(val,new LinearLayout.LayoutParams(dp(55),-2));sliders[i]=slider;indicators[i]=val;
+            slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+                public void onProgressChanged(SeekBar s,int v,boolean user){indicators[index].setText((v-12)+" дБ");}
+                public void onStartTrackingTouch(SeekBar s){}public void onStopTrackingTouch(SeekBar s){}
+            });
+        }
+        android.widget.EditText profile=new android.widget.EditText(this);
+        profile.setSingleLine(true);profile.setHint("Название профиля");
+        profile.setText(prefs.getString("eq_custom_name","Мой профиль"));panel.addView(profile);
+        new AlertDialog.Builder(this).setTitle("Пользовательский эквалайзер")
+            .setView(panel).setNeutralButton("Сброс",(d,w)->{saveCustomCurve(new float[5],"Пользовательский");draw();})
+            .setNegativeButton("Отмена",null)
+            .setPositiveButton("Сохранить",(d,w)->{
+                float[] curve=new float[5];for(int i=0;i<5;i++)curve[i]=sliders[i].getProgress()-12;
+                String label=profile.getText().toString().trim();if(label.isEmpty())label="Пользовательский";
+                if(label.length()>40)label=label.substring(0,40);
+                saveCustomCurve(curve,label);
+                try{org.json.JSONObject saved=new org.json.JSONObject(prefs.getString("eq_saved_profiles","{}"));
+                    org.json.JSONArray data=new org.json.JSONArray();for(float v:curve)data.put(v);
+                    saved.put(label,data);prefs.edit().putString("eq_saved_profiles",saved.toString()).apply();
+                }catch(Exception ignored){}
+                draw();
+            }).show();
     }
     void ttsEngineDialog(){
-        // Android owns engine discovery and setup; use a fresh lightweight probe.
-        final android.speech.tts.TextToSpeech[] probe=new android.speech.tts.TextToSpeech[1];
-        probe[0]=new android.speech.tts.TextToSpeech(this,status->{
-            runOnUiThread(()->{
-                if(probe[0]==null)return;
-                if(isFinishing()) {probe[0].shutdown();return;}
-                if(status!=android.speech.tts.TextToSpeech.SUCCESS){
-                    probe[0].shutdown();new AlertDialog.Builder(this).setMessage("Не удалось получить список TTS-движков")
-                            .setPositiveButton("OK",null).show();return;
-                }
-                java.util.List<android.speech.tts.TextToSpeech.EngineInfo> engines=probe[0].getEngines();
-                if(engines==null)engines=java.util.Collections.emptyList();
-                String[] labels=new String[engines.size()+1];
-                String[] packages=new String[engines.size()+1];
-                labels[0]="Системный (по умолчанию)";packages[0]="";
-                for(int i=0;i<engines.size();i++){
-                    labels[i+1]=engines.get(i).label;packages[i+1]=engines.get(i).name;
-                }
-                probe[0].shutdown();
-                new AlertDialog.Builder(this).setTitle("Движок озвучивания текста")
-                    .setItems(labels,(d,index)->{
-                        prefs.edit().putString("tts_engine",packages[index]).apply();
-                        if(AudioPlaybackService.instance!=null)
-                            startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.ENGINE));
-                        draw();
-                    }).setNegativeButton("Отмена",null).show();
-            });
-        });
+        // Open the device's TTS engine settings; it owns engine selection and voice data.
+        String[] actions={"com.android.settings.TTS_SETTINGS","android.settings.TTS_SETTINGS",
+                android.provider.Settings.ACTION_VOICE_INPUT_SETTINGS,android.provider.Settings.ACTION_SETTINGS};
+        for(String action:actions){
+            try {startActivity(new Intent(action));return;}
+            catch(android.content.ActivityNotFoundException ignored){}
+            catch(SecurityException ignored){}
+        }
+        new AlertDialog.Builder(this).setMessage("Системные настройки синтеза речи недоступны на этом устройстве.")
+                .setPositiveButton("OK",null).show();
     }
     void drawOnlineSettings(){
         header("Версия и обновления");
         TextView installed=text("Установлена: v" + installedVersion() + " (сборка " + installedCode() + ")",14,false);installed.setPadding(dp(4),0,0,dp(9));list.addView(installed);
-        list.addView(action("Проверить версию в GitHub", R.drawable.ic_settings, () -> new UpdateManager(this).checkVersion()));
+        list.addView(action("Проверить версию в GitHub", R.drawable.ic_web_update, () -> new UpdateManager(this).checkVersion()));
         gap(10);
         header("Онлайн-озвучивание Edge TTS");
-        list.addView(action("Автоозвучка следующих фрагментов: " + onOff(prefs.getBoolean(EdgeSettings.AUTO_CONTINUE,true)),()->{toggle(EdgeSettings.AUTO_CONTINUE, this::draw);}));gap(8);
-        list.addView(action("Предзагрузка аудио в кэш: " + onOff(prefs.getBoolean(EdgeSettings.PREFETCH,true)),()->{prefs.edit().putBoolean(EdgeSettings.PREFETCH,!prefs.getBoolean(EdgeSettings.PREFETCH,true)).apply();draw();}));gap(8);
         list.addView(action("Количество фрагментов предзагрузки: " + EdgePrefetchSettings.get(prefs),()-> EdgePrefetchSettings.show(this,prefs,count->draw())));gap(8);
         list.addView(action("Размер онлайн-фрагмента: " + EdgeSegmentSettings.get(prefs) + " символов",()-> EdgeSegmentSettings.show(this,prefs,value->draw())));gap(8);
-        TextView note=text("Очередь и MP3-кэш Edge TTS работают независимо от системного Android TTS.",13,false);
-        note.setPadding(dp(4),0,dp(4),dp(6));list.addView(note);
-        header("Edge TTS · голос");
-        list.addView(action("Голос Edge: " + (prefs.getString("edge_voice","ru-RU-SvetlanaNeural").contains("Dmitry")?"Дмитрий":"Светлана"),R.drawable.ic_microphone,()->{
-            String[] options={"Светлана · русский","Дмитрий · русский"};
-            String[] values={"ru-RU-SvetlanaNeural","ru-RU-DmitryNeural"};
-            new AlertDialog.Builder(this).setTitle("Смена голоса Edge TTS")
-                .setMessage("При смене голоса новые фрагменты будут сгенерированы заново и заменят уже скачанные аудиофайлы. Продолжить?")
-                .setNegativeButton("Отмена",null)
-                .setPositiveButton("Продолжить",(confirm,which)->new AlertDialog.Builder(this).setTitle("Голос Edge TTS").setItems(options,(dialog,index)->{
-                    prefs.edit().putString("edge_voice",values[index]).apply();draw();
-                }).setNegativeButton("Отмена",null).show())
-                .show();
-        }));gap(10);
     }
     GradientDrawable outlined(int color,int radius){GradientDrawable d=rounded(color,radius);d.setStroke(dp(1),0xff938475);return d;}
     void theme(LinearLayout row,String name,int background,int ink){TextView chip=text(name,13,false);chip.setTextColor(ink);chip.setGravity(Gravity.CENTER);chip.setBackground(outlined(background,14));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(56),1);lp.setMargins(dp(2),0,dp(2),0);row.addView(chip,lp);chip.setOnClickListener(v->{bg=background;fg=ink;put("bg",bg);put("fg",fg);draw();});}
@@ -219,4 +245,5 @@ public class SettingsActivity extends Activity {
             .setPositiveButton("Применить",(d,w)->{int color=Color.rgb(bars[0].getProgress(),bars[1].getProgress(),bars[2].getProgress());if(background){bg=color;put("bg",bg);}else{fg=color;put("fg",fg);}draw();})
             .setNegativeButton("Отмена",null).show();
     }
+    @Override public void onBackPressed(){BackNavigation.back(this);}
 }

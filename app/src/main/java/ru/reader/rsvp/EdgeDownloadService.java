@@ -216,12 +216,12 @@ public final class EdgeDownloadService extends Service {
     private void pump(){
         if(!bookReady||directory==null||destroyed)return;
         SharedPreferences pref=getSharedPreferences("reader",0);
-        segmentLength=EdgeSegmentSettings.get(pref);windowCount=pref.getBoolean(EdgeSettings.PREFETCH,true)?EdgePrefetchSettings.get(pref):1;
+        segmentLength=EdgeSegmentSettings.get(pref);windowCount=EdgePrefetchSettings.get(pref);
         int from=anchor();ArrayList<Clip> window=new ArrayList<>();
         ArrayList<Integer> indices=EdgeQueuePlanner.window(from,offsets.size(),windowCount,st->{Clip item=clipAt(st);return item==null?st:item.end;});
         for(int at:indices){Clip c=clipAt(at);if(c!=null)window.add(c);}
         if(player!=null){
-            player.setAutoContinue(pref.getBoolean(EdgeSettings.AUTO_CONTINUE,true));
+            player.setAutoContinue(true);
             for(Clip c:window){if(!c.ready())break;player.appendReady(c.key+":"+c.start,c.start,c.end,c.file);}
         }
         if(active&&generating==null){

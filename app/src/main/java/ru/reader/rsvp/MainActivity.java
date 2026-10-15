@@ -342,11 +342,11 @@ public class MainActivity extends Activity {
         titleView.setTypeface(Typeface.SERIF, Typeface.BOLD);
         top.addView(titleView, new LinearLayout.LayoutParams(0, -2, 1));
         View search = iconButton(R.drawable.ic_search, v -> showLibraryChooser());
-        top.addView(search, new LinearLayout.LayoutParams(dp(52), dp(46)));
-        View importBtn = iconButton(R.drawable.ic_plus, v -> pick());
-        top.addView(importBtn, new LinearLayout.LayoutParams(dp(52), dp(46)));
+        top.addView(search, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        View importBtn = iconButton(R.drawable.ic_plus, v -> showAddMenu());
+        top.addView(importBtn, new LinearLayout.LayoutParams(dp(48), dp(48)));
         View menuBtn = iconButton(R.drawable.ic_settings, v -> settings());
-        top.addView(menuBtn, new LinearLayout.LayoutParams(dp(45), dp(46)));
+        top.addView(menuBtn, new LinearLayout.LayoutParams(dp(48), dp(48)));
         add(contentWrap, top);
 
 
@@ -968,6 +968,27 @@ public class MainActivity extends Activity {
         saveAll();
     }
 
+    void showAddMenu(){
+        new android.app.AlertDialog.Builder(this).setTitle("Добавить")
+            .setItems(new String[]{"Книгу","Аудиокнигу"},(dialog,choice)->{
+                new android.app.AlertDialog.Builder(this).setTitle(choice==0?"Добавить книгу":"Добавить аудиокнигу")
+                    .setItems(new String[]{choice==0?"Выбрать файл":"Выбрать папку"},(d,index)->{
+                        if(choice==0)pick();
+                        else chooseAudioFolder();
+                    }).setNegativeButton("Отмена",null).show();
+            }).setNegativeButton("Отмена",null).show();
+    }
+
+    void chooseAudioFolder(){
+        new android.app.AlertDialog.Builder(this).setTitle("Аудиокнига из папки")
+            .setItems(new String[]{"Одна папка — одна аудиокнига","Вложенные папки — отдельные аудиокниги"},(d,n)->{
+                prefs.edit().putBoolean("audio_recursive",n==1).apply();
+                Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                startActivityForResult(i,8);
+            }).setNegativeButton("Отмена",null).show();
+    }
+
     void pick() {
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         i.addCategory(Intent.CATEGORY_OPENABLE);
@@ -978,6 +999,20 @@ public class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
+        if (req == 8 && res == RESULT_OK && data != null && data.getData()!=null) {
+            Uri tree=data.getData();
+            try{getContentResolver().takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}
+            boolean recursive=prefs.getBoolean("audio_recursive",false);
+            new Thread(()->{
+                try{
+                    ArrayList<AudioLibrary.Book> found=AudioLibrary.importTree(this,tree,recursive);
+                    AudioLibrary.merge(this,found);
+                    runOnUiThread(()->{android.widget.Toast.makeText(this,
+                        found.isEmpty()?"В папке нет аудиофайлов":"Добавлено аудиокниг: "+found.size(),
+                        android.widget.Toast.LENGTH_LONG).show();draw();});
+                }catch(Exception e){runOnUiThread(()->android.widget.Toast.makeText(this,"Не удалось импортировать папку: "+e.getMessage(),android.widget.Toast.LENGTH_LONG).show());}
+            }).start();return;
+        }
         if (req == 7 && res == RESULT_OK && data != null) {
             Uri u = data.getData();
             try { getContentResolver().takePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION); } catch (Exception ignored) {}

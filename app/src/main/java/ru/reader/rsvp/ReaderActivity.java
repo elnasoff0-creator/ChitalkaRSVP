@@ -68,7 +68,21 @@ public class ReaderActivity extends Activity {
   void pad(View v,int n){v.setPadding(dp(n),dp(n),dp(n),dp(n));}
   void add(LinearLayout p,View c){p.addView(c,new LinearLayout.LayoutParams(-1,-2));}
   Button button(String s,View.OnClickListener l){Button b=new Button(this);b.setAllCaps(false);b.setText(s);b.setOnClickListener(l);return b;}
-  void icon(Button b,int resource){android.graphics.drawable.Drawable d=getDrawable(resource);if(d!=null){d.setTint(fg);d.setBounds(0,0,dp(22),dp(22));b.setCompoundDrawables(d,null,null,null);b.setCompoundDrawablePadding(dp(6));}}
+  void icon(Button b,int resource){
+    android.graphics.drawable.Drawable d=getDrawable(resource);
+    if(d!=null){d=d.mutate();d.setTint(b==modeButton?0xffffffff:fg);d.setBounds(0,0,dp(25),dp(25));
+      if(b==modeButton)b.setCompoundDrawables(d,null,null,null);
+      else b.setCompoundDrawables(null,d,null,null);
+      b.setCompoundDrawablePadding(b==modeButton?dp(8):0);}
+    b.setPadding(b==modeButton?dp(8):0,0,0,0);b.setGravity(Gravity.CENTER);
+    if(b!=modeButton){b.setText("");b.setBackground(shape(panelColor(),16));}
+  }
+  android.widget.ImageButton topIcon(int res,View.OnClickListener listener){
+    android.widget.ImageButton btn=new android.widget.ImageButton(this);
+    btn.setImageResource(res);btn.setScaleType(android.widget.ImageView.ScaleType.CENTER_INSIDE);
+    btn.setPadding(dp(13),dp(13),dp(13),dp(13));btn.setColorFilter(fg);
+    btn.setBackground(shape(panelColor(),16));btn.setOnClickListener(listener);return btn;
+  }
   void rowButton(LinearLayout row,String s,View.OnClickListener click){Button b=button(s,click);row.addView(b,new LinearLayout.LayoutParams(0,dp(58),1));}
   GradientDrawable shape(int fill,int radius){GradientDrawable d=new GradientDrawable();d.setColor(fill);d.setCornerRadius(dp(radius));return d;}
   int panelColor(){return (bg==0xff1e2025)?0xff303238:0xfffff9f0;}
@@ -79,11 +93,11 @@ public class ReaderActivity extends Activity {
   void draw(){
     stop();setup();root.setPadding(dp(10),dp(20),dp(10),dp(7));
     LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);add(root,top);
-    Button menuBtn=button("",v->finish());icon(menuBtn,R.drawable.ic_back);top.addView(menuBtn,new LinearLayout.LayoutParams(dp(52),dp(53)));
+    android.widget.ImageButton menuBtn=topIcon(R.drawable.ic_back,v->BackNavigation.back(this));top.addView(menuBtn,new LinearLayout.LayoutParams(dp(52),dp(53)));
     TextView name=text(title.isEmpty()?"Читалка":"Читалка",23);name.setTypeface(Typeface.SERIF,Typeface.BOLD);name.setSingleLine(true);name.setEllipsize(TextUtils.TruncateAt.END);top.addView(name,new LinearLayout.LayoutParams(0,-2,1));
-    Button mark=button("",v->bookmark());icon(mark,R.drawable.ic_bookmark);top.addView(mark,new LinearLayout.LayoutParams(dp(53),dp(53)));
-    Button config=button("",v->settings());icon(config,R.drawable.ic_settings);top.addView(config,new LinearLayout.LayoutParams(dp(53),dp(53)));
-    Button audio=button("♫",v->{
+    android.widget.ImageButton mark=topIcon(R.drawable.ic_bookmark,v->bookmark());top.addView(mark,new LinearLayout.LayoutParams(dp(53),dp(53)));
+    android.widget.ImageButton config=topIcon(R.drawable.ic_settings,v->settings());top.addView(config,new LinearLayout.LayoutParams(dp(53),dp(53)));
+    android.widget.ImageButton audio=topIcon(R.drawable.ic_microphone,v->{
       if(docUri==null||docUri.isEmpty()){Toast.makeText(this,"Сначала откройте книгу",Toast.LENGTH_SHORT).show();return;}
       new AlertDialog.Builder(this).setTitle("Способ озвучивания")
         .setItems(new String[]{"Системный Android TTS", "Edge TTS · онлайн"},(dialog,which)->{
@@ -122,7 +136,7 @@ public class ReaderActivity extends Activity {
     controls.setBackground(shape(panelColor(),22));
     add(root,controls);
     android.widget.FrameLayout playFrame=new android.widget.FrameLayout(this);
-    playFrame.setBackground(shape(0xff915439,99));
+    playFrame.setBackground(shape(0xff915439,20));
     android.widget.ImageView centeredPlay=new android.widget.ImageView(this);
     playIcon=centeredPlay;
     centeredPlay.setScaleType(android.widget.ImageView.ScaleType.CENTER_INSIDE);
@@ -131,15 +145,15 @@ public class ReaderActivity extends Activity {
     android.widget.FrameLayout.LayoutParams imageParams=new android.widget.FrameLayout.LayoutParams(dp(30),dp(30),Gravity.CENTER);
     playFrame.addView(centeredPlay,imageParams);
     playFrame.setOnClickListener(v->{if(playing){stop();}else{playing=true;handler.post(ticker);}updatePlayButton();});
-    controls.addView(playFrame,new LinearLayout.LayoutParams(dp(88),dp(72)));
+    controls.addView(playFrame,new LinearLayout.LayoutParams(dp(72),dp(72)));
 
     speedPanel=column();speedPanel.setBackground(shape(panelColor(),18));pad(speedPanel,8);add(root,speedPanel);
     LinearLayout speedRow=new LinearLayout(this);speedRow.setGravity(Gravity.CENTER_VERTICAL);add(speedPanel,speedRow);
     ImageView gauge=new ImageView(this);gauge.setImageResource(R.drawable.ic_speed);gauge.setColorFilter(fg);
     speedRow.addView(gauge,new LinearLayout.LayoutParams(dp(28),dp(28)));
     speedView=text(wpm+" слов/мин",17);speedView.setGravity(Gravity.CENTER);speedRow.addView(speedView,new LinearLayout.LayoutParams(0,dp(48),1));
-    Button less=button("−10",v->changeSpeed(-10));speedRow.addView(less,new LinearLayout.LayoutParams(dp(84),dp(48)));
-    Button more=button("+10",v->changeSpeed(10));speedRow.addView(more,new LinearLayout.LayoutParams(dp(84),dp(48)));
+    Button less=button("−10",v->changeSpeed(-10));less.setBackground(shape(panelColor(),14));speedRow.addView(less,new LinearLayout.LayoutParams(dp(52),dp(52)));
+    Button more=button("+10",v->changeSpeed(10));more.setBackground(shape(panelColor(),14));speedRow.addView(more,new LinearLayout.LayoutParams(dp(52),dp(52)));
     showMode();updateWord();updatePlayButton();
   }
   void changeSpeed(int delta){wpm=Math.max(100,Math.min(1000,wpm+delta));if(speedView!=null)speedView.setText(wpm+" слов/мин");save();}
@@ -206,4 +220,5 @@ public class ReaderActivity extends Activity {
   void sizeDialog(){SeekBar seek=new SeekBar(this);seek.setMax(60);seek.setProgress(size-16);new AlertDialog.Builder(this).setTitle("Размер шрифта: от 16 до 76").setView(seek).setPositiveButton("Применить",(d,w)->{size=seek.getProgress()+16;save();draw();}).setNegativeButton("Отмена",null).show();}
   void colorDialog(boolean background){LinearLayout c=column();pad(c,20);int color=background?bg:fg;String[] labels={"Красный","Зелёный","Синий"};SeekBar[] sliders=new SeekBar[3];for(int i=0;i<3;i++){add(c,text(labels[i],16));SeekBar s=new SeekBar(this);s.setMax(255);s.setProgress(i==0?Color.red(color):i==1?Color.green(color):Color.blue(color));sliders[i]=s;add(c,s);}new AlertDialog.Builder(this).setTitle(background?"Цвет фона (RGB)":"Цвет шрифта (RGB)").setView(c).setPositiveButton("Применить",(d,w)->{int n=Color.rgb(sliders[0].getProgress(),sliders[1].getProgress(),sliders[2].getProgress());if(background)bg=n;else fg=n;save();draw();}).setNegativeButton("Отмена",null).show();}
   @Override protected void onPause(){super.onPause();save();stop();} @Override protected void onDestroy(){stop();super.onDestroy();}
+    @Override public void onBackPressed(){BackNavigation.back(this);}
 }

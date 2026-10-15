@@ -1,36 +1,20 @@
-# ChitalkaRSVP v1.11.33-beta
+# ChitalkaRSVP v1.11.34-beta
 
-Native Android source project (Java, Gradle 8.7, JDK 17, Android SDK 35).
+Android (Java) source project. Package: `ru.reader.rsvp`, `versionCode 11041`.
 
-## Building on GitHub
+## Changes
 
-Upload the **contents** of this archive to the repository root, including
-`.github/workflows/`. Files removed from this source tree must also be removed
-from the repository: uploading files through the browser does not automatically
-remove older files.
+- Edge TTS: synthesis/download begins only from **Автоподгрузка**. The native player is independent and continues ready MP3 fragments without a separate autoplay setting. Cached MP3s can play with download disabled.
+- Edge toolbar and controls: centered icons with dedicated ImageViews, current speed multiplier, queue and fragments selection.
+- Online settings: removed redundant autoplay and prefetch switches, explanation and voice options; retained prefetch count and segment length. Voice selection remains in the Edge player.
+- Audio settings: system TTS settings shortcut, 14 built-in equalizer modes and custom five-band profiles (including named saves).
+- Appearance: centered preview text and simplified color headings. Updated tab music-note icon and GitHub web-update icon.
+- Reader and audio players: microphone for TTS, list icon for chapters/fragments, unified rounded square buttons; removed player-level add button.
+- MainActivity: universal add dialog for book files or audiobook folders. URL import remains only under Downloads.
+- Back navigation and Downloads/URL import buttons aligned to the common design.
 
-GitHub Actions workflows: `.github/workflows/build-debug-apk.yml` and
-`.github/workflows/release.yml`. The release workflow uses repository signing
-secrets. Android SDK and signing material are not bundled.
+## Build
 
-## What's new (v1.11.33-beta / versionCode 11040)
+Use `.github/workflows/release.yml` or run `gradle assembleRelease` with Android SDK 35, Java 17, and signing configured.
 
-- Edge toolbar icons centered; the toolbar speed control displays the effective
-  playback rate (1×, 1.25×, etc.) and persists it between service starts.
-- Edge cover card no longer displays the extra voice-change explanation.
-- System TTS screen uses just **Previous fragment / Play-Pause / Next fragment**;
-  chapter and seconds skip buttons remain available for ordinary audio files.
-- In system TTS the embedded book cover is above the fragment text; the
-  whole-audiobook duration slider is hidden. Standard audiobook UI is preserved.
-- Settings tabs: Appearance / Speed Reading / Audio / Online, each with an icon.
-  RSVP settings are separated from appearance settings.
-- Audio settings: equalizer presets for supported MP3 playback audio sessions,
-  installed system TTS engine selection, and voice/pitch. Built-in Android
-  TextToSpeech does not expose an independent audio session for this equalizer.
-- Online settings and existing Edge download/cache workflows are retained.
-
-## Testing
-
-Run `for script in tests/*.sh; do bash "$script"; done` from project root.
-A full Android Gradle build and on-device testing are required before release;
-local source tests do not validate APK compilation or runtime functionality.
+The project is source code, **not a compiled APK**. Runtime / device testing still required.

@@ -15,5 +15,6 @@ grep -q 'Edge TTS · онлайн' "$ROOT/ReaderActivity.java"
 grep -q 'EdgeQueuePlanner.window' "$ROOT/EdgeDownloadService.java"
 grep -q 'EdgeTtsClient.synthesize' "$ROOT/EdgeDownloadService.java"
 grep -q 'EdgeDownloadService' "$ROOT/EdgeQueueActivity.java"
-grep -q 'EdgeSettings.AUTO_CONTINUE' "$ROOT/EdgeDownloadService.java"
+grep -q 'player.setAutoContinue(true)' "$ROOT/EdgeDownloadService.java"
+! grep -q 'EdgeSettings.AUTO_CONTINUE' "$ROOT/EdgeDownloadService.java"
 echo 'Edge-only native source isolation: PASS'

@@ -14,7 +14,7 @@ import java.util.*;
 /** Standalone audio interface. Playback remains in AudioPlaybackService on navigation. */
 public class AudioPlayerActivity extends Activity {
     private static final int FILE_PICK=301, FOLDER_PICK=302, COVER_PICK=303;
-    LinearLayout root,playRow,overallTimes; FrameLayout coverArea; TextView overallLabel; ScrollView ttsTextFrame; TextView title,info,elapsed,duration,spokenText,wholeProgress,speedAction,timerAction; SeekBar progress, totalProgress; TextView chapterElapsed, chapterDuration, chapterPicker, overallTime, overallPercent, overallRemaining, speedValue; android.widget.ImageView coverImage, playIcon, coverPlaceholderIcon; TextView coverPlaceholderText;
+    LinearLayout root,playRow,overallTimes; FrameLayout coverArea; TextView overallLabel; ScrollView ttsTextFrame; TextView title,info,elapsed,duration,spokenText,wholeProgress,speedAction; View timerAction; SeekBar progress, totalProgress; TextView chapterElapsed, chapterDuration, overallTime, overallPercent, overallRemaining, speedValue; View chapterPicker; android.widget.ImageView coverImage, playIcon, coverPlaceholderIcon; TextView coverPlaceholderText;
     Handler handler=new Handler(Looper.getMainLooper()); boolean dragging=false, draggingTotal=false;String bookUri=""; AudioLibrary.Book selected;
     private int shownTtsPosition = -1;
     private boolean shownTtsMode = false;
@@ -28,14 +28,15 @@ public class AudioPlayerActivity extends Activity {
     GradientDrawable bg(int color,int radius){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(radius));return d;}
     TextView label(String s,int size){TextView v=new TextView(this);v.setText(s);v.setTextSize(size);v.setTextColor(TEXT);return v;}
     TextView control(String text,View.OnClickListener action){TextView t=label(text,19);t.setGravity(Gravity.CENTER);t.setBackground(bg(0xfffff8ef,13));t.setOnClickListener(action);t.setPadding(dp(10),dp(12),dp(10),dp(12));return t;}
-    TextView topAction(int icon, String description, View.OnClickListener action){
-        TextView view=control("",action);
-        view.setContentDescription(description);
-        android.graphics.drawable.Drawable drawable=getDrawable(icon);
-        if(drawable!=null){drawable=drawable.mutate();drawable.setTint(TEXT);drawable.setBounds(0,0,dp(23),dp(23));view.setCompoundDrawables(drawable,null,null,null);}
-        view.setGravity(Gravity.CENTER);
-        view.setPadding(dp(11),0,0,0);
-        return view;
+    View topAction(int icon,String description,View.OnClickListener action){
+        FrameLayout box=new FrameLayout(this);
+        box.setBackground(bg(0xfffff8ef,14));
+        box.setContentDescription(description);
+        box.setOnClickListener(action);
+        ImageView graphic=new ImageView(this);graphic.setImageResource(icon);
+        graphic.setColorFilter(TEXT);graphic.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        box.addView(graphic,new FrameLayout.LayoutParams(dp(24),dp(24),Gravity.CENTER));
+        return box;
     }
     int audioUsage(String id){return id==null||id.isEmpty()?0:getSharedPreferences("reader",0).getInt("audio_usage:"+id,0);}
     void bumpAudioUsage(String id){if(id==null||id.isEmpty())return;getSharedPreferences("reader",0).edit().putInt("audio_usage:"+id,audioUsage(id)+1).apply();}
@@ -47,7 +48,7 @@ public class AudioPlayerActivity extends Activity {
         cell.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
         // Identical vertical slots for every button: no baseline-related vertical shift.
         FrameLayout buttonSlot=new FrameLayout(this);
-        cell.addView(buttonSlot,new LinearLayout.LayoutParams(-1,dp(66)));
+        cell.addView(buttonSlot,new LinearLayout.LayoutParams(-1,dp(64)));
         FrameLayout holder=new FrameLayout(this);
         GradientDrawable buttonBackground;
         if(primary){
@@ -62,7 +63,7 @@ public class AudioPlayerActivity extends Activity {
         holder.setClipToOutline(false);
         holder.setOnClickListener(action);
         holder.setContentDescription(primary?"Воспроизвести или поставить на паузу":hint);
-        int holderSize=dp(43);
+        int holderSize=dp(48);
         FrameLayout.LayoutParams hp=new FrameLayout.LayoutParams(holderSize,holderSize,Gravity.CENTER);
         buttonSlot.addView(holder,hp);
         ImageView icon=new ImageView(this);
@@ -79,7 +80,7 @@ public class AudioPlayerActivity extends Activity {
         return cell;
     }
     void command(String action){startService(new Intent(this,AudioPlaybackService.class).setAction(action));handler.postDelayed(this::refresh,150);}
-    @Override public void onCreate(Bundle b){super.onCreate(b);bookUri=getIntent().getStringExtra("book_uri");if(bookUri==null||bookUri.isEmpty())bookUri=getSharedPreferences("reader",0).getString("uri","");String id=getIntent().getStringExtra("audio_book_id");if(id!=null)for(AudioLibrary.Book item:AudioLibrary.load(this))if(id.equals(item.id)){selected=item;break;}if(getIntent().getBooleanExtra("count_usage",false)&&selected!=null)bumpAudioUsage(selected.id);draw();String audioAction=getIntent().getStringExtra("audio_action");if(audioAction!=null)handler.post(()->{switch(audioAction){case "import":importFolder();break;case "tts":loadTts(bookUri,getSharedPreferences("reader",0).getInt("index",0));break;case "voice":voiceMenu();break;case "marks":showMarks();break;case "cover":chooseCover();break;case "sleep":sleepMenu();break;case "speed":speedMenu();break;}});if(selected!=null&&(AudioPlaybackService.instance==null||AudioPlaybackService.instance.isTtsMode()||!selected.id.equals(AudioPlaybackService.instance.getBookId())))openSelected(selected);if(getIntent().getBooleanExtra("start_tts",false)&&!bookUri.isEmpty())loadTts(bookUri,getIntent().getIntExtra("word_index",0));}
+    @Override public void onCreate(Bundle b){super.onCreate(b);bookUri=getIntent().getStringExtra("book_uri");if(bookUri==null||bookUri.isEmpty())bookUri=getSharedPreferences("reader",0).getString("uri","");String id=getIntent().getStringExtra("audio_book_id");if(id!=null)for(AudioLibrary.Book item:AudioLibrary.load(this))if(id.equals(item.id)){selected=item;break;}if(getIntent().getBooleanExtra("count_usage",false)&&selected!=null)bumpAudioUsage(selected.id);draw();String audioAction=getIntent().getStringExtra("audio_action");if(audioAction!=null)handler.post(()->{switch(audioAction){case "tts":loadTts(bookUri,getSharedPreferences("reader",0).getInt("index",0));break;case "voice":voiceMenu();break;case "marks":showMarks();break;case "cover":chooseCover();break;case "sleep":sleepMenu();break;case "speed":speedMenu();break;}});if(selected!=null&&(AudioPlaybackService.instance==null||AudioPlaybackService.instance.isTtsMode()||!selected.id.equals(AudioPlaybackService.instance.getBookId())))openSelected(selected);if(getIntent().getBooleanExtra("start_tts",false)&&!bookUri.isEmpty())loadTts(bookUri,getIntent().getIntExtra("word_index",0));}
     @Override protected void onResume(){super.onResume();
         if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)
             requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},427);
@@ -90,9 +91,9 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         root.setPadding(dp(12),dp(29),dp(12),dp(10));setContentView(root);
         LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);
         root.addView(top,new LinearLayout.LayoutParams(-1,dp(54)));
-        top.addView(topAction(R.drawable.ic_back,"Назад",v->finish()),new LinearLayout.LayoutParams(dp(44),dp(46)));
-        chapterPicker=topAction(R.drawable.ic_audio_chapters,"Выбрать главу",v->chapters());
-        top.addView(chapterPicker,new LinearLayout.LayoutParams(dp(48),dp(50)));
+        top.addView(topAction(R.drawable.ic_back,"Назад",v->BackNavigation.back(this)),new LinearLayout.LayoutParams(dp(48),dp(48)));
+        chapterPicker=topAction(R.drawable.ic_list_audio,"Выбрать главу",v->chapters());
+        top.addView(chapterPicker,new LinearLayout.LayoutParams(dp(48),dp(48)));
         LinearLayout speedGroup=new LinearLayout(this);speedGroup.setOrientation(1);speedGroup.setGravity(Gravity.CENTER);
         speedGroup.setBackground(bg(0xfffff8ef,15));
         android.widget.ImageView speedIcon=new android.widget.ImageView(this);
@@ -101,11 +102,10 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         speedValue=label("1×",12);speedValue.setGravity(Gravity.CENTER);
         speedGroup.addView(speedValue,new LinearLayout.LayoutParams(-1,dp(17)));
         speedGroup.setOnClickListener(v->speedMenu());speedGroup.setContentDescription("Скорость");
-        top.addView(speedGroup,new LinearLayout.LayoutParams(dp(49),dp(51)));
+        top.addView(speedGroup,new LinearLayout.LayoutParams(dp(48),dp(48)));
         timerAction=topAction(R.drawable.ic_audio_timer,"Таймер сна",v->sleepMenu());
-        top.addView(timerAction,new LinearLayout.LayoutParams(dp(46),dp(50)));
-        top.addView(control("+",v->new AlertDialog.Builder(this).setTitle("Добавить аудиокнигу").setItems(new String[]{"Из папки","Импорт по ссылке"},(dialog,index)->{if(index==0)importFolder();else startActivity(new Intent(this,UrlImportActivity.class));}).show()),new LinearLayout.LayoutParams(dp(42),dp(50)));
-        top.addView(topAction(R.drawable.ic_settings,"Аудионастройки",v->openAudioSettings()),new LinearLayout.LayoutParams(dp(46),dp(50)));
+        top.addView(timerAction,new LinearLayout.LayoutParams(dp(48),dp(48)));
+        top.addView(topAction(R.drawable.ic_settings,"Аудионастройки",v->openAudioSettings()),new LinearLayout.LayoutParams(dp(48),dp(48)));
         title=label("Аудиокнига",21);title.setGravity(Gravity.CENTER);title.setTypeface(android.graphics.Typeface.SERIF,1);
         title.setMaxLines(2);title.setOnClickListener(v->selectBook());
         LinearLayout.LayoutParams tl=new LinearLayout.LayoutParams(-1,-2);tl.topMargin=dp(10);root.addView(title,tl);
@@ -293,7 +293,7 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         if(coverPlaceholderIcon!=null)coverPlaceholderIcon.setImageResource(R.drawable.ic_plus);
         updateCover();
     }
-    void selectBook(){ArrayList<AudioLibrary.Book> all=sortedBooks(AudioLibrary.load(this));if(all.isEmpty()){importFolder();return;}String[] names=new String[all.size()];for(int k=0;k<all.size();k++)names[k]=all.get(k).name+" · "+audioProgress(all.get(k))+"%";new AlertDialog.Builder(this).setTitle("Выбрать аудиокнигу (удерживайте обложку для изменения)").setItems(names,(d,n)->{bumpAudioUsage(all.get(n).id);openSelected(all.get(n));draw();}).setNeutralButton("Обложка выбранной книги",(d,w)->chooseCover()).setNegativeButton("Отмена",null).show();}
+    void selectBook(){ArrayList<AudioLibrary.Book> all=sortedBooks(AudioLibrary.load(this));if(all.isEmpty()){Toast.makeText(this,"Добавьте аудиокнигу через + на главном экране",Toast.LENGTH_LONG).show();return;}String[] names=new String[all.size()];for(int k=0;k<all.size();k++)names[k]=all.get(k).name+" · "+audioProgress(all.get(k))+"%";new AlertDialog.Builder(this).setTitle("Выбрать аудиокнигу (удерживайте обложку для изменения)").setItems(names,(d,n)->{bumpAudioUsage(all.get(n).id);openSelected(all.get(n));draw();}).setNeutralButton("Обложка выбранной книги",(d,w)->chooseCover()).setNegativeButton("Отмена",null).show();}
     void seekPosition(int pos){startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SEEK).putExtra("position",pos));}
     void changeChapter(int delta){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null||s.isTtsMode())return;goChapter(Math.max(0,Math.min(s.getChapterCount()-1,s.getSegment()+delta)));}
     void goChapter(int n){startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.CHAPTER).putExtra("chapter",n));}
@@ -332,7 +332,7 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
             }).setNegativeButton("Отмена",null).show();
     }
     void bookmark(){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null)return;String key="audio_marks:"+s.getTitle();Set<String> marks=new HashSet<>(getSharedPreferences("reader",0).getStringSet(key,new HashSet<>()));marks.add(String.valueOf(s.getPosition()));getSharedPreferences("reader",0).edit().putStringSet(key,marks).apply();Toast.makeText(this,"Аудиозакладка сохранена",Toast.LENGTH_SHORT).show();}
-    void options(){String[] choices={"Добавить аудиокнигу","Аудиозакладки","Скорость","Таймер сна","Остановить звук"};new AlertDialog.Builder(this).setItems(choices,(d,n)->{if(n==0)importFiles();if(n==1)showMarks();if(n==2)speedMenu();if(n==3)sleepMenu();if(n==4)command(AudioPlaybackService.STOP);}).show();}
+    void options(){String[] choices={"Аудиозакладки","Скорость","Таймер сна","Остановить звук"};new AlertDialog.Builder(this).setItems(choices,(d,n)->{if(n==0)showMarks();if(n==1)speedMenu();if(n==2)sleepMenu();if(n==3)command(AudioPlaybackService.STOP);}).show();}
     void showMarks(){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null)return;Set<String> ms=getSharedPreferences("reader",0).getStringSet("audio_marks:"+s.getTitle(),new HashSet<>());ArrayList<Integer> vals=new ArrayList<>();for(String v:ms)try{vals.add(Integer.parseInt(v));}catch(Exception ignored){}Collections.sort(vals);String[] names=new String[vals.size()];for(int j=0;j<vals.size();j++)names[j]=s.isTtsMode()?"Фрагмент "+vals.get(j):format(vals.get(j));new AlertDialog.Builder(this).setTitle("Аудиозакладки").setItems(names,(d,n)->{Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SEEK);i.putExtra("position",vals.get(n));startService(i);}).setPositiveButton("Закрыть",null).show();}
     String formatLong(long ms){long sec=Math.max(0,ms)/1000;return String.format(Locale.ROOT,"%d:%02d:%02d",sec/3600,(sec/60)%60,sec%60);}
     String format(int ms){long sec=ms/1000;return String.format(Locale.ROOT,"%02d:%02d:%02d",sec/3600,(sec/60)%60,sec%60);}
@@ -390,4 +390,5 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
             ttsTextFrame.post(() -> { if (ttsTextFrame != null) ttsTextFrame.scrollTo(0,0); });
         }
     }
+    @Override public void onBackPressed(){BackNavigation.back(this);}
 }

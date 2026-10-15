@@ -29,13 +29,21 @@ public class DownloadActivity extends Activity {
     private int dp(int n) { return (int)(n * getResources().getDisplayMetrics().density + .5f); }
     private TextView label(String s,int size,boolean bold) { TextView t=new TextView(this);t.setText(s);t.setTextColor(foreground);t.setTextSize(size);if(bold)t.setTypeface(null,Typeface.BOLD);return t; }
     private GradientDrawable panel(){GradientDrawable d=new GradientDrawable();d.setColor(background==0xff1e2025?0xff313339:0xfffff8ef);d.setCornerRadius(dp(18));return d;}
-    private Button button(String text,Runnable click){Button b=new Button(this);b.setText(text);b.setAllCaps(false);b.setOnClickListener(v->click.run());return b;}
+    private Button button(String text,Runnable click){
+        Button b=new Button(this);b.setText(text);b.setAllCaps(false);b.setTextSize(14);
+        b.setTextColor(foreground);b.setBackground(panel());
+        b.setMinHeight(dp(48));b.setGravity(Gravity.CENTER);b.setOnClickListener(v->click.run());return b;
+    }
     @Override public void onCreate(Bundle b){super.onCreate(b);SharedPreferences pref=getSharedPreferences("reader",0);background=pref.getInt("bg",background);foreground=pref.getInt("fg",foreground);
         ScrollView scroll=new ScrollView(this);LinearLayout page=new LinearLayout(this);page.setOrientation(1);page.setPadding(dp(14),dp(30),dp(14),dp(20));page.setBackgroundColor(background);scroll.addView(page);setContentView(scroll);
         LinearLayout bar=new LinearLayout(this);bar.setGravity(Gravity.CENTER_VERTICAL);page.addView(bar);
-        TextView back=label("‹",32,false);back.setGravity(Gravity.CENTER);bar.addView(back,new LinearLayout.LayoutParams(dp(48),dp(50)));back.setOnClickListener(v->finish());
+        android.widget.ImageView back=new android.widget.ImageView(this);back.setImageResource(R.drawable.ic_back);
+        back.setColorFilter(foreground);back.setPadding(dp(12),dp(12),dp(12),dp(12));
+        back.setBackground(panel());bar.addView(back,new LinearLayout.LayoutParams(dp(48),dp(48)));
+        back.setOnClickListener(v->BackNavigation.back(this));
         TextView title=label("Загрузки",24,true);bar.addView(title,new LinearLayout.LayoutParams(0,-2,1));
-        Button add=button("+",()->startActivity(new Intent(this,UrlImportActivity.class)));bar.addView(add,new LinearLayout.LayoutParams(dp(52),-2));
+        Button add=button("+",()->startActivity(new Intent(this,UrlImportActivity.class)));
+        add.setContentDescription("Импорт по ссылке");bar.addView(add,new LinearLayout.LayoutParams(dp(48),dp(48)));
         TextView subtitle=label("Очередь сохранена. При переходе в другие разделы загрузка продолжится.",13,false);subtitle.setPadding(0,dp(12),0,dp(14));page.addView(subtitle);
         jobs=new LinearLayout(this);jobs.setOrientation(1);page.addView(jobs);
     }
@@ -59,4 +67,5 @@ public class DownloadActivity extends Activity {
             for(int i=0;i<j.chapters.size();i++){int state=i<j.states.size()?j.states.get(i):-1;String stateText=state==100?"Готово":state<0?"Не выбрана":state+"%";TextView c=label(String.format(Locale.ROOT,"%03d · %s — %s",i+1,j.chapters.get(i).name,stateText),12,false);c.setPadding(0,dp(3),0,dp(3));card.addView(c);}
         }
     }
+    @Override public void onBackPressed(){BackNavigation.back(this);}
 }

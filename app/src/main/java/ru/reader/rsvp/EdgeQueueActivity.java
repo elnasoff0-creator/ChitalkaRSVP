@@ -199,4 +199,5 @@ public final class EdgeQueueActivity extends Activity {
     }
     @Override protected void onDestroy(){if(download!=null)download.removeObserver(observer);
         if(downloadBound)unbindService(queueConnection);if(playerBound)unbindService(playerConnection);super.onDestroy();}
+    @Override public void onBackPressed(){BackNavigation.back(this);}
 }
