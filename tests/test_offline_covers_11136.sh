@@ -25,6 +25,6 @@ assert 'AudiobookCoverStore.localUri(this,id)' in (p/'AudioPlayerActivity.java')
 assert 'AudiobookCoverStore.backfillOne(this,b.id' in (p/'AudioPlayerActivity.java').read_text()
 assert 'AudiobookCoverStore.backfill(this' in (p/'DownloadActivity.java').read_text()
 g=Path('app/build.gradle').read_text()
-assert "versionCode 11043; versionName '1.11.36-beta'" in g
+assert "versionCode 11044; versionName '1.11.37-beta'" in g
 print('PASS: v1.11.36 offline audiobook covers, backfill, manual override, version')
 PY

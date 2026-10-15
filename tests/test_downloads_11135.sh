@@ -6,7 +6,7 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 p=Path('app/src/main/java/ru/reader/rsvp')
 gradle=Path('app/build.gradle').read_text()
-assert "versionCode 11043; versionName '1.11.36-beta'" in gradle
+assert "versionCode 11044; versionName '1.11.37-beta'" in gradle
 assert "androidx.recyclerview:recyclerview:1.3.2" in gradle
 search=(p/'KvuheSearchParser.java').read_text()
 assert 'div.bookkitem' in search and 'search/?q=' in search
@@ -18,7 +18,7 @@ screen=(p/'KvuheSearchActivity.java').read_text()
 assert 'RecyclerView' in screen and 'CoverImageLoader.show' in screen
 assert 'new Intent(this,UrlImportActivity.class)' in screen and 'auto_fetch' in screen
 ui=(p/'DownloadActivity.java').read_text()
-assert 'Поиск аудиокниги' in ui and 'Импорт по ссылке' in ui
+assert 'Поиск аудиокниги' in ui and 'Скачать по ссылке' in ui
 for tab in ['Все','В процессе','Аудиокниги','Edge TTS']:
  assert f'"{tab}"' in ui
 assert 'R.drawable.ic_search_audiobook' in ui and 'R.drawable.ic_import_link' in ui

@@ -11,7 +11,7 @@ edge=(p/'EdgeOnlineActivity.java').read_text()
 queue=(p/'EdgeQueueActivity.java').read_text()
 equalizer=(p/'AudioEqualizer.java').read_text()
 gradle=Path('app/build.gradle').read_text()
-assert "versionCode 11043; versionName '1.11.36-beta'" in gradle
+assert "versionCode 11044; versionName '1.11.37-beta'" in gradle
 assert settings.count('header("Версия и обновления")') == 1
 assert 'header("Версия и обновления")' not in settings.split('void drawOnlineSettings()')[0]
 assert 'Проверить версию в GitHub' not in settings.split('void drawOnlineSettings()')[0]
