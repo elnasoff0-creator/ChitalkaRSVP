@@ -76,7 +76,7 @@ public final class DownloadActivity extends Activity {
         LinearLayout actions=new LinearLayout(this);
         LinearLayout.LayoutParams al=new LinearLayout.LayoutParams(-1,dp(120));al.topMargin=dp(12);root.addView(actions,al);
         addMainAction(actions,R.drawable.ic_search_audiobook,"Поиск аудиокниги",()->startActivity(new Intent(this,KvuheSearchActivity.class)),false);
-        addMainAction(actions,R.drawable.ic_import_link,"Импорт по ссылке",()->startActivity(new Intent(this,UrlImportActivity.class)),true);
+        addMainAction(actions,R.drawable.ic_import_link,"Скачать по ссылке",()->startActivity(new Intent(this,LinkDownloadActivity.class)),true);
 
         HorizontalScrollView scrolling=new HorizontalScrollView(this);scrolling.setHorizontalScrollBarEnabled(false);
         LinearLayout.LayoutParams fl=new LinearLayout.LayoutParams(-1,dp(52));fl.topMargin=dp(12);root.addView(scrolling,fl);
@@ -98,7 +98,7 @@ public final class DownloadActivity extends Activity {
         card.setContentDescription(title);card.setOnClickListener(v->click.run());
     }
     private void updateFilterButtons(){
-        filters.removeAllViews();String[] labels={"Все","В процессе","Аудиокниги","Edge TTS"};
+        filters.removeAllViews();String[] labels={"Все","В процессе","Аудиокниги","Edge TTS","По ссылке"};
         for(int i=0;i<labels.length;i++){
             final int n=i;TextView v=center(labels[i],14);v.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
             v.setPadding(dp(14),0,dp(14),0);v.setMinWidth(dp(78));
@@ -121,6 +121,7 @@ public final class DownloadActivity extends Activity {
             if(filter==1&&item.ready)continue;
             if(filter==2&&!DownloadsRepository.AUDIO.equals(item.type))continue;
             if(filter==3&&!DownloadsRepository.EDGE.equals(item.type))continue;
+            if(filter==4&&!DownloadsRepository.LINK.equals(item.type))continue;
             (item.ready?ready:unfinished).add(item);
         }
         if(!unfinished.isEmpty()){
@@ -139,7 +140,8 @@ public final class DownloadActivity extends Activity {
         main.postDelayed(this::refresh,250);
     }
     private void open(DownloadsRepository.Item item){
-        if(DownloadsRepository.EDGE.equals(item.type)){
+        if(DownloadsRepository.LINK.equals(item.type)){startActivity(new Intent(this,LinkDownloadDetailsActivity.class).putExtra(DirectLinkDownloadService.EXTRA_ID,item.link.id));}
+        else if(DownloadsRepository.EDGE.equals(item.type)){
             startActivity(new Intent(this,EdgeOnlineActivity.class).putExtra("book_uri",item.bookUri));
         }else if(item.ready){
             startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_book_id","url:"+item.source));
@@ -182,7 +184,34 @@ public final class DownloadActivity extends Activity {
                 if(DownloadsRepository.EDGE.equals(item.type))eraseEdge(item,files);else eraseAudio(item,files);
             }).show();
     }
+    private void linkCommand(DownloadsRepository.Item item,String command){
+        Intent i=new Intent(this,DirectLinkDownloadService.class).setAction(command).putExtra(DirectLinkDownloadService.EXTRA_ID,item.link.id);
+        try{if(Build.VERSION.SDK_INT>=26&&DirectLinkDownloadService.START.equals(command))startForegroundService(i);else startService(i);}
+        catch(Exception ex){Toast.makeText(this,"Ошибка: "+ex.getMessage(),Toast.LENGTH_LONG).show();}
+        main.postDelayed(this::refresh,300);
+    }
+    private void deleteLink(DownloadsRepository.Item item,boolean files){
+        if(item.running){Toast.makeText(this,"Сначала поставьте загрузку на паузу",Toast.LENGTH_LONG).show();return;}
+        if(files){for(LinkDownloadStore.Entry e:item.link.files){
+            if(!e.savedUri.isEmpty())try{androidx.documentfile.provider.DocumentFile doc=androidx.documentfile.provider.DocumentFile.fromSingleUri(this,android.net.Uri.parse(e.savedUri));if(doc!=null)doc.delete();}catch(Exception ignored){}
+        }}
+        LinkDownloadStore.remove(this,item.link.id);refresh();
+    }
     private void menu(View anchor,DownloadsRepository.Item item){
+        if(DownloadsRepository.LINK.equals(item.type)){
+            PopupMenu p=new PopupMenu(this,anchor);
+            p.getMenu().add(0,1,0,"Список файлов");p.getMenu().add(0,2,1,"Добавить MP3 в библиотеку");
+            if(!item.ready)p.getMenu().add(0,3,2,"Продолжить загрузку");
+            p.getMenu().add(0,4,3,"Убрать из списка");p.getMenu().add(0,5,4,"Удалить скачанные файлы");
+            p.setOnMenuItemClickListener(m->{switch(m.getItemId()){
+                case 1:open(item);break;
+                case 2:LinkDownloadStore.addToLibrary(this,item.link);Toast.makeText(this,"Добавлено в библиотеку",Toast.LENGTH_SHORT).show();break;
+                case 3:linkCommand(item,DirectLinkDownloadService.START);break;
+                case 4:case 5:final boolean erase=m.getItemId()==5;new AlertDialog.Builder(this).setTitle(erase?"Удалить загруженные MP3?":"Убрать задание из списка?")
+                    .setMessage(erase?"Будут удалены файлы этого задания в выбранной папке.":"Файлы останутся на устройстве.")
+                    .setNegativeButton("Отмена",null).setPositiveButton("Удалить",(d,w)->deleteLink(item,erase)).show();break;
+            }return true;});p.show();return;
+        }
         PopupMenu popup=new PopupMenu(this,anchor);
         if(DownloadsRepository.EDGE.equals(item.type)){
             popup.getMenu().add(0,1,0,"Открыть Edge-плеер");
@@ -230,7 +259,7 @@ public final class DownloadActivity extends Activity {
             LinearLayout detail=new LinearLayout(DownloadActivity.this);detail.setOrientation(LinearLayout.VERTICAL);
             LinearLayout.LayoutParams d=new LinearLayout.LayoutParams(0,-2,1);d.leftMargin=dp(12);top.addView(detail,d);
             TextView title=text(item.title,17,true);title.setTypeface(Typeface.SERIF,Typeface.BOLD);title.setMaxLines(2);detail.addView(title);
-            TextView type=text(DownloadsRepository.EDGE.equals(item.type)?"▥ Edge TTS":"▤ Аудиокнига",12,false);type.setTextColor(ACCENT);
+            TextView type=text(DownloadsRepository.LINK.equals(item.type)?"↓ По ссылке":DownloadsRepository.EDGE.equals(item.type)?"▥ Edge TTS":"▤ Аудиокнига",12,false);type.setTextColor(ACCENT);
             LinearLayout.LayoutParams tagParams=new LinearLayout.LayoutParams(-2,-2);tagParams.topMargin=dp(5);detail.addView(type,tagParams);
             TextView info=text(item.description,12,false);info.setTextColor(MUTED);
             LinearLayout.LayoutParams il=new LinearLayout.LayoutParams(-1,-2);il.topMargin=dp(6);detail.addView(info,il);
@@ -243,7 +272,10 @@ public final class DownloadActivity extends Activity {
             }
             LinearLayout controls=new LinearLayout(DownloadActivity.this);controls.setGravity(Gravity.CENTER_VERTICAL);
             LinearLayout.LayoutParams ctl=new LinearLayout.LayoutParams(-1,dp(44));ctl.topMargin=dp(10);card.addView(controls,ctl);
-            if(DownloadsRepository.EDGE.equals(item.type)){
+            if(DownloadsRepository.LINK.equals(item.type) && !item.ready){
+                TextView pause=control(item.running?"Пауза":"Продолжить");controls.addView(pause,new LinearLayout.LayoutParams(0,dp(42),1));pause.setOnClickListener(v->linkCommand(item,item.running?DirectLinkDownloadService.PAUSE:DirectLinkDownloadService.START));
+                TextView details=control("Файлы");LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(42),1);p.leftMargin=dp(6);controls.addView(details,p);details.setOnClickListener(v->open(item));
+            }else if(DownloadsRepository.EDGE.equals(item.type)){
                 TextView queueButton=control("Открыть очередь");controls.addView(queueButton,new LinearLayout.LayoutParams(0,dp(42),1));queueButton.setOnClickListener(v->queue(item));
             }else if(!item.ready){
                 TextView pause=control(item.running?"Пауза":"Продолжить");controls.addView(pause,new LinearLayout.LayoutParams(0,dp(42),1));

@@ -7,5 +7,6 @@ public final class ReaderApp extends Application {
     @Override public void onCreate() {
         super.onCreate();
         EdgeSettings.migrate(getSharedPreferences("reader",MODE_PRIVATE));
+        LinkDownloadStore.recoverInterrupted(this);
     }
 }

@@ -20,7 +20,7 @@ import java.util.Set;
 
 /** Read-only projection of two INDEPENDENT downloader stores. Never copies downloaded MP3. */
 final class DownloadsRepository {
-    static final String AUDIO="audiobook",EDGE="edge";
+    static final String AUDIO="audiobook",EDGE="edge",LINK="direct_link";
     static final String HIDDEN_EDGE="hidden_edge_downloads_v1";
     static final class Item {
         String type="",id="",title="",cover="",source="",bookUri="",status="",description="";
@@ -30,6 +30,7 @@ final class DownloadsRepository {
         boolean ready,running,paused,failed,unknownTotal;
         File folder;
         BookImportManager.Job job;
+        LinkDownloadStore.Batch link;
     }
     private DownloadsRepository(){}
     static void storeEdgeMeta(File bookDir,String bookUri,String title,int words){
@@ -114,9 +115,23 @@ final class DownloadsRepository {
         if(item.voice.isEmpty())item.voice="";
         return item;
     }
+    private static Item fromLink(LinkDownloadStore.Batch b){
+        Item item=new Item();item.type=LINK;item.id="link:"+b.id;item.link=b;
+        item.title=b.title;item.status="Скачивание по ссылке";item.total=b.files.size();item.done=b.completed();
+        item.ready=item.total>0&&item.done==item.total;
+        item.running="running".equals(b.status);item.paused="paused".equals(b.status);
+        item.failed="error".equals(b.status);item.unknownTotal=true;
+        if(item.ready)item.status="Скачано";else if(item.failed)item.status="Ошибка";
+        else if(item.running)item.status="Скачивается";else if(item.paused)item.status="Приостановлено";
+        else if("cancelled".equals(b.status))item.status="Отменено";else item.status="Ожидает";
+        item.description="Файлов: "+item.done+" из "+item.total+" · "+b.treeLabel+(b.subfolder.isEmpty()?"":" / "+b.subfolder);
+        for(LinkDownloadStore.Entry e:b.files)item.downloadedBytes+=e.bytes;
+        return item;
+    }
     static ArrayList<Item> load(Context ctx,EdgeDownloadService live){
         ArrayList<Item> all=new ArrayList<>();
         for(BookImportManager.Job j:BookImportManager.load(ctx))all.add(fromAudio(ctx,j));
+        for(LinkDownloadStore.Batch b:LinkDownloadStore.load(ctx))all.add(fromLink(b));
         HashMap<String,JSONObject> index=new HashMap<>();
         try{
             JSONArray books=new JSONArray(ctx.getSharedPreferences("reader",0).getString("library","[]"));
