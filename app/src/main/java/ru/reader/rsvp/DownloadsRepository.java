@@ -31,6 +31,7 @@ final class DownloadsRepository {
         File folder;
         BookImportManager.Job job;
         LinkDownloadStore.Batch link;
+        EdgeFullBookStore.Job fullJob;
     }
     private DownloadsRepository(){}
     static void storeEdgeMeta(File bookDir,String bookUri,String title,int words){
@@ -85,7 +86,8 @@ final class DownloadsRepository {
     private static Item fromEdge(File bookDir,String uri,String title,int totalWords,EdgeDownloadService live){
         File audio=new File(bookDir,"EdgeTTS");
         JSONArray queue=readArray(new File(audio,"queue.json"));
-        if(queue.length()==0 && (live==null||!uri.equals(live.bookUri())||live.snapshot().isEmpty()))return null;
+        EdgeFullBookStore.Job full=EdgeFullBookStore.read(bookDir);
+        if(queue.length()==0 && full==null && (live==null||!uri.equals(live.bookUri())||live.snapshot().isEmpty()))return null;
         Item item=new Item();item.type=EDGE;item.bookUri=uri;item.id="edge:"+uri;
         item.title=title.isEmpty()?"Текстовая книга":title;item.cover=uri;item.folder=audio;
         Set<String> keys=new HashSet<>();boolean allReady=true;int contiguous=0;
@@ -109,6 +111,28 @@ final class DownloadsRepository {
         }
         item.ready=totalWords>0&&contiguous>=totalWords&&allReady&&item.total>0;
         item.unknownTotal=!item.ready;
+        if(full!=null){
+            item.fullJob=full;item.voice=full.voice;
+            // The service updates durable counts after each completed fragment.
+            // Avoid hundreds of file stats and parsing a large manifest on every UI refresh.
+            item.total=full.total;
+            item.done=Math.min(item.total,Math.max(0,full.done));
+            item.ready=item.total>0&&item.done==item.total;
+            item.running=EdgeFullBookService.isServiceAlive()&&(
+                EdgeFullBookStore.RUNNING.equals(full.status)||EdgeFullBookStore.QUEUED.equals(full.status));
+            item.paused=EdgeFullBookStore.PAUSED.equals(full.status)
+                ||(!EdgeFullBookService.isServiceAlive()&&EdgeFullBookStore.RUNNING.equals(full.status));
+            item.failed=EdgeFullBookStore.FAILED.equals(full.status);
+            item.unknownTotal=item.total==0;
+            if(item.ready)item.status="Подготовлено полностью";
+            else if(item.failed)item.status="Ошибка подготовки";
+            else if(item.paused)item.status="Приостановлено";
+            else if(item.running)item.status="Готовится вся книга";
+            else item.status="Частично подготовлено";
+            item.description="Подготовлено "+item.done+" из "+item.total+" фрагментов";
+            if(item.failed&&!full.error.isEmpty())item.description+=" · "+full.error;
+            return item;
+        }
         item.status=item.ready?"Подготовлено":item.running?"Скачивается":item.done>0?"Частично подготовлено":"Ожидает";
         item.description="Подготовлено "+item.done+" фрагментов";
         if(item.total>item.done)item.description+=" · в очереди "+item.total;

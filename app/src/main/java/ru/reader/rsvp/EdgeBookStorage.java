@@ -29,7 +29,12 @@ public final class EdgeBookStorage {
         String clean=title==null?"Книга":title.trim().replaceAll("[\\/:*?\"<>|\\p{Cntrl}]","_");
         if(clean.isEmpty())clean="Книга";
         if(clean.length()>65)clean=clean.substring(0,65);
-        return new File(booksRoot(context),clean+"--"+sha256(uri,8));
+        File root=booksRoot(context);
+        String suffix="--"+sha256(uri,8);
+        // Titles in library metadata and parsed EPUB/FB2 can differ. URI is the stable identity.
+        File[] existing=root.listFiles(f->f.isDirectory()&&f.getName().endsWith(suffix));
+        if(existing!=null&&existing.length>0)return existing[0];
+        return new File(root,clean+suffix);
     }
     public static void removeBook(Context context,String uri) {
         final File root=booksRoot(context);

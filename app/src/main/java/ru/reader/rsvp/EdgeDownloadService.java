@@ -61,8 +61,14 @@ public final class EdgeDownloadService extends Service {
     private int anchorWord,segmentLength,windowCount,session,partCount;
     private long partBytes;
     private Clip generating;
+    private String generationLock;
     private EdgeTtsClient transport;
     private EdgePlaybackService player;
+    private final Runnable refreshReady=new Runnable(){@Override public void run(){
+        if(destroyed)return;
+        if(bookReady&&directory!=null)pump(); // pick up full-book MP3 files made by independent service
+        main.postDelayed(this,2500);
+    }};
     private final BroadcastReceiver switchReceiver=new BroadcastReceiver(){
         @Override public void onReceive(Context c,Intent i){
             if(AudioModeCoordinator.STOP_EDGE.equals(i.getAction()))setActive(false);
@@ -105,6 +111,7 @@ public final class EdgeDownloadService extends Service {
         if(Build.VERSION.SDK_INT>=26){NotificationManager manager=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
             if(manager!=null)manager.createNotificationChannel(new NotificationChannel(CHANNEL,"Edge TTS: загрузка",NotificationManager.IMPORTANCE_LOW));}
         EdgeSettings.migrate(getSharedPreferences("reader",0));
+        main.postDelayed(refreshReady,2500);
         playerBound=bindService(new Intent(this,EdgePlaybackService.class),playbackConnection,BIND_AUTO_CREATE);
         IntentFilter filter=new IntentFilter(AudioModeCoordinator.STOP_EDGE);
         if(Build.VERSION.SDK_INT>=33)registerReceiver(switchReceiver,filter,Context.RECEIVER_NOT_EXPORTED);
@@ -171,8 +178,7 @@ public final class EdgeDownloadService extends Service {
                 BookLoader.Book book=BookLoader.load(this,Uri.parse(requested));
                 String raw=book.text==null?"":book.text;
                 String name=book.title==null?"Книга":book.title;
-                ArrayList<Integer> positions=new ArrayList<>();
-                Matcher matcher=Pattern.compile("\\S+").matcher(raw);while(matcher.find())positions.add(matcher.start());
+                ArrayList<Integer> positions=EdgeTextSegments.positions(raw);
                 File bookDir=EdgeBookStorage.bookFolder(this,requested,name);
                 File dir=new File(bookDir,"EdgeTTS");dir.mkdirs();
                 DownloadsRepository.storeEdgeMeta(bookDir,requested,name,positions.size());
@@ -199,17 +205,18 @@ public final class EdgeDownloadService extends Service {
     }
     private Clip clipAt(int start){
         if(start<0||start>=offsets.size())return null;
-        int begin=offsets.get(start),end=Math.min(bookText.length(),begin+segmentLength);
-        if(end<bookText.length()){
-            int sentence=-1;for(char ch:new char[]{'.','!','?','\n'})sentence=Math.max(sentence,bookText.lastIndexOf(ch,end-1));
-            if(sentence>=begin+segmentLength/2)end=sentence+1;
-            else {int space=bookText.lastIndexOf(' ',end-1);if(space>begin+segmentLength/2)end=space+1;}
-        }
-        int after=Collections.binarySearch(offsets,end);if(after<0)after=-after-1;
-        after=Math.max(start+1,Math.min(offsets.size(),after));
-        String text=bookText.substring(begin,end).trim();if(text.isEmpty())return null;
+        EdgeTextSegments.Part part=EdgeTextSegments.at(bookText,offsets,start,segmentLength);
+        if(part==null)return null;
+        int after=part.end;
+        String text=part.text;
         String key=EdgeBookStorage.key(text,voice(),rate(),"edge-direct-v1");
-        for(Clip c:archive)if(c.start==start&&c.end==after&&c.key.equals(key))return c;
+        for(Clip c:archive)if(c.start==start&&c.end==after&&c.key.equals(key)){
+            if(!c.ready()){
+                File f=new File(directory,key+".mp3");
+                if(f.isFile()&&f.length()>1500){c.file=f;c.bytes=f.length();}
+            }
+            return c;
+        }
         Clip c=new Clip(start,after,text,key);
         c.file=new File(directory,key+".mp3");if(!c.ready())c.file=null;
         if(c.ready())c.bytes=c.file.length();
@@ -237,6 +244,11 @@ public final class EdgeDownloadService extends Service {
     }
     private void download(Clip c){
         if(generating!=null||!active)return;
+        String candidate=new File(directory,c.key+".mp3").getAbsolutePath();
+        if(!EdgeGenerationGuard.claim(candidate)){
+            main.postDelayed(this::pump,1500);return;
+        }
+        generationLock=candidate;
         generating=c;int id=++session;partBytes=0;partCount=0;error="";changed();
         transport=EdgeTtsClient.synthesize(c.text,voice(),rate(),new EdgeTtsClient.Callback(){
             @Override public void progress(int chunks,long bytes){main.post(()->{if(generating==c&&id==session){partCount=chunks;partBytes=bytes;changed();}});}
@@ -262,8 +274,9 @@ public final class EdgeDownloadService extends Service {
                         final String err=problem;
                         main.post(()->{
                             if(destroyed||generating!=c||id!=session||!uri.equals(bookUri))return;
-                            generating=null;transport=null;
                             if(err!=null){retry(c,err);return;}
+                            generating=null;transport=null;
+                            EdgeGenerationGuard.release(generationLock);generationLock=null;
                             c.file=result;c.bytes=result.length();c.chunks=chunks;c.failures=0;error="";
                             persist();pump();
                         });
@@ -282,12 +295,14 @@ public final class EdgeDownloadService extends Service {
         if(generating!=c)return;
         if(transport!=null){transport.cancel();transport=null;}
         generating=null;session++;
+        EdgeGenerationGuard.release(generationLock);generationLock=null;
         c.failures++;long seconds=Math.min(120,5L*(1<<Math.min(4,c.failures-1)));
         c.retryAt=SystemClock.uptimeMillis()+seconds*1000;
         error="Фрагмент "+(archive.indexOf(c)+1)+": "+reason+" · повтор через "+seconds+" с";
         changed();main.postDelayed(this::pump,seconds*1000+100);
     }
-    private void cancelGeneration(){session++;if(transport!=null)transport.cancel();transport=null;generating=null;}
+    private void cancelGeneration(){session++;if(transport!=null)transport.cancel();transport=null;generating=null;
+        EdgeGenerationGuard.release(generationLock);generationLock=null;}
     public boolean deleteClipAudio(int start){
         for(Clip c:archive)if(c.start==start){
             if(player!=null && player.isPlaying() && (c.key+":"+c.start).equals(player.currentKey())){error="Сначала приостановите воспроизведение текущего MP3";changed();return false;}
@@ -315,12 +330,14 @@ public final class EdgeDownloadService extends Service {
             main.post(()->{changed();if(done!=null)done.run();});});
     }
     private void restore(){archive.clear();if(directory==null)return;
-        try{File f=new File(directory,"queue.json");if(!f.isFile())return;
-            byte[] input=new byte[(int)Math.min(f.length(),4*1024*1024L)];int total=0;
-            try(java.io.FileInputStream in=new java.io.FileInputStream(f)){
+        try{File f=new File(directory,"queue.json");
+            byte[] input=new byte[f.isFile()?(int)Math.min(f.length(),4*1024*1024L):0];int total=0;
+            if(f.isFile())try(java.io.FileInputStream in=new java.io.FileInputStream(f)){
                 int count;while(total<input.length&&(count=in.read(input,total,input.length-total))>0)total+=count;
             }
-            JSONArray data=new JSONArray(new String(input,0,total,StandardCharsets.UTF_8));
+            JSONArray data;
+            try{data=total>0?new JSONArray(new String(input,0,total,StandardCharsets.UTF_8)):new JSONArray();}
+            catch(Exception invalidOldQueue){data=new JSONArray();}
             for(int i=0;i<data.length()&&i<10000;i++){
                 JSONObject row=data.optJSONObject(i);if(row==null)continue;
                 int st=row.optInt("start",-1),end=row.optInt("end",-1);
@@ -331,6 +348,23 @@ public final class EdgeDownloadService extends Service {
                 if(!c.ready())c.file=null;
                 c.bytes=c.ready()?c.file.length():0;c.chunks=row.optInt("chunks",0);c.played=row.optBoolean("played",false);
                 archive.add(c);
+            }
+            // Full-book synthesis owns full_queue.json; never write it from the autoload service.
+            EdgeFullBookStore.Job job=EdgeFullBookStore.read(directory.getParentFile());
+            if(job!=null&&voice().equals(job.voice)&&rate().equals(job.rate)
+                &&EdgeSegmentSettings.get(getSharedPreferences("reader",0))==job.chars){
+                JSONArray full=EdgeFullBookStore.queue(job);
+                for(int i=0;i<full.length();i++){
+                    JSONObject row=full.optJSONObject(i);if(row==null)continue;
+                    int st=row.optInt("start",-1),en=row.optInt("end",-1);
+                    String key=row.optString("key","");
+                    if(st<0||en<=st||en>offsets.size()||!key.matches("[a-f0-9]{64}"))continue;
+                    boolean known=false;for(Clip old:archive)if(old.start==st&&old.end==en&&old.key.equals(key)){known=true;break;}
+                    if(known)continue;
+                    Clip c=new Clip(st,en,row.optString("text",""),key);
+                    File file=new File(directory,key+".mp3");if(EdgeFullBookStore.ready(file)){c.file=file;c.bytes=file.length();}
+                    archive.add(c);
+                }
             }
             Collections.sort(archive,(a,b)->Integer.compare(a.start,b.start));
         }catch(Exception ex){Log.w("EdgeQueue","index restore failed",ex);}
@@ -345,7 +379,7 @@ public final class EdgeDownloadService extends Service {
                 if(file.exists())file.delete();temp.renameTo(file);
             }catch(Exception ex){temp.delete();Log.w("EdgeQueue","Cannot persist index",ex);}});
     }
-    @Override public void onDestroy(){destroyed=true;cancelGeneration();if(player!=null)player.removeListener(listener);
+    @Override public void onDestroy(){destroyed=true;main.removeCallbacks(refreshReady);cancelGeneration();if(player!=null)player.removeListener(listener);
         try{unregisterReceiver(switchReceiver);}catch(Exception ignored){}
         if(playerBound)unbindService(playbackConnection);io.shutdown();super.onDestroy();}
 }

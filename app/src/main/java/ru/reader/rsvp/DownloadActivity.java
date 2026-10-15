@@ -75,6 +75,11 @@ public final class DownloadActivity extends Activity {
 
         LinearLayout actions=new LinearLayout(this);
         LinearLayout.LayoutParams al=new LinearLayout.LayoutParams(-1,dp(120));al.topMargin=dp(12);root.addView(actions,al);
+        TextView fullBook=center("▤  Подготовить всю книгу Edge TTS",15);
+        fullBook.setTypeface(Typeface.DEFAULT,Typeface.BOLD);fullBook.setBackground(bg(PANEL,17));
+        LinearLayout.LayoutParams fullLp=new LinearLayout.LayoutParams(-1,dp(49));fullLp.topMargin=dp(9);
+        root.addView(fullBook,fullLp);
+        fullBook.setOnClickListener(v->startActivity(new Intent(this,EdgeFullBookActivity.class)));
         addMainAction(actions,R.drawable.ic_search_audiobook,"Поиск аудиокниги",()->startActivity(new Intent(this,KvuheSearchActivity.class)),false);
         addMainAction(actions,R.drawable.ic_import_link,"Скачать по ссылке",()->startActivity(new Intent(this,LinkDownloadActivity.class)),true);
 
@@ -142,10 +147,35 @@ public final class DownloadActivity extends Activity {
     private void open(DownloadsRepository.Item item){
         if(DownloadsRepository.LINK.equals(item.type)){startActivity(new Intent(this,LinkDownloadDetailsActivity.class).putExtra(DirectLinkDownloadService.EXTRA_ID,item.link.id));}
         else if(DownloadsRepository.EDGE.equals(item.type)){
+            if(item.fullJob!=null&&item.ready){
+                EdgeFullBookStore.Job job=item.fullJob;
+                SharedPreferences prefs=getSharedPreferences("reader",0);
+                if(!job.voice.equals(prefs.getString("edge_voice","ru-RU-SvetlanaNeural"))
+                    ||!job.rate.equals(prefs.getString("edge_rate","+0%"))
+                    ||job.chars!=EdgeSegmentSettings.get(prefs)){
+                    new AlertDialog.Builder(this).setTitle("Прослушать готовую аудиокнигу")
+                        .setMessage("Для воспроизведения подготовленных MP3 будут выбраны голос и длина фрагмента, использованные при полной озвучке. Продолжить?")
+                        .setNegativeButton("Отмена",null).setPositiveButton("Слушать",(d,w)->{
+                            prefs.edit().putString("edge_voice",job.voice).putString("edge_rate",job.rate)
+                                .putInt(EdgeSegmentSettings.KEY,job.chars).apply();
+                            startActivity(new Intent(this,EdgeOnlineActivity.class).putExtra("book_uri",item.bookUri));
+                        }).show();return;
+                }
+            }
             startActivity(new Intent(this,EdgeOnlineActivity.class).putExtra("book_uri",item.bookUri));
         }else if(item.ready){
             startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_book_id","url:"+item.source));
         }else startActivity(new Intent(this,UrlImportActivity.class).putExtra("source",item.source));
+    }
+    private void fullCommand(DownloadsRepository.Item item,boolean pause){
+        if(item.fullJob==null)return;
+        Intent intent=new Intent(this,EdgeFullBookService.class)
+            .setAction(pause?EdgeFullBookService.PAUSE:EdgeFullBookService.RESUME)
+            .putExtra(EdgeFullBookService.EXTRA_URI,item.bookUri);
+        try{
+            if(!pause&&Build.VERSION.SDK_INT>=26)startForegroundService(intent);else startService(intent);
+            main.postDelayed(this::refresh,350);
+        }catch(Exception e){Toast.makeText(this,"Ошибка Edge: "+e.getMessage(),Toast.LENGTH_LONG).show();}
     }
     private void queue(DownloadsRepository.Item item){
         startActivity(new Intent(this,EdgeQueueActivity.class).putExtra(EdgeDownloadService.EXTRA_URI,item.bookUri));
@@ -167,7 +197,11 @@ public final class DownloadActivity extends Activity {
         startActivity(new Intent(this,EdgeFileExplorerActivity.class).putExtra("book_folder",item.folder.getAbsolutePath()));
     }
     private void eraseEdge(DownloadsRepository.Item item,boolean files){
+        if(item.fullJob!=null&&item.running){
+            Toast.makeText(this,"Сначала приостановите полную подготовку",Toast.LENGTH_LONG).show();return;
+        }
         if(edge!=null&&item.bookUri.equals(edge.bookUri())&&edge.isActive())edge.setActive(false);
+        if(item.fullJob!=null)fullCommand(item,true);
         if(files){
             if(edge!=null&&item.bookUri.equals(edge.bookUri()))edge.clearAudio(null);
             DownloadsRepository.hideEdge(this,item.bookUri);
@@ -216,6 +250,9 @@ public final class DownloadActivity extends Activity {
         if(DownloadsRepository.EDGE.equals(item.type)){
             popup.getMenu().add(0,1,0,"Открыть Edge-плеер");
             popup.getMenu().add(0,2,1,"Открыть очередь");
+            popup.getMenu().add(0,7,1,"Подготовить всю книгу");
+            if(item.fullJob!=null&&!item.ready)
+                popup.getMenu().add(0,8,1,item.running?"Пауза полной подготовки":"Продолжить полную подготовку");
         }else{
             popup.getMenu().add(0,1,0,item.ready?"Слушать аудиокнигу":"Подробнее / главы");
             if(!item.ready)popup.getMenu().add(0,5,1,"Продолжить загрузку");
@@ -231,6 +268,9 @@ public final class DownloadActivity extends Activity {
                 case 4:confirmDelete(item,true);break;
                 case 5:send(item,DownloadWorker.START);break;
                 case 6:confirmDelete(item,false);break;
+                case 7:startActivity(new Intent(this,EdgeFullBookActivity.class)
+                    .putExtra("book_uri",item.bookUri).putExtra("book_title",item.title));break;
+                case 8:fullCommand(item,item.running);break;
             }return true;
         });popup.show();
     }
@@ -276,7 +316,23 @@ public final class DownloadActivity extends Activity {
                 TextView pause=control(item.running?"Пауза":"Продолжить");controls.addView(pause,new LinearLayout.LayoutParams(0,dp(42),1));pause.setOnClickListener(v->linkCommand(item,item.running?DirectLinkDownloadService.PAUSE:DirectLinkDownloadService.START));
                 TextView details=control("Файлы");LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(42),1);p.leftMargin=dp(6);controls.addView(details,p);details.setOnClickListener(v->open(item));
             }else if(DownloadsRepository.EDGE.equals(item.type)){
-                TextView queueButton=control("Открыть очередь");controls.addView(queueButton,new LinearLayout.LayoutParams(0,dp(42),1));queueButton.setOnClickListener(v->queue(item));
+                if(item.fullJob!=null&&!item.ready){
+                    TextView pause=control(item.running?"Пауза":"Продолжить");
+                    controls.addView(pause,new LinearLayout.LayoutParams(0,dp(42),1));
+                    pause.setOnClickListener(v->fullCommand(item,item.running));
+                }else if(item.ready){
+                    TextView listen=control("Слушать офлайн");
+                    controls.addView(listen,new LinearLayout.LayoutParams(0,dp(42),1));
+                    listen.setOnClickListener(v->open(item));
+                }else{
+                    TextView prepare=control("Подготовить всю книгу");
+                    controls.addView(prepare,new LinearLayout.LayoutParams(0,dp(42),1));
+                    prepare.setOnClickListener(v->startActivity(new Intent(DownloadActivity.this,EdgeFullBookActivity.class)
+                        .putExtra("book_uri",item.bookUri).putExtra("book_title",item.title)));
+                }
+                TextView queueButton=control("Фрагменты");
+                LinearLayout.LayoutParams qlp=new LinearLayout.LayoutParams(0,dp(42),1);qlp.leftMargin=dp(6);
+                controls.addView(queueButton,qlp);queueButton.setOnClickListener(v->queue(item));
             }else if(!item.ready){
                 TextView pause=control(item.running?"Пауза":"Продолжить");controls.addView(pause,new LinearLayout.LayoutParams(0,dp(42),1));
                 pause.setOnClickListener(v->send(item,item.running?DownloadWorker.PAUSE:DownloadWorker.START));
