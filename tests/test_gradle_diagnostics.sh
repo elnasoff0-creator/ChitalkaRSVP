@@ -13,11 +13,14 @@ exit 1
 SH
 chmod +x "$T/gradle"
 set +e
-PATH="$T:$PATH" GRADLE_BUILD_LOG="$T/log.txt" GRADLE_DIAGNOSTICS="$T/diagnostics.txt" bash scripts/gradle-with-diagnostics.sh assembleRelease > "$T/stdout.txt" 2>&1
+PATH="$T:$PATH" GITHUB_STEP_SUMMARY="$T/isolated-summary.md" GRADLE_BUILD_LOG="$T/log.txt" GRADLE_DIAGNOSTICS="$T/diagnostics.txt" bash scripts/gradle-with-diagnostics.sh assembleRelease > "$T/stdout.txt" 2>&1
 STATUS=$?
 set -e
 test "$STATUS" -eq 1
 grep -q 'SyntheticFixture.java:53: error: cannot find symbol' "$T/log.txt"
 grep -q 'SyntheticFixture.java:53: error: cannot find symbol' "$T/diagnostics.txt"
 tail -n 12 "$T/stdout.txt" | grep -q 'Full original log:'
-echo 'Gradle failure diagnostics (intentional synthetic compile failure): PASS'
+# The deliberately failed dummy compile MUST NOT contaminate the GitHub job summary.
+test -f "$T/isolated-summary.md"
+grep -q 'SyntheticFixture.java:53' "$T/isolated-summary.md"
+echo 'Gradle failure diagnostics (isolated synthetic test): PASS' 
