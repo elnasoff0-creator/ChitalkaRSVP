@@ -136,9 +136,27 @@ public class SettingsActivity extends Activity {
             @Override public void onNothingSelected(android.widget.AdapterView<?> parent){}
         });
         gap(10);
+        addFullscreenSetting(current);
         if(current==NORMAL){drawNormalModeSettings();return;}
         if(current==CURSOR){drawCursorSettings();return;}
         drawSpeedReadingSettings();
+    }
+    void addFullscreenSetting(int selectedMode){
+        final String key=selectedMode==NORMAL?"reading_fullscreen_normal":
+            selectedMode==RSVP?"reading_fullscreen_rsvp":"reading_fullscreen_cursor";
+        header("Отображение");
+        android.widget.Switch toggle=new android.widget.Switch(this);
+        toggle.setText("Во весь экран");toggle.setTextColor(contrast(bg));toggle.setTextSize(16);
+        toggle.setChecked(prefs.getBoolean(key,false));
+        toggle.setPadding(dp(6),dp(8),dp(6),dp(8));
+        list.addView(toggle);
+        String explanation=selectedMode==NORMAL?
+            "При открытии книги интерфейс скрыт. Одно короткое касание текста показывает или скрывает панели. Прокрутка остаётся обычной и не меняет состояние интерфейса. При включённом выборе слова касание выделяет слово.":
+            "При нажатии Play скрываются панели управления, системные индикаторы и навигация. Остаётся только кнопка Pause поверх текста. После Pause весь интерфейс возвращается.";
+        TextView info=text(explanation,13,false);
+        info.setPadding(dp(4),0,dp(4),dp(12));list.addView(info);
+        toggle.setOnCheckedChangeListener((button,checked)->prefs.edit().putBoolean(key,checked).apply());
+        gap(6);
     }
     int modeIconFor(int mode){
         return mode==NORMAL?R.drawable.ic_book:mode==RSVP?R.drawable.ic_speed:R.drawable.ic_mode_cursor;

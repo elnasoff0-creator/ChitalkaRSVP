@@ -1,28 +1,28 @@
-# ChitalkaRSVP v1.11.44-beta
+# ChitalkaRSVP v1.11.45-beta
 
-This is the cleaned Android source project. Build signed **release** APK via the single GitHub Actions workflow:
+Clean Android source project, `versionCode 11052`. It has **one** GitHub Actions workflow for a signed release:
 `.github/workflows/release.yml`.
 
-## Required GitHub Actions repository secrets
+## Signed APK with GitHub Actions
 
-At **Settings > Secrets and variables > Actions**, define these four **Repository secrets**:
+Set these existing **Repository secrets** in GitHub: **Settings > Secrets and variables > Actions**:
 
-- `RELEASE_KEYSTORE_B64` — Base64 of the **existing** Android release keystore `.jks` (single-line string).
-- `RELEASE_KEYSTORE_PASSWORD` — password of that keystore.
-- `RELEASE_KEY_PASSWORD` — password of its signing key.
-- `RELEASE_KEY_ALIAS` — signing key alias.
+- `RELEASE_KEYSTORE_B64`: Base64 of the original signed-release Android keystore (single line)
+- `RELEASE_KEYSTORE_PASSWORD`: keystore password
+- `RELEASE_KEY_PASSWORD`: signing key password
+- `RELEASE_KEY_ALIAS`: signing key alias
 
-The workflow builds `:app:assembleRelease`, uses `zipalign` and `apksigner` with Android SDK Build Tools 35.0.0, verifies the APK signature, and uploads a signed APK plus checksum under **Actions > Artifacts**.
+The workflow installs Java 17 and Android SDK 35, builds `:app:assembleRelease`, signs the APK with `zipalign` and `apksigner`, verifies the signature and uploads the APK and checksum to **Actions > Artifacts**. It runs on a push to `main`, an explicit **Run workflow**, or a version tag. A tag such as `v1.11.45-beta` also creates a GitHub prerelease.
 
-It runs on push to `main` or **Run workflow**. A push of a version tag (`v1.11.44-beta`) also publishes a GitHub Release (marked pre-release for beta tags). Ordinary pushes to `main` do not publish GitHub Releases.
+**Use the same keystore** as previous releases to preserve upgrade compatibility. Never commit credentials, keystores or the `dist/` directory. No debug APK workflow, MRT sources, old tests or diagnostic scripts are included.
 
-**Keep the same keystore** if you intend to install updates over prior signed releases. Never commit `.jks`, passwords, Base64 keystore data, or files from the `dist/` directory to git.
+## Changes in v1.11.45-beta
 
-No debug APK workflow or archived test suites are included.
+- Removed the redundant `Читалка` heading from the reader toolbar; kept toolbar actions.
+- Settings > Reading now offers independent `Во весь экран` switches for **Обычный**, **Скорочтение**, and **Курсор**.
+- **Обычный**: opens directly in immersive full screen when enabled. A single short tap on the reading text shows or hides the toolbars. Swiping and scrolling never toggle them. While word-selection mode is active, tapping selects a word rather than toggling toolbars.
+- **Скорочтение**: when full screen is enabled, Play hides toolbar, progress, speed, other controls, text context and Android system bars, retaining just the centered RSVP word and one floating Pause button. Pause restores the original interface and paused text context with selected word.
+- **Курсор**: when full screen is enabled, Play keeps the text and active word visible, shows just one floating Pause button and hides other UI. Touch-to-select words continues to work. Pause restores the toolbar and controls.
+- The immersive layout changes `View` visibility and layout parameters rather than reparsing EPUB/FB2 or recreating the reader. Existing lazy word-indexed chunk loading and playback progress are preserved.
 
-## v1.11.44-beta reading and UI changes
-
-- RSVP text context remains visible while paused, is hidden during Play and uses the ordinary selected-word text color and scale (without background).
-- Two independent button colors: `button_color` for normal controls and `button_accent_color` for Play, selected mode and primary actions. Both support the default option and custom RGB.
-- Updated outlined pointing-hand Cursor icon and globe-with-refresh-arrows update icon.
-- Retains lazy paragraph chunks, per-word position, and existing Android/Edge TTS.
+Only Android device / CI can validate full UI and performance behavior. The source ZIP alone is not a compiled or signed APK.

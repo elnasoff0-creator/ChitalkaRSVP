@@ -20,7 +20,10 @@ public class ReaderActivity extends Activity {
     private static final int NORMAL=0,RSVP=1,CURSOR=2,NO_COLOR=0;
     private final Handler handler=new Handler(Looper.getMainLooper());
     private SharedPreferences prefs;
-    private LinearLayout root,speedPanel,controls;
+    private LinearLayout root,speedPanel,controls,toolbar,modeRow,readingFrame;
+    private FrameLayout sceneRoot,floatingPlayButton,rsvpPlayFrame;
+    private TextView bookTitle;
+    private ImageView floatingPlayIcon;
     private FrameLayout rsvpPane;
     private RecyclerView textList;
     private LinearLayoutManager layoutManager;
@@ -39,6 +42,12 @@ public class ReaderActivity extends Activity {
     private int pausePunctuationPercent=60,pauseLongPercent=50,pauseSentencePercent=120,pauseParagraphPercent=150;
     private boolean focusPoint=true,focusLinesEnabled=true,playing=false,selecting=false,selectedWordActive=false;
     private boolean userScrolling=false,restoringScroll=false;
+    private boolean fullscreenNormal=false,fullscreenRsvp=false,fullscreenCursor=false;
+    private boolean normalChromeVisible=false,immersiveActive=false;
+    private int originalSystemUiVisibility=0;
+    private float touchDownX,touchDownY;
+    private long touchDownTime;
+    private boolean touchMoved=false;
     private int swipeStartIndex=0,lastHighlightedChunk=-1;
     private float swipeStartY;
     private int scrollWordAccumulator=0;
@@ -57,6 +66,7 @@ public class ReaderActivity extends Activity {
     }};
 
     @Override public void onCreate(Bundle state){super.onCreate(state);
+        originalSystemUiVisibility=getWindow().getDecorView().getSystemUiVisibility();
         prefs=getSharedPreferences("reader",MODE_PRIVATE);readPreferences();
         docUri=getIntent().getStringExtra("book_uri");
         if(docUri==null||docUri.isEmpty())docUri=prefs.getString("uri","");
@@ -85,6 +95,9 @@ public class ReaderActivity extends Activity {
         normalSelectText=prefs.getInt("normal_select_text",0xff915439);
         normalSelectScale=Math.max(100,Math.min(180,prefs.getInt("normal_select_scale",110)));
         buttonColor=prefs.getInt("button_color",NO_COLOR);accentButtonColor=prefs.getInt("button_accent_color",NO_COLOR);
+        fullscreenNormal=prefs.getBoolean("reading_fullscreen_normal",false);
+        fullscreenRsvp=prefs.getBoolean("reading_fullscreen_rsvp",false);
+        fullscreenCursor=prefs.getBoolean("reading_fullscreen_cursor",false);
         pausePunctuationPercent=Math.max(0,Math.min(300,prefs.getInt("pausePunctuationPercent",60)));
         pauseLongPercent=Math.max(0,Math.min(300,prefs.getInt("pauseLongPercent",50)));
         pauseSentencePercent=Math.max(0,Math.min(400,prefs.getInt("pauseSentencePercent",120)));
@@ -108,46 +121,50 @@ public class ReaderActivity extends Activity {
     private int modeDrawable(){return mode==NORMAL?R.drawable.ic_book:mode==RSVP?R.drawable.ic_speed:R.drawable.ic_mode_cursor;}
 
     private void draw(){
-        stop();root=column();root.setPadding(dp(10),dp(20),dp(10),dp(7));root.setBackgroundColor(bg);setContentView(root);
-        LinearLayout toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);add(root,toolbar);
+        stop();
+        sceneRoot=new FrameLayout(this);
+        root=column();root.setPadding(dp(10),dp(20),dp(10),dp(7));root.setBackgroundColor(bg);
+        sceneRoot.addView(root,new FrameLayout.LayoutParams(-1,-1));
+        setContentView(sceneRoot);
+        toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);add(root,toolbar);
         toolbar.addView(icon(R.drawable.ic_back,v->BackNavigation.back(this)),new LinearLayout.LayoutParams(dp(52),dp(53)));
-        TextView heading=text("Читалка",23);heading.setTypeface(Typeface.SERIF,Typeface.BOLD);heading.setSingleLine();
-        toolbar.addView(heading,new LinearLayout.LayoutParams(0,-2,1));
+        toolbar.addView(new View(this),new LinearLayout.LayoutParams(0,dp(1),1));
         toolbar.addView(icon(R.drawable.ic_bookmark,v->bookmark()),new LinearLayout.LayoutParams(dp(53),dp(53)));
         toolbar.addView(icon(R.drawable.ic_settings,v->settings()),new LinearLayout.LayoutParams(dp(53),dp(53)));
         toolbar.addView(icon(R.drawable.ic_microphone,v->audioMenu()),new LinearLayout.LayoutParams(dp(53),dp(53)));
-        if(words.length==0){
+        if(words.length==0){applySystemBars(false);
             TextView intro=text("EPUB · FB2 · HTML\n\nОткройте книгу, чтобы начать чтение.",20);
             intro.setPadding(dp(24),dp(24),dp(24),dp(24));add(root,intro);
             Button pick=new Button(this);pick.setText("Открыть книгу");pick.setOnClickListener(v->pick());add(root,pick);return;
         }
-        TextView bookTitle=text(title,19);bookTitle.setTypeface(Typeface.SERIF,Typeface.BOLD);
+        bookTitle=text(title,19);bookTitle.setTypeface(Typeface.SERIF,Typeface.BOLD);
         bookTitle.setSingleLine(true);bookTitle.setEllipsize(TextUtils.TruncateAt.END);
         bookTitle.setPadding(dp(12),dp(12),dp(12),dp(12));add(root,bookTitle);
-        LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);add(root,top);
+        modeRow=new LinearLayout(this);modeRow.setGravity(Gravity.CENTER_VERTICAL);add(root,modeRow);
         progressView=text("",13);progressView.setGravity(Gravity.CENTER_VERTICAL);
-        top.addView(progressView,new LinearLayout.LayoutParams(0,dp(49),1));
+        modeRow.addView(progressView,new LinearLayout.LayoutParams(0,dp(49),1));
         selectWordButton=new ImageView(this);selectWordButton.setImageResource(R.drawable.ic_select_word);
         selectWordButton.setPadding(dp(10),dp(10),dp(10),dp(10));selectWordButton.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         selectWordButton.setContentDescription("Выбрать стартовое слово");
-        selectWordButton.setOnClickListener(v->{selecting=!selecting;updateSelectWordButton();refreshHighlight(index);
+        selectWordButton.setOnClickListener(v->{selecting=!selecting;if(selecting)normalChromeVisible=true;
+            updateSelectWordButton();refreshHighlight(index);applyFullscreenUi();
             Toast.makeText(this,selecting?"Выбор слова включён":"Выбор слова выключен",Toast.LENGTH_SHORT).show();});
-        top.addView(selectWordButton,new LinearLayout.LayoutParams(dp(47),dp(47)));
+        modeRow.addView(selectWordButton,new LinearLayout.LayoutParams(dp(47),dp(47)));
         modeIcon=new ImageView(this);modeIcon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         modeIcon.setPadding(dp(10),dp(10),dp(10),dp(10));
         modeIcon.setBackground(shape(buttonBg(),14));modeIcon.setOnClickListener(v->modeDialog());
-        LinearLayout.LayoutParams iconLp=new LinearLayout.LayoutParams(dp(47),dp(47));iconLp.leftMargin=dp(5);top.addView(modeIcon,iconLp);
+        LinearLayout.LayoutParams iconLp=new LinearLayout.LayoutParams(dp(47),dp(47));iconLp.leftMargin=dp(5);modeRow.addView(modeIcon,iconLp);
         modeButton=text("",14);modeButton.setGravity(Gravity.CENTER);modeButton.setPadding(dp(12),0,dp(12),0);
         modeButton.setOnClickListener(v->modeDialog());
-        LinearLayout.LayoutParams modeLp=new LinearLayout.LayoutParams(-2,dp(47));modeLp.leftMargin=dp(5);top.addView(modeButton,modeLp);
+        LinearLayout.LayoutParams modeLp=new LinearLayout.LayoutParams(-2,dp(47));modeLp.leftMargin=dp(5);modeRow.addView(modeButton,modeLp);
 
-        LinearLayout frame=column();frame.setBackground(shape(panelColor(),23));frame.setPadding(dp(9),dp(10),dp(9),dp(10));
-        LinearLayout.LayoutParams frameLp=new LinearLayout.LayoutParams(-1,0,1);frameLp.setMargins(0,dp(7),0,dp(8));root.addView(frame,frameLp);
+        readingFrame=column();readingFrame.setBackground(shape(panelColor(),23));readingFrame.setPadding(dp(9),dp(10),dp(9),dp(10));
+        LinearLayout.LayoutParams frameLp=new LinearLayout.LayoutParams(-1,0,1);frameLp.setMargins(0,dp(7),0,dp(8));root.addView(readingFrame,frameLp);
         rsvpPane=new FrameLayout(this);wordView=text("",size);wordView.setGravity(Gravity.CENTER);
         rsvpPane.addView(wordView,new FrameLayout.LayoutParams(-1,-1));
         focusLines=new FocusLinesView(this);focusLines.setClickable(false);
         rsvpPane.addView(focusLines,new FrameLayout.LayoutParams(-1,-1));
-        LinearLayout.LayoutParams rsvpLp=new LinearLayout.LayoutParams(-1,dp(192));rsvpLp.bottomMargin=dp(8);frame.addView(rsvpPane,rsvpLp);
+        LinearLayout.LayoutParams rsvpLp=new LinearLayout.LayoutParams(-1,dp(192));rsvpLp.bottomMargin=dp(8);readingFrame.addView(rsvpPane,rsvpLp);
         wordView.setOnTouchListener((v,e)->{
             if(mode!=RSVP)return false;
             if(e.getAction()==MotionEvent.ACTION_DOWN){stop();swipeStartY=e.getY();swipeStartIndex=index;return true;}
@@ -161,7 +178,7 @@ public class ReaderActivity extends Activity {
         textList.setItemAnimator(null);textList.setHasFixedSize(false);
         textList.setBackgroundColor(Color.TRANSPARENT);
         chunkAdapter=new ChunkAdapter();textList.setAdapter(chunkAdapter);
-        frame.addView(textList,new LinearLayout.LayoutParams(-1,0,1));
+        readingFrame.addView(textList,new LinearLayout.LayoutParams(-1,0,1));
         textList.addOnScrollListener(new RecyclerView.OnScrollListener(){
             @Override public void onScrollStateChanged(RecyclerView rv,int state){
                 if(state==RecyclerView.SCROLL_STATE_DRAGGING){
@@ -181,13 +198,21 @@ public class ReaderActivity extends Activity {
             }
         });
         controls=new LinearLayout(this);controls.setGravity(Gravity.CENTER);controls.setBackground(shape(panelColor(),22));add(root,controls);
-        FrameLayout playFrame=new FrameLayout(this);playFrame.setBackground(shape(accent(),20));
+        rsvpPlayFrame=new FrameLayout(this);rsvpPlayFrame.setBackground(shape(accent(),20));
         playIcon=new ImageView(this);playIcon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);playIcon.setColorFilter(contrast(accent()));
-        playFrame.addView(playIcon,new FrameLayout.LayoutParams(dp(30),dp(30),Gravity.CENTER));
-        playFrame.setOnClickListener(v->{if(playing)stop();else{playing=true;handler.removeCallbacks(ticker);
-            if(mode==RSVP)setRsvpContextVisible(false);
-            handler.postDelayed(ticker,delayForPortion(index,Math.min(portion,words.length-index)));}updatePlayButton();});
-        controls.addView(playFrame,new LinearLayout.LayoutParams(dp(72),dp(72)));
+        rsvpPlayFrame.addView(playIcon,new FrameLayout.LayoutParams(dp(30),dp(30),Gravity.CENTER));
+        rsvpPlayFrame.setOnClickListener(v->togglePlayback());
+        controls.addView(rsvpPlayFrame,new LinearLayout.LayoutParams(dp(72),dp(72)));
+
+        // A separate overlay keeps only Pause visible in immersive playback.
+        floatingPlayButton=new FrameLayout(this);floatingPlayButton.setBackground(shape(accent(),20));
+        floatingPlayIcon=new ImageView(this);floatingPlayIcon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        floatingPlayIcon.setColorFilter(contrast(accent()));
+        floatingPlayButton.addView(floatingPlayIcon,new FrameLayout.LayoutParams(dp(29),dp(29),Gravity.CENTER));
+        floatingPlayButton.setOnClickListener(v->togglePlayback());
+        FrameLayout.LayoutParams floatLp=new FrameLayout.LayoutParams(dp(68),dp(68),Gravity.RIGHT|Gravity.BOTTOM);
+        floatLp.setMargins(dp(12),dp(12),dp(20),dp(24));
+        sceneRoot.addView(floatingPlayButton,floatLp);floatingPlayButton.setVisibility(View.GONE);
         speedPanel=column();speedPanel.setBackground(shape(panelColor(),18));speedPanel.setPadding(dp(8),dp(8),dp(8),dp(8));add(root,speedPanel);
         LinearLayout speedRow=new LinearLayout(this);speedRow.setGravity(Gravity.CENTER_VERTICAL);add(speedPanel,speedRow);
         ImageView gauge=new ImageView(this);gauge.setImageResource(R.drawable.ic_speed);gauge.setColorFilter(fg);
@@ -246,17 +271,34 @@ public class ReaderActivity extends Activity {
             // the parent RecyclerView can still intercept a scrolling drag.
             item.setClickable(true);
             item.setOnTouchListener((view,event)->{
-                boolean allowTap=(mode==CURSOR)||(mode==NORMAL&&selecting);
-                if(!allowTap)return false;
-                if(event.getAction()==MotionEvent.ACTION_DOWN)return true;
-                if(event.getAction()!=MotionEvent.ACTION_UP)return false;
+                boolean selectingWord=(mode==CURSOR)||(mode==NORMAL&&selecting);
+                boolean togglingChrome=(mode==NORMAL&&fullscreenNormal&&!selecting);
+                if(!selectingWord&&!togglingChrome)return false;
+                int eventType=event.getActionMasked();
+                if(eventType==MotionEvent.ACTION_DOWN){
+                    touchDownX=event.getX();touchDownY=event.getY();
+                    touchDownTime=event.getEventTime();touchMoved=false;return true;
+                }
+                int slop=ViewConfiguration.get(this).getScaledTouchSlop();
+                if(eventType==MotionEvent.ACTION_MOVE){
+                    if(Math.abs(event.getX()-touchDownX)>slop||Math.abs(event.getY()-touchDownY)>slop)touchMoved=true;
+                    return true;
+                }
+                if(eventType==MotionEvent.ACTION_CANCEL){touchMoved=true;return true;}
+                if(eventType!=MotionEvent.ACTION_UP)return true;
+                if(touchMoved||Math.abs(event.getX()-touchDownX)>slop||Math.abs(event.getY()-touchDownY)>slop
+                    ||event.getEventTime()-touchDownTime>ViewConfiguration.getLongPressTimeout()
+                    ||textList.getScrollState()!=RecyclerView.SCROLL_STATE_IDLE)return true;
+                if(togglingChrome){
+                    normalChromeVisible=!normalChromeVisible;applyFullscreenUi();return true;
+                }
                 int row=holder.getBindingAdapterPosition();if(row==RecyclerView.NO_POSITION)return true;
                 android.text.Layout l=item.getLayout();if(l==null)return true;
                 int y=(int)event.getY()-item.getTotalPaddingTop();
                 int line=l.getLineForVertical(Math.max(0,y));
                 int offset=l.getOffsetForHorizontal(line,Math.max(0,event.getX()-item.getTotalPaddingLeft()));
                 int old=index;index=map.atCharacter(chunks.get(row).startChar+offset);
-                selectedWordActive=true;refreshHighlight(old);if(mode==RSVP)updateWord();updateProgress();saveLight(true);
+                selectedWordActive=true;refreshHighlight(old);updateProgress();saveLight(true);
                 return true;
             });
             return holder;
@@ -293,7 +335,59 @@ public class ReaderActivity extends Activity {
         if(speedPanel!=null)speedPanel.setVisibility(mode==NORMAL?View.GONE:View.VISIBLE);
         if(textList!=null)textList.setVisibility(mode==RSVP&&playing?View.GONE:View.VISIBLE);
         if(mode==RSVP)updateWord();
-        refreshHighlight(index);updateProgress();
+        refreshHighlight(index);updateProgress();applyFullscreenUi();
+    }
+    /** Immersive mode is a view-state change: do not rebuild the book or text index. */
+    private void applyFullscreenUi(){
+        if(root==null||words.length==0||readingFrame==null)return;
+        boolean readingFullscreen=mode==NORMAL&&fullscreenNormal&&!normalChromeVisible&&!selecting;
+        boolean playbackFullscreen=playing&&((mode==RSVP&&fullscreenRsvp)||(mode==CURSOR&&fullscreenCursor));
+        boolean immersive=readingFullscreen||playbackFullscreen;
+
+        if(toolbar!=null)toolbar.setVisibility(immersive?View.GONE:View.VISIBLE);
+        if(bookTitle!=null)bookTitle.setVisibility(immersive?View.GONE:View.VISIBLE);
+        if(modeRow!=null)modeRow.setVisibility(immersive?View.GONE:View.VISIBLE);
+        if(speedPanel!=null)speedPanel.setVisibility(immersive?View.GONE:(mode==NORMAL?View.GONE:View.VISIBLE));
+        if(controls!=null)controls.setVisibility(immersive?View.GONE:(mode==NORMAL?View.GONE:View.VISIBLE));
+        if(floatingPlayButton!=null)floatingPlayButton.setVisibility(playbackFullscreen?View.VISIBLE:View.GONE);
+        root.setPadding(immersive?0:dp(10),immersive?0:dp(20),immersive?0:dp(10),immersive?0:dp(7));
+        readingFrame.setPadding(immersive?0:dp(9),immersive?0:dp(10),immersive?0:dp(9),immersive?0:dp(10));
+        readingFrame.setBackground(immersive?shape(bg,0):shape(panelColor(),23));
+        LinearLayout.LayoutParams frameLp=(LinearLayout.LayoutParams)readingFrame.getLayoutParams();
+        if(frameLp!=null){
+            int gap=immersive?0:dp(7);
+            int bottom=immersive?0:dp(8);
+            if(frameLp.topMargin!=gap||frameLp.bottomMargin!=bottom){
+                frameLp.setMargins(0,gap,0,bottom);readingFrame.setLayoutParams(frameLp);
+            }
+        }
+        if(rsvpPane!=null){
+            LinearLayout.LayoutParams paneLp=(LinearLayout.LayoutParams)rsvpPane.getLayoutParams();
+            if(paneLp!=null){
+                boolean expanded=mode==RSVP&&playbackFullscreen;
+                int height=expanded?0:dp(192);
+                float weight=expanded?1f:0f;
+                if(paneLp.height!=height||paneLp.weight!=weight){
+                    paneLp.height=height;paneLp.weight=weight;paneLp.bottomMargin=expanded?0:dp(8);
+                    rsvpPane.setLayoutParams(paneLp);
+                }
+            }
+        }
+        if(mode==RSVP&&playing&&textList!=null)textList.setVisibility(View.GONE);
+        applySystemBars(immersive);
+    }
+    private void applySystemBars(boolean immersive){
+        immersiveActive=immersive;
+        View decor=getWindow().getDecorView();
+        int flags=immersive?
+            (originalSystemUiVisibility|View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_LAYOUT_STABLE|
+            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION):originalSystemUiVisibility;
+        if(decor.getSystemUiVisibility()!=flags)decor.setSystemUiVisibility(flags);
+    }
+    @Override public void onWindowFocusChanged(boolean hasFocus){
+        super.onWindowFocusChanged(hasFocus);
+        if(hasFocus&&immersiveActive)applySystemBars(true);
     }
     private void setRsvpContextVisible(boolean visible){
         if(textList==null||mode!=RSVP)return;
@@ -326,8 +420,22 @@ public class ReaderActivity extends Activity {
         selectWordButton.setAlpha(selecting?1f:.9f);
     }
     private void updateProgress(){if(progressView!=null&&words.length>0)progressView.setText((index+1)+" / "+words.length+" слов · "+((index+1)*100/words.length)+"%");}
-    private void updatePlayButton(){if(playIcon!=null)playIcon.setImageResource(playing?R.drawable.ic_pause:R.drawable.ic_play);}
-    private void stop(){playing=false;handler.removeCallbacks(ticker);updatePlayButton();setRsvpContextVisible(true);}
+    private void updatePlayButton(){
+        if(playIcon!=null)playIcon.setImageResource(playing?R.drawable.ic_pause:R.drawable.ic_play);
+        if(floatingPlayIcon!=null)floatingPlayIcon.setImageResource(playing?R.drawable.ic_pause:R.drawable.ic_play);
+    }
+    private void togglePlayback(){
+        if(playing){stop();saveLight(true);return;}
+        if(words.length==0)return;
+        playing=true;handler.removeCallbacks(ticker);
+        if(mode==RSVP)setRsvpContextVisible(false);
+        handler.postDelayed(ticker,delayForPortion(index,Math.min(portion,words.length-index)));
+        updatePlayButton();applyFullscreenUi();
+    }
+    private void stop(){
+        playing=false;handler.removeCallbacks(ticker);updatePlayButton();setRsvpContextVisible(true);
+        applyFullscreenUi();
+    }
     private void changeSpeed(int delta){wpm=Math.max(100,Math.min(1000,wpm+delta));if(speedView!=null)speedView.setText(wpm+" слов/мин");saveLight(true);
         if(playing){handler.removeCallbacks(ticker);handler.postDelayed(ticker,delayForPortion(index,Math.min(portion,words.length-index)));}}
     private boolean paragraphAfter(int word){return word<words.length-1&&body.substring(map.ends[word],map.starts[word+1]).contains("\n\n");}
@@ -401,7 +509,8 @@ public class ReaderActivity extends Activity {
             .setNegativeButton("Отмена",null).show();
     }
     private void setMode(int next){if(next<0||next>2||next==mode)return;
-        stop();int old=index;mode=next;selecting=false;updateModeUI();refreshHighlight(old);ensureWordVisible(true);saveLight(true);
+        stop();int old=index;mode=next;selecting=false;normalChromeVisible=false;
+        updateModeUI();refreshHighlight(old);ensureWordVisible(true);saveLight(true);
     }
     private void saveLight(boolean force){
         if(prefs==null)return;
@@ -512,14 +621,19 @@ public class ReaderActivity extends Activity {
         int oldNormalText=normalSelectText,oldNormalScale=normalSelectScale,oldButton=buttonColor,oldAccent=accentButtonColor;
         int oldFocus=focusColor,oldLineColor=lineColor,oldLinePos=linePosition;
         boolean oldPoint=focusPoint,oldLines=focusLinesEnabled;
+        boolean oldFullNormal=fullscreenNormal,oldFullRsvp=fullscreenRsvp,oldFullCursor=fullscreenCursor;
         readPreferences();
         if(root!=null&&words.length>0&&(oldBg!=bg||oldFg!=fg||oldSize!=size||oldFont!=font||oldMode!=mode||oldPortion!=portion
             ||oldCursorBg!=cursorBackground||oldCursorText!=cursorText||oldCursorScale!=cursorScale||oldNormalText!=normalSelectText
             ||oldNormalScale!=normalSelectScale||oldButton!=buttonColor||oldAccent!=accentButtonColor||oldFocus!=focusColor||oldLineColor!=lineColor
             ||oldLinePos!=linePosition||oldPoint!=focusPoint||oldLines!=focusLinesEnabled))draw();
+        else if(oldFullNormal!=fullscreenNormal||oldFullRsvp!=fullscreenRsvp||oldFullCursor!=fullscreenCursor){
+            if(mode==NORMAL&&fullscreenNormal&&!oldFullNormal)normalChromeVisible=false;
+            applyFullscreenUi();
+        }
     }}
     @Override protected void onPause(){save();stop();super.onPause();}
-    @Override protected void onDestroy(){stop();super.onDestroy();}
+    @Override protected void onDestroy(){stop();applySystemBars(false);super.onDestroy();}
     @Override public void onBackPressed(){BackNavigation.back(this);}
     private class FocusLinesView extends View {
         final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
