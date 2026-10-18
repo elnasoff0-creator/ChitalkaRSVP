@@ -15,12 +15,14 @@ import java.util.*;
 /** Ordinary, RSVP and inline Cursor reading share the same word-indexed progress. */
 public class ReaderActivity extends Activity {
     private static final int NORMAL=0, RSVP=1, CURSOR=2;
+    private static final int NO_COLOR=0x00000000;
+
     SharedPreferences prefs;
     LinearLayout root,readingFrame,controls,speedPanel;
     FrameLayout rsvpPane;
     ScrollView normalScroll;
-    TextView normalText,wordView,progressView,speedView,modeButton,selectWordButton;
-    ImageView playIcon;
+    TextView normalText,wordView,progressView,speedView,modeButton;
+    ImageView playIcon,selectWordButton;
     FocusLinesView focusLines;
     Spannable normalContent;
     final ArrayList<Object> cursorSpans=new ArrayList<>();
@@ -30,9 +32,10 @@ public class ReaderActivity extends Activity {
     String[] words=new String[0];
     int index=0,wpm=350,portion=1,size=36,bg=0xfff3e7d5,fg=0xff30221e,font=1;
     int mode=RSVP,normalY=0,focusColor=0xffed3030,lineColor=0xff915439,linePosition=50;
-    int cursorBackground=0xff96583f,cursorText=0xffffffff;
+    int cursorBackground=0xff96583f,cursorText=NO_COLOR,cursorScale=100;
+    int normalSelectText=0xff915439,normalSelectScale=110,buttonColor=NO_COLOR;
+    int pausePunctuationPercent=60,pauseLongPercent=50,pauseSentencePercent=120,pauseParagraphPercent=150;
     boolean focusPoint=true,focusLinesEnabled=true,playing=false,selecting=false,selectedWordActive=false,restoringScroll=false;
-    boolean pausePunctuation=true,pauseLong=true,pauseSentence=true;
     float swipeStartY=0;int swipeStartIndex=0;
     final String[] fontNames={"Без засечек","С засечками","Моноширинный"};
 
@@ -64,27 +67,40 @@ public class ReaderActivity extends Activity {
         wpm=prefs.getInt("wpm",350);portion=ReadingWordMap.portion(prefs.getInt("rsvp_portion",1));
         size=prefs.getInt("size",36);bg=prefs.getInt("bg",0xfff3e7d5);fg=prefs.getInt("fg",0xff30221e);font=prefs.getInt("font",1);
         mode=prefs.getInt("reading_mode",prefs.getBoolean("rsvp",true)?RSVP:NORMAL);mode=Math.max(NORMAL,Math.min(CURSOR,mode));
-        pausePunctuation=prefs.getBoolean("pausePunctuation",true);pauseLong=prefs.getBoolean("pauseLong",true);pauseSentence=prefs.getBoolean("pauseSentence",true);
         focusPoint=prefs.getBoolean("rsvp_focus_point",true);focusLinesEnabled=prefs.getBoolean("rsvp_focus_lines",true);
         focusColor=prefs.getInt("rsvp_focus_color",0xffed3030);lineColor=prefs.getInt("rsvp_line_color",0xff915439);
         linePosition=Math.max(0,Math.min(100,prefs.getInt("rsvp_line_position",50)));
-        cursorBackground=prefs.getInt("cursor_background",0xff96583f);cursorText=prefs.getInt("cursor_text",0xffffffff);
+        cursorBackground=prefs.getInt("cursor_background",0xff96583f);
+        cursorText=prefs.getInt("cursor_text",NO_COLOR);
+        cursorScale=Math.max(100,Math.min(180,prefs.getInt("cursor_scale",100)));
+        normalSelectText=prefs.getInt("normal_select_text",0xff915439);
+        normalSelectScale=Math.max(100,Math.min(180,prefs.getInt("normal_select_scale",110)));
+        buttonColor=prefs.getInt("button_color",NO_COLOR);
+        pausePunctuationPercent=Math.max(0,Math.min(300,prefs.getInt("pausePunctuationPercent",60)));
+        pauseLongPercent=Math.max(0,Math.min(300,prefs.getInt("pauseLongPercent",50)));
+        pauseSentencePercent=Math.max(0,Math.min(400,prefs.getInt("pauseSentencePercent",120)));
+        pauseParagraphPercent=Math.max(0,Math.min(400,prefs.getInt("pauseParagraphPercent",150)));
     }
-    int dp(int n){return (int)(getResources().getDisplayMetrics().density*n+.5f);}
+    int dp(int n){return (int)(getResources().getDisplayMetrics().density*n+.5f);}    
     Typeface type(){return font==1?Typeface.SERIF:font==2?Typeface.MONOSPACE:Typeface.SANS_SERIF;}
     int panelColor(){return bg==0xff1e2025?0xff303238:0xfffff9f0;}
+    int resolvedButtonColor(){return buttonColor==NO_COLOR?panelColor():buttonColor;}
+    int contrastColor(int color){double v=(Color.red(color)*0.299+Color.green(color)*0.587+Color.blue(color)*0.114);return v<140?Color.WHITE:0xff30221e;}
+    int accentColor(){return buttonColor==NO_COLOR?0xff915439:buttonColor;}
+    int alpha(int color,int a){return (color&0x00ffffff)|((a&0xff)<<24);}    
     GradientDrawable shape(int color,int radius){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(radius));return d;}
     TextView text(String s,int sp){TextView v=new TextView(this);v.setText(s);v.setTextSize(sp);v.setTextColor(fg);return v;}
     LinearLayout column(){LinearLayout v=new LinearLayout(this);v.setOrientation(1);return v;}
     void add(LinearLayout to,View child){to.addView(child,new LinearLayout.LayoutParams(-1,-2));}
     Button button(String label,View.OnClickListener click){Button v=new Button(this);v.setAllCaps(false);v.setText(label);v.setOnClickListener(click);return v;}
-    ImageButton topIcon(int resource,View.OnClickListener click){ImageButton b=new ImageButton(this);b.setImageResource(resource);b.setScaleType(ImageView.ScaleType.CENTER_INSIDE);b.setPadding(dp(13),dp(13),dp(13),dp(13));b.setColorFilter(fg);b.setBackground(shape(panelColor(),16));b.setOnClickListener(click);return b;}
+    ImageButton topIcon(int resource,View.OnClickListener click){ImageButton b=new ImageButton(this);b.setImageResource(resource);b.setScaleType(ImageView.ScaleType.CENTER_INSIDE);b.setPadding(dp(13),dp(13),dp(13),dp(13));b.setColorFilter(contrastColor(resolvedButtonColor()));b.setBackground(shape(resolvedButtonColor(),16));b.setOnClickListener(click);return b;}
     void stop(){playing=false;handler.removeCallbacks(ticker);updatePlayButton();}
     void save(){
         if(prefs==null)return;
         prefs.edit().putInt("wpm",wpm).putInt("rsvp_portion",portion).putInt("size",size).putInt("bg",bg).putInt("fg",fg).putInt("font",font)
             .putInt("reading_mode",mode).putBoolean("rsvp",mode==RSVP).putString("uri",docUri)
-            .putBoolean("pausePunctuation",pausePunctuation).putBoolean("pauseLong",pauseLong).putBoolean("pauseSentence",pauseSentence)
+            .putInt("pausePunctuationPercent",pausePunctuationPercent).putInt("pauseLongPercent",pauseLongPercent)
+            .putInt("pauseSentencePercent",pauseSentencePercent).putInt("pauseParagraphPercent",pauseParagraphPercent)
             .putInt("index",index).putInt("scroll",normalY).apply();
         if(docUri.isEmpty()||words.length==0)return;
         try{org.json.JSONArray library=new org.json.JSONArray(prefs.getString("library","[]"));
@@ -96,7 +112,7 @@ public class ReaderActivity extends Activity {
             out.put(book);prefs.edit().putString("library",out.toString()).apply();
         }catch(Exception ignored){}
     }
-    void setup(){root=column();root.setBackgroundColor(bg);root.setPadding(dp(10),dp(20),dp(10),dp(7));setContentView(root);}
+    void setup(){root=column();root.setBackgroundColor(bg);root.setPadding(dp(10),dp(20),dp(10),dp(7));setContentView(root);}    
     void audioMenu(){if(docUri.isEmpty()){Toast.makeText(this,"Сначала откройте книгу",Toast.LENGTH_SHORT).show();return;}
         new AlertDialog.Builder(this).setTitle("Способ озвучивания")
         .setItems(new String[]{"Системный Android TTS","Edge TTS · онлайн"},(d,which)->{
@@ -120,21 +136,23 @@ public class ReaderActivity extends Activity {
         bookTitle.setPadding(dp(12),dp(12),dp(12),dp(12));add(root,bookTitle);
         LinearLayout modeRow=new LinearLayout(this);modeRow.setGravity(Gravity.CENTER_VERTICAL);add(root,modeRow);
         progressView=text("",13);progressView.setGravity(Gravity.CENTER_VERTICAL);modeRow.addView(progressView,new LinearLayout.LayoutParams(0,dp(49),1));
-        selectWordButton=text("",13);selectWordButton.setGravity(Gravity.CENTER);selectWordButton.setBackground(shape(panelColor(),14));
-        android.graphics.drawable.Drawable pointer=getDrawable(R.drawable.ic_select_word);
-        if(pointer!=null){pointer=pointer.mutate();pointer.setTint(fg);pointer.setBounds(0,0,dp(22),dp(22));selectWordButton.setCompoundDrawables(null,pointer,null,null);}
-        selectWordButton.setContentDescription("Выбрать стартовое слово для скорочтения");
-        selectWordButton.setOnClickListener(v->{selecting=!selecting;showMode();Toast.makeText(this,selecting?"Коснитесь нужного слова в тексте":"Выбор стартового слова выключен",Toast.LENGTH_SHORT).show();});
+
+        selectWordButton=new ImageView(this);selectWordButton.setPadding(dp(10),dp(10),dp(10),dp(10));selectWordButton.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        selectWordButton.setImageResource(R.drawable.ic_select_word);selectWordButton.setContentDescription("Выбрать стартовое слово для скорочтения");
+        selectWordButton.setOnClickListener(v->{selecting=!selecting;selectedWordActive=selectedWordActive||selecting;showMode();Toast.makeText(this,selecting?"Режим выбора слова включён":"Режим выбора слова выключен",Toast.LENGTH_SHORT).show();});
         modeRow.addView(selectWordButton,new LinearLayout.LayoutParams(dp(47),dp(47)));
-        modeButton=text("",14);modeButton.setTextColor(Color.WHITE);modeButton.setGravity(Gravity.CENTER);modeButton.setBackground(shape(0xff915439,17));
-        modeButton.setOnClickListener(v->modeDialog());LinearLayout.LayoutParams modeLp=new LinearLayout.LayoutParams(dp(143),dp(48));modeLp.leftMargin=dp(5);modeRow.addView(modeButton,modeLp);
+
+        modeButton=text("",14);modeButton.setTextColor(contrastColor(accentColor()));modeButton.setGravity(Gravity.CENTER);modeButton.setBackground(shape(accentColor(),14));
+        modeButton.setPadding(dp(14),0,dp(14),0);modeButton.setOnClickListener(v->modeDialog());
+        LinearLayout.LayoutParams modeLp=new LinearLayout.LayoutParams(-2,dp(47));modeLp.leftMargin=dp(8);modeRow.addView(modeButton,modeLp);
 
         readingFrame=column();readingFrame.setBackground(shape(panelColor(),23));readingFrame.setPadding(dp(9),dp(12),dp(9),dp(12));
         LinearLayout.LayoutParams frameLp=new LinearLayout.LayoutParams(-1,0,1);frameLp.setMargins(0,dp(7),0,dp(8));root.addView(readingFrame,frameLp);
+
         rsvpPane=new FrameLayout(this);wordView=text("",size);wordView.setGravity(Gravity.CENTER);wordView.setTypeface(type(),Typeface.BOLD);
         rsvpPane.addView(wordView,new FrameLayout.LayoutParams(-1,-1));
         focusLines=new FocusLinesView(this);focusLines.setClickable(false);rsvpPane.addView(focusLines,new FrameLayout.LayoutParams(-1,-1));
-        readingFrame.addView(rsvpPane,new LinearLayout.LayoutParams(-1,-1));
+        LinearLayout.LayoutParams rsvpLp=new LinearLayout.LayoutParams(-1,dp(210));rsvpLp.bottomMargin=dp(8);readingFrame.addView(rsvpPane,rsvpLp);
         wordView.setOnTouchListener((v,e)->{
             if(mode!=RSVP||words.length==0)return false;
             if(e.getAction()==MotionEvent.ACTION_DOWN){stop();swipeStartY=e.getY();swipeStartIndex=index;return true;}
@@ -146,7 +164,7 @@ public class ReaderActivity extends Activity {
         normalText=text(body,Math.max(12,(int)(size*.60f)));normalText.setTypeface(type());normalText.setLineSpacing(dp(Math.max(8,size/3)),1.12f);
         normalText.setPadding(dp(14),dp(14),dp(14),dp(14));
         normalText.setText(body,TextView.BufferType.SPANNABLE);normalContent=(Spannable)normalText.getText();
-        normalScroll.addView(normalText);readingFrame.addView(normalScroll,new LinearLayout.LayoutParams(-1,-1));
+        normalScroll.addView(normalText);readingFrame.addView(normalScroll,new LinearLayout.LayoutParams(-1,0,1));
         normalText.setOnTouchListener((v,e)->{
             if(mode!=NORMAL||!selecting||e.getAction()!=MotionEvent.ACTION_UP)return selecting;
             android.text.Layout layout=normalText.getLayout();if(layout==null)return true;
@@ -154,18 +172,19 @@ public class ReaderActivity extends Activity {
             int line=layout.getLineForVertical(Math.max(0,y));
             float x=e.getX()-normalText.getTotalPaddingLeft();
             int offset=layout.getOffsetForHorizontal(line,Math.max(0,x));
-            index=map.atCharacter(offset);selecting=false;selectedWordActive=true;showMode();alignToWord(false);save();
+            index=map.atCharacter(offset);selectedWordActive=true;showMode();alignToWord(false);save();
             Toast.makeText(this,"Начало скорочтения: "+words[index],Toast.LENGTH_SHORT).show();return true;
         });
         normalScroll.setOnScrollChangeListener((View.OnScrollChangeListener)(v,x,y,oldX,oldY)->{
-            if(restoringScroll||mode!=NORMAL||y==oldY||words.length==0)return;
+            if(restoringScroll||y==oldY||words.length==0)return;
             normalY=y;
             android.text.Layout l=normalText.getLayout();
             if(l!=null){int line=l.getLineForVertical(y+dp(12));index=map.atCharacter(l.getLineStart(line));}
-            updateProgress();save();
+            if(mode==RSVP)updateWord(); else if(mode==CURSOR || selecting || selectedWordActive)updateCursor(false); else updateProgress();
+            save();
         });
         controls=new LinearLayout(this);controls.setGravity(Gravity.CENTER);controls.setBackground(shape(panelColor(),22));add(root,controls);
-        FrameLayout playFrame=new FrameLayout(this);playFrame.setBackground(shape(0xff915439,20));
+        FrameLayout playFrame=new FrameLayout(this);playFrame.setBackground(shape(accentColor(),20));
         playIcon=new ImageView(this);playIcon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);playIcon.setColorFilter(Color.WHITE);
         playFrame.addView(playIcon,new FrameLayout.LayoutParams(dp(30),dp(30),Gravity.CENTER));
         playFrame.setOnClickListener(v->{if(playing)stop();else{playing=true;handler.removeCallbacks(ticker);handler.postDelayed(ticker,delayForPortion(index,Math.min(portion,words.length-index)));}updatePlayButton();});
@@ -174,12 +193,12 @@ public class ReaderActivity extends Activity {
         LinearLayout speedRow=new LinearLayout(this);speedRow.setGravity(Gravity.CENTER_VERTICAL);add(speedPanel,speedRow);
         ImageView gauge=new ImageView(this);gauge.setImageResource(R.drawable.ic_speed);gauge.setColorFilter(fg);speedRow.addView(gauge,new LinearLayout.LayoutParams(dp(28),dp(28)));
         speedView=text(wpm+" слов/мин",17);speedView.setGravity(Gravity.CENTER);speedRow.addView(speedView,new LinearLayout.LayoutParams(0,dp(48),1));
-        Button minus=button("−10",v->changeSpeed(-10));minus.setBackground(shape(panelColor(),14));speedRow.addView(minus,new LinearLayout.LayoutParams(dp(52),dp(52)));
-        Button plus=button("+10",v->changeSpeed(10));plus.setBackground(shape(panelColor(),14));speedRow.addView(plus,new LinearLayout.LayoutParams(dp(52),dp(52)));
+        Button minus=button("−10",v->changeSpeed(-10));minus.setBackground(shape(resolvedButtonColor(),14));minus.setTextColor(contrastColor(resolvedButtonColor()));speedRow.addView(minus,new LinearLayout.LayoutParams(dp(52),dp(52)));
+        Button plus=button("+10",v->changeSpeed(10));plus.setBackground(shape(resolvedButtonColor(),14));plus.setTextColor(contrastColor(resolvedButtonColor()));speedRow.addView(plus,new LinearLayout.LayoutParams(dp(52),dp(52)));
         showMode();updatePlayButton();
         normalScroll.post(()->{
-            if(mode==NORMAL && !selecting && normalY>0){restoringScroll=true;normalScroll.scrollTo(0,normalY);normalScroll.post(()->restoringScroll=false);}
-            else if(mode==CURSOR)updateCursor(true);
+            if(normalY>0){restoringScroll=true;normalScroll.scrollTo(0,normalY);normalScroll.post(()->restoringScroll=false);} 
+            if(mode==CURSOR||mode==RSVP)updateCursor(true);
         });
     }
     void modeDialog(){
@@ -189,39 +208,56 @@ public class ReaderActivity extends Activity {
             .setNegativeButton("Отмена",null).show();
     }
     void setMode(int next){if(next<0||next>2||next==mode)return;
-        stop();mode=next;selecting=false;selectedWordActive=false;showMode();
-        if(mode==NORMAL||mode==CURSOR)alignToWord(true);
+        stop();mode=next;showMode();
+        if(mode==NORMAL||mode==CURSOR||mode==RSVP)alignToWord(mode!=NORMAL);
         if(mode==RSVP)updateWord();save();
+    }
+    void updateSelectWordButton(){
+        if(selectWordButton==null)return;
+        int bgColor=selecting?0xffa26949:resolvedButtonColor();
+        selectWordButton.setBackground(shape(bgColor,14));
+        selectWordButton.setColorFilter(selecting?Color.WHITE:contrastColor(bgColor));
+        selectWordButton.setAlpha(selecting?1f:.92f);
     }
     void showMode(){
         if(rsvpPane==null||normalScroll==null)return;
         boolean rsvp=mode==RSVP;
         rsvpPane.setVisibility(rsvp?View.VISIBLE:View.GONE);
-        normalScroll.setVisibility(rsvp?View.GONE:View.VISIBLE);
+        normalScroll.setVisibility(View.VISIBLE);
         if(focusLines!=null){focusLines.setVisibility(rsvp&&focusLinesEnabled?View.VISIBLE:View.GONE);focusLines.invalidate();}
-        if(modeButton!=null)modeButton.setText(mode==NORMAL?"Обычный ▾":mode==RSVP?"Скорочтение ▾":"Курсор ▾");
-        if(selectWordButton!=null){selectWordButton.setVisibility(mode==NORMAL?View.VISIBLE:View.GONE);selectWordButton.setBackground(shape(selecting?0xffd2a57d:panelColor(),14));}
+        if(modeButton!=null){
+            modeButton.setText(mode==NORMAL?"Обычный ▾":mode==RSVP?"Скорочтение ▾":"Курсор ▾");
+            modeButton.setTextColor(contrastColor(accentColor()));
+            modeButton.setBackground(shape(accentColor(),14));
+        }
+        if(selectWordButton!=null)selectWordButton.setVisibility(mode==NORMAL?View.VISIBLE:View.GONE);
+        updateSelectWordButton();
         if(controls!=null)controls.setVisibility(mode==NORMAL?View.GONE:View.VISIBLE);
         if(speedPanel!=null)speedPanel.setVisibility(mode==NORMAL?View.GONE:View.VISIBLE);
-        if(rsvp)updateWord();else updateCursor(mode==CURSOR||selecting);
+        if(rsvp)updateWord(); else updateCursor(mode==CURSOR||selecting||selectedWordActive);
         updateProgress();
     }
     void changeSpeed(int by){wpm=Math.max(100,Math.min(1000,wpm+by));if(speedView!=null)speedView.setText(wpm+" слов/мин");save();
         if(playing){handler.removeCallbacks(ticker);handler.postDelayed(ticker,delayForPortion(index,Math.min(portion,words.length-index)));}
     }
-    void updatePlayButton(){if(playIcon!=null)playIcon.setImageResource(playing?R.drawable.ic_pause:R.drawable.ic_play);}
+    void updatePlayButton(){if(playIcon!=null)playIcon.setImageResource(playing?R.drawable.ic_pause:R.drawable.ic_play);}    
     void updateProgress(){if(progressView!=null&&words.length>0)progressView.setText((index+1)+" / "+words.length+" слов · "+((index+1)*100/words.length)+"%");}
+    boolean isParagraphBreak(int wordIndex){
+        if(wordIndex<0||wordIndex>=words.length-1||body==null)return false;
+        try{return body.substring(map.ends[wordIndex],map.starts[wordIndex+1]).contains("\n\n");}
+        catch(Exception ex){return false;}
+    }
     long delayForPortion(int first,int count){
         long base=ReadingWordMap.delayMillis(wpm,count);if(words.length==0)return base;
         double extra=0;
         for(int i=first;i<Math.min(words.length,first+count);i++){
-            String w=words[i];double mult=0;
-            if(pauseLong&&w.length()>=12)mult+=0.5;
-            if(pausePunctuation&&w.matches(".*[,;:—–]$"))mult+=0.6;
-            if(pauseSentence&&(w.endsWith(".")||w.endsWith("!")||w.endsWith("?")||w.endsWith("…")||w.endsWith("»")))mult+=1.2;
-            extra+=mult;
+            String w=words[i];
+            if(pauseLongPercent>0&&w.length()>=12)extra+=pauseLongPercent/100.0;
+            if(pausePunctuationPercent>0&&w.matches(".*[,;:—–]$"))extra+=pausePunctuationPercent/100.0;
+            if(pauseSentencePercent>0&&(w.endsWith(".")||w.endsWith("!")||w.endsWith("?")||w.endsWith("…")||w.endsWith("»")))extra+=pauseSentencePercent/100.0;
+            if(pauseParagraphPercent>0&&isParagraphBreak(i))extra+=pauseParagraphPercent/100.0;
         }
-        return (long)(base*(1+(extra/Math.max(1,count))*prefs.getInt("pausePercent",100)/100.0));
+        return (long)(base*(1+(extra/Math.max(1,count))));
     }
     void updateWord(){
         if(wordView==null||words.length==0)return;
@@ -232,27 +268,34 @@ public class ReaderActivity extends Activity {
         if(focusPoint){int chosen=Math.max(0,(count-1)/2),start=0;
             for(int i=0;i<chosen;i++)start+=words[index+i].length()+1;
             int at=start+ReadingWordMap.orp(words[index+chosen].length());
-            if(at>=0&&at<span.length())span.setSpan(new ForegroundColorSpan(focusColor),at,at+1,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            int pointColor=focusColor==NO_COLOR?fg:focusColor;
+            if(at>=0&&at<span.length())span.setSpan(new ForegroundColorSpan(pointColor),at,at+1,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
         wordView.setTextSize(size);wordView.setTypeface(type(),Typeface.BOLD);wordView.setText(span);
-        if(focusLines!=null)focusLines.invalidate();updateProgress();
+        if(focusLines!=null)focusLines.invalidate();
+        updateCursor(true);updateProgress();
     }
     void clearCursorSpans(){if(normalContent!=null)for(Object obj:cursorSpans)normalContent.removeSpan(obj);cursorSpans.clear();}
-    void markSpan(Object s,int first,int last){normalContent.setSpan(s,first,last,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);cursorSpans.add(s);}
+    void markSpan(Object s,int first,int last){normalContent.setSpan(s,first,last,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);cursorSpans.add(s);}    
     void updateCursor(boolean ensureVisible){
         if(normalText==null||normalContent==null||words.length==0)return;
         clearCursorSpans();
-        if(mode==CURSOR||mode==NORMAL&&(selecting||selectedWordActive)){
-            int start=map.starts[map.clamp(index)],end=map.ends[map.clamp(index+Math.min(portion,words.length-index)-1)];
-            markSpan(new BackgroundColorSpan(cursorBackground),start,end);
-            markSpan(new ForegroundColorSpan(cursorText),start,end);
-            markSpan(new StyleSpan(Typeface.BOLD),start,end);
-            float normalSp=Math.max(12,size*.60f);markSpan(new RelativeSizeSpan(Math.max(1f,size/normalSp)),start,end);
-        }else if(mode==NORMAL&&!selecting){ // Preserve the selected starting word when returning to normal reading.
-            int start=map.starts[map.clamp(index)],end=map.ends[map.clamp(index)];
-            markSpan(new BackgroundColorSpan(0x55b58563),start,end);
+        int safeIndex=map.clamp(index);
+        int endIndex=map.clamp(index+Math.min(portion,words.length-index)-1);
+        int start=map.starts[safeIndex],end=map.ends[endIndex];
+        if(mode==CURSOR){
+            if(cursorBackground!=NO_COLOR)markSpan(new BackgroundColorSpan(cursorBackground),start,end);
+            if(cursorText!=NO_COLOR)markSpan(new ForegroundColorSpan(cursorText),start,end);
+            if(cursorScale>100)markSpan(new RelativeSizeSpan(cursorScale/100f),start,end);
+        }else if(mode==RSVP){
+            int contextBackground=cursorBackground!=NO_COLOR?alpha(cursorBackground,70):alpha(resolvedButtonColor(),58);
+            markSpan(new BackgroundColorSpan(contextBackground),start,end);
+            if(cursorText!=NO_COLOR)markSpan(new ForegroundColorSpan(cursorText),start,end);
+        }else if(mode==NORMAL&&(selecting||selectedWordActive)){
+            if(normalSelectText!=NO_COLOR)markSpan(new ForegroundColorSpan(normalSelectText),start,end);
+            if(normalSelectScale>100)markSpan(new RelativeSizeSpan(normalSelectScale/100f),start,end);
         }
-        if(ensureVisible)alignToWord(mode==CURSOR);
+        if(ensureVisible)alignToWord(mode!=NORMAL);
         updateProgress();
     }
     void alignToWord(boolean center){
@@ -280,29 +323,46 @@ public class ReaderActivity extends Activity {
             .setNeutralButton("Удалить все",(d,w)->prefs.edit().remove("bookmark:"+docUri).apply()).setNegativeButton("Закрыть",null).show();
     }
     void pick(){Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("*/*");
-        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,7);}
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,7);}    
     @Override protected void onActivityResult(int req,int result,Intent data){super.onActivityResult(req,result,data);
         if(req==7&&result==RESULT_OK&&data!=null&&data.getData()!=null){Uri uri=data.getData();
             try{getContentResolver().takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}
             load(uri,true);
         }
     }
-    void load(Uri uri,boolean reset){new Thread(()->{try{BookLoader.Book book=BookLoader.load(this,uri);if(book.text.isEmpty())throw new Exception("Нет текста");
-        ReadingWordMap parsed=ReadingWordMap.parse(book.text);
-        if(parsed.size()==0)throw new Exception("В книге не найдено слов");
-        runOnUiThread(()->{
-            stop();title=book.title;author=book.author==null?"":book.author;body=book.text;map=parsed;words=parsed.words;docUri=uri.toString();
-            if(reset){index=0;normalY=0;}else index=map.clamp(index);
-            save();draw();
-        });}catch(Exception ex){runOnUiThread(()->new AlertDialog.Builder(this).setMessage("Не удалось открыть книгу: "+ex.getMessage()).setPositiveButton("ОК",null).show());}}).start();
-    }
+    void load(Uri uri,boolean reset){new Thread(()->{
+        try{
+            ReaderBookCache.CachedBook cached=ReaderBookCache.load(this,uri);
+            if(cached!=null&&cached.map!=null&&cached.map.size()>0){
+                runOnUiThread(()->{
+                    stop();title=cached.title;author=cached.author==null?"":cached.author;body=cached.text;map=cached.map;words=cached.map.words;docUri=uri.toString();
+                    if(reset){index=0;normalY=0;}else index=map.clamp(index);
+                    save();draw();
+                });
+                return;
+            }
+            BookLoader.Book book=BookLoader.load(this,uri);if(book.text.isEmpty())throw new Exception("Нет текста");
+            ReadingWordMap parsed=ReadingWordMap.parse(book.text);
+            if(parsed.size()==0)throw new Exception("В книге не найдено слов");
+            ReaderBookCache.store(this,uri,book.title,book.author,book.text,parsed);
+            runOnUiThread(()->{
+                stop();title=book.title;author=book.author==null?"":book.author;body=book.text;map=parsed;words=parsed.words;docUri=uri.toString();
+                if(reset){index=0;normalY=0;}else index=map.clamp(index);
+                save();draw();
+            });
+        }catch(Exception ex){runOnUiThread(()->new AlertDialog.Builder(this).setMessage("Не удалось открыть книгу: "+ex.getMessage()).setPositiveButton("ОК",null).show());}
+    }).start();}
     void settings(){stop();startActivity(new Intent(this,SettingsActivity.class).putExtra("rsvp_tab",true));}
     @Override protected void onResume(){super.onResume();if(prefs!=null){
-        int oldBg=bg,oldFg=fg,oldSize=size,oldFont=font,oldMode=mode,oldPortion=portion;boolean oldPoint=focusPoint,oldLines=focusLinesEnabled;
-        int oldFocus=focusColor,oldLineColor=lineColor,oldLinePosition=linePosition;
+        int oldBg=bg,oldFg=fg,oldSize=size,oldFont=font,oldMode=mode,oldPortion=portion,oldCursorBg=cursorBackground,oldCursorText=cursorText,oldCursorScale=cursorScale;
+        int oldNormalColor=normalSelectText,oldNormalScale=normalSelectScale,oldButton=buttonColor,oldFocus=focusColor,oldLineColor=lineColor,oldLinePosition=linePosition;
+        int oldPauseP=pausePunctuationPercent,oldPauseL=pauseLongPercent,oldPauseS=pauseSentencePercent,oldPauseParagraph=pauseParagraphPercent;
+        boolean oldPoint=focusPoint,oldLines=focusLinesEnabled;
         readPreferences();
-        if(root!=null&&(oldBg!=bg||oldFg!=fg||oldSize!=size||oldFont!=font||oldMode!=mode||oldPortion!=portion
-            ||oldPoint!=focusPoint||oldLines!=focusLinesEnabled||oldFocus!=focusColor||oldLineColor!=lineColor||oldLinePosition!=linePosition))draw();
+        if(root!=null&&(oldBg!=bg||oldFg!=fg||oldSize!=size||oldFont!=font||oldMode!=mode||oldPortion!=portion||oldCursorBg!=cursorBackground
+            ||oldCursorText!=cursorText||oldCursorScale!=cursorScale||oldNormalColor!=normalSelectText||oldNormalScale!=normalSelectScale
+            ||oldButton!=buttonColor||oldPoint!=focusPoint||oldLines!=focusLinesEnabled||oldFocus!=focusColor||oldLineColor!=lineColor
+            ||oldLinePosition!=linePosition||oldPauseP!=pausePunctuationPercent||oldPauseL!=pauseLongPercent||oldPauseS!=pauseSentencePercent||oldPauseParagraph!=pauseParagraphPercent))draw();
     }}
     @Override protected void onPause(){save();stop();super.onPause();}
     @Override protected void onDestroy(){stop();super.onDestroy();}
@@ -312,7 +372,7 @@ public class ReaderActivity extends Activity {
         final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
         FocusLinesView(Context context){super(context);setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);}
         @Override protected void onDraw(Canvas canvas){super.onDraw(canvas);if(!focusLinesEnabled||mode!=RSVP)return;
-            p.setColor(lineColor);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(dp(1));
+            p.setColor(lineColor==NO_COLOR?alpha(fg,180):lineColor);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(dp(1));
             float x=getWidth()*linePosition/100f,mid=getHeight()/2f,half=dp(48);
             canvas.drawLine(0,mid-half,getWidth(),mid-half,p);canvas.drawLine(0,mid+half,getWidth(),mid+half,p);
             p.setStrokeWidth(dp(2));canvas.drawLine(x,mid-half,x,mid-half+dp(10),p);canvas.drawLine(x,mid+half-dp(10),x,mid+half,p);

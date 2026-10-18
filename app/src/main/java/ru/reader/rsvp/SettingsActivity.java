@@ -23,14 +23,18 @@ import android.text.InputType;
 
 /** Separate, persistent reader settings with live typography/background preview. */
 public class SettingsActivity extends Activity {
+    private static final int NO_COLOR=0x00000000;
+    private static final int NORMAL=0,RSVP=1,CURSOR=2;
+
     private SharedPreferences prefs;
-    private int currentTab=0; // 0 appearance, 1 RSVP, 2 audio, 3 online
+    private int currentTab=0; // 0 appearance, 1 reading, 2 audio, 3 online
     private LinearLayout root, list;
     private TextView preview, sizeValue;
-    private int bg, fg, font, size, display;
+    private int bg, fg, font, size, display, buttonColor;
     private final String[] fontNames={"Без засечек", "С засечками", "Моноширинный"};
     private final int[] backgrounds={0xffffffff,0xfff3e7d5,0xfff1e0c7,0xffdfe9d9,0xffe3e8ee,0xffe6dff1,0xff1e2025,0xff303438,0xff283d32,0xffded8c9,0xfffff0da,0xffdde5df};
-    private final int[] textColors={0xff202020,0xff30221e,0xff444444,0xff5b4638,0xffe8e5db,0xffffffff,0xff365541,0xff604b7b};
+    private final int[] textColors={0xff202020,0xff30221e,0xff444444,0xff5b4638,0xffe8e5db,0xff365541,0xff604b7b};
+    private final int[] accentColors={NO_COLOR,0xffa26949,0xff915439,0xff2e6be5,0xffd96c1a,0xff4c9a60,0xff9454d2,0xff39424f};
 
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
@@ -41,7 +45,7 @@ public class SettingsActivity extends Activity {
         load();draw();
     }
     int dp(int n){return (int)(getResources().getDisplayMetrics().density*n+.5f);}    
-    void load(){bg=prefs.getInt("bg",0xfff3e7d5);fg=prefs.getInt("fg",0xff30221e);font=prefs.getInt("font",1);size=prefs.getInt("size",36);display=prefs.getInt("display",1);}    
+    void load(){bg=prefs.getInt("bg",0xfff3e7d5);fg=prefs.getInt("fg",0xff30221e);font=prefs.getInt("font",1);size=prefs.getInt("size",36);display=prefs.getInt("display",1);buttonColor=prefs.getInt("button_color",NO_COLOR);}    
     void put(String k,int v){prefs.edit().putInt(k,v).apply();}
     private PackageInfo installedPackageInfo(){
         try{return getPackageManager().getPackageInfo(getPackageName(),0);}catch(Exception ignored){return null;}
@@ -50,32 +54,33 @@ public class SettingsActivity extends Activity {
     long installedCode(){PackageInfo info=installedPackageInfo();if(info==null)return 0;return Build.VERSION.SDK_INT>=28 ? info.getLongVersionCode() : info.versionCode;}
     int contrast(int background){double v=(Color.red(background)*0.299+Color.green(background)*0.587+Color.blue(background)*0.114);return v<140?Color.WHITE:0xff30221e;}
     GradientDrawable rounded(int c,int rad){GradientDrawable gd=new GradientDrawable();gd.setColor(c);gd.setCornerRadius(dp(rad));return gd;}
+    GradientDrawable outlined(int color,int radius){GradientDrawable d=rounded(color,radius);d.setStroke(dp(1),0xff938475);return d;}
+    int cardColor(){return contrast(bg)==Color.WHITE?0xff404348:0xfffff9f1;}
+    int activeColor(){return buttonColor==NO_COLOR?0xffa26949:buttonColor;}
     Typeface face(){return font==1?Typeface.SERIF:font==2?Typeface.MONOSPACE:Typeface.SANS_SERIF;}
     LinearLayout col(){LinearLayout l=new LinearLayout(this);l.setOrientation(1);return l;}
     TextView text(String str,int sp,boolean bold){TextView t=new TextView(this);t.setText(str);t.setTextSize(sp);t.setTextColor(contrast(bg));t.setTypeface(Typeface.DEFAULT,bold?Typeface.BOLD:Typeface.NORMAL);return t;}
     void gap(int height){View v=new View(this);list.addView(v,new LinearLayout.LayoutParams(-1,dp(height)));}
     void header(String name){TextView t=text(name,18,true);t.setPadding(0,dp(14),0,dp(9));list.addView(t);}    
-    TextView action(String name,Runnable click){TextView t=text(name,16,false);t.setBackground(rounded(contrast(bg)==Color.WHITE?0xff404348:0xfffff9f1,15));t.setPadding(dp(14),dp(14),dp(14),dp(14));t.setOnClickListener(v->click.run());return t;}
+    TextView action(String name,Runnable click){TextView t=text(name,16,false);t.setBackground(rounded(cardColor(),15));t.setPadding(dp(14),dp(14),dp(14),dp(14));t.setOnClickListener(v->click.run());return t;}
     TextView action(String name,int icon,Runnable click){TextView t=action(name,click);t.setCompoundDrawablesWithIntrinsicBounds(icon,0,0,0);t.setCompoundDrawablePadding(dp(10));return t;}
     TextView tabAction(String name,int icon,boolean active,Runnable click){
         TextView t=text(name,11,false);t.setGravity(Gravity.CENTER);
         android.graphics.drawable.Drawable d=getDrawable(icon);
         if(d!=null){d=d.mutate();d.setTint(active?0xffffffff:contrast(bg));d.setBounds(0,0,dp(24),dp(24));t.setCompoundDrawables(null,d,null,null);}
         t.setCompoundDrawablePadding(dp(3));t.setTextColor(active?0xffffffff:contrast(bg));
-        t.setBackground(rounded(active?0xffa26949:(contrast(bg)==Color.WHITE?0xff404348:0xfffff9f1),15));
+        t.setBackground(rounded(active?activeColor():cardColor(),15));
         t.setPadding(dp(2),dp(8),dp(2),dp(7));t.setOnClickListener(v->click.run());return t;
     }
-    String onOff(boolean value){return value?"включено":"выключено";}
-    void toggle(String key, Runnable after){prefs.edit().putBoolean(key,!prefs.getBoolean(key,true)).apply(); if(after!=null) after.run();}
     void draw(){
         root=col();root.setBackgroundColor(bg);root.setPadding(dp(14),dp(25),dp(14),dp(9));setContentView(root);
         LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);
         ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_back);back.setColorFilter(contrast(bg));back.setPadding(dp(12),dp(12),dp(12),dp(12));back.setOnClickListener(v->finish());top.addView(back,new LinearLayout.LayoutParams(dp(52),dp(52)));
-        TextView name=text("Настройки чтения",24,true);name.setTypeface(Typeface.SERIF,Typeface.BOLD);top.addView(name,new LinearLayout.LayoutParams(0,-2,1));root.addView(top);
+        TextView name=text("Настройки",24,true);name.setTypeface(Typeface.SERIF,Typeface.BOLD);top.addView(name,new LinearLayout.LayoutParams(0,-2,1));root.addView(top);
         ScrollView sc=new ScrollView(this);list=col();sc.addView(list);root.addView(sc,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout tabs=new LinearLayout(this);
-        int[] icons={R.drawable.ic_tab_appearance,R.drawable.ic_tab_rsvp,R.drawable.ic_tab_music,R.drawable.ic_tab_online};
-        String[] names={"Оформление","Скорочтение","Аудио","Онлайн"};
+        int[] icons={R.drawable.ic_tab_appearance,R.drawable.ic_book,R.drawable.ic_tab_music,R.drawable.ic_tab_online};
+        String[] names={"Оформление","Чтение","Аудио","Онлайн"};
         for(int i=0;i<names.length;i++){
             final int tab=i;
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(67),1);
@@ -89,7 +94,7 @@ public class SettingsActivity extends Activity {
         preview=new TextView(this);preview.setText("Предпросмотр текста");preview.setGravity(Gravity.CENTER);preview.setLineSpacing(dp(5),1.18f);preview.setPadding(dp(19),dp(21),dp(19),dp(21));LinearLayout.LayoutParams previewLp=new LinearLayout.LayoutParams(-1,dp(90));previewLp.topMargin=dp(15);list.addView(preview,previewLp);applyPreview();
         header("Шрифт");
         list.addView(action(fontNames[font]+"   ▾",()->new AlertDialog.Builder(this).setTitle("Выбор шрифта").setSingleChoiceItems(fontNames,font,(d,n)->{font=n;put("font",font);d.dismiss();draw();}).setNegativeButton("Отмена",null).show()));
-        gap(9);header("Шрифт");
+        gap(9);header("Размер шрифта");
         LinearLayout sizing=new LinearLayout(this);sizing.setGravity(Gravity.CENTER_VERTICAL);
         Button minus=new Button(this);minus.setText("−");minus.setOnClickListener(v->changeSize(-2));sizing.addView(minus,new LinearLayout.LayoutParams(dp(70),dp(54)));
         sizeValue=text(String.valueOf(size),20,true);sizeValue.setGravity(Gravity.CENTER);sizing.addView(sizeValue,new LinearLayout.LayoutParams(0,dp(54),1));
@@ -100,43 +105,76 @@ public class SettingsActivity extends Activity {
         theme(themes,"Светлая",0xffffffff,0xff202020);theme(themes,"Сепия",0xfff3e7d5,0xff30221e);theme(themes,"Ночная",0xff1e2025,0xffe8e5db);theme(themes,"Мягкая",0xffdfe9d9,0xff223a29);list.addView(themes);
         header("Цвет фона");palette(backgrounds,true);
         header("Цвет текста");palette(textColors,false);
+        header("Цвет кнопок");buttonPalette();
         gap(18);
     }
     void drawRsvpSettings(){
-        header("Режим чтения");
-        final String[] modeLabels={"Обычный","Скорочтение","Курсор"};
+        header("Режимы чтения");
         int current=Math.max(0,Math.min(2,prefs.getInt("reading_mode",prefs.getBoolean("rsvp",true)?1:0)));
-        list.addView(action("Режим: "+modeLabels[current],()->new AlertDialog.Builder(this)
-            .setTitle("Выбор режима чтения").setSingleChoiceItems(modeLabels,current,(d,n)->{
-                put("reading_mode",n);prefs.edit().putBoolean("rsvp",n==1).apply();d.dismiss();draw();
-            }).setNegativeButton("Отмена",null).show()));
+        LinearLayout modes=new LinearLayout(this);
+        addModeTab(modes,"Обычный",R.drawable.ic_book,current==NORMAL,()->setReadingMode(NORMAL));
+        addModeTab(modes,"Скорочтение",R.drawable.ic_speed,current==RSVP,()->setReadingMode(RSVP));
+        addModeTab(modes,"Курсор",R.drawable.ic_mode_cursor,current==CURSOR,()->setReadingMode(CURSOR));
+        list.addView(modes);
+        TextView note=text("Показываются только настройки выбранного режима.",13,false);note.setPadding(0,dp(6),0,dp(6));list.addView(note);
+        if(current==NORMAL){drawNormalModeSettings();return;}
+        if(current==CURSOR){drawCursorSettings();return;}
+        drawSpeedReadingSettings();
+    }
+    void addModeTab(LinearLayout row,String caption,int icon,boolean active,Runnable click){
+        TextView chip=text(caption,13,false);
+        chip.setGravity(Gravity.CENTER_VERTICAL);
+        chip.setPadding(dp(12),dp(11),dp(12),dp(11));
+        chip.setTextColor(active?Color.WHITE:contrast(bg));
+        chip.setCompoundDrawablePadding(dp(8));
+        android.graphics.drawable.Drawable d=getDrawable(icon);
+        if(d!=null){d=d.mutate();d.setTint(active?Color.WHITE:contrast(bg));d.setBounds(0,0,dp(18),dp(18));chip.setCompoundDrawables(d,null,null,null);}        
+        chip.setBackground(rounded(active?activeColor():cardColor(),16));
+        chip.setOnClickListener(v->click.run());
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.setMargins(dp(2),dp(3),dp(2),dp(3));row.addView(chip,lp);
+    }
+    void setReadingMode(int mode){put("reading_mode",mode);prefs.edit().putBoolean("rsvp",mode==RSVP).apply();draw();}
+    void drawNormalModeSettings(){
+        header("Выбор слова в обычном режиме");
+        TextView info=text("Кнопка выбора слова работает как переключатель: коснитесь её, затем выбирайте стартовое слово в тексте столько раз, сколько нужно. Фон у выделенного слова не используется.",14,false);
+        info.setPadding(0,0,0,dp(8));list.addView(info);
+        colorSection("Цвет слова","normal_select_text",0xff915439,true);
+        percentSlider("Увеличение выбранного слова","normal_select_scale",100,180,110,1);
+        gap(18);
+    }
+    void drawCursorSettings(){
+        header("Выделение режима «Курсор»");
+        colorSection("Цвет фона","cursor_background",0xff96583f,true);
+        colorSection("Цвет текста","cursor_text",NO_COLOR,true);
+        percentSlider("Размер выделенного слова","cursor_scale",100,180,100,1);
+        TextView info=text("По умолчанию размер слова не увеличивается: 100%. При выборе «Без цвета» фон или цвет текста не применяются.",13,false);
+        info.setPadding(0,0,0,dp(10));list.addView(info);
+        gap(18);
+    }
+    void drawSpeedReadingSettings(){
         gap(8);header("Размер порции");
         int currentPortion=ReadingWordMap.portion(prefs.getInt("rsvp_portion",1));
         TextView portionLabel=text("Слов за один показ: "+currentPortion+" из 4",15,false);list.addView(portionLabel);
         SeekBar portionSlider=new SeekBar(this);portionSlider.setMax(3);portionSlider.setProgress(currentPortion-1);list.addView(portionSlider);
         portionSlider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
-            public void onProgressChanged(SeekBar b,int v,boolean user){portionLabel.setText("Слов за один показ: "+(v+1)+" из 4");if(user)put("rsvp_portion",v+1);}
-            public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
+            public void onProgressChanged(SeekBar b,int v,boolean user){portionLabel.setText("Слов за один показ: "+(v+1)+" из 4");if(user)put("rsvp_portion",v+1);}            public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
         });
-        TextView portionNote=text("Последовательно отображать или выделять от 1 до 4 слов с учётом скорости чтения.",13,false);portionNote.setPadding(0,dp(4),0,dp(13));list.addView(portionNote);
+        TextView portionNote=text("Последовательно отображать или выделять от 1 до 4 слов. Книга уже разбивается на слова, поэтому изменение порции работает быстрее и без повторного анализа текста.",13,false);portionNote.setPadding(0,dp(4),0,dp(13));list.addView(portionNote);
         gap(8);list.addView(action("Дополнительные паузы",this::pauses));gap(12);
         header("Точка фокусировки");
         addFocusSwitch("Выделять опорную букву слова", "rsvp_focus_point",true);
         TextView focusNote=text("Оптимальное место для фиксации взгляда при скорочтении.",13,false);focusNote.setPadding(0,0,0,dp(10));list.addView(focusNote);
-        focusColors("Цвет точки фокусировки","rsvp_focus_color",0xffed3030);
+        colorSection("Цвет точки фокусировки","rsvp_focus_color",0xffed3030,true);
         gap(12);header("Линии фокусировки");
         addFocusSwitch("Показывать две линии и вертикальные засечки", "rsvp_focus_lines",true);
-        focusColors("Цвет линий","rsvp_line_color",0xff915439);
+        colorSection("Цвет линий","rsvp_line_color",0xff915439,true);
         final int initial=Math.max(0,Math.min(100,prefs.getInt("rsvp_line_position",50)));
         TextView positionLabel=text("Горизонтальная позиция: "+initial+"%",15,false);positionLabel.setPadding(0,dp(12),0,0);list.addView(positionLabel);
         SeekBar position=new SeekBar(this);position.setMax(100);position.setProgress(initial);list.addView(position);
         position.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
-            public void onProgressChanged(SeekBar b,int v,boolean user){positionLabel.setText("Горизонтальная позиция: "+v+"%");if(user)put("rsvp_line_position",v);}
-            public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
+            public void onProgressChanged(SeekBar b,int v,boolean user){positionLabel.setText("Горизонтальная позиция: "+v+"%");if(user)put("rsvp_line_position",v);}            public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
         });
-        gap(12);header("Выделение режима «Курсор»");
-        focusColors("Цвет выделения","cursor_background",0xff96583f);
-        focusColors("Цвет текста выделенной порции","cursor_text",0xffffffff);
+        TextView extra=text("Во время прокрутки вверх и вниз в скорочтении снова показывается весь текст книги с подсветкой текущего места.",13,false);extra.setPadding(0,dp(8),0,0);list.addView(extra);
         gap(18);
     }
     void addFocusSwitch(String caption,String key,boolean defaultValue){
@@ -145,28 +183,40 @@ public class SettingsActivity extends Activity {
         sw.setPadding(dp(4),dp(8),dp(4),dp(8));list.addView(sw);
         sw.setOnCheckedChangeListener((button,checked)->prefs.edit().putBoolean(key,checked).apply());
     }
-    void focusColors(String caption,String key,int fallback){
+    void colorSection(String caption,String key,int fallback,boolean allowNone){
         header(caption);
         int selected=prefs.getInt(key,fallback);
-        final int[] colors={0xffff1212,0xffff9100,0xffffdf00,0xff00dd28,0xff1150e8,0xffe000e0,0xff915439,0xff30221e,0xffffffff};
+        final int[] colors=allowNone?new int[]{NO_COLOR,0xffff1212,0xffff9100,0xffffdf00,0xff00dd28,0xff1150e8,0xffe000e0,0xff915439,0xff30221e}:new int[]{0xffff1212,0xffff9100,0xffffdf00,0xff00dd28,0xff1150e8,0xffe000e0,0xff915439,0xff30221e};
         LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);list.addView(row);
         for(int color:colors){
-            TextView circle=text(color==selected?"✓":"",12,true);circle.setTextColor(contrast(color));circle.setGravity(Gravity.CENTER);
-            GradientDrawable gd=rounded(color,35);if(color==selected)gd.setStroke(dp(3),0xff937263);
+            TextView circle=text(color==selected?"✓":(color==NO_COLOR?"Ø":""),12,true);circle.setTextColor(color==NO_COLOR?contrast(bg):contrast(color));circle.setGravity(Gravity.CENTER);
+            GradientDrawable gd=color==NO_COLOR?outlined(cardColor(),35):rounded(color,35);if(color==selected)gd.setStroke(dp(3),0xff937263);
             circle.setBackground(gd);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(36),1);lp.setMargins(dp(2),dp(3),dp(2),dp(3));row.addView(circle,lp);
             circle.setOnClickListener(v->{put(key,color);draw();});
         }
-        list.addView(action("Добавить цвет RGB",()->customFocusColor(key,prefs.getInt(key,fallback))));
+        list.addView(action("Добавить цвет RGB",()->customFocusColor(key,prefs.getInt(key,fallback),allowNone)));
     }
-    void customFocusColor(String key,int original){
+    void percentSlider(String title,String key,int min,int max,int fallback,int step){
+        final int initial=Math.max(min,Math.min(max,prefs.getInt(key,fallback)));
+        TextView label=text(title+": "+initial+"%",15,false);label.setPadding(0,dp(4),0,0);list.addView(label);
+        SeekBar seek=new SeekBar(this);seek.setMax((max-min)/Math.max(1,step));seek.setProgress((initial-min)/Math.max(1,step));list.addView(seek);
+        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            public void onProgressChanged(SeekBar b,int v,boolean user){int value=min+v*Math.max(1,step);label.setText(title+": "+value+"%");if(user)put(key,value);}            public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
+        });
+    }
+    void customFocusColor(String key,int original,boolean allowNone){
         EditText input=new EditText(this);input.setSingleLine(true);
         input.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
-        input.setText(String.format(java.util.Locale.ROOT,"#%06X",original&0xFFFFFF));
+        input.setText(original==NO_COLOR?"":String.format(java.util.Locale.ROOT,"#%06X",original&0xFFFFFF));
+        input.setHint(allowNone?"Пусто = без цвета":"#RRGGBB");
         LinearLayout content=col();content.setPadding(dp(18),0,dp(18),0);content.addView(input);
         new AlertDialog.Builder(this).setTitle("Цвет · #RRGGBB").setView(content)
             .setNegativeButton("Отмена",null).setPositiveButton("Сохранить",(d,n)->{
-                try{int c=Color.parseColor(input.getText().toString().trim());put(key,c);draw();}
-                catch(IllegalArgumentException ex){android.widget.Toast.makeText(this,"Неверный цвет",android.widget.Toast.LENGTH_SHORT).show();}
+                try{
+                    String value=input.getText().toString().trim();
+                    if(value.isEmpty()&&allowNone){put(key,NO_COLOR);draw();return;}
+                    int c=Color.parseColor(value);put(key,c);draw();
+                }catch(IllegalArgumentException ex){android.widget.Toast.makeText(this,"Неверный цвет",android.widget.Toast.LENGTH_SHORT).show();}
             }).show();
     }
     void drawAudioSettings(){
@@ -283,7 +333,6 @@ public class SettingsActivity extends Activity {
             }).show();
     }
     void ttsEngineDialog(){
-        // Open the device's TTS engine settings; it owns engine selection and voice data.
         String[] actions={"com.android.settings.TTS_SETTINGS","android.settings.TTS_SETTINGS",
                 android.provider.Settings.ACTION_VOICE_INPUT_SETTINGS,android.provider.Settings.ACTION_SETTINGS};
         for(String action:actions){
@@ -303,7 +352,6 @@ public class SettingsActivity extends Activity {
         list.addView(action("Количество фрагментов предзагрузки: " + EdgePrefetchSettings.get(prefs),()-> EdgePrefetchSettings.show(this,prefs,count->draw())));gap(8);
         list.addView(action("Размер онлайн-фрагмента: " + EdgeSegmentSettings.get(prefs) + " символов",()-> EdgeSegmentSettings.show(this,prefs,value->draw())));gap(8);
     }
-    GradientDrawable outlined(int color,int radius){GradientDrawable d=rounded(color,radius);d.setStroke(dp(1),0xff938475);return d;}
     void theme(LinearLayout row,String name,int background,int ink){TextView chip=text(name,13,false);chip.setTextColor(ink);chip.setGravity(Gravity.CENTER);chip.setBackground(outlined(background,14));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(56),1);lp.setMargins(dp(2),0,dp(2),0);row.addView(chip,lp);chip.setOnClickListener(v->{bg=background;fg=ink;put("bg",bg);put("fg",fg);draw();});}
     void palette(int[] colors,boolean background){
         for(int rowStart=0;rowStart<colors.length;rowStart+=4){LinearLayout row=new LinearLayout(this);for(int k=rowStart;k<Math.min(colors.length,rowStart+4);k++){
@@ -311,19 +359,33 @@ public class SettingsActivity extends Activity {
             tile.setOnClickListener(v->{if(background){bg=color;put("bg",bg);if(contrast(bg)==contrast(fg)) {fg=contrast(bg);put("fg",fg);}draw();}else{fg=color;put("fg",fg);draw();}});
         }list.addView(row);}list.addView(action("Настроить RGB вручную",()->colorDialog(background)));
     }
+    void buttonPalette(){
+        TextView note=text("Цвет применяется к основным кнопкам управления в читалке. «Ø» оставляет стандартный цвет интерфейса.",13,false);note.setPadding(0,0,0,dp(6));list.addView(note);
+        for(int rowStart=0;rowStart<accentColors.length;rowStart+=4){LinearLayout row=new LinearLayout(this);for(int k=rowStart;k<Math.min(accentColors.length,rowStart+4);k++){
+            int color=accentColors[k];TextView tile=new TextView(this);tile.setText(color==buttonColor?"✓":(color==NO_COLOR?"Ø":" "));tile.setGravity(Gravity.CENTER);tile.setTextSize(18);tile.setTextColor(color==NO_COLOR?contrast(bg):contrast(color));tile.setBackground(color==NO_COLOR?outlined(cardColor(),13):outlined(color,13));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(54),1);lp.setMargins(dp(3),dp(3),dp(3),dp(3));row.addView(tile,lp);
+            tile.setOnClickListener(v->{buttonColor=color;put("button_color",buttonColor);draw();});
+        }list.addView(row);}list.addView(action("Настроить RGB вручную",()->buttonColorDialog()));
+    }
     void applyPreview(){if(preview==null)return;preview.setTextColor(fg);preview.setTextSize(Math.max(16,(int)(size*.60f)));preview.setTypeface(face());preview.setBackground(rounded(bg==0xff1e2025?0xff31343a:0xfffff9f1,20));}
     void changeSize(int delta){size=Math.max(16,Math.min(76,size+delta));put("size",size);sizeValue.setText(String.valueOf(size));applyPreview();}
     void pauses(){
-        String[] labels={"После знаков пунктуации","На длинных словах (12+ букв)","В конце предложения"};
-        String[] keys={"pausePunctuation","pauseLong","pauseSentence"};
-        boolean[] checked=new boolean[3];for(int i=0;i<3;i++)checked[i]=prefs.getBoolean(keys[i],true);
         LinearLayout panel=col();panel.setPadding(dp(14),dp(8),dp(14),0);
-        TextView pct=text("Дополнительная задержка: "+prefs.getInt("pausePercent",100)+"%",15,true);panel.addView(pct);
-        SeekBar strength=new SeekBar(this);strength.setMax(300);strength.setProgress(prefs.getInt("pausePercent",100));panel.addView(strength);
-        strength.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int n,boolean user){pct.setText("Дополнительная задержка: "+n+"%");}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}});
-        new AlertDialog.Builder(this).setTitle("Паузы в скорочтении").setMultiChoiceItems(labels,checked,(d,n,v)->checked[n]=v)
-            .setView(panel).setPositiveButton("Сохранить",(d,w)->{SharedPreferences.Editor e=prefs.edit();for(int i=0;i<3;i++)e.putBoolean(keys[i],checked[i]);e.putInt("pausePercent",strength.getProgress());e.apply();})
+        addPauseSlider(panel,"После знаков пунктуации","pausePunctuationPercent",60,300);
+        addPauseSlider(panel,"На длинных словах (12+ букв)","pauseLongPercent",50,300);
+        addPauseSlider(panel,"В конце предложения","pauseSentencePercent",120,400);
+        addPauseSlider(panel,"Между абзацами","pauseParagraphPercent",150,400);
+        new AlertDialog.Builder(this).setTitle("Паузы в скорочтении")
+            .setView(panel).setPositiveButton("Сохранить",(d,w)->draw())
             .setNegativeButton("Отмена",null).show();
+    }
+    void addPauseSlider(LinearLayout panel,String caption,String key,int fallback,int max){
+        int initial=Math.max(0,Math.min(max,prefs.getInt(key,fallback)));
+        TextView label=text(caption+": "+initial+"%",14,true);panel.addView(label);
+        SeekBar slider=new SeekBar(this);slider.setMax(max);slider.setProgress(initial);panel.addView(slider);
+        slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            public void onProgressChanged(SeekBar b,int n,boolean user){label.setText(caption+": "+n+"%");if(user)put(key,n);}            public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
+        });
+        TextView desc=text("0% — пауза отключена.",12,false);desc.setPadding(0,0,0,dp(10));panel.addView(desc);
     }
     void colorDialog(boolean background){
         int c=background?bg:fg;
@@ -333,13 +395,31 @@ public class SettingsActivity extends Activity {
         wrapper.addView(sample,sampleLp);
         SeekBar[] bars=new SeekBar[3];String[] channels={"Красный","Зелёный","Синий"};
         int[] rgb={Color.red(c),Color.green(c),Color.blue(c)};
-        for(int i=0;i<3;i++){wrapper.addView(text(channels[i],14,false));SeekBar bar=new SeekBar(this);bar.setMax(255);bar.setProgress(rgb[i]);bars[i]=bar;wrapper.addView(bar);}
+        for(int i=0;i<3;i++){wrapper.addView(text(channels[i],14,false));SeekBar bar=new SeekBar(this);bar.setMax(255);bar.setProgress(rgb[i]);bars[i]=bar;wrapper.addView(bar);}        
         for(SeekBar bar:bars)bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
             public void onProgressChanged(SeekBar b,int value,boolean from){sample.setBackground(outlined(Color.rgb(bars[0].getProgress(),bars[1].getProgress(),bars[2].getProgress()),8));}
             public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
         });
         new AlertDialog.Builder(this).setTitle("Выбор RGB").setView(wrapper)
             .setPositiveButton("Применить",(d,w)->{int color=Color.rgb(bars[0].getProgress(),bars[1].getProgress(),bars[2].getProgress());if(background){bg=color;put("bg",bg);}else{fg=color;put("fg",fg);}draw();})
+            .setNegativeButton("Отмена",null).show();
+    }
+    void buttonColorDialog(){
+        int c=buttonColor==NO_COLOR?0xffa26949:buttonColor;
+        LinearLayout wrapper=col();wrapper.setPadding(dp(20),0,dp(20),0);
+        View sample=new View(this);sample.setBackground(outlined(c,8));
+        LinearLayout.LayoutParams sampleLp=new LinearLayout.LayoutParams(dp(58),dp(58));sampleLp.gravity=Gravity.CENTER_HORIZONTAL;sampleLp.bottomMargin=dp(12);
+        wrapper.addView(sample,sampleLp);
+        SeekBar[] bars=new SeekBar[3];String[] channels={"Красный","Зелёный","Синий"};
+        int[] rgb={Color.red(c),Color.green(c),Color.blue(c)};
+        for(int i=0;i<3;i++){wrapper.addView(text(channels[i],14,false));SeekBar bar=new SeekBar(this);bar.setMax(255);bar.setProgress(rgb[i]);bars[i]=bar;wrapper.addView(bar);}        
+        for(SeekBar bar:bars)bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            public void onProgressChanged(SeekBar b,int value,boolean from){sample.setBackground(outlined(Color.rgb(bars[0].getProgress(),bars[1].getProgress(),bars[2].getProgress()),8));}
+            public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
+        });
+        new AlertDialog.Builder(this).setTitle("Цвет кнопок").setView(wrapper)
+            .setNeutralButton("Без цвета",(d,w)->{buttonColor=NO_COLOR;put("button_color",buttonColor);draw();})
+            .setPositiveButton("Применить",(d,w)->{buttonColor=Color.rgb(bars[0].getProgress(),bars[1].getProgress(),bars[2].getProgress());put("button_color",buttonColor);draw();})
             .setNegativeButton("Отмена",null).show();
     }
     @Override public void onBackPressed(){BackNavigation.back(this);}

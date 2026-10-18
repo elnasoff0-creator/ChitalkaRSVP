@@ -13,6 +13,14 @@ public final class ReadingWordMap {
         words=w.toArray(new String[0]);starts=new int[a.size()];ends=new int[b.size()];
         for(int i=0;i<a.size();i++){starts[i]=a.get(i);ends[i]=b.get(i);}
     }
+    private ReadingWordMap(String[] words,int[] starts,int[] ends){
+        this.words=words;this.starts=starts;this.ends=ends;
+    }
+
+    public static ReadingWordMap fromArrays(String[] words,int[] starts,int[] ends){
+        if(words==null||starts==null||ends==null||words.length!=starts.length||words.length!=ends.length)return parse("");
+        return new ReadingWordMap(words,starts,ends);
+    }
     public static ReadingWordMap parse(String content){
         if(content==null)content="";
         ArrayList<String> w=new ArrayList<>();ArrayList<Integer> a=new ArrayList<>(),b=new ArrayList<>();
