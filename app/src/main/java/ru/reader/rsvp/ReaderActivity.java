@@ -41,6 +41,7 @@ public class ReaderActivity extends Activity {
     private boolean userScrolling=false,restoringScroll=false;
     private int swipeStartIndex=0,lastHighlightedChunk=-1;
     private float swipeStartY;
+    private int scrollWordAccumulator=0;
     private long lastLightSave=0;
     private final Runnable ticker=new Runnable(){@Override public void run(){
         if(!playing||words.length==0)return;
@@ -163,21 +164,20 @@ public class ReaderActivity extends Activity {
         frame.addView(textList,new LinearLayout.LayoutParams(-1,0,1));
         textList.addOnScrollListener(new RecyclerView.OnScrollListener(){
             @Override public void onScrollStateChanged(RecyclerView rv,int state){
-                if(state==RecyclerView.SCROLL_STATE_DRAGGING)userScrolling=true;
-                if(state==RecyclerView.SCROLL_STATE_IDLE){userScrolling=false;saveLight(true);}
+                if(state==RecyclerView.SCROLL_STATE_DRAGGING){
+                    userScrolling=true;
+                    if(mode==RSVP){setRsvpContextVisible(true);scrollWordAccumulator=0;ensureWordVisible(true);}
+                }
+                if(state==RecyclerView.SCROLL_STATE_IDLE){
+                    userScrolling=false;
+                    if(mode==RSVP){scrollWordAccumulator=0;setRsvpContextVisible(false);}
+                    saveLight(true);
+                }
             }
             @Override public void onScrolled(RecyclerView rv,int dx,int dy){
                 if(!userScrolling||restoringScroll||words.length==0)return;
-                int first=layoutManager.findFirstVisibleItemPosition();if(first<0||first>=chunks.size())return;
-                RecyclerView.ViewHolder found=textList.findViewHolderForAdapterPosition(first);
-                if(!(found instanceof ChunkAdapter.Holder))return;
-                ChunkAdapter.Holder holder=(ChunkAdapter.Holder)found;
-                android.text.Layout l=holder.value.getLayout();if(l==null)return;
-                int offsetY=Math.max(0,(-holder.itemView.getTop())+dp(8));
-                int line=l.getLineForVertical(offsetY);
-                int local=l.getLineStart(line);
-                int next=map.atCharacter(chunks.get(first).startChar+local);
-                if(next!=index){int old=index;index=next;refreshHighlight(old);if(mode==RSVP)updateWord();updateProgress();saveLight(false);}
+                if(mode!=RSVP)return;
+                stepRsvpByScroll(dy);
             }
         });
         controls=new LinearLayout(this);controls.setGravity(Gravity.CENTER);controls.setBackground(shape(panelColor(),22));add(root,controls);
@@ -185,6 +185,7 @@ public class ReaderActivity extends Activity {
         playIcon=new ImageView(this);playIcon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);playIcon.setColorFilter(contrast(accent()));
         playFrame.addView(playIcon,new FrameLayout.LayoutParams(dp(30),dp(30),Gravity.CENTER));
         playFrame.setOnClickListener(v->{if(playing)stop();else{playing=true;handler.removeCallbacks(ticker);
+            if(mode==RSVP)setRsvpContextVisible(false);
             handler.postDelayed(ticker,delayForPortion(index,Math.min(portion,words.length-index)));}updatePlayButton();});
         controls.addView(playFrame,new LinearLayout.LayoutParams(dp(72),dp(72)));
         speedPanel=column();speedPanel.setBackground(shape(panelColor(),18));speedPanel.setPadding(dp(8),dp(8),dp(8),dp(8));add(root,speedPanel);
@@ -243,7 +244,8 @@ public class ReaderActivity extends Activity {
             // the parent RecyclerView can still intercept a scrolling drag.
             item.setClickable(true);
             item.setOnTouchListener((view,event)->{
-                if(mode!=NORMAL||!selecting)return false;
+                boolean allowTap=(mode==CURSOR)||(mode==NORMAL&&selecting);
+                if(!allowTap)return false;
                 if(event.getAction()==MotionEvent.ACTION_DOWN)return true;
                 if(event.getAction()!=MotionEvent.ACTION_UP)return false;
                 int row=holder.getBindingAdapterPosition();if(row==RecyclerView.NO_POSITION)return true;
@@ -252,7 +254,7 @@ public class ReaderActivity extends Activity {
                 int line=l.getLineForVertical(Math.max(0,y));
                 int offset=l.getOffsetForHorizontal(line,Math.max(0,event.getX()-item.getTotalPaddingLeft()));
                 int old=index;index=map.atCharacter(chunks.get(row).startChar+offset);
-                selectedWordActive=true;refreshHighlight(old);updateProgress();saveLight(true);
+                selectedWordActive=true;refreshHighlight(old);if(mode==RSVP)updateWord();updateProgress();saveLight(true);
                 return true;
             });
             return holder;
@@ -287,8 +289,33 @@ public class ReaderActivity extends Activity {
         if(selectWordButton!=null){selectWordButton.setVisibility(mode==NORMAL?View.VISIBLE:View.GONE);updateSelectWordButton();}
         if(controls!=null)controls.setVisibility(mode==NORMAL?View.GONE:View.VISIBLE);
         if(speedPanel!=null)speedPanel.setVisibility(mode==NORMAL?View.GONE:View.VISIBLE);
+        if(textList!=null)textList.setVisibility(mode==RSVP&& !userScrolling?View.GONE:View.VISIBLE);
         if(mode==RSVP)updateWord();
         refreshHighlight(index);updateProgress();
+    }
+    private void setRsvpContextVisible(boolean visible){
+        if(textList==null)return;
+        textList.setVisibility(visible?View.VISIBLE:View.GONE);
+        if(visible){
+            textList.post(()->ensureWordVisible(true));
+        }
+    }
+    private void stepRsvpByScroll(int dy){
+        if(words.length==0||dy==0)return;
+        int threshold=Math.max(6,dp(8));
+        scrollWordAccumulator+=dy;
+        int old=index;
+        while(scrollWordAccumulator>=threshold&&index<words.length-1){
+            index++;
+            scrollWordAccumulator-=threshold;
+        }
+        while(scrollWordAccumulator<=-threshold&&index>0){
+            index--;
+            scrollWordAccumulator+=threshold;
+        }
+        if(old!=index){
+            updateWord();refreshHighlight(old);updateProgress();saveLight(false);
+        }
     }
     private void updateSelectWordButton(){
         if(selectWordButton==null)return;
@@ -427,11 +454,39 @@ public class ReaderActivity extends Activity {
     private void audioMenu(){
         if(docUri.isEmpty()){Toast.makeText(this,"Сначала откройте книгу",Toast.LENGTH_SHORT).show();return;}
         new AlertDialog.Builder(this).setTitle("Способ озвучивания")
-            .setItems(new String[]{"Системный Android TTS","Edge TTS · онлайн"},(d,which)->{
-                stop();save();Intent intent=new Intent(this,which==0?AudioPlayerActivity.class:EdgeOnlineActivity.class);
-                intent.putExtra("book_uri",docUri);intent.putExtra("word_index",index);
-                if(which==0)intent.putExtra("start_tts",true);startActivity(intent);
-            }).show();
+            .setView(audioChoiceView())
+            .setNegativeButton("Отмена",null).show();
+    }
+    private View audioChoiceView(){
+        LinearLayout wrap=column();
+        wrap.setPadding(dp(6),dp(8),dp(6),dp(2));
+        wrap.addView(audioChoiceItem(R.drawable.ic_android_tts,"Android TTS","Системное офлайн-озвучивание",()->openAudioEngine(true)),new LinearLayout.LayoutParams(-1,-2));
+        TextView gapView=new TextView(this);gapView.setHeight(dp(8));wrap.addView(gapView,new LinearLayout.LayoutParams(-1,dp(8)));
+        wrap.addView(audioChoiceItem(R.drawable.ic_edge_tts,"MS Edge TTS","Онлайн-озвучивание Microsoft Edge",()->openAudioEngine(false)),new LinearLayout.LayoutParams(-1,-2));
+        return wrap;
+    }
+    private View audioChoiceItem(int iconRes,String titleText,String subtitle,Runnable action){
+        LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.HORIZONTAL);card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setPadding(dp(14),dp(14),dp(14),dp(14));card.setBackground(shape(panelColor(),18));
+        ImageView icon=new ImageView(this);icon.setImageResource(iconRes);icon.setColorFilter(fg);
+        card.addView(icon,new LinearLayout.LayoutParams(dp(30),dp(30)));
+        LinearLayout textWrap=column();textWrap.setPadding(dp(12),0,0,0);
+        TextView titleView=text(titleText,17);titleView.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        TextView subtitleView=text(subtitle,13);subtitleView.setAlpha(.82f);
+        textWrap.addView(titleView,new LinearLayout.LayoutParams(-1,-2));
+        textWrap.addView(subtitleView,new LinearLayout.LayoutParams(-1,-2));
+        card.addView(textWrap,new LinearLayout.LayoutParams(0,-2,1));
+        ImageView chevron=new ImageView(this);chevron.setImageResource(R.drawable.ic_next_chapter);chevron.setColorFilter(fg);
+        card.addView(chevron,new LinearLayout.LayoutParams(dp(18),dp(18)));
+        card.setOnClickListener(v->action.run());
+        return card;
+    }
+    private void openAudioEngine(boolean androidTts){
+        stop();save();
+        Intent intent=new Intent(this,androidTts?AudioPlayerActivity.class:EdgeOnlineActivity.class);
+        intent.putExtra("book_uri",docUri);intent.putExtra("word_index",index);
+        if(androidTts)intent.putExtra("start_tts",true);
+        startActivity(intent);
     }
     @Override protected void onResume(){super.onResume();if(prefs!=null){
         int oldBg=bg,oldFg=fg,oldSize=size,oldFont=font,oldMode=mode,oldPortion=portion;

@@ -155,7 +155,7 @@ public class SettingsActivity extends Activity {
         colorSection("Цвет фона","cursor_background",0xff96583f,true);
         colorSection("Цвет текста","cursor_text",NO_COLOR,true);
         percentSlider("Размер выделенного слова","cursor_scale",100,180,100,1);
-        TextView info=text("По умолчанию размер слова не увеличивается: 100%. При выборе «Без цвета» фон или цвет текста не применяются.",13,false);
+        TextView info=text("В режиме «Курсор» слово можно выбирать касанием постоянно, без отдельного переключателя. По умолчанию размер слова не увеличивается: 100%. При выборе «Без цвета» фон или цвет текста не применяются.",13,false);
         info.setPadding(0,0,0,dp(10));list.addView(info);
         gap(18);
     }
