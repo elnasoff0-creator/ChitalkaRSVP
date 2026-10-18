@@ -279,7 +279,7 @@ public class ReaderActivity extends Activity {
                     touchDownX=event.getX();touchDownY=event.getY();
                     touchDownTime=event.getEventTime();touchMoved=false;return true;
                 }
-                int slop=ViewConfiguration.get(this).getScaledTouchSlop();
+                int slop=ViewConfiguration.get(ReaderActivity.this).getScaledTouchSlop();
                 if(eventType==MotionEvent.ACTION_MOVE){
                     if(Math.abs(event.getX()-touchDownX)>slop||Math.abs(event.getY()-touchDownY)>slop)touchMoved=true;
                     return true;
