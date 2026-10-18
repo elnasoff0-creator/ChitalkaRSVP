@@ -40,6 +40,6 @@ assert 'rewindOnNextPlay' in service and 'playerReady' in service and 'seekPendi
 assert 'preparedPosition=target' in service and 'AudioSeekBounds.step' in service
 assert 'boolean shouldPlay=!paused' in service
 assert 'sleepValue' in edge and 'timerValue' in player
-assert "versionCode 11046; versionName '1.11.39-beta'" in Path('app/build.gradle').read_text()
+assert "versionCode 11047; versionName '1.11.40-beta'" in Path('app/build.gradle').read_text()
 print('PASS: 1.11.39 audio settings, resume, persistent seek, timer and playback continuity')
 PYTEST

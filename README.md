@@ -1,3 +1,21 @@
+# ChitalkaRSVP v1.11.40-beta
+
+**versionCode: 11047.** Complete Android Java source project for GitHub Actions.
+
+## New in v1.11.40-beta
+
+- Three reading modes with a common word position: **Обычный**, **Скорочтение** (RSVP), **Курсор** (inline moving highlight). Switch modes in the reader or in Settings > Скорочтение.
+- Select a starting word by pressing the new word-pointer icon in ordinary reading, then tapping the word. The selected location follows into RSVP or Cursor. The current word index is persisted for each book.
+- Adjustable **Размер порции** 1–4 words in speedreading settings; playback pacing uses words per minute and displays/highlights the matching count.
+- Adjustable RSVP optimal recognition point (focused letter) with color, horizontal focus lines with independent toggle, color and placement (0–100%). Cursor has editable active-background and active-text colors.
+- Both MP3 and Edge player toolbar sleep icons center themselves when the timer is unset (no reserved blank counter row).
+- Audio player book title has a pencil action: edit the display name in the local audiobook library and update the playback service without reloading the chapter. Existing MP3 files/folders are not renamed or moved.
+- MP3 player removes the duplicate 'Аудиокнига · speed' subtitle. Speed stays on the dedicated toolbar button.
+- Existing search, offline cover, MP3/FB2/EPUB downloads, full-book Edge preparation, audiobook seek/resume logic remain in the source base.
+
+**Build/test note:** Source checks and local shell tests run in this environment. Android APK compilation and physical device testing must be performed by GitHub Actions or Android SDK.
+
+---
 # ChitalkaRSVP v1.11.39-beta
 
 **versionCode: 11046.** Complete Android Java source for GitHub Actions.
