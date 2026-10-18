@@ -48,7 +48,7 @@ public final class EdgeOnlineActivity extends Activity {
     private TextView progressText,queueStatus,fileLabel,fileTime,fragmentText,downloadStatus,bookTitleView;
     private Button autoloadButton,voiceChoice;
     private ImageView playIcon;
-    private TextView speedValue;
+    private TextView speedValue, sleepValue;
     private SeekBar seek;
     private ScrollView textScroller;
     private ImageView coverImage;
@@ -86,14 +86,15 @@ public final class EdgeOnlineActivity extends Activity {
         FrameLayout box=new FrameLayout(this);
         box.setBackground(rounded(primary?ACCENT:0xfffff9f0,15));
         box.setContentDescription(hint);box.setClickable(true);box.setFocusable(true);
-        if(speed){
+        if(speed || icon==R.drawable.ic_audio_timer){
             LinearLayout group=new LinearLayout(this);group.setOrientation(LinearLayout.VERTICAL);
             group.setGravity(Gravity.CENTER);
             ImageView graphic=new ImageView(this);graphic.setImageResource(icon);
             graphic.setColorFilter(INK);graphic.setScaleType(ImageView.ScaleType.FIT_CENTER);
             group.addView(graphic,new LinearLayout.LayoutParams(dp(21),dp(21)));
-            speedValue=text("1×",11);speedValue.setGravity(Gravity.CENTER);
-            group.addView(speedValue,new LinearLayout.LayoutParams(-1,dp(16)));
+            TextView counter=text(speed?"1×":"",11);counter.setGravity(Gravity.CENTER);
+            if(speed)speedValue=counter;else sleepValue=counter;
+            group.addView(counter,new LinearLayout.LayoutParams(-1,dp(16)));
             box.addView(group,new FrameLayout.LayoutParams(-1,-1,Gravity.CENTER));
         }else{
             ImageView graphic=new ImageView(this);graphic.setImageResource(icon);
@@ -290,12 +291,16 @@ public final class EdgeOnlineActivity extends Activity {
         if(progressText==null)return;
         if(playback!=null){
             if(speedValue!=null)speedValue.setText(speedLabel(playback.playbackSpeed()));
+            if(sleepValue!=null){long ms=playback.sleepRemainingMs();
+                sleepValue.setText(ms<=0?"":ms<60000?Math.max(1,ms/1000)+"с":(ms+59999)/60000+"м");
+            }
             int index=playback.trackIndex();
             fileLabel.setText("Фрагмент №"+(downloads!=null?Math.max(1,downloads.currentOrdinal()):Math.max(1,index+1)));
             long duration=playback.durationMs(),position=playback.positionMs();
             if(!dragging){fileTime.setText(format(position)+" / "+format(duration));seek.setProgress(duration>0?(int)Math.min(1000,position*1000/duration):0);}
             if(playIcon!=null)playIcon.setImageResource(playback.isPlaying()?R.drawable.ic_pause:R.drawable.ic_play);
         }
+        if(playback==null&&sleepValue!=null)sleepValue.setText("");
         if(downloads==null){downloadStatus.setText("Подключение фоновой очереди…");return;}
         loadCover();
         String bookTitle=downloads.title();

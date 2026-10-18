@@ -18,6 +18,8 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.TextView;
+import android.widget.EditText;
+import android.text.InputType;
 
 /** Separate, persistent reader settings with live typography/background preview. */
 public class SettingsActivity extends Activity {
@@ -109,7 +111,40 @@ public class SettingsActivity extends Activity {
         header("Настройки аудио");
         list.addView(action("Эквалайзер · "+equalizerLabel(),R.drawable.ic_equalizer,this::equalizerDialog));gap(8);
         list.addView(action("Выбор движка TTS",R.drawable.ic_tts_engine,this::ttsEngineDialog));gap(8);
+        list.addView(action("Автоотмотка после паузы: "+autoRewindLabel(),this::autoRewindDialog));gap(8);
+        list.addView(action("Перемотка кнопками секунд: "+AudioPlaybackPrefs.seekSeconds(this)+" сек",()->seekStepDialog(false)));gap(8);
+        list.addView(action("Перемотка кнопками минут: "+AudioPlaybackPrefs.seekMinutes(this)+" мин",()->seekStepDialog(true)));gap(8);
         gap(18);
+    }
+    String autoRewindLabel(){int sec=AudioPlaybackPrefs.pauseRewindSeconds(this);
+        return sec==0?"выключена":sec==60?"1 мин":sec+" сек";
+    }
+    void autoRewindDialog(){
+        final int[] values={0,5,10,15,30,60};
+        final String[] names={"Выключено","5 секунд","10 секунд","15 секунд","30 секунд","1 минута"};
+        int selected=0,stored=AudioPlaybackPrefs.pauseRewindSeconds(this);
+        for(int i=0;i<values.length;i++)if(stored==values[i])selected=i;
+        new AlertDialog.Builder(this).setTitle("Автоотмотка после паузы")
+            .setSingleChoiceItems(names,selected,(d,n)->{prefs.edit().putInt(AudioPlaybackPrefs.REWIND_ON_RESUME,values[n]).apply();d.dismiss();draw();})
+            .setNegativeButton("Отмена",null).show();
+    }
+    void seekStepDialog(boolean minutes){
+        int current=minutes?AudioPlaybackPrefs.seekMinutes(this):AudioPlaybackPrefs.seekSeconds(this);
+        int maximum=minutes?120:3600;
+        EditText field=new EditText(this);field.setInputType(InputType.TYPE_CLASS_NUMBER);
+        field.setSingleLine(true);field.setText(String.valueOf(current));field.selectAll();
+        LinearLayout panel=col();panel.setPadding(dp(22),dp(5),dp(22),0);
+        panel.addView(text("Интервал от 1 до "+maximum+(minutes?" минут":" секунд"),14,false));
+        panel.addView(field);
+        new AlertDialog.Builder(this).setTitle(minutes?"Интервал перемотки в минутах":"Интервал перемотки в секундах")
+            .setView(panel).setNegativeButton("Отмена",null)
+            .setPositiveButton("Сохранить",(d,w)->{
+                try{int value=Integer.parseInt(field.getText().toString().trim());
+                    int bounded=AudioPlaybackPrefs.clamp(value,1,maximum);
+                    prefs.edit().putInt(minutes?AudioPlaybackPrefs.SEEK_MINUTES:AudioPlaybackPrefs.SEEK_SECONDS,bounded).apply();
+                }catch(NumberFormatException ignored){}
+                draw();
+            }).show();
     }
     String equalizerLabel(){
         String current=prefs.getString("audio_equalizer","off");

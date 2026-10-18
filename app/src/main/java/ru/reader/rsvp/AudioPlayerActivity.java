@@ -14,9 +14,10 @@ import java.util.*;
 /** Standalone audio interface. Playback remains in AudioPlaybackService on navigation. */
 public class AudioPlayerActivity extends Activity {
     private static final int FILE_PICK=301, FOLDER_PICK=302, COVER_PICK=303;
-    LinearLayout root,playRow,overallTimes; FrameLayout coverArea; TextView overallLabel; ScrollView ttsTextFrame; TextView title,info,elapsed,duration,spokenText,wholeProgress,speedAction; View timerAction; SeekBar progress, totalProgress; TextView chapterElapsed, chapterDuration, overallTime, overallPercent, overallRemaining, speedValue; View chapterPicker; android.widget.ImageView coverImage, playIcon, coverPlaceholderIcon; TextView coverPlaceholderText;
+    LinearLayout root,playRow,overallTimes; FrameLayout coverArea; TextView overallLabel; ScrollView ttsTextFrame; TextView title,info,elapsed,duration,spokenText,wholeProgress,speedAction; View timerAction; TextView timerValue; SeekBar progress, totalProgress; TextView chapterElapsed, chapterDuration, overallTime, overallPercent, overallRemaining, speedValue; View chapterPicker; android.widget.ImageView coverImage, playIcon, coverPlaceholderIcon; TextView coverPlaceholderText;
     Handler handler=new Handler(Looper.getMainLooper()); boolean dragging=false, draggingTotal=false;String bookUri=""; AudioLibrary.Book selected;
     private int shownTtsPosition = -1;
+    private int shownSeekSeconds=-1,shownSeekMinutes=-1;
     private boolean shownTtsMode = false;
     private boolean showingTtsCover = false;
     private String displayedTtsCoverUri = "";
@@ -80,7 +81,9 @@ public class AudioPlayerActivity extends Activity {
         return cell;
     }
     void command(String action){startService(new Intent(this,AudioPlaybackService.class).setAction(action));handler.postDelayed(this::refresh,150);}
-    @Override public void onCreate(Bundle b){super.onCreate(b);bookUri=getIntent().getStringExtra("book_uri");if(bookUri==null||bookUri.isEmpty())bookUri=getSharedPreferences("reader",0).getString("uri","");String id=getIntent().getStringExtra("audio_book_id");if(id!=null)for(AudioLibrary.Book item:AudioLibrary.load(this))if(id.equals(item.id)){selected=item;break;}if(getIntent().getBooleanExtra("count_usage",false)&&selected!=null)bumpAudioUsage(selected.id);draw();String audioAction=getIntent().getStringExtra("audio_action");if(audioAction!=null)handler.post(()->{switch(audioAction){case "tts":loadTts(bookUri,getSharedPreferences("reader",0).getInt("index",0));break;case "voice":voiceMenu();break;case "marks":showMarks();break;case "cover":chooseCover();break;case "sleep":sleepMenu();break;case "speed":speedMenu();break;}});if(selected!=null&&(AudioPlaybackService.instance==null||AudioPlaybackService.instance.isTtsMode()||!selected.id.equals(AudioPlaybackService.instance.getBookId())))openSelected(selected);if(getIntent().getBooleanExtra("start_tts",false)&&!bookUri.isEmpty())loadTts(bookUri,getIntent().getIntExtra("word_index",0));}
+    @Override public void onCreate(Bundle b){super.onCreate(b);bookUri=getIntent().getStringExtra("book_uri");if(bookUri==null||bookUri.isEmpty())bookUri=getSharedPreferences("reader",0).getString("uri","");String id=getIntent().getStringExtra("audio_book_id");if(id!=null)for(AudioLibrary.Book item:AudioLibrary.load(this))if(id.equals(item.id)){selected=item;break;}if(getIntent().getBooleanExtra("count_usage",false)&&selected!=null)bumpAudioUsage(selected.id);draw();String audioAction=getIntent().getStringExtra("audio_action");if(audioAction!=null)handler.post(()->{switch(audioAction){case "tts":loadTts(bookUri,getSharedPreferences("reader",0).getInt("index",0));break;case "voice":voiceMenu();break;case "marks":showMarks();break;case "cover":chooseCover();break;case "sleep":sleepMenu();break;case "speed":speedMenu();break;}});boolean resumeAudio=getIntent().getBooleanExtra("resume_audio",false);
+        if(selected!=null&&(AudioPlaybackService.instance==null||AudioPlaybackService.instance.isTtsMode()||!selected.id.equals(AudioPlaybackService.instance.getBookId())))openSelected(selected,resumeAudio);
+        else if(resumeAudio&&selected!=null)command(AudioPlaybackService.PLAY);if(getIntent().getBooleanExtra("start_tts",false)&&!bookUri.isEmpty())loadTts(bookUri,getIntent().getIntExtra("word_index",0));}
     @Override protected void onResume(){super.onResume();
         if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)
             requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},427);
@@ -103,8 +106,15 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         speedGroup.addView(speedValue,new LinearLayout.LayoutParams(-1,dp(17)));
         speedGroup.setOnClickListener(v->speedMenu());speedGroup.setContentDescription("Скорость");
         top.addView(speedGroup,new LinearLayout.LayoutParams(dp(48),dp(48)));
-        timerAction=topAction(R.drawable.ic_audio_timer,"Таймер сна",v->sleepMenu());
-        top.addView(timerAction,new LinearLayout.LayoutParams(dp(48),dp(48)));
+        LinearLayout timerGroup=new LinearLayout(this);timerGroup.setOrientation(LinearLayout.VERTICAL);
+        timerGroup.setGravity(Gravity.CENTER);timerGroup.setBackground(bg(0xfffff8ef,15));
+        ImageView timerIcon=new ImageView(this);timerIcon.setImageResource(R.drawable.ic_audio_timer);
+        timerIcon.setColorFilter(TEXT);timerGroup.addView(timerIcon,new LinearLayout.LayoutParams(dp(23),dp(23)));
+        timerValue=label("",11);timerValue.setGravity(Gravity.CENTER);timerValue.setSingleLine(true);
+        timerGroup.addView(timerValue,new LinearLayout.LayoutParams(-1,dp(17)));
+        timerGroup.setOnClickListener(v->sleepMenu());timerGroup.setContentDescription("Таймер сна");
+        timerAction=timerGroup;
+        top.addView(timerGroup,new LinearLayout.LayoutParams(dp(48),dp(48)));
         top.addView(topAction(R.drawable.ic_settings,"Аудионастройки",v->openAudioSettings()),new LinearLayout.LayoutParams(dp(48),dp(48)));
         title=label("Аудиокнига",21);title.setGravity(Gravity.CENTER);title.setTypeface(android.graphics.Typeface.SERIF,1);
         title.setMaxLines(2);title.setOnClickListener(v->selectBook());
@@ -181,11 +191,13 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
     void buildPlaybackButtons(boolean isTts){
         playRow.removeAllViews();
         // TTS positions are text fragments, not seconds. MP3 audiobook keeps its own seek buttons.
+        final int seconds=AudioPlaybackPrefs.seekSeconds(this), minutes=AudioPlaybackPrefs.seekMinutes(this);
+        shownSeekSeconds=seconds;shownSeekMinutes=minutes;
         String[] hints=isTts?new String[]{"Фрагмент","","Фрагмент"}:
-                new String[]{"Глава","1 мин","10 сек","","10 сек","1 мин","Глава"};
+                new String[]{"Глава",minutes+" мин",seconds+" сек","",seconds+" сек",minutes+" мин","Глава"};
         int[] icons=isTts?new int[]{R.drawable.ic_prev_chapter,R.drawable.ic_play,R.drawable.ic_next_chapter}:
                 new int[]{R.drawable.ic_prev_chapter,R.drawable.ic_rewind_1m,R.drawable.ic_rewind_10s,R.drawable.ic_play,R.drawable.ic_forward_10s,R.drawable.ic_forward_1m,R.drawable.ic_next_chapter};
-        final int[] offsets={0,-60000,-10000,0,10000,60000,0};
+        final int[] offsets={0,-minutes*60000,-seconds*1000,0,seconds*1000,minutes*60000,0};
         for(int n=0;n<icons.length;n++){
             final int k=n,center=isTts?1:3;
             LinearLayout cell=bottomIconControl(icons[n],hints[n],n==center,n==center?26:22,v->{
@@ -300,8 +312,12 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
     void goChapter(int n){startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.CHAPTER).putExtra("chapter",n));}
     void importFolder(){new AlertDialog.Builder(this).setTitle("Добавление аудиокниг").setItems(new String[]{"Выбранная папка — одна книга","Сканировать вложенные папки как отдельные книги"},(d,n)->{getSharedPreferences("reader",0).edit().putBoolean("audio_recursive",n==1).apply();Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,FOLDER_PICK);}).show();}
     void openAudioSettings(){startActivity(new Intent(this,SettingsActivity.class).putExtra("audio_tab",true).putExtra("audio_book_id",selected==null?"":selected.id));}
-    void openSelected(AudioLibrary.Book b){selected=b;AudiobookCoverStore.backfillOne(this,b.id,()->{if(selected!=null&&selected.id.equals(b.id))updateCover();});Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.LOAD);i.putExtra("title",b.name);i.putExtra("bookId",b.id);i.putExtra("uris",b.uris.toArray(new String[0]));i.putExtra("chapters",b.chapters.toArray(new String[0]));i.putExtra("autoplay",false);startService(i);updateCover();}
-    void jump(int by){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null)return;Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SEEK);i.putExtra("position",Math.max(0,s.getPosition()+(s.isTtsMode()? (by>0?1:-1):by)));startService(i);}
+    void openSelected(AudioLibrary.Book b){openSelected(b,false);}
+    void openSelected(AudioLibrary.Book b,boolean autoPlay){selected=b;AudiobookCoverStore.backfillOne(this,b.id,()->{if(selected!=null&&selected.id.equals(b.id))updateCover();});Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.LOAD);i.putExtra("title",b.name);i.putExtra("bookId",b.id);i.putExtra("uris",b.uris.toArray(new String[0]));i.putExtra("chapters",b.chapters.toArray(new String[0]));i.putExtra("autoplay",autoPlay);startService(i);updateCover();}
+    void jump(int by){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null)return;
+        Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SEEK_RELATIVE);
+        i.putExtra("delta_ms",by);startService(i);
+    }
     void importFiles(){Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("audio/*");i.addCategory(Intent.CATEGORY_OPENABLE);i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,FILE_PICK);}
     @Override protected void onActivityResult(int req,int res,Intent data){super.onActivityResult(req,res,data);if(res!=RESULT_OK||data==null)return;
         if(req==COVER_PICK&&data.getData()!=null){try{getContentResolver().takePersistableUriPermission(data.getData(),Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}if(selected!=null)getSharedPreferences("reader",0).edit().putString("audio_cover:"+selected.id,data.getData().toString()).apply();updateCover();return;}
@@ -347,7 +363,17 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         playIcon.setImageResource(service.isPaused()?R.drawable.ic_play:R.drawable.ic_pause);
         playIcon.setColorFilter(Color.WHITE);
         if(speedValue!=null){float rate=service.getSpeed();setTextIfDifferent(speedValue,(rate==(int)rate?Integer.toString((int)rate):Float.toString(rate))+"×");}
-        if(timerAction!=null)timerAction.setAlpha(service.getSleepRemainingMillis()>0?1f:.70f);
+        if(timerAction!=null){
+            long remaining=service.getSleepRemainingMillis();timerAction.setAlpha(remaining>0?1f:.70f);
+            if(timerValue!=null){
+                String counter=remaining<=0?"":remaining<60000?(Math.max(1,remaining/1000)+"с"):
+                    ((remaining+59999)/60000)+"м";
+                setTextIfDifferent(timerValue,counter);
+                timerAction.setContentDescription(remaining<=0?"Таймер сна выключен":"Таймер сна: осталось "+counter);
+            }
+        }
+        if(!service.isTtsMode() && (shownSeekSeconds!=AudioPlaybackPrefs.seekSeconds(this)
+                ||shownSeekMinutes!=AudioPlaybackPrefs.seekMinutes(this)))buildPlaybackButtons(false);
         if(service.isTtsMode()){
             String source=service.getTtsBookUri();
             showTtsCover(source.isEmpty()?bookUri:source);

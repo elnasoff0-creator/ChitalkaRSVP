@@ -16,7 +16,7 @@ import java.util.*;
 /** Background playback for local audio and system TTS. Never stores private files in a public directory. */
 public class AudioPlaybackService extends Service implements TextToSpeech.OnInitListener {
     public static final String CHANNEL="reader_audio", ACTION_STATE="ru.reader.rsvp.AUDIO_STATE";
-    public static final String LOAD="load", PLAY="play", PAUSE="pause", SEEK="seek", NEXT="next", PREV="prev", STOP="stop", SPEED="speed", SLEEP="sleep", TTS="tts", VOICE="voice", CHAPTER="chapter", ENGINE="engine";
+    public static final String LOAD="load", PLAY="play", PAUSE="pause", SEEK="seek", NEXT="next", PREV="prev", STOP="stop", SPEED="speed", SLEEP="sleep", SEEK_RELATIVE="seek_relative", TTS="tts", VOICE="voice", CHAPTER="chapter", ENGINE="engine";
     public static AudioPlaybackService instance;
     private MediaPlayer player;
     private TextToSpeech tts;
@@ -38,10 +38,19 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     private int ttsWordCount=0;
     private long sleepDeadline=0;
     private double pendingChapterFraction=0;
+    // Keep the intended offset while MediaPlayer is preparing/seeking, so a background
+    // shutdown can never overwrite saved progress with its temporary 00:00 position.
+    private int preparedPosition=0;
+    private boolean playerReady=false, seekPending=false, rewindOnNextPlay=false;
+    private boolean playAfterSeek=false, playWhenPrepared=false;
+    private boolean userPausedWhilePreparing=false;
+    private long pendingRelativeWhilePreparing=0;
+    private long lastSavedPosition=0;
+
     private ArrayList<String> playlist=new ArrayList<>(), chunks=new ArrayList<>(), chapterNames=new ArrayList<>();
     private String title="Аудиокнига", currentBook="", bookId="";
     private Handler handler=new Handler(Looper.getMainLooper());
-    private final Runnable tick=new Runnable(){public void run(){if(active){if(!ttsMode&&player!=null){try{if(player.isPlaying())saveProgress();}catch(Exception ignored){}}if(sleepDeadline>0&&System.currentTimeMillis()>=sleepDeadline){pausePlayback();sleepDeadline=0;}notifyState();handler.postDelayed(this,1000);}}};
+    private final Runnable tick=new Runnable(){public void run(){if(active){if(!ttsMode&&player!=null){try{if(player.isPlaying())saveProgress();}catch(Exception ignored){}}if(sleepDeadline>0&&System.currentTimeMillis()>=sleepDeadline){pausePlayback();sleepDeadline=0;getSharedPreferences("reader",0).edit().putLong("audio_sleep_deadline",0).apply();}notifyState();handler.postDelayed(this,1000);}}};
     @Override public void onCreate(){super.onCreate();instance=this;android.app.NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);if(Build.VERSION.SDK_INT>=26)nm.createNotificationChannel(new NotificationChannel(CHANNEL,"Аудиокниги",NotificationManager.IMPORTANCE_LOW));audioFocus=new PlaybackAudioFocus(this, () -> {
             interruptedByExternalAudio = true;
             if (active && !paused) pausePlayback();
@@ -50,6 +59,8 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         IntentFilter noisyFilter=new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY);
         if(Build.VERSION.SDK_INT>=33)registerReceiver(noisyReceiver,noisyFilter,Context.RECEIVER_NOT_EXPORTED);
         else registerReceiver(noisyReceiver,noisyFilter);
+        sleepDeadline=getSharedPreferences("reader",0).getLong("audio_sleep_deadline",0);
+        if(sleepDeadline<=System.currentTimeMillis())sleepDeadline=0;
         String preferred=getSharedPreferences("reader",0).getString("tts_engine","");
         tts=preferred.isEmpty()?new TextToSpeech(this,this):new TextToSpeech(this,this,preferred);
         handler.post(tick);}
@@ -60,6 +71,8 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
           ttsMode=false;active=true;loadChapterDurations();speed=getSharedPreferences("reader",0).getFloat("audio_speed",1f);
           segment=Math.max(0,Math.min(Math.max(0,playlist.size()-1),getSharedPreferences("reader",0).getInt("audio_segment:"+bookId,0)));
           int resume=getSharedPreferences("reader",0).getInt("audio_pos:"+bookId,0);
+          rewindOnNextPlay=false;playWhenPrepared=false;playAfterSeek=false;
+          userPausedWhilePreparing=false;pendingRelativeWhilePreparing=0;
           prepareAudio(resume,intent.getBooleanExtra("autoplay",false));break;}
         case TTS: {AudioModeCoordinator.stopEdge(this);interruptedByExternalAudio=false;if(active)saveProgress(); if(tts!=null)tts.stop(); title="Загрузка книги…";currentBook=intent.getStringExtra("bookUri");final String source=currentBook;
           ttsMode=true;active=true;paused=true;releasePlayer();
@@ -70,6 +83,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         case STOP: stopServicePlayback();break;
         case NEXT: jump(ttsMode?1:1);break;case PREV:jump(-1);break;
         case SEEK:seekTo(intent.getIntExtra("position",0));break;
+        case SEEK_RELATIVE:seekRelative(intent.getIntExtra("delta_ms",0),!paused);break;
         case SPEED: speed=Math.max(.5f,Math.min(3f,intent.getFloatExtra("speed",1)));if(tts!=null)tts.setSpeechRate(speed);if(!paused)applySpeed();saveProgress();notifyState();break;
         case SLEEP: {int minutes=intent.getIntExtra("minutes",0);sleepDeadline=minutes<=0?0:System.currentTimeMillis()+minutes*60000L;getSharedPreferences("reader",0).edit().putLong("audio_sleep_deadline",sleepDeadline).apply();break;}
         case ENGINE: {boolean wasPlaying=active&&ttsMode&&!paused;
@@ -79,7 +93,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
             String selected=getSharedPreferences("reader",0).getString("tts_engine","");
             tts=selected.isEmpty()?new TextToSpeech(this,this):new TextToSpeech(this,this,selected);break;}
         case VOICE: {float p=intent.getFloatExtra("pitch",1f);pitch=Math.max(.6f,Math.min(1.5f,p));if(tts!=null)tts.setPitch(pitch);break;}
-        case CHAPTER: {int target=intent.getIntExtra("chapter",0);if(!ttsMode&&target>=0&&target<playlist.size()){boolean shouldPlay=false;segment=target;pendingChapterFraction=Math.max(0,Math.min(1,intent.getDoubleExtra("fraction",0)));prepareAudio(0,shouldPlay);}break;}
+        case CHAPTER: {int target=intent.getIntExtra("chapter",0);if(!ttsMode&&target>=0&&target<playlist.size()){boolean shouldPlay=!paused;segment=target;pendingChapterFraction=Math.max(0,Math.min(1,intent.getDoubleExtra("fraction",0)));prepareAudio(0,shouldPlay);}break;}
     }notifyState();return START_STICKY;}
     // Probe audio durations off the main thread so a large library never freezes the UI.
     private void loadChapterDurations(){
@@ -122,17 +136,103 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         }
     }
     private String playlistKey(){return playlist.isEmpty()?"":playlist.get(0);}
-    private void prepareAudio(int offset,boolean autoplay){releasePlayer();paused=true;duration=0;notifyState();if(playlist.isEmpty())return;try{Uri uri=Uri.parse(playlist.get(segment));player=new MediaPlayer();player.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());player.setDataSource(this,uri);player.setOnPreparedListener(mp->{duration=mp.getDuration();if(segment>=0&&segment<chapterDurations.size()&&duration>0)chapterDurations.set(segment,(long)duration);int target=pendingChapterFraction>0?(int)(pendingChapterFraction*duration):offset;pendingChapterFraction=0;mp.seekTo(Math.max(0,Math.min(target,duration)));AudioEqualizer.attach(this,mp.getAudioSessionId());if(autoplay && !interruptedByExternalAudio && audioFocus.acquire()){mp.start();paused=false;applySpeed();}else{paused=true;}saveProgress();notifyState();});player.setOnCompletionListener(mp->{if(segment+1<playlist.size()){segment++;prepareAudio(0,true);}else pausePlayback();});player.prepareAsync();}catch(Exception e){paused=true;notifyState();}}
-    private void releasePlayer(){if(player!=null){try{player.reset();player.release();}catch(Exception ignored){}player=null;}}
+    private void prepareAudio(int offset,boolean autoplay){prepareAudioTarget(offset,false,autoplay);}
+    /** Prepare one chapter and resolve a signed offset into adjacent chapters if needed. */
+    private void prepareAudioTarget(long requestedOffset,boolean fromChapterEnd,boolean autoplay){
+        releasePlayer();playerReady=false;seekPending=false;paused=true;duration=0;
+        preparedPosition=(int)Math.max(0,Math.min(Integer.MAX_VALUE,fromChapterEnd?0:requestedOffset));
+        notifyState();if(playlist.isEmpty())return;
+        final int preparedChapter=segment;
+        try{
+            Uri uri=Uri.parse(playlist.get(segment));player=new MediaPlayer();
+            player.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
+            player.setDataSource(this,uri);
+            player.setOnPreparedListener(mp->{
+                if(mp!=player||preparedChapter!=segment)return;
+                duration=mp.getDuration();
+                if(segment>=0&&segment<chapterDurations.size()&&duration>0)chapterDurations.set(segment,(long)duration);
+                long desired=fromChapterEnd?duration+requestedOffset:requestedOffset;
+                if(pendingRelativeWhilePreparing!=0){desired+=pendingRelativeWhilePreparing;pendingRelativeWhilePreparing=0;}
+                if(pendingChapterFraction>0){desired=(long)(pendingChapterFraction*duration);pendingChapterFraction=0;}
+                int direction=AudioSeekBounds.step(segment,playlist.size(),duration,desired);
+                if(direction<0){segment--;prepareAudioTarget(desired,true,autoplay);return;}
+                if(direction>0){segment++;prepareAudioTarget(AudioSeekBounds.remaining(desired,duration,direction),false,autoplay);return;}
+                int target=AudioSeekBounds.clamped(desired,duration);
+                preparedPosition=target;playerReady=true;
+                AudioEqualizer.attach(this,mp.getAudioSessionId());
+                // Don't let a pending seek be recorded as position zero.
+                seekPending=target>0;
+                saveProgress();
+                Runnable startAfterSeek=()->{
+                    if(mp!=player||preparedChapter!=segment)return;
+                    seekPending=false;
+                    preparedPosition=target;
+                    if((autoplay||playWhenPrepared||playAfterSeek)&&!userPausedWhilePreparing
+                            &&!interruptedByExternalAudio&&audioFocus.acquire()){
+                        try{mp.start();paused=false;applySpeed();}catch(Exception ignored){paused=true;}
+                    }else paused=true;
+                    playWhenPrepared=false;playAfterSeek=false;userPausedWhilePreparing=false;
+                    saveProgress();notifyState();
+                };
+                if(target>0){
+                    seekPending=true;
+                    mp.setOnSeekCompleteListener(done->startAfterSeek.run());
+                    mp.seekTo(target);
+                }else startAfterSeek.run();
+            });
+            player.setOnCompletionListener(mp->{if(mp!=player)return;if(segment+1<playlist.size()){
+                segment++;rewindOnNextPlay=false;prepareAudio(0,true);
+            }else pausePlayback();});
+            player.prepareAsync();
+        }catch(Exception e){paused=true;saveProgress();notifyState();}
+    }
+    /** Relative timeline seeking automatically continues through chapter boundaries. */
+    private void seekRelative(int deltaMs,boolean autoplay){
+        if(ttsMode){seekTo(ttsPosition+(deltaMs>=0?1:-1));return;}
+        if(playlist.isEmpty())return;
+        if(!playerReady){
+            pendingRelativeWhilePreparing+=deltaMs;
+            if(autoplay)playWhenPrepared=true;
+            return;
+        }
+        long wanted=(long)getPosition()+deltaMs;
+        int direction=AudioSeekBounds.step(segment,playlist.size(),duration,wanted);
+        if(direction<0){segment--;prepareAudioTarget(wanted,true,autoplay);return;}
+        if(direction>0){segment++;prepareAudioTarget(AudioSeekBounds.remaining(wanted,duration,direction),false,autoplay);return;}
+        playAfterSeek=autoplay&&paused;
+        seekTo(AudioSeekBounds.clamped(wanted,duration));
+        if(playAfterSeek&&!seekPending){playAfterSeek=false;startPlayerNow();}
+    }
+    private void startPlayerNow(){
+        if(player==null||!playerReady||seekPending)return;
+        if(!audioFocus.acquire()){paused=true;notifyState();return;}
+        try{player.start();paused=false;applySpeed();}catch(Exception ignored){paused=true;}
+        notifyState();
+    }
+    private void releasePlayer(){playerReady=false;seekPending=false;if(player!=null){try{player.reset();player.release();}catch(Exception ignored){}player=null;}}
     private void applySpeed(){if(player!=null&&!paused)try{player.setPlaybackParams(player.getPlaybackParams().setSpeed(speed));}catch(Exception ignored){}}
     private void resume(){
         interruptedByExternalAudio=false;
-        if (!audioFocus.acquire()) { paused=true;notifyState();return; }
         if(ttsMode){startTts();return;}
-        if(player!=null)try{player.start();paused=false;applySpeed();}catch(Exception ignored){}
-        notifyState();
+        if(rewindOnNextPlay){
+            rewindOnNextPlay=false;
+            int seconds=AudioPlaybackPrefs.pauseRewindSeconds(this);
+            if(seconds>0){seekRelative(-seconds*1000,true);return;}
+        }
+        if(!playerReady){playWhenPrepared=true;userPausedWhilePreparing=false;return;}
+        if(seekPending){playAfterSeek=true;userPausedWhilePreparing=false;return;}
+        startPlayerNow();
     }
-    private void pausePlayback(){if(ttsMode){if(tts!=null)tts.stop();paused=true;}else if(player!=null){try{if(player.isPlaying())player.pause();}catch(Exception ignored){}paused=true;}saveProgress();audioFocus.release();notifyState();}
+    private void pausePlayback(){
+        userPausedWhilePreparing=!playerReady;
+        playWhenPrepared=false;playAfterSeek=false;
+        boolean wasPlaying=!paused;
+        if(ttsMode){if(tts!=null)tts.stop();paused=true;}
+        else if(player!=null){try{if(player.isPlaying())player.pause();}catch(Exception ignored){}paused=true;
+            if(wasPlaying)rewindOnNextPlay=true;
+        }
+        saveProgress();audioFocus.release();notifyState();
+    }
     private void stopServicePlayback(){if(ttsMode){if(tts!=null)tts.stop();}else if(player!=null){try{if(player.isPlaying())player.pause();}catch(Exception ignored){}}paused=true;saveProgress();audioFocus.release();releasePlayer();active=false;Intent i=new Intent(ACTION_STATE);i.setPackage(getPackageName());sendBroadcast(i);stopForeground(STOP_FOREGROUND_REMOVE);stopSelf();}
     private int audioProgressPercent(){
         if(ttsMode||playlist.isEmpty()||bookId==null||bookId.isEmpty())return 0;
@@ -150,7 +250,22 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         }
         return Math.max(0,Math.min(100,segment*100/Math.max(1,playlist.size())));
     }
-    private void seekTo(int pos){if(ttsMode){ttsPosition=Math.max(0,Math.min(chunks.size()-1,pos));if(!paused)startTts();}else if(player!=null){player.seekTo(Math.max(0,Math.min(duration,pos)));}saveProgress();notifyState();}
+    private void seekTo(int pos){
+        if(ttsMode){ttsPosition=Math.max(0,Math.min(chunks.size()-1,pos));if(!paused)startTts();}
+        else if(player!=null){
+            int wanted=Math.max(0,Math.min(duration,pos));preparedPosition=wanted;
+            if(playerReady){
+                seekPending=true;
+                MediaPlayer thisPlayer=player;
+                thisPlayer.setOnSeekCompleteListener(mp->{if(player!=mp)return;seekPending=false;preparedPosition=mp.getCurrentPosition();
+                    boolean shouldStart=playAfterSeek;playAfterSeek=false;
+                    if(shouldStart)startPlayerNow();
+                    saveProgress();notifyState();});
+                try{thisPlayer.seekTo(wanted);}catch(Exception ignored){seekPending=false;}
+            }
+        }
+        saveProgress();notifyState();
+    }
     private void jump(int change){if(ttsMode){seekTo(ttsPosition+change);return;}if(change>0){if(segment+1<playlist.size()){segment++;prepareAudio(0,!paused);}else seekTo(getPosition()+30000);}else {if(getPosition()>15000)seekTo(getPosition()-15000);else if(segment>0){segment--;prepareAudio(0,!paused);}else seekTo(0);}}
     private int chunkForWord(int wordIndex){
         if(chunkWordPositions.isEmpty())return 0;
@@ -208,7 +323,11 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     private void speakChunk(){if(paused||tts==null||ttsPosition>=chunks.size()){paused=true;notifyState();return;}Bundle p=new Bundle();tts.speak(chunks.get(ttsPosition),TextToSpeech.QUEUE_FLUSH,p,"chunk_"+ttsPosition);saveProgress();}
     @Override public void onInit(int status){ttsReady=status==TextToSpeech.SUCCESS;if(ttsReady){tts.setLanguage(new Locale("ru"));tts.setAudioAttributes(new AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());tts.setOnUtteranceProgressListener(new UtteranceProgressListener(){@Override public void onStart(String u){}@Override public void onDone(String u){handler.post(()->{if(!paused&&ttsMode){ttsPosition++;if(ttsPosition<chunks.size())speakChunk();else {paused=true;audioFocus.release();notifyState();}}});}@Override public void onError(String u){handler.post(()->{paused=true;notifyState();});}});if(active&&ttsMode&&ttsStartRequested)startTts();}}
-    public int getPosition(){if(ttsMode)return ttsPosition;try{return player==null?0:player.getCurrentPosition();}catch(Exception e){return 0;}}
+    public int getPosition(){
+        if(ttsMode)return ttsPosition;
+        if(player==null||!playerReady||seekPending)return preparedPosition;
+        try{return player.getCurrentPosition();}catch(Exception e){return preparedPosition;}
+    }
     public int getDuration(){return ttsMode?chunks.size():duration;}
     public boolean isPaused(){return paused;} public boolean isTtsMode(){return ttsMode;} public float getSpeed(){return speed;} public long getSleepRemainingMillis(){return sleepDeadline>0?Math.max(0,sleepDeadline-System.currentTimeMillis()):0;}public String getTitle(){return title;}public String getTtsBookUri(){return ttsMode?currentBook:"";}public int getSegment(){return segment;} public int getChapterCount(){return playlist.size();} public String getChapterName(int n){return n>=0&&n<chapterNames.size()?chapterNames.get(n):"Глава "+(n+1);} public String getBookId(){return bookId;} public String getCurrentText(){return ttsMode&&ttsPosition>=0&&ttsPosition<chunks.size()?chunks.get(ttsPosition):"";}
     private void saveProgress(){android.content.SharedPreferences.Editor e=getSharedPreferences("reader",0).edit();if(ttsMode){e.putInt("tts_pos:"+currentBook,ttsPosition);saveTtsReadingPosition(e);}else{e.putInt("audio_pos:"+bookId,getPosition()).putInt("audio_segment:"+bookId,segment).putString("audio_current_title",title).putInt("audio_progress:"+bookId,audioProgressPercent());}e.putFloat("audio_speed",speed).putBoolean("audio_tts",ttsMode).apply();}

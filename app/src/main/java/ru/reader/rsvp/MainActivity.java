@@ -277,9 +277,11 @@ public class MainActivity extends Activity {
         return sorted;
     }
 
-    void openAudioBook(String id) {
+    void openAudioBook(String id) {openAudioBook(id,false);}
+    void openAudioBook(String id,boolean resumePlayback) {
         if (id == null || id.isEmpty()) return;
-        startActivity(new Intent(this, AudioPlayerActivity.class).putExtra("audio_book_id", id).putExtra("count_usage", true));
+        startActivity(new Intent(this, AudioPlayerActivity.class).putExtra("audio_book_id", id)
+            .putExtra("count_usage", true).putExtra("resume_audio",resumePlayback));
     }
 
     int subduedText() { return bg == 0xff1e2025 ? 0xff8f8a82 : 0xff9d948a; }
@@ -412,7 +414,7 @@ public class MainActivity extends Activity {
             TextView pos=text("Глава "+(chapter+1)+" из "+lastBook.uris.size()+" · "+chapterName+" · "+listenProgress+"%",13,false);
             pos.setSingleLine(true);pos.setEllipsize(TextUtils.TruncateAt.END);pos.setTextColor(listenProgress >= 100 ? subduedText() : faintText());recentInfo.addView(pos);
             TextView continueAudio=buttonish(listenProgress >= 100 ? "↺  Слушать снова" : "▶  Продолжить",accent(),0xffffffff,true);
-            continueAudio.setOnClickListener(v->openAudioBook(lastBook.id));
+            continueAudio.setOnClickListener(v->openAudioBook(lastBook.id,true));
             LinearLayout.LayoutParams resumeLp=new LinearLayout.LayoutParams(-2,dp(44));resumeLp.topMargin=dp(8);
             recentInfo.addView(continueAudio,resumeLp);
             recentCard.setOnClickListener(v->openAudioBook(lastBook.id));
