@@ -107,7 +107,7 @@ public final class DownloadActivity extends Activity {
         for(int i=0;i<labels.length;i++){
             final int n=i;TextView v=center(labels[i],14);v.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
             v.setPadding(dp(14),0,dp(14),0);v.setMinWidth(dp(78));
-            v.setTextColor(n==filter?Color.WHITE:INK);v.setBackground(bg(n==filter?ACCENT:PANEL,17));
+            int fill=n==filter?ReaderButtonColors.accent(this,ACCENT):ReaderButtonColors.neutral(this,PANEL);v.setTextColor(ReaderButtonColors.contrastingText(fill));v.setBackground(bg(fill,17));
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,dp(45));if(i>0)lp.leftMargin=dp(7);filters.addView(v,lp);
             v.setOnClickListener(view->{filter=n;getSharedPreferences("reader",0).edit().putInt(FILTER_KEY,n).apply();updateFilterButtons();refresh();});
         }

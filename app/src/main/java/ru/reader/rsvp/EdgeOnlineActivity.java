@@ -38,6 +38,10 @@ import java.util.Locale;
  */
 public final class EdgeOnlineActivity extends Activity {
     private static final int BG=0xfff3e7d5,INK=0xff30221e,MUTED=0xff716259,ACCENT=0xffa26949;
+    private int primaryColor(){return ReaderButtonColors.accent(this,ACCENT);}
+    private int neutralColor(){return ReaderButtonColors.neutral(this,0xfffff9f0);}
+    private int primaryInk(){return ReaderButtonColors.contrastingText(primaryColor());}
+    private int neutralInk(){return ReaderButtonColors.contrastingText(neutralColor());}
     private final Handler main=new Handler(Looper.getMainLooper());
     private final Runnable ticker=new Runnable(){@Override public void run(){refresh();main.postDelayed(this,500);}};
     private String bookUri="";
@@ -84,13 +88,13 @@ public final class EdgeOnlineActivity extends Activity {
     /** Icon-only controls are FrameLayouts so no TextView font baseline can offset them. */
     private FrameLayout iconButton(int icon,String hint,boolean primary,boolean speed){
         FrameLayout box=new FrameLayout(this);
-        box.setBackground(rounded(primary?ACCENT:0xfffff9f0,15));
+        box.setBackground(rounded(primary?primaryColor():neutralColor(),15));
         box.setContentDescription(hint);box.setClickable(true);box.setFocusable(true);
         if(speed || icon==R.drawable.ic_audio_timer){
             LinearLayout group=new LinearLayout(this);group.setOrientation(LinearLayout.VERTICAL);
             group.setGravity(Gravity.CENTER);
             ImageView graphic=new ImageView(this);graphic.setImageResource(icon);
-            graphic.setColorFilter(INK);graphic.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            graphic.setColorFilter(neutralInk());graphic.setScaleType(ImageView.ScaleType.FIT_CENTER);
             group.addView(graphic,new LinearLayout.LayoutParams(dp(21),dp(21)));
             TextView counter=text(speed?"1×":"",11);counter.setGravity(Gravity.CENTER);
             if(speed)speedValue=counter;else {sleepValue=counter;counter.setVisibility(View.GONE);}
@@ -98,7 +102,7 @@ public final class EdgeOnlineActivity extends Activity {
             box.addView(group,new FrameLayout.LayoutParams(-1,-1,Gravity.CENTER));
         }else{
             ImageView graphic=new ImageView(this);graphic.setImageResource(icon);
-            graphic.setColorFilter(primary?Color.WHITE:INK);
+            graphic.setColorFilter(primary?primaryInk():neutralInk());
             graphic.setScaleType(ImageView.ScaleType.FIT_CENTER);
             box.addView(graphic,new FrameLayout.LayoutParams(dp(primary?27:24),dp(primary?27:24),Gravity.CENTER));
             if(primary)playIcon=graphic;
@@ -106,12 +110,12 @@ public final class EdgeOnlineActivity extends Activity {
         return box;
     }
     private Button captionButton(String value,int icon,boolean primary){
-        Button b=new Button(this);b.setAllCaps(false);b.setText(value);b.setTextSize(12);b.setTextColor(primary?Color.WHITE:INK);
-        b.setBackground(rounded(primary?ACCENT:0xfffff9f0,14));b.setPadding(dp(8),0,dp(8),0);
+        Button b=new Button(this);b.setAllCaps(false);b.setText(value);b.setTextSize(12);b.setTextColor(primary?primaryInk():neutralInk());
+        b.setBackground(rounded(primary?primaryColor():neutralColor(),14));b.setPadding(dp(8),0,dp(8),0);
         b.setGravity(Gravity.CENTER);
         b.setCompoundDrawablePadding(dp(7));
         b.setCompoundDrawablesWithIntrinsicBounds(icon,0,0,0);
-        for(android.graphics.drawable.Drawable d:b.getCompoundDrawables())if(d!=null)d.setTint(primary?Color.WHITE:INK);
+        for(android.graphics.drawable.Drawable d:b.getCompoundDrawables())if(d!=null)d.setTint(primary?primaryInk():neutralInk());
         return b;
     }
     private void startDownload(){

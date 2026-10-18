@@ -25,17 +25,21 @@ public class AudioPlayerActivity extends Activity {
     final int BACKGROUND=0xfff3e7d5, TEXT=0xff30221e, ACCENT=0xff94583b;
     BroadcastReceiver receiver=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){refresh();}};
     Runnable updater=new Runnable(){public void run(){refresh();handler.postDelayed(this,1000);}};
+    int primaryColor(){return ReaderButtonColors.accent(this,ACCENT);}
+    int neutralColor(){return ReaderButtonColors.neutral(this,0xfffff8ef);}
+    int neutralInk(){return ReaderButtonColors.contrastingText(neutralColor());}
+    int primaryInk(){return ReaderButtonColors.contrastingText(primaryColor());}
     int dp(int n){return (int)(getResources().getDisplayMetrics().density*n+.5f);}
     GradientDrawable bg(int color,int radius){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(radius));return d;}
     TextView label(String s,int size){TextView v=new TextView(this);v.setText(s);v.setTextSize(size);v.setTextColor(TEXT);return v;}
-    TextView control(String text,View.OnClickListener action){TextView t=label(text,19);t.setGravity(Gravity.CENTER);t.setBackground(bg(0xfffff8ef,13));t.setOnClickListener(action);t.setPadding(dp(10),dp(12),dp(10),dp(12));return t;}
+    TextView control(String text,View.OnClickListener action){TextView t=label(text,19);t.setGravity(Gravity.CENTER);t.setTextColor(neutralInk());t.setBackground(bg(neutralColor(),13));t.setOnClickListener(action);t.setPadding(dp(10),dp(12),dp(10),dp(12));return t;}
     View topAction(int icon,String description,View.OnClickListener action){
         FrameLayout box=new FrameLayout(this);
-        box.setBackground(bg(0xfffff8ef,14));
+        box.setBackground(bg(neutralColor(),14));
         box.setContentDescription(description);
         box.setOnClickListener(action);
         ImageView graphic=new ImageView(this);graphic.setImageResource(icon);
-        graphic.setColorFilter(TEXT);graphic.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        graphic.setColorFilter(neutralInk());graphic.setScaleType(ImageView.ScaleType.FIT_CENTER);
         box.addView(graphic,new FrameLayout.LayoutParams(dp(24),dp(24),Gravity.CENTER));
         return box;
     }
@@ -56,9 +60,9 @@ public class AudioPlayerActivity extends Activity {
             buttonBackground=new GradientDrawable();
             buttonBackground.setShape(GradientDrawable.RECTANGLE);
             buttonBackground.setCornerRadius(dp(16));
-            buttonBackground.setColor(ACCENT);
+            buttonBackground.setColor(primaryColor());
         }else{
-            buttonBackground=bg(0xfffff8ef,13);
+            buttonBackground=bg(neutralColor(),13);
         }
         holder.setBackground(buttonBackground);
         holder.setClipToOutline(false);
@@ -70,7 +74,7 @@ public class AudioPlayerActivity extends Activity {
         ImageView icon=new ImageView(this);
         icon.setImageResource(iconRes);
         icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        icon.setColorFilter(primary?Color.WHITE:TEXT);
+        icon.setColorFilter(primary?primaryInk():neutralInk());
         FrameLayout.LayoutParams ip=new FrameLayout.LayoutParams(dp(iconSizeDp),dp(iconSizeDp),Gravity.CENTER);
         holder.addView(icon,ip);
         TextView cap=label(hint==null?"":hint,10);
@@ -98,7 +102,7 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         chapterPicker=topAction(R.drawable.ic_list_audio,"Выбрать главу",v->chapters());
         top.addView(chapterPicker,new LinearLayout.LayoutParams(dp(48),dp(48)));
         LinearLayout speedGroup=new LinearLayout(this);speedGroup.setOrientation(1);speedGroup.setGravity(Gravity.CENTER);
-        speedGroup.setBackground(bg(0xfffff8ef,15));
+        speedGroup.setBackground(bg(neutralColor(),15));
         android.widget.ImageView speedIcon=new android.widget.ImageView(this);
         speedIcon.setImageResource(R.drawable.ic_audio_speed);speedIcon.setColorFilter(TEXT);
         speedGroup.addView(speedIcon,new LinearLayout.LayoutParams(dp(25),dp(25)));
@@ -107,7 +111,7 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         speedGroup.setOnClickListener(v->speedMenu());speedGroup.setContentDescription("Скорость");
         top.addView(speedGroup,new LinearLayout.LayoutParams(dp(48),dp(48)));
         LinearLayout timerGroup=new LinearLayout(this);timerGroup.setOrientation(LinearLayout.VERTICAL);
-        timerGroup.setGravity(Gravity.CENTER);timerGroup.setBackground(bg(0xfffff8ef,15));
+        timerGroup.setGravity(Gravity.CENTER);timerGroup.setBackground(bg(neutralColor(),15));
         ImageView timerIcon=new ImageView(this);timerIcon.setImageResource(R.drawable.ic_audio_timer);
         timerIcon.setColorFilter(TEXT);timerGroup.addView(timerIcon,new LinearLayout.LayoutParams(dp(23),dp(23)));
         timerValue=label("",11);timerValue.setGravity(Gravity.CENTER);timerValue.setSingleLine(true);timerValue.setVisibility(View.GONE);
@@ -162,7 +166,7 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         coverArea.setOnLongClickListener(v->{if(!showingTtsCover)chooseCover();return true;});
         coverArea.setOnClickListener(v->{if(!showingTtsCover)chooseCover();});
         LinearLayout coverPlaceholder=new LinearLayout(this);coverPlaceholder.setOrientation(LinearLayout.VERTICAL);coverPlaceholder.setGravity(Gravity.CENTER);
-        coverPlaceholderIcon=new ImageView(this);coverPlaceholderIcon.setImageResource(R.drawable.ic_plus);coverPlaceholderIcon.setColorFilter(ACCENT);
+        coverPlaceholderIcon=new ImageView(this);coverPlaceholderIcon.setImageResource(R.drawable.ic_plus);coverPlaceholderIcon.setColorFilter(primaryColor());
         coverPlaceholder.addView(coverPlaceholderIcon,new LinearLayout.LayoutParams(dp(34),dp(34)));
         coverPlaceholderText=label("Выбрать обложку",14);coverPlaceholderText.setTextColor(0xff6d635a);coverPlaceholderText.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams placeholderTextLp=new LinearLayout.LayoutParams(-2,-2);placeholderTextLp.topMargin=dp(10);coverPlaceholder.addView(coverPlaceholderText,placeholderTextLp);

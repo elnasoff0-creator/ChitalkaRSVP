@@ -30,7 +30,7 @@ public class SettingsActivity extends Activity {
     private int currentTab=0; // 0 appearance, 1 reading, 2 audio, 3 online
     private LinearLayout root, list;
     private TextView preview, sizeValue;
-    private int bg, fg, font, size, display, buttonColor;
+    private int bg, fg, font, size, display, buttonColor, accentButtonColor;
     private final String[] fontNames={"Без засечек", "С засечками", "Моноширинный"};
     private final int[] backgrounds={0xffffffff,0xfff3e7d5,0xfff1e0c7,0xffdfe9d9,0xffe3e8ee,0xffe6dff1,0xff1e2025,0xff303438,0xff283d32,0xffded8c9,0xfffff0da,0xffdde5df};
     private final int[] textColors={0xff202020,0xff30221e,0xff444444,0xff5b4638,0xffe8e5db,0xff365541,0xff604b7b};
@@ -45,7 +45,7 @@ public class SettingsActivity extends Activity {
         load();draw();
     }
     int dp(int n){return (int)(getResources().getDisplayMetrics().density*n+.5f);}    
-    void load(){bg=prefs.getInt("bg",0xfff3e7d5);fg=prefs.getInt("fg",0xff30221e);font=prefs.getInt("font",1);size=prefs.getInt("size",36);display=prefs.getInt("display",1);buttonColor=prefs.getInt("button_color",NO_COLOR);}    
+    void load(){bg=prefs.getInt("bg",0xfff3e7d5);fg=prefs.getInt("fg",0xff30221e);font=prefs.getInt("font",1);size=prefs.getInt("size",36);display=prefs.getInt("display",1);buttonColor=prefs.getInt("button_color",NO_COLOR);accentButtonColor=prefs.getInt("button_accent_color",NO_COLOR);}    
     void put(String k,int v){prefs.edit().putInt(k,v).apply();}
     private PackageInfo installedPackageInfo(){
         try{return getPackageManager().getPackageInfo(getPackageName(),0);}catch(Exception ignored){return null;}
@@ -56,14 +56,14 @@ public class SettingsActivity extends Activity {
     GradientDrawable rounded(int c,int rad){GradientDrawable gd=new GradientDrawable();gd.setColor(c);gd.setCornerRadius(dp(rad));return gd;}
     GradientDrawable outlined(int color,int radius){GradientDrawable d=rounded(color,radius);d.setStroke(dp(1),0xff938475);return d;}
     int cardColor(){return contrast(bg)==Color.WHITE?0xff404348:0xfffff9f1;}
-    int activeColor(){return buttonColor==NO_COLOR?0xffa26949:buttonColor;}
+    int activeColor(){return accentButtonColor==NO_COLOR?0xffa26949:accentButtonColor;}
     Typeface face(){return font==1?Typeface.SERIF:font==2?Typeface.MONOSPACE:Typeface.SANS_SERIF;}
     LinearLayout col(){LinearLayout l=new LinearLayout(this);l.setOrientation(1);return l;}
     TextView text(String str,int sp,boolean bold){TextView t=new TextView(this);t.setText(str);t.setTextSize(sp);t.setTextColor(contrast(bg));t.setTypeface(Typeface.DEFAULT,bold?Typeface.BOLD:Typeface.NORMAL);return t;}
     void gap(int height){View v=new View(this);list.addView(v,new LinearLayout.LayoutParams(-1,dp(height)));}
     void header(String name){TextView t=text(name,18,true);t.setPadding(0,dp(14),0,dp(9));list.addView(t);}    
     TextView action(String name,Runnable click){TextView t=text(name,16,false);t.setBackground(rounded(cardColor(),15));t.setPadding(dp(14),dp(14),dp(14),dp(14));t.setOnClickListener(v->click.run());return t;}
-    TextView action(String name,int icon,Runnable click){TextView t=action(name,click);t.setCompoundDrawablesWithIntrinsicBounds(icon,0,0,0);t.setCompoundDrawablePadding(dp(10));return t;}
+    TextView action(String name,int icon,Runnable click){TextView t=action(name,click);t.setCompoundDrawablesWithIntrinsicBounds(icon,0,0,0);t.setCompoundDrawablePadding(dp(10));for(android.graphics.drawable.Drawable d:t.getCompoundDrawables())if(d!=null)d.mutate().setTint(contrast(bg));return t;}
     TextView tabAction(String name,int icon,boolean active,Runnable click){
         TextView t=text(name,11,false);t.setGravity(Gravity.CENTER);
         android.graphics.drawable.Drawable d=getDrawable(icon);
@@ -105,7 +105,8 @@ public class SettingsActivity extends Activity {
         theme(themes,"Светлая",0xffffffff,0xff202020);theme(themes,"Сепия",0xfff3e7d5,0xff30221e);theme(themes,"Ночная",0xff1e2025,0xffe8e5db);theme(themes,"Мягкая",0xffdfe9d9,0xff223a29);list.addView(themes);
         header("Цвет фона");palette(backgrounds,true);
         header("Цвет текста");palette(textColors,false);
-        header("Цвет кнопок");buttonPalette();
+        header("Цвет обычных кнопок");buttonPalette(false);
+        header("Цвет акцентных кнопок · Play, режимы");buttonPalette(true);
         gap(18);
     }
     void drawRsvpSettings(){
@@ -367,12 +368,32 @@ public class SettingsActivity extends Activity {
             tile.setOnClickListener(v->{if(background){bg=color;put("bg",bg);if(contrast(bg)==contrast(fg)) {fg=contrast(bg);put("fg",fg);}draw();}else{fg=color;put("fg",fg);draw();}});
         }list.addView(row);}list.addView(action("Настроить RGB вручную",()->colorDialog(background)));
     }
-    void buttonPalette(){
-        TextView note=text("Цвет применяется к основным кнопкам управления в читалке. «Ø» оставляет стандартный цвет интерфейса.",13,false);note.setPadding(0,0,0,dp(6));list.addView(note);
-        for(int rowStart=0;rowStart<accentColors.length;rowStart+=4){LinearLayout row=new LinearLayout(this);for(int k=rowStart;k<Math.min(accentColors.length,rowStart+4);k++){
-            int color=accentColors[k];TextView tile=new TextView(this);tile.setText(color==buttonColor?"✓":(color==NO_COLOR?"Ø":" "));tile.setGravity(Gravity.CENTER);tile.setTextSize(18);tile.setTextColor(color==NO_COLOR?contrast(bg):contrast(color));tile.setBackground(color==NO_COLOR?outlined(cardColor(),13):outlined(color,13));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(54),1);lp.setMargins(dp(3),dp(3),dp(3),dp(3));row.addView(tile,lp);
-            tile.setOnClickListener(v->{buttonColor=color;put("button_color",buttonColor);draw();});
-        }list.addView(row);}list.addView(action("Настроить RGB вручную",()->buttonColorDialog()));
+    void buttonPalette(boolean primary){
+        final String setting=primary?"button_accent_color":"button_color";
+        final int selected=primary?accentButtonColor:buttonColor;
+        String description=primary?"Play / Pause, выбор режима и другие основные действия.":"Назад, закладки, настройки, нейтральные команды.";
+        TextView note=text(description+" Значок Ø — стандартный цвет темы.",13,false);
+        note.setPadding(0,0,0,dp(6));list.addView(note);
+        for(int rowStart=0;rowStart<accentColors.length;rowStart+=4){
+            LinearLayout row=new LinearLayout(this);
+            for(int k=rowStart;k<Math.min(accentColors.length,rowStart+4);k++){
+                final int color=accentColors[k];
+                TextView tile=new TextView(this);
+                tile.setText(color==selected?"✓":(color==NO_COLOR?"Ø":" "));
+                tile.setGravity(Gravity.CENTER);tile.setTextSize(18);
+                tile.setTextColor(color==NO_COLOR?contrast(bg):contrast(color));
+                tile.setBackground(outlined(color==NO_COLOR?cardColor():color,13));
+                LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(54),1);
+                lp.setMargins(dp(3),dp(3),dp(3),dp(3));row.addView(tile,lp);
+                tile.setOnClickListener(v->{setButtonColor(primary,color);draw();});
+            }
+            list.addView(row);
+        }
+        list.addView(action("Настроить RGB вручную",()->buttonColorDialog(primary)));
+    }
+    void setButtonColor(boolean primary,int color){
+        if(primary)accentButtonColor=color;else buttonColor=color;
+        put(primary?"button_accent_color":"button_color",color);
     }
     void applyPreview(){if(preview==null)return;preview.setTextColor(fg);preview.setTextSize(Math.max(16,(int)(size*.60f)));preview.setTypeface(face());preview.setBackground(rounded(bg==0xff1e2025?0xff31343a:0xfffff9f1,20));}
     void changeSize(int delta){size=Math.max(16,Math.min(76,size+delta));put("size",size);sizeValue.setText(String.valueOf(size));applyPreview();}
@@ -412,23 +433,32 @@ public class SettingsActivity extends Activity {
             .setPositiveButton("Применить",(d,w)->{int color=Color.rgb(bars[0].getProgress(),bars[1].getProgress(),bars[2].getProgress());if(background){bg=color;put("bg",bg);}else{fg=color;put("fg",fg);}draw();})
             .setNegativeButton("Отмена",null).show();
     }
-    void buttonColorDialog(){
-        int c=buttonColor==NO_COLOR?0xffa26949:buttonColor;
+    void buttonColorDialog(boolean primary){
+        int selected=primary?accentButtonColor:buttonColor;
+        int c=selected==NO_COLOR?(primary?0xffa26949:0xfffff9f0):selected;
         LinearLayout wrapper=col();wrapper.setPadding(dp(20),0,dp(20),0);
         View sample=new View(this);sample.setBackground(outlined(c,8));
-        LinearLayout.LayoutParams sampleLp=new LinearLayout.LayoutParams(dp(58),dp(58));sampleLp.gravity=Gravity.CENTER_HORIZONTAL;sampleLp.bottomMargin=dp(12);
+        LinearLayout.LayoutParams sampleLp=new LinearLayout.LayoutParams(dp(58),dp(58));
+        sampleLp.gravity=Gravity.CENTER_HORIZONTAL;sampleLp.bottomMargin=dp(12);
         wrapper.addView(sample,sampleLp);
         SeekBar[] bars=new SeekBar[3];String[] channels={"Красный","Зелёный","Синий"};
         int[] rgb={Color.red(c),Color.green(c),Color.blue(c)};
-        for(int i=0;i<3;i++){wrapper.addView(text(channels[i],14,false));SeekBar bar=new SeekBar(this);bar.setMax(255);bar.setProgress(rgb[i]);bars[i]=bar;wrapper.addView(bar);}        
+        for(int i=0;i<3;i++){
+            wrapper.addView(text(channels[i],14,false));SeekBar bar=new SeekBar(this);
+            bar.setMax(255);bar.setProgress(rgb[i]);bars[i]=bar;wrapper.addView(bar);
+        }
         for(SeekBar bar:bars)bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
-            public void onProgressChanged(SeekBar b,int value,boolean from){sample.setBackground(outlined(Color.rgb(bars[0].getProgress(),bars[1].getProgress(),bars[2].getProgress()),8));}
+            public void onProgressChanged(SeekBar b,int value,boolean from){
+                sample.setBackground(outlined(Color.rgb(bars[0].getProgress(),bars[1].getProgress(),bars[2].getProgress()),8));
+            }
             public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
         });
-        new AlertDialog.Builder(this).setTitle("Цвет кнопок").setView(wrapper)
-            .setNeutralButton("Без цвета",(d,w)->{buttonColor=NO_COLOR;put("button_color",buttonColor);draw();})
-            .setPositiveButton("Применить",(d,w)->{buttonColor=Color.rgb(bars[0].getProgress(),bars[1].getProgress(),bars[2].getProgress());put("button_color",buttonColor);draw();})
-            .setNegativeButton("Отмена",null).show();
+        new AlertDialog.Builder(this).setTitle(primary?"Цвет акцентных кнопок":"Цвет обычных кнопок")
+            .setView(wrapper).setNeutralButton("Стандартный",(d,w)->{setButtonColor(primary,NO_COLOR);draw();})
+            .setPositiveButton("Применить",(d,w)->{
+                int value=Color.rgb(bars[0].getProgress(),bars[1].getProgress(),bars[2].getProgress());
+                setButtonColor(primary,value);draw();
+            }).setNegativeButton("Отмена",null).show();
     }
     @Override public void onBackPressed(){BackNavigation.back(this);}
 }

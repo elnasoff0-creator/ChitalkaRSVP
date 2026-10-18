@@ -284,7 +284,7 @@ public class MainActivity extends Activity {
 
     int dp(int n) { return (int) (getResources().getDisplayMetrics().density * n + .5f); }
     Typeface type() { return font == 1 ? Typeface.SERIF : font == 2 ? Typeface.MONOSPACE : Typeface.SANS_SERIF; }
-    int accent() { return 0xff9A5E40; }
+    int accent() { return ReaderButtonColors.accent(this, 0xff9A5E40); }
     int panelColor() { return bg == 0xff1e2025 ? 0xff2a2d33 : 0xfffff9f1; }
     int softPanel() { return bg == 0xff1e2025 ? 0xff333842 : 0xfff5ede2; }
     int faintText() { return bg == 0xff1e2025 ? 0xffcbc6bb : 0xff6d635a; }
@@ -311,7 +311,7 @@ public class MainActivity extends Activity {
     TextView buttonish(String s, int fill, int color, boolean bold) {
         TextView t = text(s, 16, bold);
         t.setGravity(Gravity.CENTER);
-        t.setTextColor(color);
+        t.setTextColor(fill==accent()?ReaderButtonColors.contrastingText(fill):color);
         t.setBackground(shape(fill, 16));
         t.setClickable(true);
         t.setFocusable(true);
@@ -730,10 +730,10 @@ public class MainActivity extends Activity {
     View iconButton(int drawable, View.OnClickListener click) {
         LinearLayout shell = row();
         shell.setGravity(Gravity.CENTER);
-        shell.setBackground(shape(softPanel(), 16));
+        shell.setBackground(shape(ReaderButtonColors.neutral(this,softPanel()), 16));
         ImageView img = new ImageView(this);
         img.setImageResource(drawable);
-        img.setColorFilter(fg);
+        img.setColorFilter(ReaderButtonColors.contrastingText(ReaderButtonColors.neutral(this,softPanel())));
         shell.addView(img, new LinearLayout.LayoutParams(dp(23), dp(23)));
         shell.setOnClickListener(click);
         return shell;

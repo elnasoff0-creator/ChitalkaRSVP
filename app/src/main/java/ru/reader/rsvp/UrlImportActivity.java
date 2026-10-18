@@ -17,7 +17,7 @@ public class UrlImportActivity extends Activity {
     TextView text(String s,int sp){TextView t=new TextView(this);t.setText(s);t.setTextSize(sp);t.setTextColor(foreground);t.setPadding(dp(6),dp(7),dp(6),dp(7));return t;}
     void add(LinearLayout p,android.view.View v){p.addView(v,new LinearLayout.LayoutParams(-1,-2));}
     Button button(String t){Button b=new Button(this);b.setText(t);b.setAllCaps(false);
-        b.setTextColor(foreground);b.setTextSize(14);b.setBackground(shape(background==0xff1e2025?0xff303238:0xfffff8ef));
+        int fill=ReaderButtonColors.neutral(this,background==0xff1e2025?0xff303238:0xfffff8ef);b.setTextColor(ReaderButtonColors.contrastingText(fill));b.setTextSize(14);b.setBackground(shape(fill));
         b.setMinHeight(dp(48));b.setGravity(Gravity.CENTER);return b;}
     @Override public void onCreate(Bundle b){super.onCreate(b);android.content.SharedPreferences p=getSharedPreferences("reader",0);background=p.getInt("bg",background);foreground=p.getInt("fg",foreground);draw();}
     void draw(){handler.removeCallbacksAndMessages(null);ScrollView scroll=new ScrollView(this);root=new LinearLayout(this);root.setPadding(dp(15),dp(24),dp(15),dp(18));root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(background);scroll.addView(root);setContentView(scroll);

@@ -1,1 +1,18 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24"><path android:fillColor="@android:color/transparent" android:strokeColor="#30221e" android:strokeWidth="1.75" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M3.5,12 A8.5,8.5 0,0 1,18.5,6 M18.5,6 L18.5,2.5 M18.5,6 L15,5.5 M20.5,12 A8.5,8.5 0,0 1,5.5,18 M5.5,18 L5.5,21.5 M5.5,18 L9,18.5 M7,12 H17 M12,3.5 C7,7 7,17 12,20.5 M12,3.5 C17,7 17,17 12,20.5 M3.5,12 H20.5"/></vector>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <!-- Web globe surrounded by two circular refresh arrows, single-color vector. -->
+    <path android:fillColor="@android:color/transparent"
+        android:strokeColor="#30221E" android:strokeWidth="1.35"
+        android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M12,6.6 C15.0,6.6 17.4,9.0 17.4,12 C17.4,15.0 15.0,17.4 12,17.4 C9.0,17.4 6.6,15.0 6.6,12 C6.6,9.0 9.0,6.6 12,6.6 Z
+         M6.6,12 H17.4
+         M12,6.6 C14.9,8.6 14.9,15.4 12,17.4
+         M12,6.6 C9.1,8.6 9.1,15.4 12,17.4
+         M7.4,9.3 C10.1,10.6 13.9,10.6 16.6,9.3
+         M7.4,14.7 C10.1,13.4 13.9,13.4 16.6,14.7
+         M3.4,10.4 C3.9,6.5 7.2,3.3 11.5,3.0 C15.5,2.8 18.0,5.1 19.7,7.8
+         M17.4,7.0 L19.8,8.0 L20.7,5.5
+         M20.6,13.6 C20.1,17.6 16.8,20.8 12.5,21 C8.5,21.2 6.0,18.9 4.3,16.2
+         M6.6,17.0 L4.2,16.0 L3.3,18.5"/>
+</vector>

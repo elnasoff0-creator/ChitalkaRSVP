@@ -43,7 +43,7 @@ public final class LinkDownloadActivity extends Activity {
     private int dp(int v){return Math.round(v*getResources().getDisplayMetrics().density);}
     private GradientDrawable shape(int color,int radius){GradientDrawable s=new GradientDrawable();s.setColor(color);s.setCornerRadius(dp(radius));return s;}
     private TextView text(String s,int size,boolean bold){TextView t=new TextView(this);t.setText(s);t.setTextSize(size);t.setTextColor(INK);if(bold)t.setTypeface(Typeface.DEFAULT,Typeface.BOLD);return t;}
-    private Button button(String label,boolean primary){Button b=new Button(this);b.setText(label);b.setTextSize(14);b.setAllCaps(false);b.setTextColor(primary?0xffffffff:INK);b.setGravity(Gravity.CENTER);b.setBackground(shape(primary?ACCENT:CARD,16));b.setMinHeight(dp(49));return b;}
+    private Button button(String label,boolean primary){Button b=new Button(this);b.setText(label);b.setTextSize(14);b.setAllCaps(false);int fill=primary?ReaderButtonColors.accent(this,ACCENT):ReaderButtonColors.neutral(this,CARD);b.setTextColor(ReaderButtonColors.contrastingText(fill));b.setGravity(Gravity.CENTER);b.setBackground(shape(fill,16));b.setMinHeight(dp(49));return b;}
     private void append(View child,int top){LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=dp(top);root.addView(child,lp);}
     private LinearLayout panel(){LinearLayout p=new LinearLayout(this);p.setOrientation(LinearLayout.VERTICAL);p.setPadding(dp(12),dp(13),dp(12),dp(13));p.setBackground(shape(CARD,19));return p;}
     @Override public void onCreate(Bundle saved){super.onCreate(saved);
@@ -54,7 +54,7 @@ public final class LinkDownloadActivity extends Activity {
     }
     private void build(){ScrollView scroll=new ScrollView(this);root=new LinearLayout(this);root.setPadding(dp(14),dp(25),dp(14),dp(22));root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(BG);scroll.addView(root);setContentView(scroll);
         LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);append(header,0);
-        ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_back);back.setColorFilter(INK);back.setPadding(dp(11),dp(11),dp(11),dp(11));back.setBackground(shape(CARD,15));header.addView(back,new LinearLayout.LayoutParams(dp(49),dp(49)));back.setOnClickListener(v->BackNavigation.back(this));back.setContentDescription("Назад");
+        ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_back);back.setColorFilter(ReaderButtonColors.contrastingText(ReaderButtonColors.neutral(this,CARD)));back.setPadding(dp(11),dp(11),dp(11),dp(11));back.setBackground(shape(ReaderButtonColors.neutral(this,CARD),15));header.addView(back,new LinearLayout.LayoutParams(dp(49),dp(49)));back.setOnClickListener(v->BackNavigation.back(this));back.setContentDescription("Назад");
         TextView title=text("Скачать по ссылке",22,true);title.setTypeface(Typeface.SERIF,Typeface.BOLD);title.setGravity(Gravity.CENTER);header.addView(title,new LinearLayout.LayoutParams(0,dp(52),1));
         header.addView(new View(this),new LinearLayout.LayoutParams(dp(49),dp(49)));
         LinearLayout linkPanel=panel();append(linkPanel,17);linkPanel.addView(text("Ссылка на MP3, FB2, EPUB или облачный файл",16,true));

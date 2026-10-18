@@ -35,7 +35,7 @@ public class ReaderActivity extends Activity {
     private int index=0,wpm=350,portion=1,size=36,bg=0xfff3e7d5,fg=0xff30221e,font=1,mode=RSVP;
     private int focusColor=0xffed3030,lineColor=0xff915439,linePosition=50;
     private int cursorBackground=0xff96583f,cursorText=NO_COLOR,cursorScale=100;
-    private int normalSelectText=0xff915439,normalSelectScale=110,buttonColor=NO_COLOR;
+    private int normalSelectText=0xff915439,normalSelectScale=110,buttonColor=NO_COLOR,accentButtonColor=NO_COLOR;
     private int pausePunctuationPercent=60,pauseLongPercent=50,pauseSentencePercent=120,pauseParagraphPercent=150;
     private boolean focusPoint=true,focusLinesEnabled=true,playing=false,selecting=false,selectedWordActive=false;
     private boolean userScrolling=false,restoringScroll=false;
@@ -84,7 +84,7 @@ public class ReaderActivity extends Activity {
         cursorScale=Math.max(100,Math.min(180,prefs.getInt("cursor_scale",100)));
         normalSelectText=prefs.getInt("normal_select_text",0xff915439);
         normalSelectScale=Math.max(100,Math.min(180,prefs.getInt("normal_select_scale",110)));
-        buttonColor=prefs.getInt("button_color",NO_COLOR);
+        buttonColor=prefs.getInt("button_color",NO_COLOR);accentButtonColor=prefs.getInt("button_accent_color",NO_COLOR);
         pausePunctuationPercent=Math.max(0,Math.min(300,prefs.getInt("pausePunctuationPercent",60)));
         pauseLongPercent=Math.max(0,Math.min(300,prefs.getInt("pauseLongPercent",50)));
         pauseSentencePercent=Math.max(0,Math.min(400,prefs.getInt("pauseSentencePercent",120)));
@@ -94,7 +94,7 @@ public class ReaderActivity extends Activity {
     private Typeface type(){return font==1?Typeface.SERIF:font==2?Typeface.MONOSPACE:Typeface.SANS_SERIF;}
     private int panelColor(){return bg==0xff1e2025?0xff303238:0xfffff9f0;}
     private int buttonBg(){return buttonColor==NO_COLOR?panelColor():buttonColor;}
-    private int accent(){return buttonColor==NO_COLOR?0xff915439:buttonColor;}
+    private int accent(){return accentButtonColor==NO_COLOR?0xff915439:accentButtonColor;}
     private int contrast(int value){return Color.red(value)*0.299+Color.green(value)*0.587+Color.blue(value)*0.114<140?Color.WHITE:0xff30221e;}
     private GradientDrawable shape(int color,int radius){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(radius));return d;}
     private TextView text(String s,int sp){TextView t=new TextView(this);t.setText(s);t.setTextSize(sp);t.setTextColor(fg);return t;}
@@ -151,8 +151,8 @@ public class ReaderActivity extends Activity {
         wordView.setOnTouchListener((v,e)->{
             if(mode!=RSVP)return false;
             if(e.getAction()==MotionEvent.ACTION_DOWN){stop();swipeStartY=e.getY();swipeStartIndex=index;return true;}
-            if(e.getAction()==MotionEvent.ACTION_MOVE){index=map.clamp(swipeStartIndex+Math.round((swipeStartY-e.getY())/dp(25)));
-                updateWord();refreshHighlight(index);return true;}
+            if(e.getAction()==MotionEvent.ACTION_MOVE){int old=index;index=map.clamp(swipeStartIndex+Math.round((swipeStartY-e.getY())/dp(25)));
+                if(old!=index){updateWord();refreshHighlight(old);}return true;}
             if(e.getAction()==MotionEvent.ACTION_UP||e.getAction()==MotionEvent.ACTION_CANCEL){saveLight(true);return true;}
             return true;
         });
@@ -166,11 +166,11 @@ public class ReaderActivity extends Activity {
             @Override public void onScrollStateChanged(RecyclerView rv,int state){
                 if(state==RecyclerView.SCROLL_STATE_DRAGGING){
                     userScrolling=true;
-                    if(mode==RSVP){setRsvpContextVisible(true);scrollWordAccumulator=0;ensureWordVisible(true);}
+                    if(mode==RSVP){stop();scrollWordAccumulator=0;}
                 }
                 if(state==RecyclerView.SCROLL_STATE_IDLE){
                     userScrolling=false;
-                    if(mode==RSVP){scrollWordAccumulator=0;setRsvpContextVisible(false);}
+                    if(mode==RSVP){scrollWordAccumulator=0;setRsvpContextVisible(!playing);if(!playing)ensureWordVisible(false);}
                     saveLight(true);
                 }
             }
@@ -225,8 +225,10 @@ public class ReaderActivity extends Activity {
                     if(cursorText!=NO_COLOR)span(new ForegroundColorSpan(cursorText),from,to);
                     if(cursorScale>100)span(new RelativeSizeSpan(cursorScale/100f),from,to);
                 }else if(mode==RSVP){
-                    // Context is static until the active word actually changes chunk.
-                    span(new BackgroundColorSpan(0x336f746a),from,to);
+                    // Paused RSVP context uses the same typography as ordinary word selection.
+                    int selectedEnd=map.ends[first]-c.startChar;
+                    if(normalSelectText!=NO_COLOR)span(new ForegroundColorSpan(normalSelectText),from,selectedEnd);
+                    if(normalSelectScale>100)span(new RelativeSizeSpan(normalSelectScale/100f),from,selectedEnd);
                 }else if(mode==NORMAL&&(selecting||selectedWordActive)){
                     if(normalSelectText!=NO_COLOR)span(new ForegroundColorSpan(normalSelectText),from,to);
                     if(normalSelectScale>100)span(new RelativeSizeSpan(normalSelectScale/100f),from,to);
@@ -289,16 +291,15 @@ public class ReaderActivity extends Activity {
         if(selectWordButton!=null){selectWordButton.setVisibility(mode==NORMAL?View.VISIBLE:View.GONE);updateSelectWordButton();}
         if(controls!=null)controls.setVisibility(mode==NORMAL?View.GONE:View.VISIBLE);
         if(speedPanel!=null)speedPanel.setVisibility(mode==NORMAL?View.GONE:View.VISIBLE);
-        if(textList!=null)textList.setVisibility(mode==RSVP&& !userScrolling?View.GONE:View.VISIBLE);
+        if(textList!=null)textList.setVisibility(mode==RSVP&&playing?View.GONE:View.VISIBLE);
         if(mode==RSVP)updateWord();
         refreshHighlight(index);updateProgress();
     }
     private void setRsvpContextVisible(boolean visible){
-        if(textList==null)return;
+        if(textList==null||mode!=RSVP)return;
+        if(textList.getVisibility()==(visible?View.VISIBLE:View.GONE))return;
         textList.setVisibility(visible?View.VISIBLE:View.GONE);
-        if(visible){
-            textList.post(()->ensureWordVisible(true));
-        }
+        if(visible)textList.post(()->ensureWordVisible(true));
     }
     private void stepRsvpByScroll(int dy){
         if(words.length==0||dy==0)return;
@@ -326,7 +327,7 @@ public class ReaderActivity extends Activity {
     }
     private void updateProgress(){if(progressView!=null&&words.length>0)progressView.setText((index+1)+" / "+words.length+" слов · "+((index+1)*100/words.length)+"%");}
     private void updatePlayButton(){if(playIcon!=null)playIcon.setImageResource(playing?R.drawable.ic_pause:R.drawable.ic_play);}
-    private void stop(){playing=false;handler.removeCallbacks(ticker);updatePlayButton();}
+    private void stop(){playing=false;handler.removeCallbacks(ticker);updatePlayButton();setRsvpContextVisible(true);}
     private void changeSpeed(int delta){wpm=Math.max(100,Math.min(1000,wpm+delta));if(speedView!=null)speedView.setText(wpm+" слов/мин");saveLight(true);
         if(playing){handler.removeCallbacks(ticker);handler.postDelayed(ticker,delayForPortion(index,Math.min(portion,words.length-index)));}}
     private boolean paragraphAfter(int word){return word<words.length-1&&body.substring(map.ends[word],map.starts[word+1]).contains("\n\n");}
@@ -356,12 +357,29 @@ public class ReaderActivity extends Activity {
         if(focusLines!=null)focusLines.invalidate();updateProgress();
     }
     private void ensureWordVisible(boolean force){
-        if(textList==null||layoutManager==null||chunks==null||words.length==0)return;
+        if(textList==null||textList.getVisibility()!=View.VISIBLE||layoutManager==null||chunks==null||words.length==0)return;
         int chunk=chunks.chunkForWord(index);
         int start=layoutManager.findFirstVisibleItemPosition(),end=layoutManager.findLastVisibleItemPosition();
         if(force||chunk<start||chunk>end){
-            restoringScroll=true;layoutManager.scrollToPositionWithOffset(chunk,dp(14));
-            handler.postDelayed(()->restoringScroll=false,130);return;
+            restoringScroll=true;
+            layoutManager.scrollToPositionWithOffset(chunk,dp(14));
+            // Scroll to the selected word inside the chunk, not merely its first line.
+            textList.post(()->{
+                if(textList==null||textList.getVisibility()!=View.VISIBLE)return;
+                RecyclerView.ViewHolder holder=textList.findViewHolderForAdapterPosition(chunk);
+                if(holder instanceof ChunkAdapter.Holder){
+                    TextView value=((ChunkAdapter.Holder)holder).value;
+                    android.text.Layout lay=value.getLayout();
+                    if(lay!=null){
+                        int local=Math.max(0,map.starts[map.clamp(index)]-chunks.get(chunk).startChar);
+                        int line=lay.getLineForOffset(Math.min(local,lay.getText().length()));
+                        int selectedY=holder.itemView.getTop()+value.getTotalPaddingTop()+lay.getLineTop(line);
+                        textList.scrollBy(0,selectedY-Math.max(dp(18),textList.getHeight()/3));
+                    }
+                }
+                handler.postDelayed(()->restoringScroll=false,120);
+            });
+            return;
         }
         RecyclerView.ViewHolder existing=textList.findViewHolderForAdapterPosition(chunk);
         if(!(existing instanceof ChunkAdapter.Holder))return;
@@ -373,8 +391,8 @@ public class ReaderActivity extends Activity {
         int bottom=h.itemView.getTop()+h.value.getTotalPaddingTop()+l.getLineBottom(line);
         if(y<dp(28)||bottom>textList.getHeight()-dp(28)){
             int delta=y<dp(28)?y-dp(64):bottom-textList.getHeight()+dp(65);
-            restoringScroll=true;textList.smoothScrollBy(0,delta);
-            handler.postDelayed(()->restoringScroll=false,230);
+            restoringScroll=true;textList.scrollBy(0,delta);
+            handler.postDelayed(()->restoringScroll=false,120);
         }
     }
     private void modeDialog(){
@@ -491,13 +509,13 @@ public class ReaderActivity extends Activity {
     @Override protected void onResume(){super.onResume();if(prefs!=null){
         int oldBg=bg,oldFg=fg,oldSize=size,oldFont=font,oldMode=mode,oldPortion=portion;
         int oldCursorBg=cursorBackground,oldCursorText=cursorText,oldCursorScale=cursorScale;
-        int oldNormalText=normalSelectText,oldNormalScale=normalSelectScale,oldButton=buttonColor;
+        int oldNormalText=normalSelectText,oldNormalScale=normalSelectScale,oldButton=buttonColor,oldAccent=accentButtonColor;
         int oldFocus=focusColor,oldLineColor=lineColor,oldLinePos=linePosition;
         boolean oldPoint=focusPoint,oldLines=focusLinesEnabled;
         readPreferences();
         if(root!=null&&words.length>0&&(oldBg!=bg||oldFg!=fg||oldSize!=size||oldFont!=font||oldMode!=mode||oldPortion!=portion
             ||oldCursorBg!=cursorBackground||oldCursorText!=cursorText||oldCursorScale!=cursorScale||oldNormalText!=normalSelectText
-            ||oldNormalScale!=normalSelectScale||oldButton!=buttonColor||oldFocus!=focusColor||oldLineColor!=lineColor
+            ||oldNormalScale!=normalSelectScale||oldButton!=buttonColor||oldAccent!=accentButtonColor||oldFocus!=focusColor||oldLineColor!=lineColor
             ||oldLinePos!=linePosition||oldPoint!=focusPoint||oldLines!=focusLinesEnabled))draw();
     }}
     @Override protected void onPause(){save();stop();super.onPause();}
