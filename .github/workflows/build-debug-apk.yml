@@ -46,7 +46,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
       - name: Install Android SDK
         run: |
           yes | sdkmanager --licenses >/dev/null || true
@@ -57,8 +60,7 @@ jobs:
       - name: Validate source tests
         run: |
           set -e
-          for script in tests/*.sh; do bash "$script"; done
-          for script in tests/*.cjs; do [ ! -f "$script" ] || node "$script"; done
+          bash scripts/run-current-tests.sh
       - name: Build v1.11.42 debug APK
         run: bash scripts/gradle-with-diagnostics.sh --no-daemon :app:assembleDebug --stacktrace
       - name: Upload complete Gradle compile log (even when failed)

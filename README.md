@@ -1,3 +1,18 @@
+## GitHub Actions CI test fix (v1.11.42-beta, same versionCode 11049)
+
+Old uploads may leave **tracked** `tests/*.sh` from the deleted MRT engine. The previous
+`for script in tests/*.sh` loop ran those obsolete tests and failed before Android SDK
+installation with a missing `MrtAudioFormat.java`. Both workflows now invoke
+`scripts/run-current-tests.sh`, which executes exactly the maintained 18 tests and
+warns about extra tests without executing them. Obsolete Git files should still be
+removed from the repository using GitHub Desktop (Delete -> Commit -> Push).
+
+`test_gradle_diagnostics.sh` deliberately fakes a failed compiler message. Its
+`SyntheticFixture.java` name is a demonstration, **not a real source file**.
+
+A green unit-test stage does **not** certify that Android Gradle compile and APK
+signing succeed. Inspect the later `Build ... APK` steps for those results.
+
 # ChitalkaRSVP v1.11.42-beta
 
 **versionCode: 11049.** Complete Android Java source project for GitHub Actions.

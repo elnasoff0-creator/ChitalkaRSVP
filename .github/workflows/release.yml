@@ -53,7 +53,7 @@ jobs:
       - name: Validate Edge-only source and core tests
         run: |
           set -e
-          for script in tests/*.sh; do bash "$script"; done
+          bash scripts/run-current-tests.sh
           ! grep -R -n "KEYCODE_HEADSETOOK" app/src/main/java
       - name: Install Android SDK commandline tools
         run: |

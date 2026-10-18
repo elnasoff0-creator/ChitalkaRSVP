@@ -6,7 +6,7 @@ trap 'rm -rf "$T"' EXIT
 cat > "$T/gradle" <<'SH'
 #!/usr/bin/env bash
 echo '> Task :app:compileReleaseJavaWithJavac FAILED'
-echo '/home/runner/work/app/src/main/java/ru/reader/rsvp/Sample.java:53: error: cannot find symbol'
+echo '/home/runner/work/app/src/main/java/ru/reader/rsvp/SyntheticFixture.java:53: error: cannot find symbol'
 echo ' symbol: class Example'
 echo 'FAILURE: Build failed with an exception.'
 exit 1
@@ -17,7 +17,7 @@ PATH="$T:$PATH" GRADLE_BUILD_LOG="$T/log.txt" GRADLE_DIAGNOSTICS="$T/diagnostics
 STATUS=$?
 set -e
 test "$STATUS" -eq 1
-grep -q 'Sample.java:53: error: cannot find symbol' "$T/log.txt"
-grep -q 'Sample.java:53: error: cannot find symbol' "$T/diagnostics.txt"
+grep -q 'SyntheticFixture.java:53: error: cannot find symbol' "$T/log.txt"
+grep -q 'SyntheticFixture.java:53: error: cannot find symbol' "$T/diagnostics.txt"
 tail -n 12 "$T/stdout.txt" | grep -q 'Full original log:'
-echo 'Gradle failure diagnostics: PASS'
+echo 'Gradle failure diagnostics (intentional synthetic compile failure): PASS'
