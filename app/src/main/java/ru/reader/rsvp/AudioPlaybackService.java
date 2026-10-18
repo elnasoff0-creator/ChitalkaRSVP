@@ -16,7 +16,7 @@ import java.util.*;
 /** Background playback for local audio and system TTS. Never stores private files in a public directory. */
 public class AudioPlaybackService extends Service implements TextToSpeech.OnInitListener {
     public static final String CHANNEL="reader_audio", ACTION_STATE="ru.reader.rsvp.AUDIO_STATE";
-    public static final String LOAD="load", PLAY="play", PAUSE="pause", SEEK="seek", NEXT="next", PREV="prev", STOP="stop", SPEED="speed", SLEEP="sleep", SEEK_RELATIVE="seek_relative", TTS="tts", VOICE="voice", CHAPTER="chapter", ENGINE="engine";
+    public static final String LOAD="load", PLAY="play", PAUSE="pause", SEEK="seek", NEXT="next", PREV="prev", STOP="stop", SPEED="speed", SLEEP="sleep", RENAME="rename", SEEK_RELATIVE="seek_relative", TTS="tts", VOICE="voice", CHAPTER="chapter", ENGINE="engine";
     public static AudioPlaybackService instance;
     private MediaPlayer player;
     private TextToSpeech tts;
@@ -85,6 +85,8 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         case SEEK:seekTo(intent.getIntExtra("position",0));break;
         case SEEK_RELATIVE:seekRelative(intent.getIntExtra("delta_ms",0),!paused);break;
         case SPEED: speed=Math.max(.5f,Math.min(3f,intent.getFloatExtra("speed",1)));if(tts!=null)tts.setSpeechRate(speed);if(!paused)applySpeed();saveProgress();notifyState();break;
+        case RENAME: {String id=intent.getStringExtra("bookId"),newTitle=intent.getStringExtra("title");
+            if(!ttsMode && id!=null && id.equals(bookId) && newTitle!=null && !newTitle.trim().isEmpty())title=newTitle.trim();break;}
         case SLEEP: {int minutes=intent.getIntExtra("minutes",0);sleepDeadline=minutes<=0?0:System.currentTimeMillis()+minutes*60000L;getSharedPreferences("reader",0).edit().putLong("audio_sleep_deadline",sleepDeadline).apply();break;}
         case ENGINE: {boolean wasPlaying=active&&ttsMode&&!paused;
             if(tts!=null){tts.stop();tts.shutdown();}

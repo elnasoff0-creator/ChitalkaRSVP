@@ -37,6 +37,7 @@ public class SettingsActivity extends Activity {
         prefs=getSharedPreferences("reader",MODE_PRIVATE);
         if(getIntent().getBooleanExtra("audio_tab",false)) currentTab=2;
         if(getIntent().getBooleanExtra("online_tab",false)) currentTab=3;
+        if(getIntent().getBooleanExtra("rsvp_tab",false)) currentTab=1;
         load();draw();
     }
     int dp(int n){return (int)(getResources().getDisplayMetrics().density*n+.5f);}    
@@ -102,10 +103,71 @@ public class SettingsActivity extends Activity {
         gap(18);
     }
     void drawRsvpSettings(){
-        header("Скорочтение");
-        String[] modes={"Только одно слово","Предыдущее и следующее","Текущее и следующее"};
-        list.addView(action("Показ слов: "+modes[display],()->new AlertDialog.Builder(this).setTitle("Показ слов").setSingleChoiceItems(modes,display,(d,i)->{display=i;put("display",i);d.dismiss();draw();}).setNegativeButton("Отмена",null).show()));
-        gap(8);list.addView(action("Дополнительные паузы",this::pauses));gap(18);
+        header("Режим чтения");
+        final String[] modeLabels={"Обычный","Скорочтение","Курсор"};
+        int current=Math.max(0,Math.min(2,prefs.getInt("reading_mode",prefs.getBoolean("rsvp",true)?1:0)));
+        list.addView(action("Режим: "+modeLabels[current],()->new AlertDialog.Builder(this)
+            .setTitle("Выбор режима чтения").setSingleChoiceItems(modeLabels,current,(d,n)->{
+                put("reading_mode",n);prefs.edit().putBoolean("rsvp",n==1).apply();d.dismiss();draw();
+            }).setNegativeButton("Отмена",null).show()));
+        gap(8);header("Размер порции");
+        int currentPortion=ReadingWordMap.portion(prefs.getInt("rsvp_portion",1));
+        TextView portionLabel=text("Слов за один показ: "+currentPortion+" из 4",15,false);list.addView(portionLabel);
+        SeekBar portionSlider=new SeekBar(this);portionSlider.setMax(3);portionSlider.setProgress(currentPortion-1);list.addView(portionSlider);
+        portionSlider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            public void onProgressChanged(SeekBar b,int v,boolean user){portionLabel.setText("Слов за один показ: "+(v+1)+" из 4");if(user)put("rsvp_portion",v+1);}
+            public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
+        });
+        TextView portionNote=text("Последовательно отображать или выделять от 1 до 4 слов с учётом скорости чтения.",13,false);portionNote.setPadding(0,dp(4),0,dp(13));list.addView(portionNote);
+        gap(8);list.addView(action("Дополнительные паузы",this::pauses));gap(12);
+        header("Точка фокусировки");
+        addFocusSwitch("Выделять опорную букву слова", "rsvp_focus_point",true);
+        TextView focusNote=text("Оптимальное место для фиксации взгляда при скорочтении.",13,false);focusNote.setPadding(0,0,0,dp(10));list.addView(focusNote);
+        focusColors("Цвет точки фокусировки","rsvp_focus_color",0xffed3030);
+        gap(12);header("Линии фокусировки");
+        addFocusSwitch("Показывать две линии и вертикальные засечки", "rsvp_focus_lines",true);
+        focusColors("Цвет линий","rsvp_line_color",0xff915439);
+        final int initial=Math.max(0,Math.min(100,prefs.getInt("rsvp_line_position",50)));
+        TextView positionLabel=text("Горизонтальная позиция: "+initial+"%",15,false);positionLabel.setPadding(0,dp(12),0,0);list.addView(positionLabel);
+        SeekBar position=new SeekBar(this);position.setMax(100);position.setProgress(initial);list.addView(position);
+        position.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            public void onProgressChanged(SeekBar b,int v,boolean user){positionLabel.setText("Горизонтальная позиция: "+v+"%");if(user)put("rsvp_line_position",v);}
+            public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
+        });
+        gap(12);header("Выделение режима «Курсор»");
+        focusColors("Цвет выделения","cursor_background",0xff96583f);
+        focusColors("Цвет текста выделенной порции","cursor_text",0xffffffff);
+        gap(18);
+    }
+    void addFocusSwitch(String caption,String key,boolean defaultValue){
+        android.widget.Switch sw=new android.widget.Switch(this);sw.setText(caption);sw.setTextSize(15);
+        sw.setTextColor(contrast(bg));sw.setChecked(prefs.getBoolean(key,defaultValue));
+        sw.setPadding(dp(4),dp(8),dp(4),dp(8));list.addView(sw);
+        sw.setOnCheckedChangeListener((button,checked)->prefs.edit().putBoolean(key,checked).apply());
+    }
+    void focusColors(String caption,String key,int fallback){
+        header(caption);
+        int selected=prefs.getInt(key,fallback);
+        final int[] colors={0xffff1212,0xffff9100,0xffffdf00,0xff00dd28,0xff1150e8,0xffe000e0,0xff915439,0xff30221e,0xffffffff};
+        LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);list.addView(row);
+        for(int color:colors){
+            TextView circle=text(color==selected?"✓":"",12,true);circle.setTextColor(contrast(color));circle.setGravity(Gravity.CENTER);
+            GradientDrawable gd=rounded(color,35);if(color==selected)gd.setStroke(dp(3),0xff937263);
+            circle.setBackground(gd);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(36),1);lp.setMargins(dp(2),dp(3),dp(2),dp(3));row.addView(circle,lp);
+            circle.setOnClickListener(v->{put(key,color);draw();});
+        }
+        list.addView(action("Добавить цвет RGB",()->customFocusColor(key,prefs.getInt(key,fallback))));
+    }
+    void customFocusColor(String key,int original){
+        EditText input=new EditText(this);input.setSingleLine(true);
+        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        input.setText(String.format(java.util.Locale.ROOT,"#%06X",original&0xFFFFFF));
+        LinearLayout content=col();content.setPadding(dp(18),0,dp(18),0);content.addView(input);
+        new AlertDialog.Builder(this).setTitle("Цвет · #RRGGBB").setView(content)
+            .setNegativeButton("Отмена",null).setPositiveButton("Сохранить",(d,n)->{
+                try{int c=Color.parseColor(input.getText().toString().trim());put(key,c);draw();}
+                catch(IllegalArgumentException ex){android.widget.Toast.makeText(this,"Неверный цвет",android.widget.Toast.LENGTH_SHORT).show();}
+            }).show();
     }
     void drawAudioSettings(){
         header("Настройки аудио");

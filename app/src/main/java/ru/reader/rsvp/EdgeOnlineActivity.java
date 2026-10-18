@@ -93,7 +93,7 @@ public final class EdgeOnlineActivity extends Activity {
             graphic.setColorFilter(INK);graphic.setScaleType(ImageView.ScaleType.FIT_CENTER);
             group.addView(graphic,new LinearLayout.LayoutParams(dp(21),dp(21)));
             TextView counter=text(speed?"1×":"",11);counter.setGravity(Gravity.CENTER);
-            if(speed)speedValue=counter;else sleepValue=counter;
+            if(speed)speedValue=counter;else {sleepValue=counter;counter.setVisibility(View.GONE);}
             group.addView(counter,new LinearLayout.LayoutParams(-1,dp(16)));
             box.addView(group,new FrameLayout.LayoutParams(-1,-1,Gravity.CENTER));
         }else{
@@ -293,6 +293,7 @@ public final class EdgeOnlineActivity extends Activity {
             if(speedValue!=null)speedValue.setText(speedLabel(playback.playbackSpeed()));
             if(sleepValue!=null){long ms=playback.sleepRemainingMs();
                 sleepValue.setText(ms<=0?"":ms<60000?Math.max(1,ms/1000)+"с":(ms+59999)/60000+"м");
+                sleepValue.setVisibility(ms>0?View.VISIBLE:View.GONE);
             }
             int index=playback.trackIndex();
             fileLabel.setText("Фрагмент №"+(downloads!=null?Math.max(1,downloads.currentOrdinal()):Math.max(1,index+1)));
@@ -300,7 +301,7 @@ public final class EdgeOnlineActivity extends Activity {
             if(!dragging){fileTime.setText(format(position)+" / "+format(duration));seek.setProgress(duration>0?(int)Math.min(1000,position*1000/duration):0);}
             if(playIcon!=null)playIcon.setImageResource(playback.isPlaying()?R.drawable.ic_pause:R.drawable.ic_play);
         }
-        if(playback==null&&sleepValue!=null)sleepValue.setText("");
+        if(playback==null&&sleepValue!=null){sleepValue.setText("");sleepValue.setVisibility(View.GONE);}
         if(downloads==null){downloadStatus.setText("Подключение фоновой очереди…");return;}
         loadCover();
         String bookTitle=downloads.title();

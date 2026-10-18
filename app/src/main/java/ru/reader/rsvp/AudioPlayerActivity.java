@@ -110,16 +110,19 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         timerGroup.setGravity(Gravity.CENTER);timerGroup.setBackground(bg(0xfffff8ef,15));
         ImageView timerIcon=new ImageView(this);timerIcon.setImageResource(R.drawable.ic_audio_timer);
         timerIcon.setColorFilter(TEXT);timerGroup.addView(timerIcon,new LinearLayout.LayoutParams(dp(23),dp(23)));
-        timerValue=label("",11);timerValue.setGravity(Gravity.CENTER);timerValue.setSingleLine(true);
+        timerValue=label("",11);timerValue.setGravity(Gravity.CENTER);timerValue.setSingleLine(true);timerValue.setVisibility(View.GONE);
         timerGroup.addView(timerValue,new LinearLayout.LayoutParams(-1,dp(17)));
         timerGroup.setOnClickListener(v->sleepMenu());timerGroup.setContentDescription("Таймер сна");
         timerAction=timerGroup;
         top.addView(timerGroup,new LinearLayout.LayoutParams(dp(48),dp(48)));
         top.addView(topAction(R.drawable.ic_settings,"Аудионастройки",v->openAudioSettings()),new LinearLayout.LayoutParams(dp(48),dp(48)));
+        LinearLayout titleRow=new LinearLayout(this);titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams tl=new LinearLayout.LayoutParams(-1,-2);tl.topMargin=dp(10);root.addView(titleRow,tl);
         title=label("Аудиокнига",21);title.setGravity(Gravity.CENTER);title.setTypeface(android.graphics.Typeface.SERIF,1);
         title.setMaxLines(2);title.setOnClickListener(v->selectBook());
-        LinearLayout.LayoutParams tl=new LinearLayout.LayoutParams(-1,-2);tl.topMargin=dp(10);root.addView(title,tl);
-        info=label("",14);info.setGravity(Gravity.CENTER);root.addView(info);
+        titleRow.addView(title,new LinearLayout.LayoutParams(0,-2,1));
+        titleRow.addView(topAction(R.drawable.ic_edit_name,"Переименовать аудиокнигу",v->renameAudioBook()),new LinearLayout.LayoutParams(dp(43),dp(43)));
+        info=label("",14);info.setGravity(Gravity.CENTER);info.setVisibility(View.GONE);root.addView(info);
         // Fixed-size text viewport: switching utterances cannot remeasure/shift cover,
         // progress, buttons or any other audiobook frames.
         spokenText=label("",14);
@@ -306,6 +309,31 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         if(coverPlaceholderIcon!=null)coverPlaceholderIcon.setImageResource(R.drawable.ic_plus);
         updateCover();
     }
+    void renameAudioBook(){
+        AudioPlaybackService service=AudioPlaybackService.instance;
+        if(service!=null&&service.isTtsMode()){
+            Toast.makeText(this,"Переименование текстовой книги доступно в библиотеке",Toast.LENGTH_LONG).show();return;
+        }
+        String id=selected!=null?selected.id:service!=null?service.getBookId():"";
+        AudioLibrary.Book book=null;
+        ArrayList<AudioLibrary.Book> all=AudioLibrary.load(this);
+        for(AudioLibrary.Book item:all)if(item.id.equals(id)){book=item;break;}
+        if(book==null){Toast.makeText(this,"Сначала выберите аудиокнигу из библиотеки",Toast.LENGTH_SHORT).show();return;}
+        final AudioLibrary.Book editing=book;
+        EditText nameField=new EditText(this);nameField.setSingleLine(true);nameField.setText(book.name);nameField.selectAll();
+        LinearLayout editor=new LinearLayout(this);editor.setPadding(dp(20),dp(4),dp(20),0);editor.addView(nameField);
+        new AlertDialog.Builder(this).setTitle("Изменить название аудиокниги").setView(editor)
+            .setNegativeButton("Отмена",null).setPositiveButton("Сохранить",(d,n)->{
+                String next=nameField.getText().toString().trim();
+                if(next.isEmpty()){Toast.makeText(this,"Название не может быть пустым",Toast.LENGTH_SHORT).show();return;}
+                if(next.length()>180)next=next.substring(0,180);
+                editing.name=next;editing.customName=true;editing.updated=System.currentTimeMillis();AudioLibrary.save(this,all);
+                if(selected!=null&&selected.id.equals(editing.id))selected.name=next;
+                title.setText(next);
+                Intent change=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.RENAME);
+                change.putExtra("bookId",editing.id);change.putExtra("title",next);startService(change);
+            }).show();
+    }
     void selectBook(){ArrayList<AudioLibrary.Book> all=sortedBooks(AudioLibrary.load(this));if(all.isEmpty()){Toast.makeText(this,"Добавьте аудиокнигу через + на главном экране",Toast.LENGTH_LONG).show();return;}String[] names=new String[all.size()];for(int k=0;k<all.size();k++)names[k]=all.get(k).name+" · "+audioProgress(all.get(k))+"%";new AlertDialog.Builder(this).setTitle("Выбрать аудиокнигу (удерживайте обложку для изменения)").setItems(names,(d,n)->{bumpAudioUsage(all.get(n).id);openSelected(all.get(n));draw();}).setNeutralButton("Обложка выбранной книги",(d,w)->chooseCover()).setNegativeButton("Отмена",null).show();}
     void seekPosition(int pos){startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SEEK).putExtra("position",pos));}
     void changeChapter(int delta){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null||s.isTtsMode())return;goChapter(Math.max(0,Math.min(s.getChapterCount()-1,s.getSegment()+delta)));}
@@ -369,6 +397,7 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
                 String counter=remaining<=0?"":remaining<60000?(Math.max(1,remaining/1000)+"с"):
                     ((remaining+59999)/60000)+"м";
                 setTextIfDifferent(timerValue,counter);
+                timerValue.setVisibility(remaining>0?View.VISIBLE:View.GONE);
                 timerAction.setContentDescription(remaining<=0?"Таймер сна выключен":"Таймер сна: осталось "+counter);
             }
         }
@@ -382,7 +411,7 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
             if(selected==null && !service.getBookId().isEmpty())for(AudioLibrary.Book item:AudioLibrary.load(this))if(item.id.equals(service.getBookId())){selected=item;updateCover();break;}
         }
         setTextIfDifferent(title, service.getTitle());
-        setTextIfDifferent(info, service.isTtsMode()?"Озвучивание · "+service.getSpeed()+"×":"Аудиокнига · "+service.getSpeed()+"×");
+        // Speed is displayed in the toolbar; no redundant book-type/speed subtitle.
         if(chapterPicker!=null)chapterPicker.setContentDescription(service.isTtsMode()?"Выбрать фрагмент":"Глава "+(service.getSegment()+1)+". Выбрать главу");
         int d=service.getDuration(), position=service.getPosition(), segments=Math.max(1,service.getChapterCount());
         long total=service.isTtsMode()?0:service.getTotalDuration();
