@@ -5,7 +5,7 @@ python3 - <<'PY'
 from pathlib import Path
 from xml.etree import ElementTree as ET
 p=Path('app/src/main/java/ru/reader/rsvp')
-assert "versionCode 11045; versionName '1.11.38-beta'" in Path('app/build.gradle').read_text()
+assert "versionCode 11046; versionName '1.11.39-beta'" in Path('app/build.gradle').read_text()
 assert 'androidx.documentfile:documentfile:1.0.1' in Path('app/build.gradle').read_text()
 ui=(p/'DownloadActivity.java').read_text()
 assert 'Скачать по ссылке' in ui and 'Поиск аудиокниги' in ui

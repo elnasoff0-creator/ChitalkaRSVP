@@ -1,4 +1,22 @@
-# ChitalkaRSVP v1.11.38-beta
+# ChitalkaRSVP v1.11.39-beta
+
+**versionCode: 11046.** Complete Android Java source for GitHub Actions.
+
+## v1.11.39-beta — audiobook playback continuity and controls
+
+- Sleep-timer countdown in the ordinary MP3 player and Edge TTS toolbar timer buttons (minutes, seconds under one minute), retaining centered toolbar icons.
+- MP3 second/minute skips cross chapter boundaries forwards and backwards, preserving the playing/paused state; chapter selection now preserves playback state too.
+- MainActivity **Продолжить** starts playing immediately; ordinary book-card opening remains a non-autoplay action.
+- More reliable chapter/offset restoration after application restart: save the intended target while asynchronous MediaPlayer seeking is pending; do not record its temporary zero position. Also supports Play pressed while chapter preparation is in progress.
+- Audio tab has a configurable pause/resume auto-rewind: off, 5, 10, 15, 30 or 60 seconds. On resume, the selected rewind can also cross into the previous chapter.
+- Adjustable seek button intervals: seconds 1..3600 (default 10) and minutes 1..120 (default 1). The captions update after returning from Settings.
+- Maintains the full Edge offline-generation, knigavuhe search and audiobooks, direct MP3/EPUB/FB2 imports, artwork and download dashboard.
+
+**Testing limitation:** Java syntax/source integration, chapter-boundary pure Java tests and existing shell tests can run locally; complete Gradle compilation requires Android SDK and a device test to verify MediaPlayer behavior.
+
+---
+
+# Earlier release notes: v1.11.38-beta
 
 **versionCode: 11045.** Complete Android Java source project intended for GitHub Actions Gradle build.
 
