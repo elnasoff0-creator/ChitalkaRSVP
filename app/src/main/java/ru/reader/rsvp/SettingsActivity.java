@@ -138,7 +138,9 @@ public class SettingsActivity extends Activity {
         gap(10);
         addFullscreenSetting(current);
         if(current==NORMAL){drawNormalModeSettings();return;}
+        addStartDelaySetting(current);
         if(current==CURSOR){drawCursorSettings();return;}
+        addFullscreenWordPositionSetting();
         drawSpeedReadingSettings();
     }
     void addFullscreenSetting(int selectedMode){
@@ -157,6 +159,74 @@ public class SettingsActivity extends Activity {
         info.setPadding(dp(4),0,dp(4),dp(12));list.addView(info);
         toggle.setOnCheckedChangeListener((button,checked)->prefs.edit().putBoolean(key,checked).apply());
         gap(6);
+    }
+    void addStartDelaySetting(int mode){
+        final String suffix=mode==RSVP?"rsvp":"cursor";
+        final String enabledKey="reading_start_delay_"+suffix+"_enabled";
+        final String secondsKey="reading_start_delay_"+suffix+"_seconds";
+        header("Задержка перед стартом");
+        android.widget.Switch toggle=new android.widget.Switch(this);
+        toggle.setText("Задержка перед Play");toggle.setTextSize(16);
+        toggle.setTextColor(contrast(bg));toggle.setPadding(dp(6),dp(5),dp(6),dp(5));
+        boolean enabled=prefs.getBoolean(enabledKey,false);
+        toggle.setChecked(enabled);list.addView(toggle);
+        final int seconds=Math.max(1,Math.min(10,prefs.getInt(secondsKey,2)));
+        TextView value=text("Длительность задержки: "+seconds+" сек",15,false);
+        value.setPadding(dp(4),dp(7),0,dp(2));list.addView(value);
+        SeekBar seek=new SeekBar(this);seek.setMax(9);seek.setProgress(seconds-1);
+        seek.setEnabled(enabled);list.addView(seek);
+        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            public void onProgressChanged(SeekBar bar,int progress,boolean fromUser){
+                int updated=progress+1;value.setText("Длительность задержки: "+updated+" сек");
+                if(fromUser)put(secondsKey,updated);
+            }
+            public void onStartTrackingTouch(SeekBar bar){}
+            public void onStopTrackingTouch(SeekBar bar){}
+        });
+        TextView note=text("От 1 до 10 секунд. При Play появится прозрачный контурный круг без цифр: полная окружность постепенно исчезает по часовой стрелке.",13,false);
+        note.setPadding(dp(4),dp(4),dp(4),dp(7));list.addView(note);
+        toggle.setOnCheckedChangeListener((b,checked)->{
+            prefs.edit().putBoolean(enabledKey,checked).apply();seek.setEnabled(checked);
+        });
+        gap(8);
+    }
+    void addFullscreenWordPositionSetting(){
+        header("Положение слова во весь экран");
+        TextView note=text("Слово и линии фокусировки перемещаются вместе. По умолчанию сохраняется высота слова в обычном интерфейсе.",13,false);
+        note.setPadding(dp(4),0,dp(4),dp(8));list.addView(note);
+        final String manualKey="rsvp_fullscreen_position_manual";
+        final String valueKey="rsvp_fullscreen_position";
+        boolean manual=prefs.getBoolean(manualKey,false);
+        int lastAuto=Math.max(-100,Math.min(100,prefs.getInt("rsvp_fullscreen_auto_percent",-28)));
+        int initial=manual?prefs.getInt(valueKey,0):lastAuto;
+        initial=Math.max(-100,Math.min(100,initial));
+        TextView label=text(manual?"Положение: "+(initial>0?"+":"")+initial+"%":
+            "Авто: "+(initial>0?"+":"")+initial+"% · исходная высота",15,false);
+        list.addView(label);
+        SeekBar slider=new SeekBar(this);slider.setMax(200);slider.setProgress(initial+100);
+        list.addView(slider);
+        slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            public void onProgressChanged(SeekBar bar,int progress,boolean fromUser){
+                int value=progress-100;
+                if(fromUser){
+                    label.setText("Положение: "+(value>0?"+":"")+value+"%");
+                    prefs.edit().putInt(valueKey,value).putBoolean(manualKey,true).apply();
+                }
+            }
+            public void onStartTrackingTouch(SeekBar bar){}
+            public void onStopTrackingTouch(SeekBar bar){}
+        });
+        LinearLayout labels=new LinearLayout(this);labels.setGravity(Gravity.CENTER_VERTICAL);
+        TextView top=text("−100% · верх",12,false);labels.addView(top,new LinearLayout.LayoutParams(0,-2,1));
+        TextView middle=text("0% · центр",12,false);middle.setGravity(Gravity.CENTER);
+        labels.addView(middle,new LinearLayout.LayoutParams(0,-2,1));
+        TextView bottom=text("+100% · низ",12,false);bottom.setGravity(Gravity.RIGHT);
+        labels.addView(bottom,new LinearLayout.LayoutParams(0,-2,1));list.addView(labels);
+        gap(8);
+        list.addView(action("↺ Авто · как в обычном интерфейсе",()->{
+            prefs.edit().putBoolean(manualKey,false).apply();draw();
+        }));
+        gap(8);
     }
     int modeIconFor(int mode){
         return mode==NORMAL?R.drawable.ic_book:mode==RSVP?R.drawable.ic_speed:R.drawable.ic_mode_cursor;

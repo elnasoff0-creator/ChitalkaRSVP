@@ -25,6 +25,11 @@ public class ReaderActivity extends Activity {
     private TextView bookTitle;
     private ImageView floatingPlayIcon;
     private FrameLayout rsvpPane;
+    private CountdownRingView countdownRing;
+    private boolean waitingForStart=false;
+    private boolean delayRsvpEnabled=false,delayCursorEnabled=false,fullscreenRsvpPositionManual=false;
+    private int delayRsvpSeconds=2,delayCursorSeconds=2,fullscreenRsvpPositionPercent=0;
+    private float normalRsvpCenterOnScreen=-1f;
     private RecyclerView textList;
     private LinearLayoutManager layoutManager;
     private ChunkAdapter chunkAdapter;
@@ -52,6 +57,12 @@ public class ReaderActivity extends Activity {
     private float swipeStartY;
     private int scrollWordAccumulator=0;
     private long lastLightSave=0;
+    private final Runnable beginDelayedReading=new Runnable(){@Override public void run(){
+        if(!playing||!waitingForStart)return;
+        waitingForStart=false;removeCountdownRing();
+        handler.removeCallbacks(ticker);
+        handler.postDelayed(ticker,delayForPortion(index,Math.min(portion,words.length-index)));
+    }};
     private final Runnable ticker=new Runnable(){@Override public void run(){
         if(!playing||words.length==0)return;
         int count=Math.min(portion,words.length-index);
@@ -98,6 +109,12 @@ public class ReaderActivity extends Activity {
         fullscreenNormal=prefs.getBoolean("reading_fullscreen_normal",false);
         fullscreenRsvp=prefs.getBoolean("reading_fullscreen_rsvp",false);
         fullscreenCursor=prefs.getBoolean("reading_fullscreen_cursor",false);
+        delayRsvpEnabled=prefs.getBoolean("reading_start_delay_rsvp_enabled",false);
+        delayCursorEnabled=prefs.getBoolean("reading_start_delay_cursor_enabled",false);
+        delayRsvpSeconds=Math.max(1,Math.min(10,prefs.getInt("reading_start_delay_rsvp_seconds",2)));
+        delayCursorSeconds=Math.max(1,Math.min(10,prefs.getInt("reading_start_delay_cursor_seconds",2)));
+        fullscreenRsvpPositionManual=prefs.getBoolean("rsvp_fullscreen_position_manual",false);
+        fullscreenRsvpPositionPercent=Math.max(-100,Math.min(100,prefs.getInt("rsvp_fullscreen_position",0)));
         pausePunctuationPercent=Math.max(0,Math.min(300,prefs.getInt("pausePunctuationPercent",60)));
         pauseLongPercent=Math.max(0,Math.min(300,prefs.getInt("pauseLongPercent",50)));
         pauseSentencePercent=Math.max(0,Math.min(400,prefs.getInt("pauseSentencePercent",120)));
@@ -364,17 +381,99 @@ public class ReaderActivity extends Activity {
         if(rsvpPane!=null){
             LinearLayout.LayoutParams paneLp=(LinearLayout.LayoutParams)rsvpPane.getLayoutParams();
             if(paneLp!=null){
-                boolean expanded=mode==RSVP&&playbackFullscreen;
-                int height=expanded?0:dp(192);
-                float weight=expanded?1f:0f;
-                if(paneLp.height!=height||paneLp.weight!=weight){
-                    paneLp.height=height;paneLp.weight=weight;paneLp.bottomMargin=expanded?0:dp(8);
+                boolean rsvpFullscreen=mode==RSVP&&playbackFullscreen;
+                // Fixed-height pane: a weighted fullscreen pane used to recenter the word on Play.
+                int height=rsvpFullscreen?dp(128):dp(192);
+                int bottom=rsvpFullscreen?0:dp(8);
+                int top=rsvpFullscreen?paneLp.topMargin:0;
+                if(paneLp.height!=height||paneLp.weight!=0f||paneLp.bottomMargin!=bottom||paneLp.topMargin!=top){
+                    paneLp.height=height;paneLp.weight=0f;
+                    paneLp.bottomMargin=bottom;paneLp.topMargin=top;
                     rsvpPane.setLayoutParams(paneLp);
                 }
+                if(rsvpFullscreen)readingFrame.post(this::positionFullscreenRsvpPane);
             }
         }
         if(mode==RSVP&&playing&&textList!=null)textList.setVisibility(View.GONE);
         applySystemBars(immersive);
+    }
+    private void rememberRsvpScreenPosition(){
+        if(rsvpPane==null||rsvpPane.getHeight()<=0)return;
+        int[] location=new int[2];rsvpPane.getLocationOnScreen(location);
+        normalRsvpCenterOnScreen=location[1]+rsvpPane.getHeight()/2f;
+        android.util.DisplayMetrics real=new android.util.DisplayMetrics();
+        getWindowManager().getDefaultDisplay().getRealMetrics(real);
+        float margin=dp(16)+dp(64);
+        float upper=margin,lower=Math.max(upper+1,real.heightPixels-margin);
+        float ratio=Math.max(0f,Math.min(1f,(normalRsvpCenterOnScreen-upper)/(lower-upper)));
+        int approxPercent=Math.round(ratio*200f-100f);
+        prefs.edit().putInt("rsvp_fullscreen_auto_percent",approxPercent).apply();
+    }
+    private void positionFullscreenRsvpPane(){
+        if(!playing||mode!=RSVP||!fullscreenRsvp||rsvpPane==null||readingFrame==null)return;
+        if(readingFrame.getHeight()<=0||rsvpPane.getHeight()<=0)return;
+        int[] parentLocation=new int[2];readingFrame.getLocationOnScreen(parentLocation);
+        float paneHalf=rsvpPane.getHeight()/2f;
+        float edge=dp(16)+paneHalf;
+        float upper=parentLocation[1]+edge;
+        float lower=parentLocation[1]+readingFrame.getHeight()-edge;
+        if(lower<upper)lower=upper;
+        float target;
+        if(fullscreenRsvpPositionManual){
+            target=upper+(lower-upper)*(fullscreenRsvpPositionPercent+100f)/200f;
+        }else if(normalRsvpCenterOnScreen>0f){
+            target=normalRsvpCenterOnScreen;
+        }else{
+            target=(upper+lower)/2f;
+        }
+        target=Math.max(upper,Math.min(lower,target));
+        int margin=Math.max(0,Math.round(target-parentLocation[1]-paneHalf));
+        LinearLayout.LayoutParams params=(LinearLayout.LayoutParams)rsvpPane.getLayoutParams();
+        if(params.topMargin!=margin){params.topMargin=margin;rsvpPane.setLayoutParams(params);}
+    }
+    private void removeCountdownRing(){
+        if(countdownRing==null)return;
+        ViewGroup parent=(ViewGroup)countdownRing.getParent();
+        if(parent!=null)parent.removeView(countdownRing);
+        countdownRing=null;
+    }
+    private void showCountdownRing(int seconds){
+        removeCountdownRing();
+        if(sceneRoot==null)return;
+        countdownRing=new CountdownRingView(this,seconds,accent());
+        if(mode==RSVP&&rsvpPane!=null){
+            // The ring is behind the word and lines, so it never covers the text.
+            int focusHeight=focusLinesEnabled?dp(90):0;
+            int wordHeight=wordView==null?dp(size):Math.max(Math.round(wordView.getTextSize()*1.25f),dp(size));
+            int diameter=Math.max(dp(65),Math.max(focusHeight,wordHeight)+dp(30));
+            rsvpPane.addView(countdownRing,0,new FrameLayout.LayoutParams(diameter,diameter,Gravity.CENTER));
+        }else{
+            // Cursor: centered on the device view, irrespective of selected word position.
+            sceneRoot.addView(countdownRing,new FrameLayout.LayoutParams(dp(124),dp(124),Gravity.CENTER));
+        }
+    }
+    private class CountdownRingView extends View {
+        private final Paint ring=new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final long started=SystemClock.uptimeMillis(),duration;
+        CountdownRingView(Context ctx,int seconds,int color){super(ctx);
+            duration=Math.max(1,seconds)*1000L;
+            ring.setColor(Color.argb(165,Color.red(color),Color.green(color),Color.blue(color)));
+            ring.setStyle(Paint.Style.STROKE);ring.setStrokeWidth(dp(5));
+            ring.setStrokeCap(Paint.Cap.ROUND);
+            setClickable(false);setFocusable(false);
+            setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        }
+        @Override protected void onDraw(Canvas canvas){super.onDraw(canvas);
+            long elapsed=Math.min(duration,Math.max(0,SystemClock.uptimeMillis()-started));
+            float remaining=1f-elapsed/(float)duration;
+            if(remaining<=0)return;
+            float inset=ring.getStrokeWidth()/2f+dp(2);
+            // One complete contour initially. Its leading edge erases clockwise from 12 o'clock.
+            float progress=1f-remaining;
+            canvas.drawArc(inset,inset,getWidth()-inset,getHeight()-inset,
+                -90f+360f*progress,360f*remaining,false,ring);
+            postInvalidateDelayed(16);
+        }
     }
     private void applySystemBars(boolean immersive){
         immersiveActive=immersive;
@@ -427,17 +526,29 @@ public class ReaderActivity extends Activity {
     private void togglePlayback(){
         if(playing){stop();saveLight(true);return;}
         if(words.length==0)return;
-        playing=true;handler.removeCallbacks(ticker);
+        if(mode==RSVP&&fullscreenRsvp)rememberRsvpScreenPosition();
+        playing=true;waitingForStart=false;
+        handler.removeCallbacks(ticker);handler.removeCallbacks(beginDelayedReading);
         if(mode==RSVP)setRsvpContextVisible(false);
-        handler.postDelayed(ticker,delayForPortion(index,Math.min(portion,words.length-index)));
         updatePlayButton();applyFullscreenUi();
+        int seconds=mode==RSVP&&delayRsvpEnabled?delayRsvpSeconds:
+            mode==CURSOR&&delayCursorEnabled?delayCursorSeconds:0;
+        if(seconds>0){
+            waitingForStart=true;
+            showCountdownRing(seconds);
+            handler.postDelayed(beginDelayedReading,seconds*1000L);
+        }else{
+            handler.postDelayed(ticker,delayForPortion(index,Math.min(portion,words.length-index)));
+        }
     }
     private void stop(){
-        playing=false;handler.removeCallbacks(ticker);updatePlayButton();setRsvpContextVisible(true);
+        playing=false;waitingForStart=false;
+        handler.removeCallbacks(ticker);handler.removeCallbacks(beginDelayedReading);
+        removeCountdownRing();updatePlayButton();setRsvpContextVisible(true);
         applyFullscreenUi();
     }
     private void changeSpeed(int delta){wpm=Math.max(100,Math.min(1000,wpm+delta));if(speedView!=null)speedView.setText(wpm+" слов/мин");saveLight(true);
-        if(playing){handler.removeCallbacks(ticker);handler.postDelayed(ticker,delayForPortion(index,Math.min(portion,words.length-index)));}}
+        if(playing&&!waitingForStart){handler.removeCallbacks(ticker);handler.postDelayed(ticker,delayForPortion(index,Math.min(portion,words.length-index)));}}
     private boolean paragraphAfter(int word){return word<words.length-1&&body.substring(map.ends[word],map.starts[word+1]).contains("\n\n");}
     private long delayForPortion(int first,int count){
         long base=ReadingWordMap.delayMillis(wpm,count);double extra=0;
