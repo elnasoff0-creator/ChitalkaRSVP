@@ -1,3 +1,20 @@
+# ChitalkaRSVP v1.11.42-beta
+
+**versionCode: 11049.** Complete Android Java source project for GitHub Actions.
+
+## Performance update: chunked reading and a smaller on-disk index
+
+- ReaderActivity renders text with **RecyclerView virtual chunks** (~560 words each) instead of a single full-book TextView. View holders are reused; the full EPUB/FB2 is no longer laid out for every reader frame. The 130,997-word test book yields 262 independently addressable chunks.
+- Ordinary, RSVP and Cursor still share a global word index. Scrolling RSVP context can travel across the whole book through visible chunks, and tapping a word in ordinary mode selects the matching global index.
+- RSVP no longer updates the full context highlight on every displayed word, and Cursor only modifies visible chunk spans; its automatic scroll activates when the active word leaves the viewport.
+- ReaderBookCache **v2** stores text once plus compact character offsets for all words. Cache files live in the app's files directory and are built on a background thread at the first reading. It checks the source's reported size on reload; cache files can be regenerated. The first load still needs EPUB/FB2 extraction and tokenization, while later loads reuse the prepared map.
+- Lightweight word progress is throttled to ~4 seconds during active reading. Updating the library's JSON record only happens when the reader pauses or closes. MainActivity does not redundantly parse the most recently opened book just to display the home library.
+- Settings > **Чтение** has one horizontal mode selector with the chosen mode's icon on the left and an Android dropdown on the right (book, speedometer, pointing-hand Cursor icon). Settings > **Онлайн** uses a minimalist outline cloud.
+- Earlier color selection, focus lines, independent punctuation pauses, button color, offline audiobook covers, direct downloads, full-book Edge TTS and audioplayer features remain in the source project.
+
+**Testing:** Local pure-Java chunk boundary tests and existing source/integration shell tests pass. An Android SDK is not installed in this execution environment, so APK compilation and device memory/frame-time measurement require GitHub Actions and physical-device testing. Source tests alone do not prove the absence of device-specific regressions.
+
+---
 # ChitalkaRSVP v1.11.40-beta
 
 **versionCode: 11047.** Complete Android Java source project for GitHub Actions.

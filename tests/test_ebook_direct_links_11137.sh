@@ -29,7 +29,7 @@ assert 'new Intent(this,ReaderActivity.class)' in screen
 assert '"book_uri",entry.savedUri' in screen
 assert 'Читать ' in screen
 assert 'mp3".equals(e.format)' in screen
-assert "versionCode 11047; versionName '1.11.40-beta'" in Path('app/build.gradle').read_text()
+assert "versionCode 11049; versionName '1.11.42-beta'" in Path('app/build.gradle').read_text()
 manifest=ET.parse('app/src/main/AndroidManifest.xml')
 assert manifest.find('.//application') is not None
 print('PASS: v1.11.37 extra formats MP3/FB2/EPUB, signature checks, SAF, reader library, backwards compatibility')

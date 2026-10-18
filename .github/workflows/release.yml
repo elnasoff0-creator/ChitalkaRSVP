@@ -1,6 +1,4 @@
-
 name: Publish signed APK release
-
 on:
   push:
     tags:
@@ -13,54 +11,88 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-24.04
-
     env:
       ANDROID_HOME: ${{ github.workspace }}/android-sdk
       ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Set up Java 17
-        uses: actions/setup-java@v6
+      - uses: actions/checkout@v4
+      - name: Remove obsolete MRT Java before compilation
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Checked out Git revision: $(git rev-parse --short HEAD)"
+          # An upload that overwrites files does not delete tracked old Java classes.
+          # Remove them in this runner checkout so javac cannot compile them.
+          if [ -d app/src/main/java ]; then
+            find app/src/main/java -type f \( -name 'Mrt*.java' -o -name 'Mrt*.kt' \) -print -delete
+          fi
+          rm -f app/src/main/assets/mrt_online_capture.js
+          # The shared Edge code must remain independent of the retired MRT engine.
+          if grep -R -n -E 'AudioModeCoordinator\.STOP_MRT|androidx\.webkit\.' app/src/main/java              --include='*.java' --include='*.kt'; then
+            echo 'ERROR: obsolete MRT dependencies remain in Android Java sources.' >&2
+            exit 1
+          fi
+          echo 'MRT checkout cleanup finished (Edge TTS preserved).'
+      - name: Check that no obsolete MRT source can enter javac
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d app/src/main/java ] && find app/src/main/java -type f \( -name 'Mrt*.java' -o -name 'Mrt*.kt' \) | grep -q .; then
+            echo 'ERROR: MRT Java files survived checkout cleanup.' >&2
+            exit 1
+          fi
+          if grep -q -E 'Mrt(Download|Playback|Online|FileExplorer|Native)' app/src/main/AndroidManifest.xml; then
+            echo 'ERROR: legacy MRT component remains registered in the manifest.' >&2
+            exit 1
+          fi
+          echo 'PASS: javac will receive Edge-only sources.'
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
+      - name: Validate Edge-only source and core tests
+        run: |
+          set -e
+          for script in tests/*.sh; do bash "$script"; done
+          ! grep -R -n "KEYCODE_HEADSETOOK" app/src/main/java
       - name: Install Android SDK commandline tools
         run: |
           mkdir -p "$ANDROID_HOME/cmdline-tools"
-
-          curl -fL \
-            https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip \
-            -o cmdline-tools.zip
-
-          unzip -q cmdline-tools.zip \
-            -d "$ANDROID_HOME/cmdline-tools"
-
-          mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" \
-             "$ANDROID_HOME/cmdline-tools/latest"
-
+          curl -fL https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip -o cmdline-tools.zip
+          unzip -q cmdline-tools.zip -d "$ANDROID_HOME/cmdline-tools"
+          mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
           echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/build-tools/35.0.0" >> "$GITHUB_PATH"
-
-      - name: Install Android SDK packages
+      - name: Install SDK packages
         run: |
           yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager \
-            "platforms;android-35" \
-            "build-tools;35.0.0" \
-            "platform-tools"
-
-      - name: Set up Gradle 8.7
-        uses: gradle/actions/setup-gradle@v6
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
-
-      - name: Build unsigned release
-        run: gradle assembleRelease --stacktrace
-
+      - name: Build v1.11.42 unsigned release
+        run: bash scripts/gradle-with-diagnostics.sh assembleRelease --stacktrace
+      - name: Upload complete Gradle compile log (even when failed)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-build-logs-release
+          path: |
+            build-log.txt
+            build-diagnostics.txt
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Verify Edge-only build and show APK version
+        run: |
+          set -euo pipefail
+          echo "Built from commit: $GITHUB_SHA"
+          ! grep -q 'MrtOnlineActivity' app/src/main/AndroidManifest.xml
+          grep -q 'EdgeOnlineActivity' app/src/main/AndroidManifest.xml
+          grep -q 'Edge TTS · онлайн' app/src/main/java/ru/reader/rsvp/ReaderActivity.java
+          grep -q 'MediaSession' app/src/main/java/ru/reader/rsvp/AudioPlaybackService.java
+          grep -q 'MediaSession' app/src/main/java/ru/reader/rsvp/EdgePlaybackService.java
+          test -f app/src/main/java/ru/reader/rsvp/PlaybackAudioFocus.java
+          aapt dump badging app/build/outputs/apk/release/app-release-unsigned.apk | grep '^package:'
       - name: Sign with persistent release key
         env:
           RELEASE_KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
@@ -69,66 +101,34 @@ jobs:
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
         run: |
           set -euo pipefail
-
-          test -n "$RELEASE_KEYSTORE_B64" || {
-            echo "Missing release signing secrets"
-            exit 1
-          }
-
-          printf '%s' "$RELEASE_KEYSTORE_B64" \
-            | base64 -d > /tmp/release.jks
-
+          test -n "$RELEASE_KEYSTORE_B64" || { echo 'Missing release signing secrets'; exit 1; }
+          printf '%s' "$RELEASE_KEYSTORE_B64" | base64 -d > /tmp/release.jks
           mkdir -p dist
-
-          zipalign -f -p 4 \
-            app/build/outputs/apk/release/app-release-unsigned.apk \
-            dist/ChitalkaRSVP-aligned.apk
-
-          apksigner sign \
-            --ks /tmp/release.jks \
-            --ks-key-alias "$RELEASE_KEY_ALIAS" \
-            --ks-pass "env:RELEASE_KEYSTORE_PASSWORD" \
-            --key-pass "env:RELEASE_KEY_PASSWORD" \
-            --out dist/ChitalkaRSVP.apk \
-            dist/ChitalkaRSVP-aligned.apk
-
+          zipalign -f -p 4 app/build/outputs/apk/release/app-release-unsigned.apk dist/ChitalkaRSVP-aligned.apk
+          apksigner sign --ks /tmp/release.jks --ks-key-alias "$RELEASE_KEY_ALIAS" \
+            --ks-pass "env:RELEASE_KEYSTORE_PASSWORD" --key-pass "env:RELEASE_KEY_PASSWORD" \
+            --out dist/ChitalkaRSVP.apk dist/ChitalkaRSVP-aligned.apk
           apksigner verify --verbose dist/ChitalkaRSVP.apk
-
-          rm -f /tmp/release.jks
-          rm -f dist/ChitalkaRSVP-aligned.apk
-
-          cd dist
-          sha256sum ChitalkaRSVP.apk > SHA256SUMS.txt
-
+          rm -f /tmp/release.jks dist/ChitalkaRSVP-aligned.apk
+          sha256sum dist/ChitalkaRSVP.apk > dist/SHA256SUMS.txt
       - name: Upload signed APK artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: ChitalkaRSVP-signed
-          path: |
-            dist/ChitalkaRSVP.apk
-            dist/SHA256SUMS.txt
-          if-no-files-found: error
-          retention-days: 30
-
+          path: dist/*
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            echo "Release exists. Updating assets..."
-
-            gh release upload "$GITHUB_REF_NAME" \
-              dist/ChitalkaRSVP.apk \
-              dist/SHA256SUMS.txt \
-              --clobber
+            gh release upload "$GITHUB_REF_NAME" dist/ChitalkaRSVP.apk dist/SHA256SUMS.txt --clobber
           else
-            echo "Creating a new release..."
-
-            gh release create "$GITHUB_REF_NAME" \
-              dist/ChitalkaRSVP.apk \
-              dist/SHA256SUMS.txt \
-              --title "Читалка RSVP ${GITHUB_REF_NAME#v}" \
-              --notes "Обновление Читалки RSVP." \
-              --latest
+            if [[ "$GITHUB_REF_NAME" == *-beta* || "$GITHUB_REF_NAME" == *-alpha* || "$GITHUB_REF_NAME" == *-rc* ]]; then
+              gh release create "$GITHUB_REF_NAME" dist/ChitalkaRSVP.apk dist/SHA256SUMS.txt \
+                --title "Читалка RSVP ${GITHUB_REF_NAME#v}" --notes "Тестовая сборка Читалки RSVP." --prerelease
+            else
+              gh release create "$GITHUB_REF_NAME" dist/ChitalkaRSVP.apk dist/SHA256SUMS.txt \
+                --title "Читалка RSVP ${GITHUB_REF_NAME#v}" --notes "Обновление Читалки RSVP." --latest
+            fi
           fi

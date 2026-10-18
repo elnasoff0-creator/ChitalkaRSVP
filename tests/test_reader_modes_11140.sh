@@ -34,12 +34,12 @@ settings=(base/'SettingsActivity.java').read_text()
 player=(base/'AudioPlayerActivity.java').read_text()
 service=(base/'AudioPlaybackService.java').read_text()
 edge=(base/'EdgeOnlineActivity.java').read_text()
-assert all(x in reader for x in ['NORMAL=0, RSVP=1, CURSOR=2','void modeDialog()','void setMode(int next)','ReadingWordMap','Выбрать стартовое слово','normalText.setOnTouchListener','void updateCursor(boolean ensureVisible)','FocusLinesView','rsvp_focus_point','rsvp_focus_lines','rsvp_portion'])
+assert all(x in reader for x in ['NORMAL=0,RSVP=1,CURSOR=2','void modeDialog()','void setMode(int next)','ReadingWordMap','Выбрать стартовое слово','new RecyclerView(this)','ChunkAdapter','refreshHighlight','FocusLinesView','rsvp_focus_point','rsvp_focus_lines','rsvp_portion'])
 assert all(x in settings for x in ['Размер порции','Точка фокусировки','Линии фокусировки','rsvp_line_position','cursor_background','cursor_text','Обычный','Скорочтение','Курсор'])
 assert 'renameAudioBook()' in player and 'AudioLibrary.save(this,all)' in player and 'R.drawable.ic_edit_name' in player
 assert 'case RENAME:' in service and 'title=newTitle.trim()' in service
 assert 'timerValue.setVisibility(remaining>0?View.VISIBLE:View.GONE)' in player
 assert 'sleepValue.setVisibility(ms>0?View.VISIBLE:View.GONE)' in edge
-assert "versionCode 11047; versionName '1.11.40-beta'" in Path('app/build.gradle').read_text()
+assert "versionCode 11049; versionName '1.11.42-beta'" in Path('app/build.gradle').read_text()
 print('PASS: new reader and audio user-interface logic is present')
 PYTEST

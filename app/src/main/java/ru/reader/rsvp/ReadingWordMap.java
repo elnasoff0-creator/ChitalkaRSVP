@@ -21,6 +21,12 @@ public final class ReadingWordMap {
         if(words==null||starts==null||ends==null||words.length!=starts.length||words.length!=ends.length)return parse("");
         return new ReadingWordMap(words,starts,ends);
     }
+    public static ReadingWordMap fromOffsets(String text,int[] starts,int[] ends){
+        if(text==null||starts==null||ends==null||starts.length!=ends.length)return parse("");
+        String[] words=new String[starts.length];
+        for(int i=0;i<words.length;i++)words[i]=text.substring(starts[i],ends[i]);
+        return new ReadingWordMap(words,starts,ends);
+    }
     public static ReadingWordMap parse(String content){
         if(content==null)content="";
         ArrayList<String> w=new ArrayList<>();ArrayList<Integer> a=new ArrayList<>(),b=new ArrayList<>();

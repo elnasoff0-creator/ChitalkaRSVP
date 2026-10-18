@@ -141,15 +141,11 @@ public class MainActivity extends Activity {
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
         prefs = getSharedPreferences("reader", MODE_PRIVATE);
         loadPrefs();
-        if (!currentUri.isEmpty()) {
-            int requestedScreen = screen;
-            screen = 0;
-            draw();
-            openBook(currentUri, false, requestedScreen == 1);
-        } else {
-            screen = 0;
-            draw();
-        }
+        // Draw the library immediately. Do not decode and tokenize an entire book
+        // merely because it was open in the previous session; ReaderActivity loads
+        // and indexes it asynchronously when the user actually opens it.
+        screen = 0;
+        draw();
         if (System.currentTimeMillis() - prefs.getLong("update_last_check", 0L) > 24L * 60 * 60 * 1000) {
             prefs.edit().putLong("update_last_check", System.currentTimeMillis()).apply();
             new UpdateManager(this).check(true);

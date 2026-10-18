@@ -6,7 +6,7 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 p=Path('app/src/main/java/ru/reader/rsvp')
 gradle=Path('app/build.gradle').read_text()
-assert "versionCode 11047; versionName '1.11.40-beta'" in gradle
+assert "versionCode 11049; versionName '1.11.42-beta'" in gradle
 assert "androidx.recyclerview:recyclerview:1.3.2" in gradle
 search=(p/'KvuheSearchParser.java').read_text()
 assert 'div.bookkitem' in search and 'search/?q=' in search

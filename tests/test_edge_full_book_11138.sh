@@ -37,7 +37,7 @@ dashboard=(root/'DownloadActivity.java').read_text()
 store=(root/'EdgeFullBookStore.java').read_text()
 download=(root/'EdgeDownloadService.java').read_text()
 repo=(root/'DownloadsRepository.java').read_text()
-assert 'versionCode 11047' in Path('app/build.gradle').read_text()
+assert 'versionCode 11049' in Path('app/build.gradle').read_text()
 for term in ('startForeground','EdgeFullBookStore.readyCount','EdgeTextSegments.all','EdgeBookStorage.key','EdgeTtsClient.synthesize','EdgeGenerationGuard.claim','EdgeFullBookStore.PAUSED'):
  assert term in service, term
 for term in ('Подготовить аудиокнигу','Светлана','Дмитрий','CoverImageLoader.show','getString("library"','EdgeFullBookService.ADD'):

@@ -109,31 +109,39 @@ public class SettingsActivity extends Activity {
         gap(18);
     }
     void drawRsvpSettings(){
-        header("Режимы чтения");
+        header("Режим чтения");
         int current=Math.max(0,Math.min(2,prefs.getInt("reading_mode",prefs.getBoolean("rsvp",true)?1:0)));
-        LinearLayout modes=new LinearLayout(this);
-        addModeTab(modes,"Обычный",R.drawable.ic_book,current==NORMAL,()->setReadingMode(NORMAL));
-        addModeTab(modes,"Скорочтение",R.drawable.ic_speed,current==RSVP,()->setReadingMode(RSVP));
-        addModeTab(modes,"Курсор",R.drawable.ic_mode_cursor,current==CURSOR,()->setReadingMode(CURSOR));
-        list.addView(modes);
-        TextView note=text("Показываются только настройки выбранного режима.",13,false);note.setPadding(0,dp(6),0,dp(6));list.addView(note);
+        LinearLayout selector=new LinearLayout(this);selector.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView modeImage=new ImageView(this);
+        modeImage.setImageResource(modeIconFor(current));modeImage.setColorFilter(contrast(bg));
+        modeImage.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        modeImage.setBackground(rounded(cardColor(),14));
+        modeImage.setPadding(dp(13),dp(13),dp(13),dp(13));
+        selector.addView(modeImage,new LinearLayout.LayoutParams(dp(52),dp(52)));
+        android.widget.Spinner spinner=new android.widget.Spinner(this);
+        String[] labels={"Обычный","Скорочтение","Курсор"};
+        android.widget.ArrayAdapter<String> items=new android.widget.ArrayAdapter<>(this,android.R.layout.simple_spinner_item,labels);
+        items.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinner.setAdapter(items);spinner.setSelection(current,false);
+        spinner.setBackground(rounded(cardColor(),14));
+        spinner.setPadding(dp(14),0,dp(14),0);
+        LinearLayout.LayoutParams spinnerLp=new LinearLayout.LayoutParams(0,dp(52),1);spinnerLp.leftMargin=dp(9);
+        selector.addView(spinner,spinnerLp);list.addView(selector);
+        spinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
+            @Override public void onItemSelected(android.widget.AdapterView<?> parent,View view,int n,long id){
+                int chosen=Math.max(0,Math.min(2,prefs.getInt("reading_mode",prefs.getBoolean("rsvp",true)?1:0)));
+                if(n!=chosen){prefs.edit().putInt("reading_mode",n).putBoolean("rsvp",n==RSVP).apply();draw();}
+            }
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parent){}
+        });
+        gap(10);
         if(current==NORMAL){drawNormalModeSettings();return;}
         if(current==CURSOR){drawCursorSettings();return;}
         drawSpeedReadingSettings();
     }
-    void addModeTab(LinearLayout row,String caption,int icon,boolean active,Runnable click){
-        TextView chip=text(caption,13,false);
-        chip.setGravity(Gravity.CENTER_VERTICAL);
-        chip.setPadding(dp(12),dp(11),dp(12),dp(11));
-        chip.setTextColor(active?Color.WHITE:contrast(bg));
-        chip.setCompoundDrawablePadding(dp(8));
-        android.graphics.drawable.Drawable d=getDrawable(icon);
-        if(d!=null){d=d.mutate();d.setTint(active?Color.WHITE:contrast(bg));d.setBounds(0,0,dp(18),dp(18));chip.setCompoundDrawables(d,null,null,null);}        
-        chip.setBackground(rounded(active?activeColor():cardColor(),16));
-        chip.setOnClickListener(v->click.run());
-        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.setMargins(dp(2),dp(3),dp(2),dp(3));row.addView(chip,lp);
+    int modeIconFor(int mode){
+        return mode==NORMAL?R.drawable.ic_book:mode==RSVP?R.drawable.ic_speed:R.drawable.ic_mode_cursor;
     }
-    void setReadingMode(int mode){put("reading_mode",mode);prefs.edit().putBoolean("rsvp",mode==RSVP).apply();draw();}
     void drawNormalModeSettings(){
         header("Выбор слова в обычном режиме");
         TextView info=text("Кнопка выбора слова работает как переключатель: коснитесь её, затем выбирайте стартовое слово в тексте столько раз, сколько нужно. Фон у выделенного слова не используется.",14,false);
