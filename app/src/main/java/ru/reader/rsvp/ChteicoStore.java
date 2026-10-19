@@ -148,6 +148,25 @@ public final class ChteicoStore {
         long seconds=p.getLong("seconds_classic",0)+p.getLong("seconds_speed",0)+p.getLong("seconds_audio",0);
         return Math.min(95,(int)(seconds*95/7200L));
     }
+    public static boolean developerUnlocked(Context c){return prefs(c).getBoolean("developer_unlocked",false);}
+    public static void unlockDeveloper(Context c){prefs(c).edit().putBoolean("developer_unlocked",true).apply();}
+    /** Developer-only preview override for QA of every evolution and reading branch. */
+    public static synchronized void setDeveloperState(Context c,int stage,int branch){
+        stage=Math.max(EGG,Math.min(ADULT,stage));
+        branch=Math.max(UNDECIDED,Math.min(AUDIO,branch));
+        if(stage!=EGG&&branch==UNDECIDED)branch=CLASSIC;
+        SharedPreferences p=prefs(c);
+        SharedPreferences.Editor e=p.edit()
+            .putInt("stage",stage)
+            .putInt("branch",stage==EGG?UNDECIDED:branch)
+            .putInt("egg_units",stage==EGG?0:8)
+            .putBoolean("pending_hatch",false)
+            .putBoolean("post_hatch_mature",false)
+            .remove("pending_intro_stage")
+            .remove("bubble_seen")
+            .remove("bubble_last_id");
+        e.apply();
+    }
     public static void setEnabled(Context c,boolean enabled){prefs(c).edit().putBoolean("enabled",enabled).apply();ChteicoNotifications.schedule(c);}
     /** Reset game state, not imported books nor reader/audioplayer positions. */
     public static void resetPet(Context c){SharedPreferences p=prefs(c);p.edit().putInt("stage",EGG).putInt("branch",UNDECIDED).putInt("egg_units",0).remove("pending_intro_stage").putBoolean("pending_hatch",false).putBoolean("post_hatch_mature",false)

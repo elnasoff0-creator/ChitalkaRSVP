@@ -29,6 +29,7 @@ public class SettingsActivity extends Activity {
     private SharedPreferences prefs;
     private int currentTab=0; // 0 appearance, 1 reading, 2 audio, 3 online, 4 Chteico
     private LinearLayout root, list;
+    private int chteicoHelpTapCount=0;
     private TextView preview, sizeValue;
     private int bg, fg, font, size, display, buttonColor, accentButtonColor;
     private final String[] fontNames={"Без засечек", "С засечками", "Моноширинный"};
@@ -125,8 +126,67 @@ public class SettingsActivity extends Activity {
         TextView helpHeader=text("ⓘ  Справка   ▾",17,true);helpBox.addView(helpHeader);
         TextView helpText=text("Чтейцо — маленький спутник ваших книжных приключений. Ему нравятся истории, уютные минуты чтения и удивительные аудиопутешествия.\n\nСо временем питомец меняется и взрослеет. Ваши привычки могут сделать его особенным — какой сюрприз ждёт впереди, узнаете сами.\n\nПочаще заглядывайте к нему: ласковое прикосновение поднимает настроение, а книги помогают расти. Если долго не читать, питомец может мягко напомнить о себе.",14,false);
         helpText.setPadding(dp(2),dp(13),dp(2),dp(5));helpText.setVisibility(View.GONE);helpBox.addView(helpText);
-        helpHeader.setOnClickListener(v->{boolean open=helpText.getVisibility()!=View.VISIBLE;helpText.setVisibility(open?View.VISIBLE:View.GONE);helpHeader.setText(open?"ⓘ  Справка   ▴":"ⓘ  Справка   ▾");});
+        helpHeader.setOnClickListener(v->{boolean open=helpText.getVisibility()!=View.VISIBLE;helpText.setVisibility(open?View.VISIBLE:View.GONE);helpHeader.setText(open?"ⓘ  Справка   ▴":"ⓘ  Справка   ▾");if(!open)chteicoHelpTapCount=0;});
+        helpText.setOnClickListener(v->{
+            if(helpText.getVisibility()!=View.VISIBLE || ChteicoStore.developerUnlocked(SettingsActivity.this))return;
+            chteicoHelpTapCount++;
+            if(chteicoHelpTapCount>=7){
+                ChteicoStore.unlockDeveloper(SettingsActivity.this);
+                chteicoHelpTapCount=0;
+                android.widget.Toast.makeText(SettingsActivity.this,"Режим разработчика разблокирован",android.widget.Toast.LENGTH_SHORT).show();
+                draw();
+            }
+        });
         list.addView(helpBox);gap(12);
+        if(ChteicoStore.developerUnlocked(this)){
+            LinearLayout devBox=col();devBox.setBackground(outlined(cardColor(),16));devBox.setPadding(dp(14),dp(14),dp(14),dp(14));
+            LinearLayout devHeader=new LinearLayout(this);devHeader.setGravity(Gravity.CENTER_VERTICAL);
+            ImageView devIcon=new ImageView(this);devIcon.setImageResource(R.drawable.ic_dev_beaker);devIcon.setColorFilter(contrast(bg));
+            devHeader.addView(devIcon,new LinearLayout.LayoutParams(dp(24),dp(24)));
+            LinearLayout devTexts=col();LinearLayout.LayoutParams devTextsLp=new LinearLayout.LayoutParams(-2,-2);devTextsLp.leftMargin=dp(10);
+            TextView devTitle=text("Режим разработчика",17,true);devTexts.addView(devTitle);
+            TextView devSub=text("Разблокировано! Вы нашли скрытые настройки Чтейцо.",12,false);devSub.setTextColor(0xff8c8073);devTexts.addView(devSub);
+            devHeader.addView(devTexts,devTextsLp);devBox.addView(devHeader);
+            final int[] stageValues={ChteicoStore.EGG,ChteicoStore.CHICK,ChteicoStore.ADULT};
+            final String[] stageLabels={"Чтейцо","Чтенец","Чтун"};
+            final int[] branchValues={ChteicoStore.CLASSIC,ChteicoStore.SPEED,ChteicoStore.AUDIO};
+            final String[] branchLabels={"Обычное чтение","Скорочтение","Аудиокниги"};
+            int stageIndex=Math.max(0,Math.min(2,ChteicoStore.stage(this)));
+            int currentBranch=ChteicoStore.branch(this); if(currentBranch<ChteicoStore.CLASSIC||currentBranch>ChteicoStore.AUDIO)currentBranch=ChteicoStore.CLASSIC;
+            int branchIndex=currentBranch==ChteicoStore.SPEED?1:currentBranch==ChteicoStore.AUDIO?2:0;
+            View spaceTop=new View(this);devBox.addView(spaceTop,new LinearLayout.LayoutParams(-1,dp(10)));
+            LinearLayout stageRow=new LinearLayout(this);stageRow.setGravity(Gravity.CENTER_VERTICAL);
+            TextView stageLabel=text("Этап",16,true);stageRow.addView(stageLabel,new LinearLayout.LayoutParams(dp(64),-2));
+            android.widget.Spinner stageSpinner=new android.widget.Spinner(this);
+            android.widget.ArrayAdapter<String> stageAdapter=new android.widget.ArrayAdapter<>(this,android.R.layout.simple_spinner_item,stageLabels);
+            stageAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);stageSpinner.setAdapter(stageAdapter);stageSpinner.setSelection(stageIndex,false);
+            stageSpinner.setBackground(rounded(0xffffffff,12));stageSpinner.setPadding(dp(12),0,dp(12),0);
+            stageRow.addView(stageSpinner,new LinearLayout.LayoutParams(0,dp(50),1));devBox.addView(stageRow);
+            View spaceMid=new View(this);devBox.addView(spaceMid,new LinearLayout.LayoutParams(-1,dp(8)));
+            LinearLayout branchRow=new LinearLayout(this);branchRow.setGravity(Gravity.CENTER_VERTICAL);
+            TextView branchLabel=text("Вид",16,true);branchRow.addView(branchLabel,new LinearLayout.LayoutParams(dp(64),-2));
+            android.widget.Spinner branchSpinner=new android.widget.Spinner(this);
+            android.widget.ArrayAdapter<String> branchAdapter=new android.widget.ArrayAdapter<>(this,android.R.layout.simple_spinner_item,branchLabels);
+            branchAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);branchSpinner.setAdapter(branchAdapter);branchSpinner.setSelection(branchIndex,false);
+            branchSpinner.setBackground(rounded(0xffffffff,12));branchSpinner.setPadding(dp(12),0,dp(12),0);
+            branchRow.addView(branchSpinner,new LinearLayout.LayoutParams(0,dp(50),1));devBox.addView(branchRow);
+            final Runnable applyDeveloperChoice=()->{
+                int targetStage=stageValues[Math.max(0,Math.min(stageValues.length-1,stageSpinner.getSelectedItemPosition()))];
+                int targetBranch=branchValues[Math.max(0,Math.min(branchValues.length-1,branchSpinner.getSelectedItemPosition()))];
+                if(targetStage!=ChteicoStore.stage(SettingsActivity.this) || (targetStage!=ChteicoStore.EGG && targetBranch!=ChteicoStore.branch(SettingsActivity.this))){
+                    ChteicoStore.setDeveloperState(SettingsActivity.this,targetStage,targetBranch);
+                }
+            };
+            stageSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
+                @Override public void onItemSelected(android.widget.AdapterView<?> parent,View view,int position,long id){applyDeveloperChoice.run();}
+                @Override public void onNothingSelected(android.widget.AdapterView<?> parent){}
+            });
+            branchSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
+                @Override public void onItemSelected(android.widget.AdapterView<?> parent,View view,int position,long id){applyDeveloperChoice.run();}
+                @Override public void onNothingSelected(android.widget.AdapterView<?> parent){}
+            });
+            list.addView(devBox);gap(12);
+        }
         if(ChteicoStore.canName(this)){
             list.addView(action("✎  Назвать питомца",()->{
                 android.widget.EditText input=new android.widget.EditText(this);input.setSingleLine(true);input.setHint("Имя питомца");

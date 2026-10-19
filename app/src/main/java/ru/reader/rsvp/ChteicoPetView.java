@@ -2,7 +2,6 @@ package ru.reader.rsvp;
 
 import android.content.Context;
 import android.graphics.Canvas;
-import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
@@ -45,30 +44,35 @@ public final class ChteicoPetView extends ImageView {
         invalidate();
     }
     @Override protected void onDraw(Canvas canvas){
-        super.onDraw(canvas);
         int stage=ChteicoStore.stage(getContext());
-        if(stage==ChteicoStore.EGG||!second)return;
-        if(ChteicoStore.branch(getContext())==ChteicoStore.AUDIO){
-            // The audio 'down' sprite has a different headphone fit. Overlay the same
-            // central headphone/head drawing from the UP pose while the wings still flap.
-            int res=stage==ChteicoStore.CHICK?R.drawable.ic_chteico_chick_audio_up:R.drawable.ic_chteico_adult_audio_up;
-            Drawable fixed=getContext().getDrawable(res);
-            if(fixed!=null){
-                int save=canvas.save();
-                Path clip=new Path();clip.addOval(new RectF(getWidth()*.21f,getHeight()*.09f,getWidth()*.79f,getHeight()*.60f),Path.Direction.CW);
-                canvas.clipPath(clip);
-                fixed.setBounds(0,0,getWidth(),getHeight());fixed.draw(canvas);
-                canvas.restoreToCount(save);
+        if(stage!=ChteicoStore.EGG && second && ChteicoStore.branch(getContext())==ChteicoStore.AUDIO){
+            Drawable current=getDrawable();
+            int fixedRes=stage==ChteicoStore.CHICK?R.drawable.ic_chteico_chick_audio_up:R.drawable.ic_chteico_adult_audio_up;
+            Drawable fixed=getContext().getDrawable(fixedRes);
+            if(current!=null && fixed!=null){
+                int w=getWidth(), h=getHeight();
+                RectF headRect=new RectF(w*.17f,h*.07f,w*.83f,h*.63f);
+                Path bodyOnly=new Path();
+                bodyOnly.setFillType(Path.FillType.EVEN_ODD);
+                bodyOnly.addRect(0,0,w,h,Path.Direction.CW);
+                bodyOnly.addOval(headRect,Path.Direction.CCW);
+                int saveBody=canvas.save();
+                canvas.clipPath(bodyOnly);
+                current.setBounds(0,0,w,h);
+                current.draw(canvas);
+                canvas.restoreToCount(saveBody);
+
+                int saveHead=canvas.save();
+                Path headOnly=new Path();
+                headOnly.addOval(headRect,Path.Direction.CW);
+                canvas.clipPath(headOnly);
+                fixed.setBounds(0,0,w,h);
+                fixed.draw(canvas);
+                canvas.restoreToCount(saveHead);
+                return;
             }
         }
-        // Expressive raised brow accents, drawn above the original vector eyebrows.
-        Paint brush=new Paint(Paint.ANTI_ALIAS_FLAG);brush.setColor(0xff30221e);
-        brush.setStrokeWidth(getWidth()*.012f);brush.setStrokeCap(Paint.Cap.ROUND);brush.setStyle(Paint.Style.STROKE);
-        for(float x:new float[]{.39f,.61f}){
-            Path eyebrow=new Path();eyebrow.moveTo(getWidth()*(x-.023f),getHeight()*.305f);
-            eyebrow.quadTo(getWidth()*x,getHeight()*.28f,getWidth()*(x+.024f),getHeight()*.301f);
-            canvas.drawPath(eyebrow,brush);
-        }
+        super.onDraw(canvas);
     }
     @Override protected void onAttachedToWindow(){super.onAttachedToWindow();refresh();handler.postDelayed(animate,850);}
     @Override protected void onDetachedFromWindow(){handler.removeCallbacks(animate);super.onDetachedFromWindow();}

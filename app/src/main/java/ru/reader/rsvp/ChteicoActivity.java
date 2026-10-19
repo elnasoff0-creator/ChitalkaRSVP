@@ -69,21 +69,34 @@ public final class ChteicoActivity extends Activity {
                 else android.widget.Toast.makeText(this,"Введите имя до 18 символов",android.widget.Toast.LENGTH_SHORT).show();
             }).show();
     }
-    /** Transparent, temporary waves at every tap, including egg taps. */
+    /** Short comic tap lines around the pet, matching the illustrated UI style. */
     private final class TapWaves extends View {
         private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
         private float phase=-1f;
         private ValueAnimator animator;
+        private final float[] angles={-145f,-112f,-68f,-34f,34f,68f,112f,145f};
         TapWaves(){super(ChteicoActivity.this);setLayerType(View.LAYER_TYPE_SOFTWARE,null);}
-        void burst(){if(animator!=null)animator.cancel();animator=ValueAnimator.ofFloat(0,1);animator.setDuration(470);
+        void burst(){if(animator!=null)animator.cancel();animator=ValueAnimator.ofFloat(0,1);animator.setDuration(320);
             animator.addUpdateListener(a->{phase=(float)a.getAnimatedValue();invalidate();});animator.start();}
-        @Override protected void onDraw(Canvas c){super.onDraw(c);if(phase<0||phase>=1)return;
-            float x=getWidth()/2f,y=getHeight()/2f;float min=Math.min(getWidth(),getHeight());
-            paint.setColor(accent);paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(dp(2));
-            for(int i=0;i<2;i++){
-                float t=(phase+i*.23f)%1f;
-                paint.setAlpha(Math.round(130*(1-t)));
-                c.drawCircle(x,y,min*(.25f+.23f*t),paint);
+        @Override protected void onDraw(Canvas c){
+            super.onDraw(c);
+            if(phase<0||phase>=1)return;
+            float cx=getWidth()/2f, cy=getHeight()*0.47f;
+            float min=Math.min(getWidth(),getHeight());
+            float inner=min*0.23f+min*0.025f*phase;
+            float outer=inner+min*0.045f+min*0.01f*phase;
+            paint.setColor(accent);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(dp(2));
+            paint.setStrokeCap(Paint.Cap.ROUND);
+            paint.setAlpha(Math.round(170*(1f-phase)));
+            for(float angle:angles){
+                double rad=Math.toRadians(angle);
+                float x1=(float)(cx+Math.cos(rad)*inner);
+                float y1=(float)(cy+Math.sin(rad)*inner);
+                float x2=(float)(cx+Math.cos(rad)*outer);
+                float y2=(float)(cy+Math.sin(rad)*outer);
+                c.drawLine(x1,y1,x2,y2,paint);
             }
         }
         @Override protected void onDetachedFromWindow(){if(animator!=null)animator.cancel();super.onDetachedFromWindow();}
@@ -161,6 +174,13 @@ public final class ChteicoActivity extends Activity {
         }
         int stage=ChteicoStore.stage(this);
         LinearLayout hero=card();hero.setGravity(Gravity.CENTER_HORIZONTAL);
+        LinearLayout nameRow=new LinearLayout(this);nameRow.setGravity(Gravity.CENTER);
+        TextView name=text(ChteicoStore.petName(this),23,true);nameRow.addView(name);
+        if(ChteicoStore.canName(this)){
+            TextView edit=text("  ✎",21,false);edit.setContentDescription("Назвать питомца");edit.setOnClickListener(v->askName());nameRow.addView(edit);
+            name.setOnClickListener(v->askName());
+        }
+        hero.addView(nameRow);gap(hero,8);
         // Reserve space for a compact comic balloon, while keeping the pet anchored in place.
         FrameLayout petFrame=new FrameLayout(this);
         hero.addView(petFrame,new LinearLayout.LayoutParams(dp(264),dp(306)));
@@ -200,13 +220,7 @@ public final class ChteicoActivity extends Activity {
             String intro=ChteicoStore.consumeIntroduction(this);
             if(intro!=null)showSpeech(intro,7000);
         }
-        LinearLayout nameRow=new LinearLayout(this);nameRow.setGravity(Gravity.CENTER);
-        TextView name=text(ChteicoStore.petName(this),23,true);nameRow.addView(name);
-        if(ChteicoStore.canName(this)){
-            TextView edit=text("  ✎",21,false);edit.setContentDescription("Назвать питомца");edit.setOnClickListener(v->askName());nameRow.addView(edit);
-            name.setOnClickListener(v->askName());
-        }
-        hero.addView(nameRow);gap(hero,12);
+        gap(hero,12);
         progressBar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progressBar.setMax(100);progressBar.setProgress(ChteicoStore.progress(this));
         if(android.os.Build.VERSION.SDK_INT>=21)progressBar.setProgressTintList(android.content.res.ColorStateList.valueOf(accent));
         hero.addView(progressBar,new LinearLayout.LayoutParams(-1,dp(9)));gap(hero,7);
