@@ -82,7 +82,7 @@ public class ReaderActivity extends Activity {
         if(!playing||words.length==0)return;
         int count=Math.min(portion,words.length-index);
         if(index+count>=words.length){
-            if(ChteicoStore.completeBook(this,docUri))ChteicoNotifications.milestone(this,"Книга завершена!","Чтейцо радуется вашему достижению.");
+            if(ChteicoStore.completeBook(ReaderActivity.this,docUri))ChteicoNotifications.milestone(ReaderActivity.this,"Книга завершена!","Чтейцо радуется вашему достижению.");
             stop();save();return;
         }
         int previous=index;
