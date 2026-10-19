@@ -27,7 +27,7 @@ public class SettingsActivity extends Activity {
     private static final int NORMAL=0,RSVP=1,CURSOR=2;
 
     private SharedPreferences prefs;
-    private int currentTab=0; // 0 appearance, 1 reading, 2 audio, 3 online
+    private int currentTab=0; // 0 appearance, 1 reading, 2 audio, 3 online, 4 Chteico
     private LinearLayout root, list;
     private TextView preview, sizeValue;
     private int bg, fg, font, size, display, buttonColor, accentButtonColor;
@@ -42,6 +42,7 @@ public class SettingsActivity extends Activity {
         if(getIntent().getBooleanExtra("audio_tab",false)) currentTab=2;
         if(getIntent().getBooleanExtra("online_tab",false)) currentTab=3;
         if(getIntent().getBooleanExtra("rsvp_tab",false)) currentTab=1;
+        if(getIntent().getBooleanExtra("chteico_tab",false)) currentTab=4;
         load();draw();
     }
     int dp(int n){return (int)(getResources().getDisplayMetrics().density*n+.5f);}    
@@ -79,8 +80,8 @@ public class SettingsActivity extends Activity {
         TextView name=text("Настройки",24,true);name.setTypeface(Typeface.SERIF,Typeface.BOLD);top.addView(name,new LinearLayout.LayoutParams(0,-2,1));root.addView(top);
         ScrollView sc=new ScrollView(this);list=col();sc.addView(list);root.addView(sc,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout tabs=new LinearLayout(this);
-        int[] icons={R.drawable.ic_tab_appearance,R.drawable.ic_book,R.drawable.ic_tab_music,R.drawable.ic_tab_online};
-        String[] names={"Оформление","Чтение","Аудио","Онлайн"};
+        int[] icons={R.drawable.ic_tab_appearance,R.drawable.ic_book,R.drawable.ic_tab_music,R.drawable.ic_tab_online,R.drawable.ic_chteico_egg};
+        String[] names={"Оформление","Чтение","Аудио","Онлайн","Чтейцо"};
         for(int i=0;i<names.length;i++){
             final int tab=i;
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(67),1);
@@ -91,6 +92,7 @@ public class SettingsActivity extends Activity {
         if(currentTab==1){drawRsvpSettings();return;}
         if(currentTab==2){drawAudioSettings();return;}
         if(currentTab==3){drawOnlineSettings();return;}
+        if(currentTab==4){drawChteicoSettings();return;}
         preview=new TextView(this);preview.setText("Предпросмотр текста");preview.setGravity(Gravity.CENTER);preview.setLineSpacing(dp(5),1.18f);preview.setPadding(dp(19),dp(21),dp(19),dp(21));LinearLayout.LayoutParams previewLp=new LinearLayout.LayoutParams(-1,dp(90));previewLp.topMargin=dp(15);list.addView(preview,previewLp);applyPreview();
         header("Шрифт");
         list.addView(action(fontNames[font]+"   ▾",()->new AlertDialog.Builder(this).setTitle("Выбор шрифта").setSingleChoiceItems(fontNames,font,(d,n)->{font=n;put("font",font);d.dismiss();draw();}).setNegativeButton("Отмена",null).show()));
@@ -108,6 +110,49 @@ public class SettingsActivity extends Activity {
         header("Цвет обычных кнопок");buttonPalette(false);
         header("Цвет акцентных кнопок · Play, режимы");buttonPalette(true);
         gap(18);
+    }
+    void drawChteicoSettings(){
+        header("Чтейцо · книжный питомец");
+        TextView about=text("Ваш спутник чтения: сначала яйцо, затем Чтенец и взрослый Чтун. Питомец развивается от книг и аудио. При вылуплении выбирается одна ветка: чтение, скорочтение или аудиокниги. Она сохраняется при взрослении.",14,false);
+        about.setBackground(rounded(cardColor(),16));about.setPadding(dp(14),dp(14),dp(14),dp(14));list.addView(about);gap(10);
+        android.widget.Switch enabled=new android.widget.Switch(this);enabled.setText("Включить Чтейцо");enabled.setTextColor(contrast(bg));enabled.setTextSize(16);
+        enabled.setChecked(ChteicoStore.enabled(this));list.addView(enabled);
+        enabled.setOnCheckedChangeListener((v,on)->{ChteicoStore.setEnabled(this,on);draw();});gap(9);
+        list.addView(action("Открыть Чтейцо  →",R.drawable.ic_chteico_egg,()->startActivity(new Intent(this,ChteicoActivity.class))));
+        gap(12);header("Текущая стадия");
+        list.addView(action(ChteicoStore.stageName(ChteicoStore.stage(this))+" · "+ChteicoStore.branchName(ChteicoStore.branch(this)),()->startActivity(new Intent(this,ChteicoActivity.class))));
+        gap(9);header("Напоминания и оповещения");
+        final android.content.SharedPreferences game=ChteicoStore.prefs(this);
+        chteicoSwitch("Ежедневное напоминание","daily");
+        chteicoSwitch("Напоминать при неактивности 3 дня","inactive");
+        chteicoSwitch("Уведомления о достижениях","achievements_notice");
+        gap(12);header("Анимация и реакции");
+        chteicoSwitch("Анимация питомца","animations_enabled");
+        chteicoSwitch("Реплики Чтейца","reactions_enabled");
+        list.addView(action("Время напоминания: "+game.getInt("reminder_hour",19)+":00",()->{
+            new android.app.TimePickerDialog(this,(v,h,m)->{game.edit().putInt("reminder_hour",h).apply();ChteicoNotifications.schedule(this);draw();},game.getInt("reminder_hour",19),0,true).show();
+        }));
+        gap(12);header("Статистика для роста");
+        list.addView(action("Прочитано: "+game.getInt("finished_books_count",0)+" · Прослушано: "+game.getInt("finished_audio_count",0),()->startActivity(new Intent(this,ChteicoActivity.class))));
+        gap(12);header("Сброс и тестирование");
+        list.addView(action("Сбросить ветку развития",()->new AlertDialog.Builder(this)
+            .setTitle("Сброс ветки").setMessage("Питомец вернётся к яйцу. Новая ветка определится при следующем открытии книги или аудиокниги. История книг и их позиции не изменятся.")
+            .setNegativeButton("Отмена",null).setPositiveButton("Сбросить",(dialog,which)->{ChteicoStore.resetBranch(this);draw();}).show()));
+        gap(7);list.addView(action("Полностью сбросить Чтейцо",()->new AlertDialog.Builder(this)
+            .setTitle("Сбросить Чтейцо?").setMessage("Удалить только игровой прогресс, статистику и награды Чтейца? Книги, аудиокниги, закладки и позиции сохранятся.")
+            .setNegativeButton("Отмена",null).setPositiveButton("Сбросить",(dialog,which)->{ChteicoStore.resetPet(this);draw();}).show()));
+        gap(14);
+    }
+    void chteicoSwitch(String label,String key){
+        final android.content.SharedPreferences game=ChteicoStore.prefs(this);
+        android.widget.Switch sw=new android.widget.Switch(this);sw.setText(label);sw.setTextColor(contrast(bg));sw.setTextSize(15);
+        sw.setPadding(dp(4),dp(9),dp(4),dp(9));sw.setChecked(game.getBoolean(key,key.equals("animations_enabled")||key.equals("reactions_enabled")));list.addView(sw);
+        sw.setOnCheckedChangeListener((view,on)->{
+            game.edit().putBoolean(key,on).apply();ChteicoNotifications.schedule(this);
+            if(on&&android.os.Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED){
+                requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},721);
+            }
+        });
     }
     void drawRsvpSettings(){
         header("Режим чтения");

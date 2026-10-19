@@ -50,7 +50,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     private ArrayList<String> playlist=new ArrayList<>(), chunks=new ArrayList<>(), chapterNames=new ArrayList<>();
     private String title="Аудиокнига", currentBook="", bookId="";
     private Handler handler=new Handler(Looper.getMainLooper());
-    private final Runnable tick=new Runnable(){public void run(){if(active){if(!ttsMode&&player!=null){try{if(player.isPlaying())saveProgress();}catch(Exception ignored){}}if(sleepDeadline>0&&System.currentTimeMillis()>=sleepDeadline){pausePlayback();sleepDeadline=0;getSharedPreferences("reader",0).edit().putLong("audio_sleep_deadline",0).apply();}notifyState();handler.postDelayed(this,1000);}}};
+    private final Runnable tick=new Runnable(){public void run(){if(active){if(!ttsMode&&player!=null){try{if(player.isPlaying()){saveProgress();ChteicoStore.tickAudio(this,bookId,1);}}catch(Exception ignored){}}if(ttsMode&&!paused)ChteicoStore.tickAudio(this,currentBook,1);if(sleepDeadline>0&&System.currentTimeMillis()>=sleepDeadline){pausePlayback();sleepDeadline=0;getSharedPreferences("reader",0).edit().putLong("audio_sleep_deadline",0).apply();}notifyState();handler.postDelayed(this,1000);}}};
     @Override public void onCreate(){super.onCreate();instance=this;android.app.NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);if(Build.VERSION.SDK_INT>=26)nm.createNotificationChannel(new NotificationChannel(CHANNEL,"Аудиокниги",NotificationManager.IMPORTANCE_LOW));audioFocus=new PlaybackAudioFocus(this, () -> {
             interruptedByExternalAudio = true;
             if (active && !paused) pausePlayback();
@@ -66,7 +66,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         handler.post(tick);}
     @Override public int onStartCommand(Intent intent,int flags,int startId){if(intent==null)return START_STICKY;String action=intent.getAction();if(action==null)return START_STICKY;switch(action){
         case LOAD: {AudioModeCoordinator.stopEdge(this);interruptedByExternalAudio=false;if(active)saveProgress(); if(tts!=null&&ttsMode)tts.stop(); String[] uris=intent.getStringArrayExtra("uris");playlist.clear();if(uris!=null)for(String u:uris)if(u!=null)playlist.add(u);title=intent.getStringExtra("title");if(title==null)title="Аудиокнига";
-          bookId=intent.getStringExtra("bookId");if(bookId==null)bookId=playlistKey();getSharedPreferences("reader",0).edit().putString("audio_last_book",bookId).apply();
+          bookId=intent.getStringExtra("bookId");if(bookId==null)bookId=playlistKey();ChteicoStore.openAudio(this,bookId);getSharedPreferences("reader",0).edit().putString("audio_last_book",bookId).apply();
           chapterNames.clear();String[] names=intent.getStringArrayExtra("chapters");if(names!=null)chapterNames.addAll(Arrays.asList(names));
           ttsMode=false;active=true;loadChapterDurations();speed=getSharedPreferences("reader",0).getFloat("audio_speed",1f);
           segment=Math.max(0,Math.min(Math.max(0,playlist.size()-1),getSharedPreferences("reader",0).getInt("audio_segment:"+bookId,0)));
@@ -74,7 +74,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
           rewindOnNextPlay=false;playWhenPrepared=false;playAfterSeek=false;
           userPausedWhilePreparing=false;pendingRelativeWhilePreparing=0;
           prepareAudio(resume,intent.getBooleanExtra("autoplay",false));break;}
-        case TTS: {AudioModeCoordinator.stopEdge(this);interruptedByExternalAudio=false;if(active)saveProgress(); if(tts!=null)tts.stop(); title="Загрузка книги…";currentBook=intent.getStringExtra("bookUri");final String source=currentBook;
+        case TTS: {AudioModeCoordinator.stopEdge(this);interruptedByExternalAudio=false;if(active)saveProgress(); if(tts!=null)tts.stop(); title="Загрузка книги…";currentBook=intent.getStringExtra("bookUri");ChteicoStore.openAudio(this,currentBook);final String source=currentBook;
           ttsMode=true;active=true;paused=true;releasePlayer();
           new Thread(()->{try{BookLoader.Book book=BookLoader.load(this,Uri.parse(source));handler.post(()->{if(!ttsMode||!source.equals(currentBook))return;
               title=book.title==null||book.title.trim().isEmpty()?"Книга":book.title.trim();
@@ -184,7 +184,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
             });
             player.setOnCompletionListener(mp->{if(mp!=player)return;if(segment+1<playlist.size()){
                 segment++;rewindOnNextPlay=false;prepareAudio(0,true);
-            }else pausePlayback();});
+            }else {if(ChteicoStore.completeAudio(this,bookId))ChteicoNotifications.milestone(this,"Аудиокнига завершена!","Чтейцо радуется вашему достижению.");pausePlayback();}});
             player.prepareAsync();
         }catch(Exception e){paused=true;saveProgress();notifyState();}
     }

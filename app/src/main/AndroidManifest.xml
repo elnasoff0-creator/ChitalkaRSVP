@@ -6,6 +6,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <queries><intent><action android:name="android.intent.action.TTS_SERVICE" /></intent></queries>
     <application android:name=".ReaderApp" android:allowBackup="true" android:label="Читалка RSVP β" android:icon="@drawable/ic_reader" android:roundIcon="@drawable/ic_reader" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:usesCleartextTraffic="false">
@@ -31,6 +32,10 @@
         <activity android:name=".EdgeFileExplorerActivity" android:exported="false" />
         <activity android:name=".EdgeOnlineActivity" android:exported="false" />
         <activity android:name=".SettingsActivity" android:exported="false" />
+        <activity android:name=".ChteicoActivity" android:exported="false" />
+        <receiver android:name=".ChteicoNotifications" android:exported="false">
+            <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /></intent-filter>
+        </receiver>
         <activity android:name=".ReaderActivity" android:exported="false" />
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>

@@ -704,6 +704,7 @@ public class MainActivity extends Activity {
         nav.addView(navItem("📖", "Чтение", active == 1, v -> { if (currentUri.isEmpty()) pick(); else { openBook(currentUri, false, true); } }), new LinearLayout.LayoutParams(0, -2, 1));
         nav.addView(navItem("🎙", "Аудиокнига", false, v -> startActivity(new Intent(this,AudioPlayerActivity.class))), new LinearLayout.LayoutParams(0, -2, 1));
         nav.addView(navItem("", "Загрузки", false, v -> startActivity(new Intent(this,DownloadActivity.class))), new LinearLayout.LayoutParams(0, -2, 1));
+        if (ChteicoStore.enabled(this)) nav.addView(navItem("", "Чтейцо", false, v -> startActivity(new Intent(this,ChteicoActivity.class))), new LinearLayout.LayoutParams(0,-2,1));
         return nav;
     }
 
@@ -712,8 +713,8 @@ public class MainActivity extends Activity {
         item.setGravity(Gravity.CENTER);
         item.setBackground(active ? shape(softPanel(), 16) : null);
         pad(item, 6, 10, 6, 10);
-        if (label.equals("Настройки") || label.equals("Библиотека") || label.equals("Чтение") || label.equals("Закладки") || label.equals("Аудиокнига") || label.equals("Загрузки")) {
-            int image = label.equals("Настройки") ? R.drawable.ic_settings :
+        if (label.equals("Настройки") || label.equals("Библиотека") || label.equals("Чтение") || label.equals("Закладки") || label.equals("Аудиокнига") || label.equals("Загрузки") || label.equals("Чтейцо")) {
+            int image = label.equals("Чтейцо") ? R.drawable.ic_chteico_egg : label.equals("Настройки") ? R.drawable.ic_settings :
                     label.equals("Библиотека") ? R.drawable.ic_audio_chapters : label.equals("Загрузки") ? R.drawable.ic_downloads : label.equals("Аудиокнига") ? R.drawable.ic_microphone : label.equals("Закладки") ? R.drawable.ic_bookmark : R.drawable.ic_book;
             ImageView iv = new ImageView(this);
             iv.setImageResource(image);
@@ -1284,7 +1285,11 @@ public class MainActivity extends Activity {
         if (hasResumedOnce) {
             loadPrefs();
             screen = 0;
+            boolean matured=ChteicoStore.matureOnHome(this);
+            boolean hatched=ChteicoStore.hatchOnHome(this);
             draw();
+            if(matured)Toast.makeText(this,"Чтенец вырос! Теперь с вами Чтун.",Toast.LENGTH_LONG).show();
+            if(hatched){Toast.makeText(this,"Чтейцо вылупилось! Добро пожаловать, Чтенец!",Toast.LENGTH_LONG).show();ChteicoNotifications.milestone(this,"Чтейцо вылупилось!","Ваш Чтенец ждёт вас на своей вкладке.");}
         }
         hasResumedOnce = true;
     }

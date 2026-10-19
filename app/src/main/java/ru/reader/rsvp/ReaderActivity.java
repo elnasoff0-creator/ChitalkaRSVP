@@ -57,6 +57,21 @@ public class ReaderActivity extends Activity {
     private float swipeStartY;
     private int scrollWordAccumulator=0;
     private long lastLightSave=0;
+    private long chteicoLastInteraction=0;
+    private long chteicoReadingSeconds=0;
+    private int chteicoInitialIndex=0,chteicoLastWordIndex=0;
+    private boolean chteicoResumed=false;
+    private final Runnable chteicoReadTick=new Runnable(){@Override public void run(){
+        if(!chteicoResumed)return;
+        long now=SystemClock.elapsedRealtime();
+        if(words.length>0 && !docUri.isEmpty() && (playing && !waitingForStart || now-chteicoLastInteraction<65000)){
+            ChteicoStore.tickReading(ReaderActivity.this,mode,10);
+            if(index>chteicoLastWordIndex)ChteicoStore.recordWords(ReaderActivity.this,index-chteicoLastWordIndex);
+            chteicoLastWordIndex=index;
+            chteicoReadingSeconds+=10;
+        }
+        handler.postDelayed(this,10000);
+    }};
     private final Runnable beginDelayedReading=new Runnable(){@Override public void run(){
         if(!playing||!waitingForStart)return;
         waitingForStart=false;removeCountdownRing();
@@ -66,7 +81,10 @@ public class ReaderActivity extends Activity {
     private final Runnable ticker=new Runnable(){@Override public void run(){
         if(!playing||words.length==0)return;
         int count=Math.min(portion,words.length-index);
-        if(index+count>=words.length){stop();save();return;}
+        if(index+count>=words.length){
+            if(ChteicoStore.completeBook(this,docUri))ChteicoNotifications.milestone(this,"Книга завершена!","Чтейцо радуется вашему достижению.");
+            stop();save();return;
+        }
         int previous=index;
         index+=count;
         if(mode==RSVP)updateWord();
@@ -199,7 +217,7 @@ public class ReaderActivity extends Activity {
         textList.addOnScrollListener(new RecyclerView.OnScrollListener(){
             @Override public void onScrollStateChanged(RecyclerView rv,int state){
                 if(state==RecyclerView.SCROLL_STATE_DRAGGING){
-                    userScrolling=true;
+                    chteicoTouch();userScrolling=true;
                     if(mode==RSVP){stop();scrollWordAccumulator=0;}
                 }
                 if(state==RecyclerView.SCROLL_STATE_IDLE){
@@ -209,6 +227,7 @@ public class ReaderActivity extends Activity {
                 }
             }
             @Override public void onScrolled(RecyclerView rv,int dx,int dy){
+                if(userScrolling&&dy!=0)chteicoTouch();
                 if(!userScrolling||restoringScroll||words.length==0)return;
                 if(mode!=RSVP)return;
                 stepRsvpByScroll(dy);
@@ -523,7 +542,7 @@ public class ReaderActivity extends Activity {
         if(playIcon!=null)playIcon.setImageResource(playing?R.drawable.ic_pause:R.drawable.ic_play);
         if(floatingPlayIcon!=null)floatingPlayIcon.setImageResource(playing?R.drawable.ic_pause:R.drawable.ic_play);
     }
-    private void togglePlayback(){
+    private void togglePlayback(){chteicoTouch();
         if(playing){stop();saveLight(true);return;}
         if(words.length==0)return;
         if(mode==RSVP&&fullscreenRsvp)rememberRsvpScreenPosition();
@@ -620,8 +639,18 @@ public class ReaderActivity extends Activity {
             .setNegativeButton("Отмена",null).show();
     }
     private void setMode(int next){if(next<0||next>2||next==mode)return;
-        stop();int old=index;mode=next;selecting=false;normalChromeVisible=false;
+        chteicoTouch();stop();int old=index;mode=next;selecting=false;normalChromeVisible=false;
         updateModeUI();refreshHighlight(old);ensureWordVisible(true);saveLight(true);
+    }
+    private void chteicoTouch(){chteicoLastInteraction=SystemClock.elapsedRealtime();}
+    private void chteicoCompleteIfReachedEnd(){
+        if(words.length<300||docUri==null||docUri.isEmpty())return;
+        boolean atEnd=index>=words.length-3;
+        if(mode==NORMAL && textList!=null && !textList.canScrollVertically(1)
+            && (index>chteicoInitialIndex||chteicoReadingSeconds>=60))atEnd=true;
+        if(atEnd&&(chteicoReadingSeconds>=50||index>chteicoInitialIndex+30)){
+            if(ChteicoStore.completeBook(this,docUri))ChteicoNotifications.milestone(this,"Книга завершена!","Чтейцо стал ещё ближе к взрослой стадии.");
+        }
     }
     private void saveLight(boolean force){
         if(prefs==null)return;
@@ -684,6 +713,8 @@ public class ReaderActivity extends Activity {
                 stop();title=loadedTitle;author=loadedAuthor==null?"":loadedAuthor;body=loadedText;
                 map=prepared;words=prepared.words;chunks=indexed;docUri=uri.toString();
                 if(reset)index=0;else index=map.clamp(index);
+                chteicoInitialIndex=index;chteicoLastWordIndex=index;chteicoReadingSeconds=0;chteicoTouch();
+                ChteicoStore.openBook(this,docUri,mode);
                 draw();saveLight(true);
             });
         }catch(Exception ex){runOnUiThread(()->new AlertDialog.Builder(this).setMessage("Не удалось открыть книгу: "+ex.getMessage()).setPositiveButton("OK",null).show());}
@@ -726,7 +757,9 @@ public class ReaderActivity extends Activity {
         if(androidTts)intent.putExtra("start_tts",true);
         startActivity(intent);
     }
-    @Override protected void onResume(){super.onResume();if(prefs!=null){
+    @Override protected void onResume(){super.onResume();
+        chteicoResumed=true;chteicoTouch();handler.removeCallbacks(chteicoReadTick);handler.postDelayed(chteicoReadTick,10000);
+        if(prefs!=null){
         int oldBg=bg,oldFg=fg,oldSize=size,oldFont=font,oldMode=mode,oldPortion=portion;
         int oldCursorBg=cursorBackground,oldCursorText=cursorText,oldCursorScale=cursorScale;
         int oldNormalText=normalSelectText,oldNormalScale=normalSelectScale,oldButton=buttonColor,oldAccent=accentButtonColor;
@@ -743,7 +776,10 @@ public class ReaderActivity extends Activity {
             applyFullscreenUi();
         }
     }}
-    @Override protected void onPause(){save();stop();super.onPause();}
+    @Override protected void onPause(){
+        chteicoResumed=false;handler.removeCallbacks(chteicoReadTick);
+        chteicoCompleteIfReachedEnd();save();stop();super.onPause();
+    }
     @Override protected void onDestroy(){stop();applySystemBars(false);super.onDestroy();}
     @Override public void onBackPressed(){BackNavigation.back(this);}
     private class FocusLinesView extends View {

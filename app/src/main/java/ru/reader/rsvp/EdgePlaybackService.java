@@ -68,6 +68,10 @@ public final class EdgePlaybackService extends Service {
     private float playbackSpeed = 1f;
     private long sleepAtMs;
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private final Runnable chteicoAudioTick=new Runnable(){@Override public void run(){
+        if(isPlaying())ChteicoStore.tickAudio(EdgePlaybackService.this,activeBookId,5);
+        handler.postDelayed(this,5000);
+    }};
     private final Runnable sleepRunnable = () -> {
         sleepAtMs = 0L;
         stopAudio();
@@ -91,6 +95,7 @@ public final class EdgePlaybackService extends Service {
 
     @Override public void onCreate() {
         super.onCreate();
+        handler.postDelayed(chteicoAudioTick,5000);
         playbackSpeed=getSharedPreferences("reader",0).getFloat("edge_playback_speed",1f);
         playbackSpeed=Math.max(0.5f,Math.min(3f,playbackSpeed));
         player = new ExoPlayer.Builder(this).build();
@@ -218,6 +223,7 @@ public final class EdgePlaybackService extends Service {
     }
     public void setSleepMinutes(int minutes) {
         handler.removeCallbacks(sleepRunnable);
+        handler.removeCallbacks(chteicoAudioTick);
         if (minutes <= 0) { sleepAtMs = 0L; notifyState(); return; }
         sleepAtMs = System.currentTimeMillis() + minutes * 60_000L;
         handler.postDelayed(sleepRunnable, minutes * 60_000L);
@@ -300,6 +306,7 @@ public final class EdgePlaybackService extends Service {
     public void play() {
         if (!focus.acquire()) { requestedPlay=false;notifyState();return; }
         requestedPlay=true;
+        if(activeBookId!=null&&!activeBookId.isEmpty())ChteicoStore.openAudio(this,activeBookId);
         if (player.getMediaItemCount()>0) {
             if (player.getPlaybackState()==Player.STATE_ENDED) {
                 // At end of available cache wait for the downloader, NEVER replay last.
