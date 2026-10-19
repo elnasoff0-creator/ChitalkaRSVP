@@ -381,7 +381,7 @@ public final class EdgePlaybackService extends Service {
                 .setAction(ACTION_TOGGLE),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         return new NotificationCompat.Builder(this,CHANNEL)
                 .setSmallIcon(R.drawable.ic_reader).setColor(Color.rgb(153,97,68))
-                .setContentTitle("Читалка RSVP · Edge TTS")
+                .setContentTitle("ПРОЧиталка · Edge TTS")
                 .setContentText(isPlaying()?"Воспроизведение MP3":"Пауза")
                 .setContentIntent(open).setOnlyAlertOnce(true).setOngoing(isPlaying())
                 .addAction(isPlaying()?R.drawable.ic_pause:R.drawable.ic_play,isPlaying()?"Пауза":"Play",toggle)

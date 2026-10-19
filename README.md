@@ -1,6 +1,12 @@
-# ChitalkaRSVP v1.11.47-beta — Чтейцо
+# ChitalkaRSVP v1.11.48-beta — Чтейцо
 
-**Signed Release source project** · `versionCode 11054` · `applicationId ru.reader.rsvp`.
+**Signed Release source project** · `versionCode 11055` · `applicationId ru.reader.rsvp`.
+
+## Отображаемое название приложения
+
+В Android Launcher, настройках приложения и пользовательских уведомлениях приложение называется **«ПРОЧиталка»**.
+Метка beta сохраняется только в `versionName` (`1.11.48-beta`).
+`applicationId ru.reader.rsvp` и сертификат подписи не изменены — обновление устанавливается поверх прежней версии.
 
 ## Новая встроенная функция «Чтейцо»
 

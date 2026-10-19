@@ -222,7 +222,7 @@ public final class UpdateManager {
         File old = new File(folder, APK_NAME);
         if (old.exists()) old.delete();
         DownloadManager.Request r = new DownloadManager.Request(Uri.parse(url));
-        r.setTitle("Читалка RSVP — обновление");
+        r.setTitle("ПРОЧиталка — обновление");
         r.setDescription("Загрузка новой версии");
         r.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
         r.setDestinationInExternalFilesDir(activity, Environment.DIRECTORY_DOWNLOADS, APK_NAME);
