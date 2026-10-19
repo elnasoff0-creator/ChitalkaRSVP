@@ -127,7 +127,7 @@ public final class ChteicoStore {
         SharedPreferences p=prefs(c);int event=p.getInt("pending_intro_stage",-1);
         if(event!=CHICK&&event!=ADULT)return null;
         p.edit().remove("pending_intro_stage").apply();
-        return event==CHICK?"Привет! Я Чтенец!":"Я вырос! Теперь я Чтун!";
+        return event==CHICK?ChteicoPhrases.INTRO_CHICK:ChteicoPhrases.INTRO_ADULT;
     }
     public static String petName(Context c){
         String custom=prefs(c).getString("custom_name","").trim();
@@ -155,12 +155,13 @@ public final class ChteicoStore {
         .putString("opened_books","[]").putString("opened_audio","[]")
         .putString("finished_books","[]").putString("finished_audio","[]")
         .putInt("opened_books_count",0).putInt("opened_audio_count",0).putInt("finished_books_count",0).putInt("finished_audio_count",0)
-        .putInt("sessions",0).putLong("words_advanced",0).remove("custom_name").remove("name_locked")
+        .putInt("sessions",0).putLong("words_advanced",0).remove("custom_name").remove("name_locked").remove("bubble_seen").remove("bubble_last_id")
         .putInt("streak",0).putInt("best_streak",0).remove("last_day").remove("last_active")
         .remove("branch_marker_classic").remove("branch_marker_speed").remove("branch_marker_audio")
         .remove("branch_marker_finished_books_count").remove("branch_marker_finished_audio_count").apply();}
     /** Reselect on the next book/audio opening; lifetime statistics remain available. */
     public static void resetBranch(Context c){prefs(c).edit().putInt("stage",EGG).putInt("branch",UNDECIDED).putInt("egg_units",0).remove("pending_intro_stage").putBoolean("pending_hatch",false).putBoolean("post_hatch_mature",false)
+        .remove("bubble_seen").remove("bubble_last_id")
         .putLong("branch_marker_classic",prefs(c).getLong("seconds_classic",0))
         .putLong("branch_marker_speed",prefs(c).getLong("seconds_speed",0))
         .putLong("branch_marker_audio",prefs(c).getLong("seconds_audio",0))

@@ -7,6 +7,7 @@ import android.content.SharedPreferences;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.animation.ValueAnimator;
@@ -23,6 +24,7 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import java.util.Random;
 
 /** Minimal companion screen; details of evolution and its branch stay private. */
 public final class ChteicoActivity extends Activity {
@@ -33,6 +35,10 @@ public final class ChteicoActivity extends Activity {
     private int bg,fg,accent;
     private SharedPreferences p;
     private boolean firstResume=true;
+    private TextView speechBubble;
+    private LinearLayout speechContainer;
+    private Runnable pendingSpeechHide;
+    private final Random phraseRandom=new Random();
     private final Handler ui=new Handler(Looper.getMainLooper());
     private int dp(int n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
     @Override protected void onCreate(Bundle b){super.onCreate(b);show();}
@@ -63,7 +69,7 @@ public final class ChteicoActivity extends Activity {
                 else android.widget.Toast.makeText(this,"Введите имя до 18 символов",android.widget.Toast.LENGTH_SHORT).show();
             }).show();
     }
-    /** Transparent, temporary waves at every tap: no speech or comic bubbles for petting. */
+    /** Transparent, temporary waves at every tap, including egg taps. */
     private final class TapWaves extends View {
         private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
         private float phase=-1f;
@@ -82,7 +88,60 @@ public final class ChteicoActivity extends Activity {
         }
         @Override protected void onDetachedFromWindow(){if(animator!=null)animator.cancel();super.onDetachedFromWindow();}
     }
+    /** Small outlined comic bubble with a pointer; no layout movement when a reply appears. */
+    private final class SpeechTail extends View {
+        private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
+        SpeechTail(){super(ChteicoActivity.this);}
+        @Override protected void onDraw(Canvas canvas){
+            super.onDraw(canvas);
+            float middle=getWidth()*.70f;
+            Path tri=new Path();
+            tri.moveTo(middle-dp(10),0);tri.lineTo(middle+dp(8),0);
+            tri.lineTo(middle-dp(3),dp(11));tri.close();
+            paint.setColor(bg==0xff1e2025?0xff514a49:0xfffffdf8);
+            paint.setStyle(Paint.Style.FILL);canvas.drawPath(tri,paint);
+            paint.setColor(fg);paint.setStrokeWidth(dp(1));paint.setStyle(Paint.Style.STROKE);
+            canvas.drawLine(middle-dp(10),0,middle-dp(3),dp(11),paint);
+            canvas.drawLine(middle-dp(3),dp(11),middle+dp(8),0,paint);
+        }
+    }
+    private String nextPetReply(){
+        SharedPreferences petPrefs=ChteicoStore.prefs(this);
+        long lastActive=petPrefs.getLong("last_active",0);
+        int inactiveDays=Math.max(1,Math.min(36500,petPrefs.getInt("inactive_days",3)));
+        boolean inactive=lastActive>0 && System.currentTimeMillis()-lastActive>=inactiveDays*86400000L;
+        boolean achieved=petPrefs.getInt("finished_books_count",0)>0
+            || petPrefs.getInt("finished_audio_count",0)>0
+            || petPrefs.getInt("best_streak",0)>=7;
+        ChteicoPhrases.Reply reply=ChteicoPhrases.next(
+            ChteicoStore.stage(this),ChteicoStore.branch(this),inactive,achieved,
+            petPrefs.getString("bubble_seen",""),petPrefs.getInt("bubble_last_id",-1),phraseRandom);
+        if(reply==null)return null;
+        petPrefs.edit().putString("bubble_seen",reply.seen).putInt("bubble_last_id",reply.id).apply();
+        return reply.text;
+    }
+    private void showSpeech(String message,long durationMs){
+        if(message==null||speechBubble==null||speechContainer==null)return;
+        if(pendingSpeechHide!=null)ui.removeCallbacks(pendingSpeechHide);
+        speechBubble.setText(message);
+        speechContainer.setVisibility(View.VISIBLE);
+        speechContainer.setAlpha(0f);
+        speechContainer.animate().cancel();speechContainer.animate().alpha(1f).setDuration(180).start();
+        final LinearLayout current=speechContainer;
+        pendingSpeechHide=()->{
+            current.animate().alpha(0f).setDuration(180).withEndAction(()->current.setVisibility(View.INVISIBLE)).start();
+            pendingSpeechHide=null;
+        };
+        ui.postDelayed(pendingSpeechHide,durationMs);
+    }
+    @Override protected void onDestroy(){
+        if(pendingSpeechHide!=null)ui.removeCallbacks(pendingSpeechHide);
+        super.onDestroy();
+    }
     private void show(){
+        if(pendingSpeechHide!=null){ui.removeCallbacks(pendingSpeechHide);pendingSpeechHide=null;}
+        if(speechContainer!=null)speechContainer.animate().cancel();
+        speechContainer=null;speechBubble=null;
         SharedPreferences settings=getSharedPreferences("reader",MODE_PRIVATE);
         bg=settings.getInt("bg",0xfff3e7d5);fg=contrast(bg);accent=ReaderButtonColors.accent(this,0xff915439);
         p=ChteicoStore.prefs(this);
@@ -102,28 +161,45 @@ public final class ChteicoActivity extends Activity {
         }
         int stage=ChteicoStore.stage(this);
         LinearLayout hero=card();hero.setGravity(Gravity.CENTER_HORIZONTAL);
-        // An introduction appears only after evolution; custom names do not hide the species reveal.
-        String intro=ChteicoStore.consumeIntroduction(this);
-        if(intro!=null){
-            TextView bubble=text(intro,16,true);bubble.setGravity(Gravity.CENTER);bubble.setBackground(shape(bg==0xff1e2025?0xff514a49:0xffeee0d0,18));
-            bubble.setPadding(dp(14),dp(12),dp(14),dp(12));
-            hero.addView(bubble,new LinearLayout.LayoutParams(-1,-2));gap(hero,8);
-            ui.postDelayed(()->{if(bubble.getParent()!=null){bubble.setVisibility(View.GONE);}},7500);
-        }
+        // Reserve space for a compact comic balloon, while keeping the pet anchored in place.
         FrameLayout petFrame=new FrameLayout(this);
-        hero.addView(petFrame,new LinearLayout.LayoutParams(dp(248),dp(247)));
-        pet=new ChteicoPetView(this);petFrame.addView(pet,new FrameLayout.LayoutParams(-1,-1));
-        TapWaves waves=new TapWaves();petFrame.addView(waves,new FrameLayout.LayoutParams(-1,-1));
+        hero.addView(petFrame,new LinearLayout.LayoutParams(dp(264),dp(306)));
+        FrameLayout.LayoutParams spriteLayout=new FrameLayout.LayoutParams(dp(248),dp(247),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);
+        pet=new ChteicoPetView(this);petFrame.addView(pet,spriteLayout);
+        TapWaves waves=new TapWaves();petFrame.addView(waves,
+            new FrameLayout.LayoutParams(dp(248),dp(247),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL));
         waves.setOnClickListener(v->{
-            waves.burst();pet.animate().cancel();pet.animate().translationY(-dp(5)).setDuration(110).withEndAction(()->pet.animate().translationY(0).setDuration(180).start()).start();
+            waves.burst();pet.animate().cancel();pet.animate().translationY(-dp(5)).setDuration(110)
+                .withEndAction(()->pet.animate().translationY(0).setDuration(180).start()).start();
             if(ChteicoStore.stage(this)==ChteicoStore.EGG){
                 boolean hatched=ChteicoStore.petTapped(this);
                 if(progressBar!=null)progressBar.setProgress(ChteicoStore.progress(this));
                 if(progressLabel!=null)progressLabel.setText("До следующей эволюции: "+ChteicoStore.progress(this)+"%");
                 pet.refresh();
                 if(hatched)ui.postDelayed(this::show,520);
+            }else{
+                // All 33 conversational replies are eligible by stage, branch and reading activity.
+                showSpeech(nextPetReply(),4200);
             }
         });
+        if(stage!=ChteicoStore.EGG){
+            speechContainer=column();speechContainer.setGravity(Gravity.CENTER_HORIZONTAL);
+            speechBubble=text("",13,false);speechBubble.setGravity(Gravity.CENTER);
+            GradientDrawable balloon=shape(bg==0xff1e2025?0xff514a49:0xfffffdf8,16);
+            balloon.setStroke(dp(1),fg);
+            speechBubble.setBackground(balloon);
+            speechBubble.setPadding(dp(10),dp(9),dp(10),dp(9));
+            speechBubble.setMaxLines(4);
+            speechContainer.addView(speechBubble,new LinearLayout.LayoutParams(-1,-2));
+            speechContainer.addView(new SpeechTail(),new LinearLayout.LayoutParams(-1,dp(11)));
+            FrameLayout.LayoutParams bubbleLayout=new FrameLayout.LayoutParams(dp(235),-2,Gravity.TOP|Gravity.RIGHT);
+            bubbleLayout.topMargin=dp(1);
+            petFrame.addView(speechContainer,bubbleLayout);
+            speechContainer.setVisibility(View.INVISIBLE);
+            // Evolution presentations appear once, even when the user has given the pet a name.
+            String intro=ChteicoStore.consumeIntroduction(this);
+            if(intro!=null)showSpeech(intro,7000);
+        }
         LinearLayout nameRow=new LinearLayout(this);nameRow.setGravity(Gravity.CENTER);
         TextView name=text(ChteicoStore.petName(this),23,true);nameRow.addView(name);
         if(ChteicoStore.canName(this)){
