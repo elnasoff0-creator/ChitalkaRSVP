@@ -44,7 +44,7 @@ public final class ChteicoNotifications extends BroadcastReceiver {
         if(intent!=null&&Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())){schedule(c);return;}
         if(!ChteicoStore.enabled(c))return;
         android.content.SharedPreferences p=ChteicoStore.prefs(c);long last=p.getLong("last_active",0),now=System.currentTimeMillis();
-        if(p.getBoolean("inactive",false)&&last>0&&now-last>=3L*86400000L){
+        if(p.getBoolean("inactive",false)&&last>0&&now-last>=Math.max(1,Math.min(36500,p.getInt("inactive_days",3)))*86400000L){
             notifyPet(c,"Чтейцо скучает","Заглянем в книгу или включим аудиокнигу?",723);
         }else if(p.getBoolean("daily",false)&&last>0&& !new java.text.SimpleDateFormat("yyyyMMdd",java.util.Locale.ROOT).format(new java.util.Date(last)).equals(new java.text.SimpleDateFormat("yyyyMMdd",java.util.Locale.ROOT).format(new java.util.Date(now)))){
             notifyPet(c,"Чтейцо ждёт вас","Немного чтения или аудио — и мы снова вместе!",724);

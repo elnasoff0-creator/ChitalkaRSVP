@@ -714,7 +714,7 @@ public class MainActivity extends Activity {
         item.setBackground(active ? shape(softPanel(), 16) : null);
         pad(item, 6, 10, 6, 10);
         if (label.equals("Настройки") || label.equals("Библиотека") || label.equals("Чтение") || label.equals("Закладки") || label.equals("Аудиокнига") || label.equals("Загрузки") || label.equals("Чтейцо")) {
-            int image = label.equals("Чтейцо") ? R.drawable.ic_chteico_egg : label.equals("Настройки") ? R.drawable.ic_settings :
+            int image = label.equals("Чтейцо") ? R.drawable.ic_chteico_nav : label.equals("Настройки") ? R.drawable.ic_settings :
                     label.equals("Библиотека") ? R.drawable.ic_audio_chapters : label.equals("Загрузки") ? R.drawable.ic_downloads : label.equals("Аудиокнига") ? R.drawable.ic_microphone : label.equals("Закладки") ? R.drawable.ic_bookmark : R.drawable.ic_book;
             ImageView iv = new ImageView(this);
             iv.setImageResource(image);
@@ -1288,8 +1288,8 @@ public class MainActivity extends Activity {
             boolean matured=ChteicoStore.matureOnHome(this);
             boolean hatched=ChteicoStore.hatchOnHome(this);
             draw();
-            if(matured)Toast.makeText(this,"Чтенец вырос! Теперь с вами Чтун.",Toast.LENGTH_LONG).show();
-            if(hatched){Toast.makeText(this,"Чтейцо вылупилось! Добро пожаловать, Чтенец!",Toast.LENGTH_LONG).show();ChteicoNotifications.milestone(this,"Чтейцо вылупилось!","Ваш Чтенец ждёт вас на своей вкладке.");}
+            if(matured)Toast.makeText(this,"Ваш питомец изменился!",Toast.LENGTH_LONG).show();
+            if(hatched){Toast.makeText(this,"Чтейцо вылупилось!",Toast.LENGTH_LONG).show();ChteicoNotifications.milestone(this,"Чтейцо вылупилось!","Ваш книжный спутник ждёт встречи.");}
         }
         hasResumedOnce = true;
     }

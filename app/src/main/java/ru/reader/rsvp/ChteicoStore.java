@@ -20,8 +20,8 @@ public final class ChteicoStore {
     public static boolean enabled(Context c){return prefs(c).getBoolean("enabled",false);}
     public static int stage(Context c){return prefs(c).getInt("stage",EGG);}
     public static int branch(Context c){return prefs(c).getInt("branch",UNDECIDED);}
-    public static String stageName(int stage){return stage==ADULT?"Чтун":stage==CHICK?"Чтенец":"Яйцо";}
-    public static String branchName(int branch){return branch==AUDIO?"Аудиокниги":branch==SPEED?"Скорочтение":branch==CLASSIC?"Чтение / Курсор":"Ещё не выбрана";}
+    public static String stageName(int stage){return stage==ADULT?"Чтун":stage==CHICK?"Чтенец":"Чтейцо";}
+    public static String branchName(int branch){return branch==AUDIO?"Аудиокниги":branch==SPEED?"Скорочтение":branch==CLASSIC?"Чтение":"Ещё не выбрана";}
     private static String date(long millis){return new SimpleDateFormat("yyyyMMdd",Locale.ROOT).format(new Date(millis));}
     private static int daysBetween(String first,String second){try{
         SimpleDateFormat df=new SimpleDateFormat("yyyyMMdd",Locale.ROOT);df.setTimeZone(TimeZone.getDefault());
@@ -44,7 +44,7 @@ public final class ChteicoStore {
             JSONArray a=new JSONArray();for(String val:all)a.put(val);e.putString(key,a.toString()).putInt(key+"_count",all.size());
         }
     }
-    public static void openBook(Context c,String id,int mode){open(c,id,mode==1?SPEED:CLASSIC,false);}
+    public static void openBook(Context c,String id,int mode){open(c,id,mode==0?CLASSIC:SPEED,false);}
     public static void openAudio(Context c,String id){open(c,id,AUDIO,true);}
     private static synchronized void open(Context c,String id,int kind,boolean audio){
         if(!enabled(c)||id==null||id.isEmpty())return;
@@ -56,7 +56,7 @@ public final class ChteicoStore {
         e.apply();
     }
     /** Only call while actual reading / player playback occurs, never on idle background time. */
-    public static synchronized void tickReading(Context c,int mode,int seconds){tick(c,mode==1?SPEED:CLASSIC,seconds);}
+    public static synchronized void tickReading(Context c,int mode,int seconds){tick(c,mode==0?CLASSIC:SPEED,seconds);}
     public static synchronized void recordWords(Context c,int increment){
         if(!enabled(c)||increment<=0)return;
         SharedPreferences p=prefs(c);p.edit().putLong("words_advanced",p.getLong("words_advanced",0)+Math.min(400,increment)).apply();
@@ -78,37 +78,70 @@ public final class ChteicoStore {
         if(!enabled(c)||id==null||id.isEmpty())return false;
         SharedPreferences p=prefs(c);if(ids(p,key).contains(id))return false;
         SharedPreferences.Editor e=p.edit();addUnique(p,e,key,id);active(p,e);
-        if(p.getInt("stage",EGG)==CHICK)e.putInt("stage",ADULT);
+        if(p.getInt("stage",EGG)==CHICK)e.putBoolean("post_hatch_mature",true);
         e.apply();return true;
     }
-    /** Hatch on return to MainActivity. Branch is determined once; never recalculate on progress updates. */
-    public static synchronized boolean hatchOnHome(Context c){
-        if(!enabled(c))return false;
-        SharedPreferences p=prefs(c);
-        if(p.getInt("stage",EGG)!=EGG||!p.getBoolean("pending_hatch",false))return false;
+    /** Eggs have eight progress units: one per tap, two per qualified home return. */
+    public static int eggUnits(Context c){return Math.max(0,Math.min(8,prefs(c).getInt("egg_units",0)));}
+    public static boolean eggCracked(Context c){return stage(c)==EGG&&eggUnits(c)>=4;}
+    private static int chosenBranch(SharedPreferences p){
         long classic=Math.max(0,p.getLong("seconds_classic",0)-p.getLong("branch_marker_classic",0));
         long speed=Math.max(0,p.getLong("seconds_speed",0)-p.getLong("branch_marker_speed",0));
         long audio=Math.max(0,p.getLong("seconds_audio",0)-p.getLong("branch_marker_audio",0));
         int last=p.getInt("hatch_last_kind",CLASSIC);
-        int chosen=(classic==0&&speed==0&&audio==0)?last:
-            (audio>=classic&&audio>=speed?AUDIO:(speed>classic?SPEED:CLASSIC));
-        boolean alreadyFinished=p.getInt("finished_books_count",0)+p.getInt("finished_audio_count",0)
-            >p.getInt("branch_marker_finished_books_count",0)+p.getInt("branch_marker_finished_audio_count",0);
-        prefs(c).edit().putInt("stage",CHICK).putInt("branch",chosen).putBoolean("pending_hatch",false)
-            .putBoolean("post_hatch_mature",alreadyFinished).apply();
-        return true;
+        if(classic==0&&speed==0&&audio==0)return last;
+        return audio>=classic&&audio>=speed?AUDIO:(speed>classic?SPEED:CLASSIC);
+    }
+    private static boolean addEggUnits(Context c,int units){
+        SharedPreferences p=prefs(c);if(!p.getBoolean("enabled",false)||stage(c)!=EGG)return false;
+        int next=Math.min(8,eggUnits(c)+units);
+        SharedPreferences.Editor e=p.edit().putInt("egg_units",next);
+        if(next>=8){
+            boolean finished=p.getInt("finished_books_count",0)+p.getInt("finished_audio_count",0)>
+                p.getInt("branch_marker_finished_books_count",0)+p.getInt("branch_marker_finished_audio_count",0);
+            e.putInt("stage",CHICK).putInt("branch",chosenBranch(p))
+                .putBoolean("pending_hatch",false).putBoolean("post_hatch_mature",finished)
+                .putInt("pending_intro_stage",CHICK);
+        }
+        e.apply();return next>=8;
+    }
+    public static synchronized boolean petTapped(Context c){return addEggUnits(c,1);}
+    /** Consumes one visit armed by opening a book/audio screen; opening the home alone never counts. */
+    public static synchronized boolean hatchOnHome(Context c){
+        if(!enabled(c)||stage(c)!=EGG)return false;
+        SharedPreferences p=prefs(c);
+        if(!p.getBoolean("pending_hatch",false))return false;
+        p.edit().putBoolean("pending_hatch",false).apply();
+        return addEggUnits(c,2);
     }
     public static synchronized boolean matureOnHome(Context c){
         if(!enabled(c))return false;
         SharedPreferences p=prefs(c);
-        if(p.getInt("stage",EGG)==CHICK&&p.getBoolean("post_hatch_mature",false)){
-            p.edit().putInt("stage",ADULT).putBoolean("post_hatch_mature",false).apply();return true;
+        if(stage(c)==CHICK&&p.getBoolean("post_hatch_mature",false)){
+            p.edit().putInt("stage",ADULT).putBoolean("post_hatch_mature",false).putInt("pending_intro_stage",ADULT).apply();return true;
         }
         return false;
     }
+    /** Introduction is displayed once per evolution, even when the pet has been renamed. */
+    public static synchronized String consumeIntroduction(Context c){
+        SharedPreferences p=prefs(c);int event=p.getInt("pending_intro_stage",-1);
+        if(event!=CHICK&&event!=ADULT)return null;
+        p.edit().remove("pending_intro_stage").apply();
+        return event==CHICK?"Привет! Я Чтенец!":"Я вырос! Теперь я Чтун!";
+    }
+    public static String petName(Context c){
+        String custom=prefs(c).getString("custom_name","").trim();
+        return custom.isEmpty()?stageName(stage(c)):custom;
+    }
+    public static boolean canName(Context c){return !prefs(c).getBoolean("name_locked",false);}
+    public static synchronized boolean setPetName(Context c,String name){
+        if(!canName(c)||name==null)return false;
+        name=name.trim();if(name.isEmpty()||name.length()>18||name.contains("\n"))return false;
+        prefs(c).edit().putString("custom_name",name).putBoolean("name_locked",true).apply();return true;
+    }
     public static int progress(Context c){SharedPreferences p=prefs(c);int st=stage(c);
         if(st==ADULT)return 100;
-        if(st==EGG)return p.getBoolean("pending_hatch",false)?80:0;
+        if(st==EGG)return eggUnits(c)*100/8;
         int books=Math.max(0,p.getInt("finished_books_count",0)-p.getInt("branch_marker_finished_books_count",0));
         int audio=Math.max(0,p.getInt("finished_audio_count",0)-p.getInt("branch_marker_finished_audio_count",0));
         if(books+audio>0)return 100;
@@ -117,17 +150,17 @@ public final class ChteicoStore {
     }
     public static void setEnabled(Context c,boolean enabled){prefs(c).edit().putBoolean("enabled",enabled).apply();ChteicoNotifications.schedule(c);}
     /** Reset game state, not imported books nor reader/audioplayer positions. */
-    public static void resetPet(Context c){SharedPreferences p=prefs(c);p.edit().putInt("stage",EGG).putInt("branch",UNDECIDED).putBoolean("pending_hatch",false).putBoolean("post_hatch_mature",false)
+    public static void resetPet(Context c){SharedPreferences p=prefs(c);p.edit().putInt("stage",EGG).putInt("branch",UNDECIDED).putInt("egg_units",0).remove("pending_intro_stage").putBoolean("pending_hatch",false).putBoolean("post_hatch_mature",false)
         .putLong("seconds_classic",0).putLong("seconds_speed",0).putLong("seconds_audio",0)
         .putString("opened_books","[]").putString("opened_audio","[]")
         .putString("finished_books","[]").putString("finished_audio","[]")
         .putInt("opened_books_count",0).putInt("opened_audio_count",0).putInt("finished_books_count",0).putInt("finished_audio_count",0)
-        .putInt("sessions",0).putLong("words_advanced",0)
+        .putInt("sessions",0).putLong("words_advanced",0).remove("custom_name").remove("name_locked")
         .putInt("streak",0).putInt("best_streak",0).remove("last_day").remove("last_active")
         .remove("branch_marker_classic").remove("branch_marker_speed").remove("branch_marker_audio")
         .remove("branch_marker_finished_books_count").remove("branch_marker_finished_audio_count").apply();}
     /** Reselect on the next book/audio opening; lifetime statistics remain available. */
-    public static void resetBranch(Context c){prefs(c).edit().putInt("stage",EGG).putInt("branch",UNDECIDED).putBoolean("pending_hatch",false).putBoolean("post_hatch_mature",false)
+    public static void resetBranch(Context c){prefs(c).edit().putInt("stage",EGG).putInt("branch",UNDECIDED).putInt("egg_units",0).remove("pending_intro_stage").putBoolean("pending_hatch",false).putBoolean("post_hatch_mature",false)
         .putLong("branch_marker_classic",prefs(c).getLong("seconds_classic",0))
         .putLong("branch_marker_speed",prefs(c).getLong("seconds_speed",0))
         .putLong("branch_marker_audio",prefs(c).getLong("seconds_audio",0))

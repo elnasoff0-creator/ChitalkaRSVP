@@ -80,7 +80,7 @@ public class SettingsActivity extends Activity {
         TextView name=text("Настройки",24,true);name.setTypeface(Typeface.SERIF,Typeface.BOLD);top.addView(name,new LinearLayout.LayoutParams(0,-2,1));root.addView(top);
         ScrollView sc=new ScrollView(this);list=col();sc.addView(list);root.addView(sc,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout tabs=new LinearLayout(this);
-        int[] icons={R.drawable.ic_tab_appearance,R.drawable.ic_book,R.drawable.ic_tab_music,R.drawable.ic_tab_online,R.drawable.ic_chteico_egg};
+        int[] icons={R.drawable.ic_tab_appearance,R.drawable.ic_book,R.drawable.ic_tab_music,R.drawable.ic_tab_online,R.drawable.ic_chteico_nav};
         String[] names={"Оформление","Чтение","Аудио","Онлайн","Чтейцо"};
         for(int i=0;i<names.length;i++){
             final int tab=i;
@@ -112,41 +112,88 @@ public class SettingsActivity extends Activity {
         gap(18);
     }
     void drawChteicoSettings(){
-        header("Чтейцо · книжный питомец");
-        TextView about=text("Ваш спутник чтения: сначала яйцо, затем Чтенец и взрослый Чтун. Питомец развивается от книг и аудио. При вылуплении выбирается одна ветка: чтение, скорочтение или аудиокниги. Она сохраняется при взрослении.",14,false);
-        about.setBackground(rounded(cardColor(),16));about.setPadding(dp(14),dp(14),dp(14),dp(14));list.addView(about);gap(10);
-        android.widget.Switch enabled=new android.widget.Switch(this);enabled.setText("Включить Чтейцо");enabled.setTextColor(contrast(bg));enabled.setTextSize(16);
-        enabled.setChecked(ChteicoStore.enabled(this));list.addView(enabled);
-        enabled.setOnCheckedChangeListener((v,on)->{ChteicoStore.setEnabled(this,on);draw();});gap(9);
-        list.addView(action("Открыть Чтейцо  →",R.drawable.ic_chteico_egg,()->startActivity(new Intent(this,ChteicoActivity.class))));
-        gap(12);header("Текущая стадия");
-        list.addView(action(ChteicoStore.stageName(ChteicoStore.stage(this))+" · "+ChteicoStore.branchName(ChteicoStore.branch(this)),()->startActivity(new Intent(this,ChteicoActivity.class))));
-        gap(9);header("Напоминания и оповещения");
         final android.content.SharedPreferences game=ChteicoStore.prefs(this);
+        gap(12);
+        android.widget.Switch enabled=new android.widget.Switch(this);
+        enabled.setText("Включить Чтейцо");enabled.setTextColor(contrast(bg));enabled.setTextSize(16);
+        enabled.setPadding(dp(4),dp(12),dp(4),dp(12));
+        enabled.setChecked(ChteicoStore.enabled(this));list.addView(enabled);
+        enabled.setOnCheckedChangeListener((v,on)->{ChteicoStore.setEnabled(this,on);draw();});
+        gap(12);
+        // Folded by default. No code symbols, countdowns or hidden evolutionary rules in user-facing help.
+        LinearLayout helpBox=col();helpBox.setBackground(rounded(cardColor(),16));helpBox.setPadding(dp(14),dp(12),dp(14),dp(12));
+        TextView helpHeader=text("ⓘ  Справка   ▾",17,true);helpBox.addView(helpHeader);
+        TextView helpText=text("Чтейцо — маленький спутник ваших книжных приключений. Ему нравятся истории, уютные минуты чтения и удивительные аудиопутешествия.\n\nСо временем питомец меняется и взрослеет. Ваши привычки могут сделать его особенным — какой сюрприз ждёт впереди, узнаете сами.\n\nПочаще заглядывайте к нему: ласковое прикосновение поднимает настроение, а книги помогают расти. Если долго не читать, питомец может мягко напомнить о себе.",14,false);
+        helpText.setPadding(dp(2),dp(13),dp(2),dp(5));helpText.setVisibility(View.GONE);helpBox.addView(helpText);
+        helpHeader.setOnClickListener(v->{boolean open=helpText.getVisibility()!=View.VISIBLE;helpText.setVisibility(open?View.VISIBLE:View.GONE);helpHeader.setText(open?"ⓘ  Справка   ▴":"ⓘ  Справка   ▾");});
+        list.addView(helpBox);gap(12);
+        if(ChteicoStore.canName(this)){
+            list.addView(action("✎  Назвать питомца",()->{
+                android.widget.EditText input=new android.widget.EditText(this);input.setSingleLine(true);input.setHint("Имя питомца");
+                input.setText(ChteicoStore.petName(this));input.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(18)});
+                LinearLayout wrap=col();wrap.setPadding(dp(16),0,dp(16),0);wrap.addView(input);
+                new AlertDialog.Builder(this).setTitle("Имя питомца")
+                    .setMessage("Имя выбирается только один раз и остаётся после взросления.")
+                    .setView(wrap).setNegativeButton("Отмена",null)
+                    .setPositiveButton("Сохранить",(dialog,which)->{
+                        if(ChteicoStore.setPetName(this,input.getText().toString()))draw();
+                        else android.widget.Toast.makeText(this,"Введите имя до 18 символов",android.widget.Toast.LENGTH_SHORT).show();
+                    }).show();
+            }));
+        }else list.addView(action("Имя питомца: "+ChteicoStore.petName(this),()->{}));
+        gap(14);header("Напоминания и оповещения");
         chteicoSwitch("Ежедневное напоминание","daily");
-        chteicoSwitch("Напоминать при неактивности 3 дня","inactive");
+        chteicoSwitch("Напомнить при неактивности","inactive");
+        LinearLayout daysRow=new LinearLayout(this);daysRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView daysLabel=text("Дней без чтения или аудио",15,false);
+        daysRow.addView(daysLabel,new LinearLayout.LayoutParams(0,-2,1));
+        EditText days=new EditText(this);days.setSingleLine(true);days.setGravity(Gravity.CENTER);
+        days.setInputType(InputType.TYPE_CLASS_NUMBER);days.setText(String.valueOf(game.getInt("inactive_days",3)));
+        days.setSelectAllOnFocus(true);daysRow.addView(days,new LinearLayout.LayoutParams(dp(80),dp(52)));
+        days.addTextChangedListener(new android.text.TextWatcher(){
+            public void beforeTextChanged(CharSequence seq,int start,int count,int after){}
+            public void onTextChanged(CharSequence seq,int start,int before,int count){
+                try{long n=Long.parseLong(seq.toString().trim());if(n>=1&&n<=36500){
+                    game.edit().putInt("inactive_days",(int)n).apply();ChteicoNotifications.schedule(SettingsActivity.this);
+                }}catch(NumberFormatException ignored){}
+            }
+            public void afterTextChanged(android.text.Editable e){}
+        });
+        days.setOnFocusChangeListener((v,focus)->{if(!focus)saveInactiveDays(days);});
+        days.setOnEditorActionListener((v,action,event)->{saveInactiveDays(days);days.clearFocus();return false;});
+        list.addView(daysRow);
         chteicoSwitch("Уведомления о достижениях","achievements_notice");
-        gap(12);header("Анимация и реакции");
-        chteicoSwitch("Анимация питомца","animations_enabled");
-        chteicoSwitch("Реплики Чтейца","reactions_enabled");
-        list.addView(action("Время напоминания: "+game.getInt("reminder_hour",19)+":00",()->{
+        list.addView(action("Время напоминаний: "+game.getInt("reminder_hour",19)+":00",()->{
             new android.app.TimePickerDialog(this,(v,h,m)->{game.edit().putInt("reminder_hour",h).apply();ChteicoNotifications.schedule(this);draw();},game.getInt("reminder_hour",19),0,true).show();
         }));
-        gap(12);header("Статистика для роста");
-        list.addView(action("Прочитано: "+game.getInt("finished_books_count",0)+" · Прослушано: "+game.getInt("finished_audio_count",0),()->startActivity(new Intent(this,ChteicoActivity.class))));
-        gap(12);header("Сброс и тестирование");
-        list.addView(action("Сбросить ветку развития",()->new AlertDialog.Builder(this)
-            .setTitle("Сброс ветки").setMessage("Питомец вернётся к яйцу. Новая ветка определится при следующем открытии книги или аудиокниги. История книг и их позиции не изменятся.")
+        gap(16);header("Сброс и тестирование");
+        list.addView(action("Сбросить вариант развития",()->new AlertDialog.Builder(this)
+            .setTitle("Начать новую историю?")
+            .setMessage("Питомец вновь станет яйцом и сможет выбрать другой облик. Книжная статистика, библиотека и сохранённое имя останутся.")
             .setNegativeButton("Отмена",null).setPositiveButton("Сбросить",(dialog,which)->{ChteicoStore.resetBranch(this);draw();}).show()));
-        gap(7);list.addView(action("Полностью сбросить Чтейцо",()->new AlertDialog.Builder(this)
-            .setTitle("Сбросить Чтейцо?").setMessage("Удалить только игровой прогресс, статистику и награды Чтейца? Книги, аудиокниги, закладки и позиции сохранятся.")
+        gap(8);list.addView(action("Полностью сбросить Чтейцо",()->new AlertDialog.Builder(this)
+            .setTitle("Сбросить Чтейцо?")
+            .setMessage("Будут сброшены игровой прогресс, имя и статистика питомца. Ваши книги, аудио, закладки и позиции чтения останутся нетронутыми.")
             .setNegativeButton("Отмена",null).setPositiveButton("Сбросить",(dialog,which)->{ChteicoStore.resetPet(this);draw();}).show()));
-        gap(14);
+        gap(18);
+    }
+    void saveInactiveDays(EditText input){
+        try{
+            long value=Long.parseLong(input.getText().toString().trim());
+            if(value<1)throw new NumberFormatException();
+            int days=(int)Math.min(value,36500L);
+            ChteicoStore.prefs(this).edit().putInt("inactive_days",days).apply();
+            ChteicoNotifications.schedule(this);
+            input.setText(String.valueOf(days));
+        }catch(NumberFormatException ignored){
+            input.setText(String.valueOf(ChteicoStore.prefs(this).getInt("inactive_days",3)));
+            android.widget.Toast.makeText(this,"Укажите целое число дней больше нуля",android.widget.Toast.LENGTH_SHORT).show();
+        }
     }
     void chteicoSwitch(String label,String key){
         final android.content.SharedPreferences game=ChteicoStore.prefs(this);
         android.widget.Switch sw=new android.widget.Switch(this);sw.setText(label);sw.setTextColor(contrast(bg));sw.setTextSize(15);
-        sw.setPadding(dp(4),dp(9),dp(4),dp(9));sw.setChecked(game.getBoolean(key,key.equals("animations_enabled")||key.equals("reactions_enabled")));list.addView(sw);
+        sw.setPadding(dp(4),dp(9),dp(4),dp(9));sw.setChecked(game.getBoolean(key,false));list.addView(sw);
         sw.setOnCheckedChangeListener((view,on)->{
             game.edit().putBoolean(key,on).apply();ChteicoNotifications.schedule(this);
             if(on&&android.os.Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED){
