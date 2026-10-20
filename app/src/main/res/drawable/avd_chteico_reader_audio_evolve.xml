@@ -1,2 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<animated-vector xmlns:android="http://schemas.android.com/apk/res/android" android:drawable="@drawable/v_chteico_reader_audio"><target android:name="whole" android:animation="@animator/ch_evolve_grow" /><target android:name="body" android:animation="@animator/ch_evolve_tall" /><target android:name="wing_left" android:animation="@animator/ch_evolve_wing" /><target android:name="wing_right" android:animation="@animator/ch_evolve_wing" /></animated-vector>

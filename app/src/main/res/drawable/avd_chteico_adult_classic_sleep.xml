@@ -1,2 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<animated-vector xmlns:android="http://schemas.android.com/apk/res/android" android:drawable="@drawable/v_chteico_adult_classic"><target android:name="eyes" android:animation="@animator/ch_sleep_eyes" /><target android:name="body" android:animation="@animator/ch_sleep_body" /></animated-vector>
