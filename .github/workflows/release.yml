@@ -85,16 +85,16 @@ jobs:
             --ks-key-alias "$RELEASE_KEY_ALIAS" \
             --ks-pass env:RELEASE_KEYSTORE_PASSWORD \
             --key-pass env:RELEASE_KEY_PASSWORD \
-            --out dist/ChitalkaRSVP-v1.11.51-beta.apk "$aligned_apk"
-          "$build_tools/apksigner" verify --verbose --print-certs dist/ChitalkaRSVP-v1.11.51-beta.apk
-          (cd dist && sha256sum ChitalkaRSVP-v1.11.51-beta.apk > SHA256SUMS.txt)
+            --out dist/ChitalkaRSVP-v1.11.53-beta.apk "$aligned_apk"
+          "$build_tools/apksigner" verify --verbose --print-certs dist/ChitalkaRSVP-v1.11.53-beta.apk
+          (cd dist && sha256sum ChitalkaRSVP-v1.11.53-beta.apk > SHA256SUMS.txt)
 
       - name: Upload signed release APK
         uses: actions/upload-artifact@v4
         with:
-          name: ChitalkaRSVP-v1.11.51-beta-signed-release
+          name: ChitalkaRSVP-v1.11.53-beta-signed-release
           path: |
-            dist/ChitalkaRSVP-v1.11.51-beta.apk
+            dist/ChitalkaRSVP-v1.11.53-beta.apk
             dist/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
@@ -108,11 +108,11 @@ jobs:
           set -euo pipefail
           tag="$GITHUB_REF_NAME"
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" dist/ChitalkaRSVP-v1.11.51-beta.apk dist/SHA256SUMS.txt --clobber
+            gh release upload "$tag" dist/ChitalkaRSVP-v1.11.53-beta.apk dist/SHA256SUMS.txt --clobber
           elif [[ "$tag" == *-beta* || "$tag" == *-alpha* || "$tag" == *-rc* ]]; then
-            gh release create "$tag" dist/ChitalkaRSVP-v1.11.51-beta.apk dist/SHA256SUMS.txt \
+            gh release create "$tag" dist/ChitalkaRSVP-v1.11.53-beta.apk dist/SHA256SUMS.txt \
               --title "ChitalkaRSVP ${tag#v}" --notes 'Signed Android release APK.' --prerelease
           else
-            gh release create "$tag" dist/ChitalkaRSVP-v1.11.51-beta.apk dist/SHA256SUMS.txt \
+            gh release create "$tag" dist/ChitalkaRSVP-v1.11.53-beta.apk dist/SHA256SUMS.txt \
               --title "ChitalkaRSVP ${tag#v}" --notes 'Signed Android release APK.'
           fi

@@ -135,6 +135,7 @@ public class MainActivity extends Activity {
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        ChteicoStore.markAppLaunch(this);
         getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
         getWindow().setStatusBarColor(0xffefe3d3);
@@ -704,7 +705,7 @@ public class MainActivity extends Activity {
         nav.addView(navItem("📖", "Чтение", active == 1, v -> { if (currentUri.isEmpty()) pick(); else { openBook(currentUri, false, true); } }), new LinearLayout.LayoutParams(0, -2, 1));
         nav.addView(navItem("🎙", "Аудиокнига", false, v -> startActivity(new Intent(this,AudioPlayerActivity.class))), new LinearLayout.LayoutParams(0, -2, 1));
         nav.addView(navItem("", "Загрузки", false, v -> startActivity(new Intent(this,DownloadActivity.class))), new LinearLayout.LayoutParams(0, -2, 1));
-        if (ChteicoStore.enabled(this)) nav.addView(navItem("", "Чтейцо", false, v -> startActivity(new Intent(this,ChteicoActivity.class))), new LinearLayout.LayoutParams(0,-2,1));
+        nav.addView(navItem("", ChteicoStore.enabled(this)?"Чтейцо":"Статистика", false, v -> startActivity(new Intent(this,ChteicoActivity.class))), new LinearLayout.LayoutParams(0,-2,1));
         return nav;
     }
 
@@ -714,7 +715,7 @@ public class MainActivity extends Activity {
         item.setBackground(active ? shape(softPanel(), 16) : null);
         pad(item, 6, 10, 6, 10);
         if (label.equals("Настройки") || label.equals("Библиотека") || label.equals("Чтение") || label.equals("Закладки") || label.equals("Аудиокнига") || label.equals("Загрузки") || label.equals("Чтейцо")) {
-            int image = label.equals("Чтейцо") ? R.drawable.ic_chteico_nav : label.equals("Настройки") ? R.drawable.ic_settings :
+            int image = label.equals("Чтейцо") ? R.drawable.ic_chteico_nav : label.equals("Статистика") ? R.drawable.ic_stats_nav : label.equals("Настройки") ? R.drawable.ic_settings :
                     label.equals("Библиотека") ? R.drawable.ic_audio_chapters : label.equals("Загрузки") ? R.drawable.ic_downloads : label.equals("Аудиокнига") ? R.drawable.ic_microphone : label.equals("Закладки") ? R.drawable.ic_bookmark : R.drawable.ic_book;
             ImageView iv = new ImageView(this);
             iv.setImageResource(image);

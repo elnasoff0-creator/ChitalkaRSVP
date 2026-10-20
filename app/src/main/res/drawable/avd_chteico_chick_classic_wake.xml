@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="utf-8"?>
+<animated-vector xmlns:android="http://schemas.android.com/apk/res/android" android:drawable="@drawable/v_chteico_chick_classic"><target android:name="eyes" android:animation="@animator/ch_wake_eyes" /><target android:name="wing_left" android:animation="@animator/ch_wake_wing" /><target android:name="wing_right" android:animation="@animator/ch_wake_wing" /><target android:name="head" android:animation="@animator/ch_wake_head" /></animated-vector>

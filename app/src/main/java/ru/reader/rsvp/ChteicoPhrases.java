@@ -5,14 +5,12 @@ import java.util.HashSet;
 import java.util.Random;
 import java.util.Set;
 
-/** The two evolution introductions and 33 short, spoiler-free companion replies.
- * Pure Java so phrase eligibility and non-repeating selection can be tested without Android.
- */
+/** Spoiler-free companion replies for all evolution stages. */
 public final class ChteicoPhrases {
-    public static final String INTRO_CHICK="Привет! Я Чтенец!";
+    public static final String INTRO_CHICK="Привет! Я Чтенчик!";
+    public static final String INTRO_READER="Я подрос! Теперь я Чтенец!";
     public static final String INTRO_ADULT="Я вырос! Теперь я Чтун!";
 
-    // IDs are stable across updates: keep them when changing phrase wording.
     public static final String[] GREETINGS={
         "Ещё одна история? Я весь во внимании!",
         "Каждая страница — новое приключение!",
@@ -45,9 +43,14 @@ public final class ChteicoPhrases {
         "Включим следующую главу? Я уже слушаю!"
     };
     public static final String[] CHICK={
-        "Я только учусь летать между страницами!",
-        "Мои крылышки становятся крепче!",
+        "Я только учусь взмахивать книжными крылышками!",
+        "Кажется, ещё немного — и я стану смелее!",
         "Давай почитаем ещё чуть-чуть?"
+    };
+    public static final String[] READER={
+        "Я уже увереннее лечу между страницами!",
+        "Мне нравится быть рядом в новых главах.",
+        "С каждым днём я становлюсь мудрее."
     };
     public static final String[] ADULT={
         "Мои крылья теперь как раскрытая книга!",
@@ -85,20 +88,21 @@ public final class ChteicoPhrases {
      */
     public static Reply next(int stage,int branch,boolean returningAfterBreak,boolean achieved,
                              String alreadySeen,int lastId,Random random){
-        if(stage!=1&&stage!=2)return null;
+        if(stage!=ChteicoStore.CHICK&&stage!=ChteicoStore.READER&&stage!=ChteicoStore.ADULT)return null;
         ArrayList<Line> all=new ArrayList<>();
         put(all,100,GREETINGS);
         put(all,200,GROWTH);
-        if(branch==1)put(all,300,CLASSIC);
-        else if(branch==2)put(all,400,SPEED);
-        else if(branch==3)put(all,500,AUDIO);
-        if(stage==1)put(all,600,CHICK);else put(all,700,ADULT);
-        if(returningAfterBreak)put(all,800,RETURNING);
-        if(achieved)put(all,900,ACHIEVEMENTS);
+        if(branch==ChteicoStore.CLASSIC)put(all,300,CLASSIC);
+        else if(branch==ChteicoStore.SPEED)put(all,400,SPEED);
+        else if(branch==ChteicoStore.AUDIO)put(all,500,AUDIO);
+        if(stage==ChteicoStore.CHICK)put(all,600,CHICK);
+        else if(stage==ChteicoStore.READER)put(all,700,READER);
+        else put(all,800,ADULT);
+        if(returningAfterBreak)put(all,900,RETURNING);
+        if(achieved)put(all,1000,ACHIEVEMENTS);
         Set<Integer> used=parseSeen(alreadySeen);
         ArrayList<Line> available=new ArrayList<>();
         for(Line l:all)if(!used.contains(l.id)&&l.id!=lastId)available.add(l);
-        // When all relevant lines have appeared, begin a new cycle without an immediate repeat.
         if(available.isEmpty()){
             used.clear();
             for(Line l:all)if(l.id!=lastId)available.add(l);
@@ -107,8 +111,7 @@ public final class ChteicoPhrases {
         Line chosen=available.get(random.nextInt(available.size()));
         used.add(chosen.id);
         StringBuilder sb=new StringBuilder();
-        // Keep the stored set small and stable, including categories that may become available later.
-        for(Integer id:used){if(sb.length()!=0)sb.append(',');sb.append(id);}
+        for(Integer id:used){if(sb.length()!=0)sb.append(',');sb.append(id);}        
         return new Reply(chosen.id,chosen.text,sb.toString());
     }
     private static Set<Integer> parseSeen(String raw){
@@ -118,5 +121,5 @@ public final class ChteicoPhrases {
         return result;
     }
     public static int tapPhraseCount(){return GREETINGS.length+GROWTH.length+CLASSIC.length+
-        SPEED.length+AUDIO.length+CHICK.length+ADULT.length+RETURNING.length+ACHIEVEMENTS.length;}
+        SPEED.length+AUDIO.length+CHICK.length+READER.length+ADULT.length+RETURNING.length+ACHIEVEMENTS.length;}
 }

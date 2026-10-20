@@ -1,5 +1,6 @@
 package ru.reader.rsvp;
 
+import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
@@ -10,7 +11,6 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
-import android.animation.ValueAnimator;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -26,7 +26,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import java.util.Random;
 
-/** Minimal companion screen; details of evolution and its branch stay private. */
+/** Reading companion screen with spoiler-free evolution, stats and earned rewards. */
 public final class ChteicoActivity extends Activity {
     private LinearLayout root,content;
     private ProgressBar progressBar;
@@ -36,11 +36,11 @@ public final class ChteicoActivity extends Activity {
     private SharedPreferences p;
     private boolean firstResume=true;
     private TextView speechBubble;
-    private LinearLayout speechContainer;
+    private SpeechBubbleLayout speechContainer;
     private Runnable pendingSpeechHide;
     private final Random phraseRandom=new Random();
     private final Handler ui=new Handler(Looper.getMainLooper());
-    private int dp(int n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
+    private int dp(int n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}    
     @Override protected void onCreate(Bundle b){super.onCreate(b);show();}
     @Override protected void onResume(){super.onResume();if(firstResume)firstResume=false;else show();}
     private GradientDrawable shape(int color,int radius){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(radius));return d;}
@@ -54,8 +54,8 @@ public final class ChteicoActivity extends Activity {
     private void stat(LinearLayout container,String label,String value){LinearLayout cell=column();cell.setGravity(Gravity.CENTER);cell.setPadding(dp(9),dp(13),dp(9),dp(13));cell.setBackground(shape(bg==0xff1e2025?0xff444349:0xfff0e6dc,14));
         TextView big=text(value,24,true);big.setGravity(Gravity.CENTER);cell.addView(big);
         TextView sub=text(label,12,false);sub.setGravity(Gravity.CENTER);cell.addView(sub);
-        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.setMargins(dp(3),dp(3),dp(3),dp(3));container.addView(cell,lp);}
-    private String mins(String key){return String.valueOf(p.getLong(key,0)/60);}
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.setMargins(dp(3),dp(3),dp(3),dp(3));container.addView(cell,lp);}    
+    private String mins(String key){return String.valueOf(p.getLong(key,0)/60);}    
     private void askName(){
         if(!ChteicoStore.canName(this))return;
         EditText input=new EditText(this);input.setSingleLine(true);input.setHint("Имя питомца");input.setText(ChteicoStore.petName(this));
@@ -75,7 +75,7 @@ public final class ChteicoActivity extends Activity {
         private float phase=-1f;
         private ValueAnimator animator;
         private final float[] angles={-145f,-112f,-68f,-34f,34f,68f,112f,145f};
-        TapWaves(){super(ChteicoActivity.this);setLayerType(View.LAYER_TYPE_SOFTWARE,null);}
+        TapWaves(){super(ChteicoActivity.this);setLayerType(View.LAYER_TYPE_SOFTWARE,null);}        
         void burst(){if(animator!=null)animator.cancel();animator=ValueAnimator.ofFloat(0,1);animator.setDuration(320);
             animator.addUpdateListener(a->{phase=(float)a.getAnimatedValue();invalidate();});animator.start();}
         @Override protected void onDraw(Canvas c){
@@ -101,21 +101,40 @@ public final class ChteicoActivity extends Activity {
         }
         @Override protected void onDetachedFromWindow(){if(animator!=null)animator.cancel();super.onDetachedFromWindow();}
     }
-    /** Small outlined comic bubble with a pointer; no layout movement when a reply appears. */
-    private final class SpeechTail extends View {
-        private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
-        SpeechTail(){super(ChteicoActivity.this);}
+    /** One-piece speech bubble with a tail and continuous outline. */
+    private final class SpeechBubbleLayout extends FrameLayout {
+        private final Paint fill=new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint stroke=new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Path path=new Path();
+        SpeechBubbleLayout(){super(ChteicoActivity.this);setWillNotDraw(false);setPadding(dp(12),dp(10),dp(12),dp(22));}
         @Override protected void onDraw(Canvas canvas){
             super.onDraw(canvas);
-            float middle=getWidth()*.70f;
-            Path tri=new Path();
-            tri.moveTo(middle-dp(10),0);tri.lineTo(middle+dp(8),0);
-            tri.lineTo(middle-dp(3),dp(11));tri.close();
-            paint.setColor(bg==0xff1e2025?0xff514a49:0xfffffdf8);
-            paint.setStyle(Paint.Style.FILL);canvas.drawPath(tri,paint);
-            paint.setColor(fg);paint.setStrokeWidth(dp(1));paint.setStyle(Paint.Style.STROKE);
-            canvas.drawLine(middle-dp(10),0,middle-dp(3),dp(11),paint);
-            canvas.drawLine(middle-dp(3),dp(11),middle+dp(8),0,paint);
+            float w=getWidth(), h=getHeight();
+            float tailH=dp(12), r=dp(16);
+            path.reset();
+            float x1=dp(1), x2=w-dp(1), y1=dp(1), y2=h-tailH-dp(1);
+            float tail=w*.70f;
+            // Single closed path: bottom border stops at the tail, not a separate oval/triangle.
+            path.moveTo(x1+r,y1);
+            path.lineTo(x2-r,y1);
+            path.quadTo(x2,y1,x2,y1+r);
+            path.lineTo(x2,y2-r);
+            path.quadTo(x2,y2,x2-r,y2);
+            path.lineTo(tail+dp(11),y2);
+            path.lineTo(tail-dp(3),h-dp(1));
+            path.lineTo(tail-dp(12),y2);
+            path.lineTo(x1+r,y2);
+            path.quadTo(x1,y2,x1,y2-r);
+            path.lineTo(x1,y1+r);
+            path.quadTo(x1,y1,x1+r,y1);
+            path.close();
+            fill.setColor(bg==0xff1e2025?0xff514a49:0xfffffdf8);
+            fill.setStyle(Paint.Style.FILL);
+            stroke.setColor(fg);
+            stroke.setStyle(Paint.Style.STROKE);
+            stroke.setStrokeWidth(dp(1));
+            canvas.drawPath(path,fill);
+            canvas.drawPath(path,stroke);
         }
     }
     private String nextPetReply(){
@@ -140,16 +159,64 @@ public final class ChteicoActivity extends Activity {
         speechContainer.setVisibility(View.VISIBLE);
         speechContainer.setAlpha(0f);
         speechContainer.animate().cancel();speechContainer.animate().alpha(1f).setDuration(180).start();
-        final LinearLayout current=speechContainer;
+        final SpeechBubbleLayout current=speechContainer;
         pendingSpeechHide=()->{
             current.animate().alpha(0f).setDuration(180).withEndAction(()->current.setVisibility(View.INVISIBLE)).start();
             pendingSpeechHide=null;
         };
         ui.postDelayed(pendingSpeechHide,durationMs);
     }
-    @Override protected void onDestroy(){
-        if(pendingSpeechHide!=null)ui.removeCallbacks(pendingSpeechHide);
-        super.onDestroy();
+    @Override protected void onDestroy(){if(pendingSpeechHide!=null)ui.removeCallbacks(pendingSpeechHide);super.onDestroy();}
+    private String progressText(int stage){
+        if(stage==ChteicoStore.ADULT)return "С вами настоящий книжный друг";
+        return "До следующей эволюции: "+ChteicoStore.progress(this)+"%";
+    }
+    private void addStatsCard(){
+        LinearLayout stats=card();stats.addView(text("Статистика чтения и аудио",18,true));gap(stats,8);
+        LinearLayout a=new LinearLayout(this);stats.addView(a);
+        stat(a,"Прочитано книг",String.valueOf(p.getInt("finished_books_count",0)));
+        stat(a,"Аудиокниг",String.valueOf(p.getInt("finished_audio_count",0)));
+        stat(a,"Минут чтения",String.valueOf((p.getLong("seconds_classic",0)+p.getLong("seconds_speed",0))/60));
+        LinearLayout b=new LinearLayout(this);stats.addView(b);
+        stat(b,"Минут аудио",mins("seconds_audio"));
+        stat(b,"Дней подряд",String.valueOf(p.getInt("streak",0)));
+        stat(b,"Сессий",String.valueOf(p.getInt("sessions",0)));
+        gap(stats,8);stats.addView(button("Подробная статистика",this::statistics));
+    }
+    private void rewardRow(LinearLayout host,int iconRes,String title){
+        LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(10),dp(10),dp(10),dp(10));
+        row.setBackground(shape(bg==0xff1e2025?0xff444349:0xfff0e6dc,14));
+        ImageView icon=new ImageView(this);icon.setImageResource(iconRes);icon.setColorFilter(accent);row.addView(icon,new LinearLayout.LayoutParams(dp(22),dp(22)));
+        TextView label=text(title,14,true);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,-2);lp.leftMargin=dp(10);row.addView(label,lp);
+        host.addView(row,new LinearLayout.LayoutParams(-1,-2));
+    }
+    private void addRewardsCard(){
+        LinearLayout rewards=card();rewards.addView(text("Награды",18,true));gap(rewards,8);
+        boolean any=false;
+        if(p.getInt("finished_books_count",0)>0){rewardRow(rewards,R.drawable.ic_reward_book,"Первая книга");gap(rewards,6);any=true;}
+        if(p.getInt("finished_audio_count",0)>0){rewardRow(rewards,R.drawable.ic_reward_audio,"Первая аудиокнига");gap(rewards,6);any=true;}
+        if(p.getInt("best_streak",0)>=7){rewardRow(rewards,R.drawable.ic_reward_streak,"Серия 7 дней");gap(rewards,6);any=true;}
+        if(p.getInt("finished_books_count",0)>=10){rewardRow(rewards,R.drawable.ic_reward_books10,"10 прочитанных книг");gap(rewards,6);any=true;}
+        if(p.getInt("finished_audio_count",0)>=10){rewardRow(rewards,R.drawable.ic_reward_audio10,"10 аудиокниг");gap(rewards,6);any=true;}
+        if(p.getInt("best_streak",0)>=30){rewardRow(rewards,R.drawable.ic_reward_streak30,"30 дней подряд");any=true;}
+        if(!any){
+            TextView none=text("Новые награды будут появляться по мере чтения и прослушивания аудиокниг.",14,false);
+            none.setTextColor(bg==0xff1e2025?0xffd5cec8:0xff7d6d60);rewards.addView(none);
+        }
+    }
+    private void showDisabledSummary(){
+        LinearLayout hero=card();hero.setGravity(Gravity.CENTER_HORIZONTAL);
+        ImageView icon=new ImageView(this);icon.setImageResource(R.drawable.ic_stats_nav);icon.setColorFilter(accent);
+        hero.addView(icon,new LinearLayout.LayoutParams(dp(54),dp(54)));
+        gap(hero,10);
+        TextView title=text("Статистика и награды",21,true);title.setGravity(Gravity.CENTER);hero.addView(title);
+        gap(hero,6);
+        TextView sub=text("Чтейцо сейчас отключено. Здесь сохраняются ваши достижения, а включить спутника можно в настройках.",14,false);
+        sub.setGravity(Gravity.CENTER);hero.addView(sub);
+        gap(hero,12);
+        hero.addView(button("Открыть настройки",()->startActivity(new Intent(this,SettingsActivity.class).putExtra("chteico_tab",true))));
+        addStatsCard();
+        addRewardsCard();
     }
     private void show(){
         if(pendingSpeechHide!=null){ui.removeCallbacks(pendingSpeechHide);pendingSpeechHide=null;}
@@ -168,10 +235,7 @@ public final class ChteicoActivity extends Activity {
         root.addView(top);
         ScrollView scroll=new ScrollView(this);content=column();content.setPadding(dp(2),dp(5),dp(2),dp(3));scroll.addView(content);
         root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
-        if(!ChteicoStore.enabled(this)){
-            LinearLayout disabled=card();disabled.addView(text("Ваш книжный спутник пока спит",19,true));gap(disabled,10);
-            disabled.addView(button("Открыть настройки",()->startActivity(new Intent(this,SettingsActivity.class).putExtra("chteico_tab",true))));return;
-        }
+        if(!ChteicoStore.enabled(this)){showDisabledSummary();return;}
         int stage=ChteicoStore.stage(this);
         LinearLayout hero=card();hero.setGravity(Gravity.CENTER_HORIZONTAL);
         LinearLayout nameRow=new LinearLayout(this);nameRow.setGravity(Gravity.CENTER);
@@ -181,65 +245,47 @@ public final class ChteicoActivity extends Activity {
             name.setOnClickListener(v->askName());
         }
         hero.addView(nameRow);gap(hero,8);
-        // Reserve space for a compact comic balloon, while keeping the pet anchored in place.
         FrameLayout petFrame=new FrameLayout(this);
         hero.addView(petFrame,new LinearLayout.LayoutParams(dp(264),dp(306)));
         FrameLayout.LayoutParams spriteLayout=new FrameLayout.LayoutParams(dp(248),dp(247),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);
         pet=new ChteicoPetView(this);petFrame.addView(pet,spriteLayout);
-        TapWaves waves=new TapWaves();petFrame.addView(waves,
-            new FrameLayout.LayoutParams(dp(248),dp(247),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL));
+        TapWaves waves=new TapWaves();petFrame.addView(waves,new FrameLayout.LayoutParams(dp(248),dp(247),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL));
         waves.setOnClickListener(v->{
-            waves.burst();pet.animate().cancel();pet.animate().translationY(-dp(5)).setDuration(110)
-                .withEndAction(()->pet.animate().translationY(0).setDuration(180).start()).start();
+            waves.burst();
             if(ChteicoStore.stage(this)==ChteicoStore.EGG){
                 boolean hatched=ChteicoStore.petTapped(this);
                 if(progressBar!=null)progressBar.setProgress(ChteicoStore.progress(this));
-                if(progressLabel!=null)progressLabel.setText("До следующей эволюции: "+ChteicoStore.progress(this)+"%");
+                if(progressLabel!=null)progressLabel.setText(progressText(ChteicoStore.stage(this)));
                 pet.refresh();
                 if(hatched)ui.postDelayed(this::show,520);
             }else{
-                // All 33 conversational replies are eligible by stage, branch and reading activity.
+                pet.playTapReaction(phraseRandom.nextBoolean());
                 showSpeech(nextPetReply(),4200);
             }
         });
         if(stage!=ChteicoStore.EGG){
-            speechContainer=column();speechContainer.setGravity(Gravity.CENTER_HORIZONTAL);
-            speechBubble=text("",13,false);speechBubble.setGravity(Gravity.CENTER);
-            GradientDrawable balloon=shape(bg==0xff1e2025?0xff514a49:0xfffffdf8,16);
-            balloon.setStroke(dp(1),fg);
-            speechBubble.setBackground(balloon);
-            speechBubble.setPadding(dp(10),dp(9),dp(10),dp(9));
-            speechBubble.setMaxLines(4);
-            speechContainer.addView(speechBubble,new LinearLayout.LayoutParams(-1,-2));
-            speechContainer.addView(new SpeechTail(),new LinearLayout.LayoutParams(-1,dp(11)));
+            speechContainer=new SpeechBubbleLayout();
+            speechBubble=text("",13,false);speechBubble.setGravity(Gravity.CENTER);speechBubble.setMaxLines(4);
+            speechContainer.addView(speechBubble,new FrameLayout.LayoutParams(-1,-2));
             FrameLayout.LayoutParams bubbleLayout=new FrameLayout.LayoutParams(dp(235),-2,Gravity.TOP|Gravity.RIGHT);
             bubbleLayout.topMargin=dp(1);
             petFrame.addView(speechContainer,bubbleLayout);
             speechContainer.setVisibility(View.INVISIBLE);
-            // Evolution presentations appear once, even when the user has given the pet a name.
             String intro=ChteicoStore.consumeIntroduction(this);
-            if(intro!=null)showSpeech(intro,7000);
+            if(intro!=null){
+                pet.playEvolution();
+                showSpeech(intro,7000);
+            }else if(ChteicoStore.consumeDailySleep(this)){
+                pet.playSleepWake();
+            }
         }
         gap(hero,12);
         progressBar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progressBar.setMax(100);progressBar.setProgress(ChteicoStore.progress(this));
         if(android.os.Build.VERSION.SDK_INT>=21)progressBar.setProgressTintList(android.content.res.ColorStateList.valueOf(accent));
         hero.addView(progressBar,new LinearLayout.LayoutParams(-1,dp(9)));gap(hero,7);
-        progressLabel=text(stage==ChteicoStore.ADULT?"С вами настоящий книжный друг":"До следующей эволюции: "+ChteicoStore.progress(this)+"%",13,false);
-        progressLabel.setGravity(Gravity.CENTER);hero.addView(progressLabel);
-        LinearLayout stats=card();stats.addView(text("Статистика чтения и аудио",18,true));gap(stats,8);
-        LinearLayout a=new LinearLayout(this);stats.addView(a);
-        stat(a,"Прочитано книг",String.valueOf(p.getInt("finished_books_count",0)));
-        stat(a,"Аудиокниг",String.valueOf(p.getInt("finished_audio_count",0)));
-        stat(a,"Минут чтения",String.valueOf((p.getLong("seconds_classic",0)+p.getLong("seconds_speed",0))/60));
-        LinearLayout b=new LinearLayout(this);stats.addView(b);
-        stat(b,"Минут аудио",mins("seconds_audio"));
-        stat(b,"Дней подряд",String.valueOf(p.getInt("streak",0)));
-        stat(b,"Сессий",String.valueOf(p.getInt("sessions",0)));
-        gap(stats,8);stats.addView(button("Подробная статистика",this::statistics));
-        LinearLayout rewards=card();rewards.addView(text("Награды",18,true));gap(rewards,8);
-        rewards.addView(text("Первая книга   "+(p.getInt("finished_books_count",0)>0?"✓":"○"),15,false));gap(rewards,6);
-        rewards.addView(text("Первая аудиокнига   "+(p.getInt("finished_audio_count",0)>0?"✓":"○"),15,false));gap(rewards,6);
-        rewards.addView(text("Серия 7 дней   "+(p.getInt("best_streak",0)>=7?"✓":"○"),15,false));
+        progressLabel=text(progressText(stage),13,false);progressLabel.setGravity(Gravity.CENTER);hero.addView(progressLabel);
+        addStatsCard();
+        addRewardsCard();
     }
     private void statistics(){new AlertDialog.Builder(this).setTitle("Книжная статистика")
         .setMessage("Книг открыто: "+p.getInt("opened_books_count",0)+"\nПрочитано: "+p.getInt("finished_books_count",0)

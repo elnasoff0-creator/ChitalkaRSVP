@@ -147,11 +147,11 @@ public class SettingsActivity extends Activity {
             TextView devTitle=text("Режим разработчика",17,true);devTexts.addView(devTitle);
             TextView devSub=text("Разблокировано! Вы нашли скрытые настройки Чтейцо.",12,false);devSub.setTextColor(0xff8c8073);devTexts.addView(devSub);
             devHeader.addView(devTexts,devTextsLp);devBox.addView(devHeader);
-            final int[] stageValues={ChteicoStore.EGG,ChteicoStore.CHICK,ChteicoStore.ADULT};
-            final String[] stageLabels={"Чтейцо","Чтенец","Чтун"};
+            final int[] stageValues={ChteicoStore.EGG,ChteicoStore.CHICK,ChteicoStore.READER,ChteicoStore.ADULT};
+            final String[] stageLabels={"Чтейцо","Чтенчик","Чтенец","Чтун"};
             final int[] branchValues={ChteicoStore.CLASSIC,ChteicoStore.SPEED,ChteicoStore.AUDIO};
             final String[] branchLabels={"Обычное чтение","Скорочтение","Аудиокниги"};
-            int stageIndex=Math.max(0,Math.min(2,ChteicoStore.stage(this)));
+            int stageIndex=Math.max(0,Math.min(stageValues.length-1,ChteicoStore.stage(this)));
             int currentBranch=ChteicoStore.branch(this); if(currentBranch<ChteicoStore.CLASSIC||currentBranch>ChteicoStore.AUDIO)currentBranch=ChteicoStore.CLASSIC;
             int branchIndex=currentBranch==ChteicoStore.SPEED?1:currentBranch==ChteicoStore.AUDIO?2:0;
             View spaceTop=new View(this);devBox.addView(spaceTop,new LinearLayout.LayoutParams(-1,dp(10)));
@@ -233,7 +233,7 @@ public class SettingsActivity extends Activity {
             .setNegativeButton("Отмена",null).setPositiveButton("Сбросить",(dialog,which)->{ChteicoStore.resetBranch(this);draw();}).show()));
         gap(8);list.addView(action("Полностью сбросить Чтейцо",()->new AlertDialog.Builder(this)
             .setTitle("Сбросить Чтейцо?")
-            .setMessage("Будут сброшены игровой прогресс, имя и статистика питомца. Ваши книги, аудио, закладки и позиции чтения останутся нетронутыми.")
+            .setMessage("Будут сброшены игровая стадия, имя и выбранная ветка питомца. Книжная статистика, заработанные награды, книги и позиции чтения останутся нетронутыми.")
             .setNegativeButton("Отмена",null).setPositiveButton("Сбросить",(dialog,which)->{ChteicoStore.resetPet(this);draw();}).show()));
         gap(18);
     }
