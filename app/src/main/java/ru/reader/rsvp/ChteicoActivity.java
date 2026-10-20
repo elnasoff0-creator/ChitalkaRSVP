@@ -271,7 +271,6 @@ public final class ChteicoActivity extends Activity {
                 pet.refresh();
                 if(hatched)ui.postDelayed(this::show,520);
             }else{
-                pet.playTapReaction(phraseRandom.nextBoolean());
                 showSpeech(nextPetReply(),4200);
             }
         });
@@ -285,10 +284,7 @@ public final class ChteicoActivity extends Activity {
             speechContainer.setVisibility(View.INVISIBLE);
             String intro=ChteicoStore.consumeIntroduction(this);
             if(intro!=null){
-                pet.playEvolution();
                 showSpeech(intro,7000);
-            }else if(ChteicoStore.consumeDailySleep(this)){
-                pet.playSleepWake();
             }
         }
         gap(hero,12);

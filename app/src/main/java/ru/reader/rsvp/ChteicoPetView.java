@@ -1,143 +1,102 @@
 package ru.reader.rsvp;
 
 import android.content.Context;
-import android.graphics.drawable.Animatable;
-import android.graphics.drawable.Drawable;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.AttributeSet;
 import android.widget.ImageView;
 import androidx.annotation.Nullable;
 
-/** Layered Android AnimatedVectorDrawable pet: independent wings, head, eyes,
- * eyebrows, beak and fixed-size glasses/shades/headphones. No full-sprite swaps.
- * Each mode owns its animators. Idle is paused while reactions/intro/sleep run.
+/** Lightweight two-frame pet. Only the wings and crest change between the
+ * up/down vectors; a small spring is applied to the whole mascot.
+ * No animated drawable resources or secondary emotion animations.
  */
 public final class ChteicoPetView extends ImageView {
-    private static final int IDLE=0, JOY=1, SURPRISE=2, EVOLVE=3, SLEEP=4, WAKE=5;
+    private static final long FRAME_MS=820L;
     private final Handler handler=new Handler(Looper.getMainLooper());
-    private int currentMode=-1;
-    private boolean attached=false;
-    private boolean second=false;
-    private boolean transientMode=false;
-    private int stageSnapshot=-1, branchSnapshot=-1, eggUnitsSnapshot=-1;
-    private final Runnable eggMotion=new Runnable(){@Override public void run(){
-        if(!attached || ChteicoStore.stage(getContext())!=ChteicoStore.EGG)return;
-        second=!second;
-        setPivotX(getWidth()/2f);setPivotY(getHeight()*.83f);
-        animate().scaleX(second?1.04f:1f).scaleY(second?.965f:1f).rotation(second?-2.4f:2.4f)
-            .setDuration(900).start();
-        handler.postDelayed(this,1100);
-    }};
-    private final Runnable idleReturn=new Runnable(){@Override public void run(){transientMode=false;startIdle();}};
-    private final Runnable finishSleep=new Runnable(){@Override public void run(){
-        if(!attached){transientMode=false;return;}
-        setMode(WAKE);
-        handler.postDelayed(idleReturn,820);
+    private boolean attached;
+    private boolean frameDown;
+    private int shownStage=-1, shownBranch=-1, shownEggUnits=-1;
+
+    // Stage order: Chick, Reader, Adult. Branch order: classic, speed, audio.
+    private static final int[][][] FRAMES={
+        {
+            {R.drawable.ic_chteico_chick_classic_up,R.drawable.ic_chteico_chick_classic_down},
+            {R.drawable.ic_chteico_chick_speed_up,R.drawable.ic_chteico_chick_speed_down},
+            {R.drawable.ic_chteico_chick_audio_up,R.drawable.ic_chteico_chick_audio_down}
+        },
+        {
+            {R.drawable.ic_chteico_reader_classic_up,R.drawable.ic_chteico_reader_classic_down},
+            {R.drawable.ic_chteico_reader_speed_up,R.drawable.ic_chteico_reader_speed_down},
+            {R.drawable.ic_chteico_reader_audio_up,R.drawable.ic_chteico_reader_audio_down}
+        },
+        {
+            {R.drawable.ic_chteico_adult_classic_up,R.drawable.ic_chteico_adult_classic_down},
+            {R.drawable.ic_chteico_adult_speed_up,R.drawable.ic_chteico_adult_speed_down},
+            {R.drawable.ic_chteico_adult_audio_up,R.drawable.ic_chteico_adult_audio_down}
+        }
+    };
+
+    private final Runnable cycle=new Runnable(){@Override public void run(){
+        if(!attached)return;
+        int stage=ChteicoStore.stage(getContext());
+        int branch=ChteicoStore.branch(getContext());
+        int units=ChteicoStore.eggUnits(getContext());
+        if(stage!=shownStage || branch!=shownBranch || (stage==ChteicoStore.EGG&&units!=shownEggUnits)){
+            frameDown=false;
+            showFrame();
+        }else{
+            frameDown=!frameDown;
+            showFrame();
+        }
+        spring();
+        handler.postDelayed(this,FRAME_MS);
     }};
 
     public ChteicoPetView(Context c){super(c);setup();}
-    public ChteicoPetView(Context c,@Nullable AttributeSet attrs){super(c,attrs);setup();}
+    public ChteicoPetView(Context c,@Nullable AttributeSet a){super(c,a);setup();}
     private void setup(){setScaleType(ScaleType.FIT_CENTER);setAdjustViewBounds(true);setContentDescription("Чтейцо — книжный питомец");}
-    /** Compile-time resource mapping: missing scenes fail the build instead of crashing at runtime. */
-    private static final int[][][] SCENES={
-        {
-            {R.drawable.avd_chteico_chick_classic_idle, R.drawable.avd_chteico_chick_classic_joy, R.drawable.avd_chteico_chick_classic_surprise, R.drawable.avd_chteico_chick_classic_evolve, R.drawable.avd_chteico_chick_classic_sleep, R.drawable.avd_chteico_chick_classic_wake},
-            {R.drawable.avd_chteico_chick_speed_idle, R.drawable.avd_chteico_chick_speed_joy, R.drawable.avd_chteico_chick_speed_surprise, R.drawable.avd_chteico_chick_speed_evolve, R.drawable.avd_chteico_chick_speed_sleep, R.drawable.avd_chteico_chick_speed_wake},
-            {R.drawable.avd_chteico_chick_audio_idle, R.drawable.avd_chteico_chick_audio_joy, R.drawable.avd_chteico_chick_audio_surprise, R.drawable.avd_chteico_chick_audio_evolve, R.drawable.avd_chteico_chick_audio_sleep, R.drawable.avd_chteico_chick_audio_wake}
-        },
-        {
-            {R.drawable.avd_chteico_reader_classic_idle, R.drawable.avd_chteico_reader_classic_joy, R.drawable.avd_chteico_reader_classic_surprise, R.drawable.avd_chteico_reader_classic_evolve, R.drawable.avd_chteico_reader_classic_sleep, R.drawable.avd_chteico_reader_classic_wake},
-            {R.drawable.avd_chteico_reader_speed_idle, R.drawable.avd_chteico_reader_speed_joy, R.drawable.avd_chteico_reader_speed_surprise, R.drawable.avd_chteico_reader_speed_evolve, R.drawable.avd_chteico_reader_speed_sleep, R.drawable.avd_chteico_reader_speed_wake},
-            {R.drawable.avd_chteico_reader_audio_idle, R.drawable.avd_chteico_reader_audio_joy, R.drawable.avd_chteico_reader_audio_surprise, R.drawable.avd_chteico_reader_audio_evolve, R.drawable.avd_chteico_reader_audio_sleep, R.drawable.avd_chteico_reader_audio_wake}
-        },
-        {
-            {R.drawable.avd_chteico_adult_classic_idle, R.drawable.avd_chteico_adult_classic_joy, R.drawable.avd_chteico_adult_classic_surprise, R.drawable.avd_chteico_adult_classic_evolve, R.drawable.avd_chteico_adult_classic_sleep, R.drawable.avd_chteico_adult_classic_wake},
-            {R.drawable.avd_chteico_adult_speed_idle, R.drawable.avd_chteico_adult_speed_joy, R.drawable.avd_chteico_adult_speed_surprise, R.drawable.avd_chteico_adult_speed_evolve, R.drawable.avd_chteico_adult_speed_sleep, R.drawable.avd_chteico_adult_speed_wake},
-            {R.drawable.avd_chteico_adult_audio_idle, R.drawable.avd_chteico_adult_audio_joy, R.drawable.avd_chteico_adult_audio_surprise, R.drawable.avd_chteico_adult_audio_evolve, R.drawable.avd_chteico_adult_audio_sleep, R.drawable.avd_chteico_adult_audio_wake}
-        }
-    };
-    private static int scene(int stage,int branch,int mode){
-        int s=Math.max(0,Math.min(2,stage-ChteicoStore.CHICK));
-        int b=Math.max(0,Math.min(2,branch-ChteicoStore.CLASSIC));
-        return SCENES[s][b][mode];
-    }
-    private void stopAnimation(){
-        Drawable old=getDrawable();
-        if(old instanceof Animatable)((Animatable)old).stop();
-    }
-    private void setMode(int mode){
+
+    private void showFrame(){
         int stage=ChteicoStore.stage(getContext());
-        if(stage==ChteicoStore.EGG)return;
-        stopAnimation();
-        currentMode=mode;
-        stageSnapshot=stage;branchSnapshot=ChteicoStore.branch(getContext());
-        int id=scene(stage,ChteicoStore.branch(getContext()),mode);
-        Drawable drawable=getContext().getDrawable(id);
-        if(drawable!=null){
-            setImageDrawable(drawable.mutate());
-            if(attached && drawable instanceof Animatable)((Animatable)drawable).start();
-        }
-    }
-    public void refresh(){
-        handler.removeCallbacks(eggMotion);
-        handler.removeCallbacks(idleReturn);
-        handler.removeCallbacks(finishSleep);
-        stopAnimation();
-        currentMode=-1;transientMode=false;
-        int stage=ChteicoStore.stage(getContext());
-        stageSnapshot=stage;branchSnapshot=ChteicoStore.branch(getContext());
-        second=false;
+        int branch=ChteicoStore.branch(getContext());
+        shownStage=stage;shownBranch=branch;
         if(stage==ChteicoStore.EGG){
-            int eggUnits=ChteicoStore.eggUnits(getContext());eggUnitsSnapshot=eggUnits;
-            setImageResource(ChteicoStore.eggCracked(getContext())?R.drawable.ic_chteico_egg_cracked:R.drawable.ic_chteico_egg);
-            setScaleX(1);setScaleY(1);setRotation(0);
-            if(attached)handler.postDelayed(eggMotion,800);
-        }else{
-            setScaleX(1);setScaleY(1);setRotation(0);
-            setMode(IDLE);
+            shownEggUnits=ChteicoStore.eggUnits(getContext());
+            setImageResource(ChteicoStore.eggCracked(getContext())
+                    ?R.drawable.ic_chteico_egg_cracked:R.drawable.ic_chteico_egg);
+            return;
         }
+        int s=Math.max(0,Math.min(FRAMES.length-1,stage-ChteicoStore.CHICK));
+        int b=Math.max(0,Math.min(2,branch-ChteicoStore.CLASSIC));
+        setImageResource(FRAMES[s][b][frameDown?1:0]);
     }
-    private void startIdle(){
-        if(!attached)return;
-        transientMode=false;
-        if(ChteicoStore.stage(getContext())==ChteicoStore.EGG){refresh();return;}
-        setMode(IDLE);
+
+    private void spring(){
+        boolean egg=shownStage==ChteicoStore.EGG;
+        setPivotX(getWidth()*.5f);
+        setPivotY(getHeight()*.84f);
+        animate().cancel();
+        animate()
+            .scaleX(egg?(frameDown?1.035f:1f):(frameDown?1.012f:1f))
+            .scaleY(egg?(frameDown?.96f:1f):(frameDown?.986f:1.012f))
+            .setDuration(FRAME_MS-80L).start();
     }
-    public void playTapReaction(boolean surprise){
-        if(ChteicoStore.stage(getContext())==ChteicoStore.EGG)return;
-        handler.removeCallbacks(idleReturn);
-        handler.removeCallbacks(finishSleep);
-        transientMode=true;
-        setMode(surprise?SURPRISE:JOY);
-        handler.postDelayed(idleReturn,surprise?820:750);
+
+    public void refresh(){
+        handler.removeCallbacks(cycle);
+        frameDown=false;
+        shownStage=-1;shownBranch=-1;shownEggUnits=-1;
+        animate().cancel();setScaleX(1f);setScaleY(1f);setRotation(0f);setTranslationY(0f);
+        showFrame();
+        if(attached)handler.postDelayed(cycle,FRAME_MS);
     }
-    public void playEvolution(){
-        if(ChteicoStore.stage(getContext())==ChteicoStore.EGG)return;
-        handler.removeCallbacks(idleReturn);handler.removeCallbacks(finishSleep);
-        transientMode=true;
-        setMode(EVOLVE);
-        handler.postDelayed(idleReturn,1410);
-    }
-    public void playSleepWake(){
-        if(ChteicoStore.stage(getContext())==ChteicoStore.EGG)return;
-        handler.removeCallbacks(idleReturn);handler.removeCallbacks(finishSleep);
-        transientMode=true;
-        setMode(SLEEP);
-        handler.postDelayed(finishSleep,1580);
-    }
+
     @Override protected void onAttachedToWindow(){
-        super.onAttachedToWindow();attached=true;
-        if(currentMode==-1){refresh();return;}
-        Drawable active=getDrawable();
-        if(active instanceof Animatable)((Animatable)active).start();
-        if(ChteicoStore.stage(getContext())==ChteicoStore.EGG)handler.postDelayed(eggMotion,800);
+        super.onAttachedToWindow();attached=true;refresh();
     }
     @Override protected void onDetachedFromWindow(){
-        attached=false;
-        handler.removeCallbacksAndMessages(null);
-        stopAnimation();
-        animate().cancel();
+        attached=false;handler.removeCallbacksAndMessages(null);animate().cancel();
         super.onDetachedFromWindow();
     }
 }
