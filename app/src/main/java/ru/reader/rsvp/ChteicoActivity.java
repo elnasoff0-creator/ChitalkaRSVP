@@ -81,15 +81,23 @@ public final class ChteicoActivity extends Activity {
         @Override protected void onDraw(Canvas c){
             super.onDraw(c);
             if(phase<0||phase>=1)return;
-            float cx=getWidth()/2f, cy=getHeight()*0.47f;
-            float min=Math.min(getWidth(),getHeight());
-            float inner=min*0.23f+min*0.025f*phase;
-            float outer=inner+min*0.045f+min*0.01f*phase;
-            paint.setColor(accent);
+            // Anchor rays to the actual pet, although the drawing overlay occupies the
+            // wider full-width container. This keeps the rays centred on every stage.
+            float cx=pet.getLeft()+pet.getWidth()/2f;
+            float cy=pet.getTop()+pet.getHeight()*0.47f;
+            // Vectors use a 160-unit viewport and a 3.3-3.6-unit silhouette stroke.
+            // Match the visible outline at its rendered size, not a thin 2dp UI line.
+            float stroke=(pet.getWidth()/160f)*3.5f;
+            // Reach nearly to the full width of the card, beyond the wing tips.
+            // Leave room for rounded stroke caps to avoid edge clipping.
+            float maxRadius=Math.min(cx, getWidth()-cx)-stroke/2f-dp(5);
+            float inner=maxRadius*(0.80f+0.035f*phase);
+            float outer=maxRadius*(0.96f+0.025f*phase);
+            paint.setColor(0xff30221e); // Same dark-brown outline as the pet vectors.
             paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(dp(2));
+            paint.setStrokeWidth(stroke);
             paint.setStrokeCap(Paint.Cap.ROUND);
-            paint.setAlpha(Math.round(170*(1f-phase)));
+            paint.setAlpha(Math.round(210*(1f-phase)));
             for(float angle:angles){
                 double rad=Math.toRadians(angle);
                 float x1=(float)(cx+Math.cos(rad)*inner);
@@ -246,11 +254,15 @@ public final class ChteicoActivity extends Activity {
         }
         hero.addView(nameRow);gap(hero,8);
         FrameLayout petFrame=new FrameLayout(this);
-        hero.addView(petFrame,new LinearLayout.LayoutParams(dp(264),dp(306)));
+        // The pet keeps its original size, while the visual rays have more space.
+        hero.addView(petFrame,new LinearLayout.LayoutParams(-1,dp(306)));
         FrameLayout.LayoutParams spriteLayout=new FrameLayout.LayoutParams(dp(248),dp(247),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);
         pet=new ChteicoPetView(this);petFrame.addView(pet,spriteLayout);
-        TapWaves waves=new TapWaves();petFrame.addView(waves,new FrameLayout.LayoutParams(dp(248),dp(247),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL));
-        waves.setOnClickListener(v->{
+        // Draw rays over the whole card width; restrict taps to the pet itself.
+        TapWaves waves=new TapWaves();petFrame.addView(waves,new FrameLayout.LayoutParams(-1,-1));
+        View petTapTarget=new View(this);
+        petFrame.addView(petTapTarget,new FrameLayout.LayoutParams(dp(248),dp(247),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL));
+        petTapTarget.setOnClickListener(v->{
             waves.burst();
             if(ChteicoStore.stage(this)==ChteicoStore.EGG){
                 boolean hatched=ChteicoStore.petTapped(this);

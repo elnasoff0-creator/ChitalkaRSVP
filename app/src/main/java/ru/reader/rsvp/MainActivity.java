@@ -714,7 +714,7 @@ public class MainActivity extends Activity {
         item.setGravity(Gravity.CENTER);
         item.setBackground(active ? shape(softPanel(), 16) : null);
         pad(item, 6, 10, 6, 10);
-        if (label.equals("Настройки") || label.equals("Библиотека") || label.equals("Чтение") || label.equals("Закладки") || label.equals("Аудиокнига") || label.equals("Загрузки") || label.equals("Чтейцо")) {
+        if (label.equals("Настройки") || label.equals("Библиотека") || label.equals("Чтение") || label.equals("Закладки") || label.equals("Аудиокнига") || label.equals("Загрузки") || label.equals("Чтейцо") || label.equals("Статистика")) {
             int image = label.equals("Чтейцо") ? R.drawable.ic_chteico_nav : label.equals("Статистика") ? R.drawable.ic_stats_nav : label.equals("Настройки") ? R.drawable.ic_settings :
                     label.equals("Библиотека") ? R.drawable.ic_audio_chapters : label.equals("Загрузки") ? R.drawable.ic_downloads : label.equals("Аудиокнига") ? R.drawable.ic_microphone : label.equals("Закладки") ? R.drawable.ic_bookmark : R.drawable.ic_book;
             ImageView iv = new ImageView(this);

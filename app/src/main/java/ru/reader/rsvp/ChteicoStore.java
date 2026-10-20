@@ -200,8 +200,18 @@ public final class ChteicoStore {
         else putStageMarkers(p,e);
         e.apply();
     }
-    public static void setEnabled(Context c,boolean enabled){
-        prefs(c).edit().putBoolean("enabled",enabled).apply();
+    public static synchronized void setEnabled(Context c,boolean enabled){
+        SharedPreferences p=prefs(c);
+        SharedPreferences.Editor e=p.edit().putBoolean("enabled",enabled);
+        // Existing lifetime statistics must not predetermine a newly activated egg's branch.
+        // Keep the markers intact when resuming an egg already in progress.
+        if(enabled && !p.getBoolean("enabled",false) && p.getInt("stage",EGG)==EGG
+                && p.getInt("egg_units",0)==0 && p.getLong("branch_marker_classic",-1)<0){
+            e.putLong("branch_marker_classic",p.getLong("seconds_classic",0))
+             .putLong("branch_marker_speed",p.getLong("seconds_speed",0))
+             .putLong("branch_marker_audio",p.getLong("seconds_audio",0));
+        }
+        e.apply();
         if(enabled)markAppLaunch(c);
         ChteicoNotifications.schedule(c);
     }    

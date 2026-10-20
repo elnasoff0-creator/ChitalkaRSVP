@@ -39,9 +39,29 @@ public final class ChteicoPetView extends ImageView {
     public ChteicoPetView(Context c){super(c);setup();}
     public ChteicoPetView(Context c,@Nullable AttributeSet attrs){super(c,attrs);setup();}
     private void setup(){setScaleType(ScaleType.FIT_CENTER);setAdjustViewBounds(true);setContentDescription("Чтейцо — книжный питомец");}
-    private String stageKey(){int s=ChteicoStore.stage(getContext());return s==ChteicoStore.CHICK?"chick":s==ChteicoStore.READER?"reader":"adult";}
-    private String branchKey(){int b=ChteicoStore.branch(getContext());return b==ChteicoStore.AUDIO?"audio":b==ChteicoStore.SPEED?"speed":"classic";}
-    private String modeKey(int mode){return mode==JOY?"joy":mode==SURPRISE?"surprise":mode==EVOLVE?"evolve":mode==SLEEP?"sleep":mode==WAKE?"wake":"idle";}
+    /** Compile-time resource mapping: missing scenes fail the build instead of crashing at runtime. */
+    private static final int[][][] SCENES={
+        {
+            {R.drawable.avd_chteico_chick_classic_idle, R.drawable.avd_chteico_chick_classic_joy, R.drawable.avd_chteico_chick_classic_surprise, R.drawable.avd_chteico_chick_classic_evolve, R.drawable.avd_chteico_chick_classic_sleep, R.drawable.avd_chteico_chick_classic_wake},
+            {R.drawable.avd_chteico_chick_speed_idle, R.drawable.avd_chteico_chick_speed_joy, R.drawable.avd_chteico_chick_speed_surprise, R.drawable.avd_chteico_chick_speed_evolve, R.drawable.avd_chteico_chick_speed_sleep, R.drawable.avd_chteico_chick_speed_wake},
+            {R.drawable.avd_chteico_chick_audio_idle, R.drawable.avd_chteico_chick_audio_joy, R.drawable.avd_chteico_chick_audio_surprise, R.drawable.avd_chteico_chick_audio_evolve, R.drawable.avd_chteico_chick_audio_sleep, R.drawable.avd_chteico_chick_audio_wake}
+        },
+        {
+            {R.drawable.avd_chteico_reader_classic_idle, R.drawable.avd_chteico_reader_classic_joy, R.drawable.avd_chteico_reader_classic_surprise, R.drawable.avd_chteico_reader_classic_evolve, R.drawable.avd_chteico_reader_classic_sleep, R.drawable.avd_chteico_reader_classic_wake},
+            {R.drawable.avd_chteico_reader_speed_idle, R.drawable.avd_chteico_reader_speed_joy, R.drawable.avd_chteico_reader_speed_surprise, R.drawable.avd_chteico_reader_speed_evolve, R.drawable.avd_chteico_reader_speed_sleep, R.drawable.avd_chteico_reader_speed_wake},
+            {R.drawable.avd_chteico_reader_audio_idle, R.drawable.avd_chteico_reader_audio_joy, R.drawable.avd_chteico_reader_audio_surprise, R.drawable.avd_chteico_reader_audio_evolve, R.drawable.avd_chteico_reader_audio_sleep, R.drawable.avd_chteico_reader_audio_wake}
+        },
+        {
+            {R.drawable.avd_chteico_adult_classic_idle, R.drawable.avd_chteico_adult_classic_joy, R.drawable.avd_chteico_adult_classic_surprise, R.drawable.avd_chteico_adult_classic_evolve, R.drawable.avd_chteico_adult_classic_sleep, R.drawable.avd_chteico_adult_classic_wake},
+            {R.drawable.avd_chteico_adult_speed_idle, R.drawable.avd_chteico_adult_speed_joy, R.drawable.avd_chteico_adult_speed_surprise, R.drawable.avd_chteico_adult_speed_evolve, R.drawable.avd_chteico_adult_speed_sleep, R.drawable.avd_chteico_adult_speed_wake},
+            {R.drawable.avd_chteico_adult_audio_idle, R.drawable.avd_chteico_adult_audio_joy, R.drawable.avd_chteico_adult_audio_surprise, R.drawable.avd_chteico_adult_audio_evolve, R.drawable.avd_chteico_adult_audio_sleep, R.drawable.avd_chteico_adult_audio_wake}
+        }
+    };
+    private static int scene(int stage,int branch,int mode){
+        int s=Math.max(0,Math.min(2,stage-ChteicoStore.CHICK));
+        int b=Math.max(0,Math.min(2,branch-ChteicoStore.CLASSIC));
+        return SCENES[s][b][mode];
+    }
     private void stopAnimation(){
         Drawable old=getDrawable();
         if(old instanceof Animatable)((Animatable)old).stop();
@@ -52,8 +72,7 @@ public final class ChteicoPetView extends ImageView {
         stopAnimation();
         currentMode=mode;
         stageSnapshot=stage;branchSnapshot=ChteicoStore.branch(getContext());
-        int id=getResources().getIdentifier("avd_chteico_"+stageKey()+"_"+branchKey()+"_"+modeKey(mode),"drawable",getContext().getPackageName());
-        if(id==0)throw new IllegalStateException("Missing Chteico AnimatedVectorDrawable "+stageKey()+" "+branchKey()+" "+modeKey(mode));
+        int id=scene(stage,ChteicoStore.branch(getContext()),mode);
         Drawable drawable=getContext().getDrawable(id);
         if(drawable!=null){
             setImageDrawable(drawable.mutate());
