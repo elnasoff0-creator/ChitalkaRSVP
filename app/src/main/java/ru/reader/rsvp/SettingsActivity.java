@@ -185,6 +185,19 @@ public class SettingsActivity extends Activity {
                 @Override public void onItemSelected(android.widget.AdapterView<?> parent,View view,int position,long id){applyDeveloperChoice.run();}
                 @Override public void onNothingSelected(android.widget.AdapterView<?> parent){}
             });
+            View rewardsSpace=new View(this);devBox.addView(rewardsSpace,new LinearLayout.LayoutParams(-1,dp(12)));
+            android.widget.Switch rewardsPreview=new android.widget.Switch(this);
+            rewardsPreview.setText("Показать все награды (тест)");
+            rewardsPreview.setTextColor(contrast(bg));
+            rewardsPreview.setTextSize(15);
+            rewardsPreview.setPadding(dp(4),dp(9),dp(4),dp(9));
+            rewardsPreview.setChecked(game.getBoolean("dev_show_all_rewards",false));
+            rewardsPreview.setOnCheckedChangeListener((button,on)->
+                game.edit().putBoolean("dev_show_all_rewards",on).apply());
+            devBox.addView(rewardsPreview);
+            TextView rewardsHint=text("Только предпросмотр. Реальные достижения и статистика не меняются.",12,false);
+            rewardsHint.setTextColor(contrast(bg));
+            devBox.addView(rewardsHint);
             list.addView(devBox);gap(12);
         }
         if(ChteicoStore.canName(this)){

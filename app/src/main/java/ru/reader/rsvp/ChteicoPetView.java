@@ -7,7 +7,7 @@ import android.util.AttributeSet;
 import android.widget.ImageView;
 import androidx.annotation.Nullable;
 
-/** Lightweight two-frame pet. Only the wings and crest change between the
+/** Lightweight two-frame pet. Only the wings change between the
  * up/down vectors; a small spring is applied to the whole mascot.
  * No animated drawable resources or secondary emotion animations.
  */

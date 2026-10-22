@@ -90,7 +90,11 @@ public final class ChteicoActivity extends Activity {
             float stroke=(pet.getWidth()/160f)*3.5f;
             // Reach nearly to the full width of the card, beyond the wing tips.
             // Leave room for rounded stroke caps to avoid edge clipping.
-            float maxRadius=Math.min(cx, getWidth()-cx)-stroke/2f-dp(5);
+            float sideRadius=Math.min(cx, getWidth()-cx)-stroke/2f-dp(5);
+            // A shorter parent must not clip the upper or lower tap rays.
+            float topRadius=Math.max(dp(1),cy-stroke/2f-dp(6));
+            float bottomRadius=Math.max(dp(1),getHeight()-cy-stroke/2f-dp(6));
+            float maxRadius=Math.max(dp(1),Math.min(sideRadius,Math.min(topRadius,bottomRadius)));
             float inner=maxRadius*(0.80f+0.035f*phase);
             float outer=maxRadius*(0.96f+0.025f*phase);
             paint.setColor(0xff30221e); // Same dark-brown outline as the pet vectors.
@@ -114,7 +118,7 @@ public final class ChteicoActivity extends Activity {
         private final Paint fill=new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint stroke=new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Path path=new Path();
-        SpeechBubbleLayout(){super(ChteicoActivity.this);setWillNotDraw(false);setPadding(dp(12),dp(10),dp(12),dp(22));}
+        SpeechBubbleLayout(){super(ChteicoActivity.this);setWillNotDraw(false);setPadding(dp(12),dp(7),dp(12),dp(19));}
         @Override protected void onDraw(Canvas canvas){
             super.onDraw(canvas);
             float w=getWidth(), h=getHeight();
@@ -199,14 +203,19 @@ public final class ChteicoActivity extends Activity {
         host.addView(row,new LinearLayout.LayoutParams(-1,-2));
     }
     private void addRewardsCard(){
-        LinearLayout rewards=card();rewards.addView(text("Награды",18,true));gap(rewards,8);
+        boolean previewAll=ChteicoStore.developerUnlocked(this) && p.getBoolean("dev_show_all_rewards",false);
+        LinearLayout rewards=card();rewards.addView(text(previewAll?"Награды (предпросмотр)":"Награды",18,true));gap(rewards,8);
+        if(previewAll){
+            TextView note=text("Тестовый показ всех наград — без изменения статистики.",12,false);
+            rewards.addView(note);gap(rewards,8);
+        }
         boolean any=false;
-        if(p.getInt("finished_books_count",0)>0){rewardRow(rewards,R.drawable.ic_reward_book,"Первая книга");gap(rewards,6);any=true;}
-        if(p.getInt("finished_audio_count",0)>0){rewardRow(rewards,R.drawable.ic_reward_audio,"Первая аудиокнига");gap(rewards,6);any=true;}
-        if(p.getInt("best_streak",0)>=7){rewardRow(rewards,R.drawable.ic_reward_streak,"Серия 7 дней");gap(rewards,6);any=true;}
-        if(p.getInt("finished_books_count",0)>=10){rewardRow(rewards,R.drawable.ic_reward_books10,"10 прочитанных книг");gap(rewards,6);any=true;}
-        if(p.getInt("finished_audio_count",0)>=10){rewardRow(rewards,R.drawable.ic_reward_audio10,"10 аудиокниг");gap(rewards,6);any=true;}
-        if(p.getInt("best_streak",0)>=30){rewardRow(rewards,R.drawable.ic_reward_streak30,"30 дней подряд");any=true;}
+        if(previewAll || p.getInt("finished_books_count",0)>0){rewardRow(rewards,R.drawable.ic_reward_book,"Первая книга");gap(rewards,6);any=true;}
+        if(previewAll || p.getInt("finished_audio_count",0)>0){rewardRow(rewards,R.drawable.ic_reward_audio,"Первая аудиокнига");gap(rewards,6);any=true;}
+        if(previewAll || p.getInt("best_streak",0)>=7){rewardRow(rewards,R.drawable.ic_reward_streak,"Серия 7 дней");gap(rewards,6);any=true;}
+        if(previewAll || p.getInt("finished_books_count",0)>=10){rewardRow(rewards,R.drawable.ic_reward_books10,"10 прочитанных книг");gap(rewards,6);any=true;}
+        if(previewAll || p.getInt("finished_audio_count",0)>=10){rewardRow(rewards,R.drawable.ic_reward_audio10,"10 аудиокниг");gap(rewards,6);any=true;}
+        if(previewAll || p.getInt("best_streak",0)>=30){rewardRow(rewards,R.drawable.ic_reward_streak30,"30 дней подряд");any=true;}
         if(!any){
             TextView none=text("Новые награды будут появляться по мере чтения и прослушивания аудиокниг.",14,false);
             none.setTextColor(bg==0xff1e2025?0xffd5cec8:0xff7d6d60);rewards.addView(none);
@@ -254,8 +263,8 @@ public final class ChteicoActivity extends Activity {
         }
         hero.addView(nameRow);gap(hero,8);
         FrameLayout petFrame=new FrameLayout(this);
-        // The pet keeps its original size, while the visual rays have more space.
-        hero.addView(petFrame,new LinearLayout.LayoutParams(-1,dp(306)));
+        // Keep the original 248x247dp pet; reclaim unused speech space above it.
+        hero.addView(petFrame,new LinearLayout.LayoutParams(-1,dp(260)));
         FrameLayout.LayoutParams spriteLayout=new FrameLayout.LayoutParams(dp(248),dp(247),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);
         pet=new ChteicoPetView(this);petFrame.addView(pet,spriteLayout);
         // Draw rays over the whole card width; restrict taps to the pet itself.
@@ -278,8 +287,8 @@ public final class ChteicoActivity extends Activity {
             speechContainer=new SpeechBubbleLayout();
             speechBubble=text("",13,false);speechBubble.setGravity(Gravity.CENTER);speechBubble.setMaxLines(4);
             speechContainer.addView(speechBubble,new FrameLayout.LayoutParams(-1,-2));
-            FrameLayout.LayoutParams bubbleLayout=new FrameLayout.LayoutParams(dp(235),-2,Gravity.TOP|Gravity.RIGHT);
-            bubbleLayout.topMargin=dp(1);
+            FrameLayout.LayoutParams bubbleLayout=new FrameLayout.LayoutParams(dp(235),-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL);
+            bubbleLayout.topMargin=0;
             petFrame.addView(speechContainer,bubbleLayout);
             speechContainer.setVisibility(View.INVISIBLE);
             String intro=ChteicoStore.consumeIntroduction(this);
