@@ -8,6 +8,8 @@ import java.util.Date;
 import java.util.Locale;
 import java.util.TimeZone;
 import java.util.UUID;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.OkHttpClient;
@@ -25,6 +27,9 @@ final class EdgeTtsClient {
     interface Callback {
         void progress(int chunks,long bytes);
         void finished(byte[] mp3,int chunks,String error);
+        default void finished(byte[] mp3,int chunks,String error,List<EdgeWordTimings.Boundary> boundaries){
+            finished(mp3,chunks,error);
+        }
     }
     private static final int LIMIT_BYTES=12*1024*1024;
     private static final String ENDPOINT="wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1";
@@ -38,6 +43,7 @@ final class EdgeTtsClient {
     private final Callback callback;
     private final ByteArrayOutputStream received=new ByteArrayOutputStream();
     private int chunks;
+    private final ArrayList<EdgeWordTimings.Boundary> boundaries=new ArrayList<>();
 
     private EdgeTtsClient(Callback cb){callback=cb;}
     static EdgeTtsClient synthesize(String text,String voice,String rate,Callback cb){
@@ -57,7 +63,7 @@ final class EdgeTtsClient {
         if(completed)return;completed=true;
         byte[] bytes=received.toByteArray();
         if(error==null && (bytes.length<1500 || chunks==0))error="Сервис не вернул аудиоданные";
-        callback.finished(error==null?bytes:null,chunks,error);
+        callback.finished(error==null?bytes:null,chunks,error,new ArrayList<>(boundaries));
         if(socket!=null)socket.close(1000,"completed");
     }
     void cancel(){synchronized(this){completed=true;}if(socket!=null)socket.cancel();}
@@ -74,18 +80,23 @@ final class EdgeTtsClient {
                 @Override public void onOpen(WebSocket ws,Response response){
                     String config="X-Timestamp:"+date()+"\r\nContent-Type:application/json; charset=utf-8\r\n"
                         +"Path:speech.config\r\n\r\n"
-                        +"{\"context\":{\"synthesis\":{\"audio\":{\"metadataoptions\":{\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"false\"},"
+                        +"{\"context\":{\"synthesis\":{\"audio\":{\"metadataoptions\":{\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"true\"},"
                         +"\"outputFormat\":\"audio-24khz-48kbitrate-mono-mp3\"}}}}";
                     ws.send(config);
                     String ssml="<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='ru-RU'>"
-                        +"<voice name='"+xml(voice)+"'><prosody rate='"+xml(rate)+"' pitch='+0Hz' volume='+0%'>"
+                        +"<voice name='"+xml(voice)+"'><prosody rate='+0%' pitch='+0Hz' volume='+0%'>"
                         +xml(text)+"</prosody></voice></speak>";
                     ws.send("X-RequestId:"+uuid()+"\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:"+date()
                         +"Z\r\nPath:ssml\r\n\r\n"+ssml);
                 }
                 @Override public void onMessage(WebSocket ws,String body){
-                    String header=body.split("\\r\\n\\r\\n",2)[0];
-                    if(header.contains("Path:turn.end"))finish(null);
+                    String[] parts=body.split("\\r\\n\\r\\n",2);
+                    String header=parts[0];
+                    if(header.contains("Path:audio.metadata") && parts.length==2){
+                        synchronized(EdgeTtsClient.this){
+                            if(!completed)EdgeWordTimings.parseMetadata(parts[1],boundaries);
+                        }
+                    }else if(header.contains("Path:turn.end"))finish(null);
                 }
                 @Override public void onMessage(WebSocket ws,ByteString bytes){
                     byte[] packet=bytes.toByteArray();

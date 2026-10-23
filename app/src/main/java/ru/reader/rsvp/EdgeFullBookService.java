@@ -157,6 +157,7 @@ public final class EdgeFullBookService extends Service {
                                     throw new Exception("Не удалось заменить повреждённый MP3");
                                 if(!target.exists()&&!tmp.renameTo(target))throw new Exception("Не удалось сохранить MP3");
                                 saved=EdgeFullBookStore.ready(target);
+                                if(saved)EdgeWordTimings.store(target,o.getString("text"),result.boundaries);
                                 tmp.delete();
                             }catch(Exception e){problem=e.getMessage();}
                         }else problem=result.error==null?"Сервис вернул не MP3":result.error;
@@ -190,13 +191,18 @@ public final class EdgeFullBookService extends Service {
             Log.w("EdgeFullBook","Cannot prepare book",e);
         }finally{synthesizingUri="";currentClient=null;}
     }
-    private static final class Result{volatile byte[] data;volatile String error;}
+    private static final class Result{volatile byte[] data;volatile String error;
+        volatile java.util.List<EdgeWordTimings.Boundary> boundaries=java.util.Collections.emptyList();}
     private Result synthesize(String text,EdgeFullBookStore.Job job) throws InterruptedException {
         Result result=new Result();CountDownLatch done=new CountDownLatch(1);
         synthesizingUri=job.uri;
         currentClient=EdgeTtsClient.synthesize(text,job.voice,job.rate,new EdgeTtsClient.Callback(){
             @Override public void progress(int chunks,long bytes){}
             @Override public void finished(byte[] mp3,int chunks,String error){result.data=mp3;result.error=error;done.countDown();}
+            @Override public void finished(byte[] mp3,int chunks,String error,
+                    java.util.List<EdgeWordTimings.Boundary> boundaries){
+                result.boundaries=boundaries;finished(mp3,chunks,error);
+            }
         });
         if(!done.await(47,TimeUnit.SECONDS)){
             EdgeTtsClient client=currentClient;if(client!=null)client.cancel();

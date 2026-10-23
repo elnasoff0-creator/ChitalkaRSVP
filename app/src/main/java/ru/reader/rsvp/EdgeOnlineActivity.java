@@ -30,6 +30,8 @@ import androidx.core.content.ContextCompat;
 
 import java.io.File;
 import java.util.Locale;
+import java.util.List;
+import java.util.Collections;
 
 /**
  * UI ONLY. No WebView or download scheduling lives in the playback Activity.
@@ -44,6 +46,11 @@ public final class EdgeOnlineActivity extends Activity {
     private int neutralInk(){return ReaderButtonColors.contrastingText(neutralColor());}
     private final Handler main=new Handler(Looper.getMainLooper());
     private final Runnable ticker=new Runnable(){@Override public void run(){refresh();main.postDelayed(this,500);}};
+    private final Runnable wordTicker=new Runnable(){@Override public void run(){updateWordHighlight();main.postDelayed(this,85);}};
+    private String currentTimingKey="";
+    private long currentTimingStamp=-1;
+    private List<EdgeWordTimings.Word> timedWords=Collections.emptyList();
+    private int lastHighlightedWord=-2;
     private String bookUri="";
     private String coverLoadedFor="";
     private EdgePlaybackService playback;
@@ -335,22 +342,7 @@ public final class EdgeOnlineActivity extends Activity {
         int percent=words>0?(int)Math.min(100,100L*(anchor+1)/words):0;
         progressText.setText("Прочитано: "+percent+"% · слово "+(anchor+1)+" из "+words);
 
-        EdgeDownloadService.Clip clip=downloads.currentClip();
-        if(clip!=null){
-            String t=clip.text;
-            if(!t.equals(previousFragment)){previousFragment=t;textScroller.scrollTo(0,0);}
-            double fraction=0;
-            if(playback!=null&&playback.durationMs()>0)fraction=Math.min(.999,Math.max(0,playback.positionMs()/(double)playback.durationMs()));
-            java.util.ArrayList<int[]> wordRanges=new java.util.ArrayList<>();
-            java.util.regex.Matcher w=java.util.regex.Pattern.compile("\\S+").matcher(t);
-            while(w.find())wordRanges.add(new int[]{w.start(),w.end()});
-            android.text.SpannableString styled=new android.text.SpannableString(t);
-            if(!wordRanges.isEmpty()){
-                int[] r=wordRanges.get(Math.min(wordRanges.size()-1,(int)(fraction*wordRanges.size())));
-                styled.setSpan(new android.text.style.BackgroundColorSpan(0xffa9d5d0),r[0],r[1],android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            }
-            fragmentText.setText(styled);
-        }
+        updateWordHighlight();
         String selected=downloads.voice();
         voiceChoice.setText(selected.contains("Dmitry")?"Дмитрий ▾":"Светлана ▾");
         String state=downloads.generatingStart()>=0?"Скачивается: "+downloads.progressChunks()+" чанков · "+(downloads.progressBytes()/1024)+" КБ"
@@ -371,15 +363,59 @@ public final class EdgeOnlineActivity extends Activity {
                     .setNegativeButton("Отмена",null).show();
             }
         }
+        EdgeDownloadService.Clip current=downloads.currentClip();
+        if(current!=null&&current.ready()&&timedWords.isEmpty())
+            state+=" · Старый MP3 без меток слов: для точной подсветки перескачайте фрагмент через очередь";
         if(!downloads.error().isEmpty())state+=" · "+downloads.error();
         if(playback!=null&&!playback.playbackError().isEmpty())state+=" · "+playback.playbackError();
         downloadStatus.setText(state);
     }
+    /** Synchronize from the MP3 source-audio clock and real WordBoundary timestamps.
+     * No guessed word positions for legacy clips that lack metadata.
+     */
+    private void updateWordHighlight(){
+        if(downloads==null||fragmentText==null)return;
+        EdgeDownloadService.Clip clip=downloads.currentClip();
+        if(clip==null){
+            if(!previousFragment.isEmpty()){
+                previousFragment="";currentTimingKey="";timedWords=Collections.emptyList();
+                lastHighlightedWord=-2;
+            }
+            return;
+        }
+        String text=clip.text;
+        if(!text.equals(previousFragment)){
+            previousFragment=text;lastHighlightedWord=-2;
+            fragmentText.setText(text);
+            textScroller.scrollTo(0,0);
+        }
+        String key=clip.key+":"+clip.start;
+        File mp3=clip.file;
+        long stamp=mp3==null?-1:EdgeWordTimings.sidecar(mp3).lastModified();
+        if(!key.equals(currentTimingKey)||stamp!=currentTimingStamp){
+            currentTimingKey=key;currentTimingStamp=stamp;
+            timedWords=mp3==null?Collections.emptyList():EdgeWordTimings.read(mp3,text);
+            lastHighlightedWord=-2;
+        }
+        int selected=-1;
+        if(playback!=null&&key.equals(playback.currentKey())){
+            selected=EdgeWordTimings.at(timedWords,playback.positionMs());
+        }
+        if(selected==lastHighlightedWord)return;
+        lastHighlightedWord=selected;
+        android.text.SpannableString styled=new android.text.SpannableString(text);
+        if(selected>=0&&selected<timedWords.size()){
+            EdgeWordTimings.Word word=timedWords.get(selected);
+            styled.setSpan(new android.text.style.BackgroundColorSpan(0xffa9d5d0),
+                    word.from,word.to,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        fragmentText.setText(styled);
+    }
     @Override protected void onResume(){super.onResume();if(downloads!=null){downloads.refreshSettings();downloads.setActive(true);}
         if(playback!=null){playback.setAutoContinue(true);playback.setPlaybackSpeed(Math.min(5f,TtsWpm.rate(this)));}
-        main.post(ticker);loadCover();}
-    @Override protected void onPause(){main.removeCallbacks(ticker);super.onPause();}
+        main.post(ticker);main.post(wordTicker);loadCover();}
+    @Override protected void onPause(){main.removeCallbacks(ticker);main.removeCallbacks(wordTicker);super.onPause();}
     @Override protected void onDestroy(){if(downloads!=null)downloads.removeObserver(queueObserver);if(playback!=null)playback.removeListener(playbackObserver);
-        if(downloaderBound)unbindService(queueConnection);if(playerBound)unbindService(playerConnection);main.removeCallbacksAndMessages(null);super.onDestroy();}
+        if(downloaderBound)unbindService(queueConnection);if(playerBound)unbindService(playerConnection);main.removeCallbacks(wordTicker);main.removeCallbacksAndMessages(null);super.onDestroy();}
     @Override public void onBackPressed(){BackNavigation.back(this);}
 }

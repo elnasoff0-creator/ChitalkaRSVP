@@ -154,7 +154,13 @@ public final class EdgeDownloadService extends Service {
     public long progressBytes(){return partBytes;}
     public File folder(){return directory;}
     public ArrayList<Clip> snapshot(){ArrayList<Clip> list=new ArrayList<>();for(Clip c:archive)list.add(c.copy());return list;}
-    public Clip currentClip(){for(Clip c:archive)if(c.start==anchor())return c.copy();return null;}
+    public Clip currentClip(){
+        String playing=player==null?"":player.currentKey();
+        if(!playing.isEmpty())for(Clip c:archive)
+            if((c.key+":"+c.start).equals(playing))return c.copy();
+        for(Clip c:archive)if(c.start==anchor())return c.copy();
+        return null;
+    }
     public String voice(){return getSharedPreferences("reader",0).getString("edge_voice","ru-RU-SvetlanaNeural");}
     public String rate(){return getSharedPreferences("reader",0).getString("edge_rate","+0%");}
     public void choose(String voice,String rate){
@@ -253,6 +259,10 @@ public final class EdgeDownloadService extends Service {
         transport=EdgeTtsClient.synthesize(c.text,voice(),rate(),new EdgeTtsClient.Callback(){
             @Override public void progress(int chunks,long bytes){main.post(()->{if(generating==c&&id==session){partCount=chunks;partBytes=bytes;changed();}});}
             @Override public void finished(byte[] mp3,int chunks,String failure){
+                finished(mp3,chunks,failure,java.util.Collections.emptyList());
+            }
+            @Override public void finished(byte[] mp3,int chunks,String failure,
+                    java.util.List<EdgeWordTimings.Boundary> boundaries){
                 main.post(()->{
                     if(destroyed||generating!=c||id!=session)return;
                     if(failure!=null){retry(c,failure);return;}
@@ -271,6 +281,7 @@ public final class EdgeDownloadService extends Service {
                             else if(!tmp.renameTo(result))problem="Не удалось сохранить MP3";
                         }
                         if(problem!=null)tmp.delete();
+                        else EdgeWordTimings.store(result,c.text,boundaries);
                         final String err=problem;
                         main.post(()->{
                             if(destroyed||generating!=c||id!=session||!uri.equals(bookUri))return;
@@ -309,7 +320,7 @@ public final class EdgeDownloadService extends Service {
             if(generating==c)cancelGeneration();
             if(player!=null)player.evictCachedTrack(c.key+":"+c.start);
             c.file=null;c.bytes=0;c.chunks=0;c.played=false;c.failures=0;c.retryAt=0;
-            File item=new File(directory,c.key+".mp3");io.execute(()->{item.delete();main.post(()->{persist();pump();});});
+            File item=new File(directory,c.key+".mp3");io.execute(()->{item.delete();EdgeWordTimings.sidecar(item).delete();main.post(()->{persist();pump();});});
             error="";changed();return true;
         }return false;
     }
@@ -319,7 +330,7 @@ public final class EdgeDownloadService extends Service {
             if(generating==c)cancelGeneration();
             if(player!=null)player.evictCachedTrack(c.key+":"+c.start);
             c.file=null;c.bytes=0;c.chunks=0;c.played=false;c.failures=0;c.retryAt=0;
-            File item=new File(directory,c.key+".mp3");io.execute(()->{item.delete();main.post(()->{persist();setActive(true);pump();});});
+            File item=new File(directory,c.key+".mp3");io.execute(()->{item.delete();EdgeWordTimings.sidecar(item).delete();main.post(()->{persist();setActive(true);pump();});});
             changed();return true;
         }return false;
     }
