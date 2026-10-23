@@ -9,6 +9,10 @@ import android.view.View;
 import android.widget.*;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.Voice;
+import android.speech.tts.UtteranceProgressListener;
+import android.os.Handler;
+import android.os.Looper;
+import java.io.File;
 import java.util.*;
 
 /** Discover installed Android voices dynamically, with offline Russian voices first. */
@@ -58,13 +62,73 @@ public class TtsVoiceActivity extends Activity {
     private void addVoice(Voice voice,boolean network){addVoiceTo(items,voice,network);}
     private void addVoiceTo(LinearLayout container,Voice voice,boolean network){
         String chosen=getSharedPreferences("reader",0).getString("tts_voice","");
-        TextView item=row((voice.getName().equals(chosen)?"◉ ":"○ ")+voice.getName()+"\n"+(network?"Сетевой":"Локальный")+" · "+(engine.isEmpty()?"Системный TTS":engine)+"     ▶",15);
+        String packageName=engine.isEmpty()&&synth!=null?synth.getDefaultEngine():engine;
+        android.content.SharedPreferences prefs=getSharedPreferences("reader",0);
+        String id=packageName+":"+voice.getName();
+        boolean checked=prefs.getBoolean("tts_word_checked:"+id,false);
+        boolean verified=prefs.getBoolean("tts_word_boundary:"+id,false);
+        String capability=network?"Сетевой":!checked?"Локальный · метки пока не проверены":
+            verified?"Локальный · точная подсветка слов":"Локальный · подсветка предложения";
+        LinearLayout card=new LinearLayout(this);card.setGravity(Gravity.CENTER_VERTICAL);
+        TextView item=row((voice.getName().equals(chosen)?"◉ ":"○ ")+voice.getName()+"\n"+capability,14);
+        card.addView(item,new LinearLayout.LayoutParams(0,-2,1));
         item.setOnClickListener(v->{
-            getSharedPreferences("reader",0).edit().putString("tts_engine",engine.isEmpty()?synth.getDefaultEngine():engine).putString("tts_voice",voice.getName()).apply();
-            synth.setVoice(voice);synth.speak("Привет! Это пример выбранного голоса.",TextToSpeech.QUEUE_FLUSH,null,"preview");
+            prefs.edit().putString("tts_engine",packageName).putString("tts_voice",voice.getName()).apply();
+            synth.setVoice(voice);
+            synth.speak("Привет! Это пример выбранного голоса.",TextToSpeech.QUEUE_FLUSH,null,"preview");
             startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.ENGINE));
             ready(TextToSpeech.SUCCESS);
-        });container.addView(item);
+        });
+        if(!network){
+            Button test=new Button(this);test.setText("Проверить");test.setTextSize(11);test.setAllCaps(false);
+            card.addView(test,new LinearLayout.LayoutParams(dp(105),dp(50)));
+            test.setOnClickListener(v->testWordBoundaries(voice,packageName));
+        }
+        container.addView(card);
+    }
+    /** Probe the selected on-device voice by synthesizing a real cached WAV. */
+    private void testWordBoundaries(Voice voice,String enginePackage){
+        if(synth==null)return;
+        if(voice.isNetworkConnectionRequired())return;
+        final String utterance="probe_"+System.currentTimeMillis();
+        final String key=enginePackage+":"+voice.getName();
+        final java.util.HashSet<Integer> ranges=new java.util.HashSet<>();
+        final File probe=new File(getCacheDir(),utterance+".wav");
+        Toast.makeText(this,"Проверяем метки произносимых слов…",Toast.LENGTH_SHORT).show();
+        synth.setOnUtteranceProgressListener(new UtteranceProgressListener(){
+            @Override public void onStart(String id){}
+            @Override public void onRangeStart(String id,int from,int to,int frame){
+                if(utterance.equals(id)&&to>from&&frame>=0){synchronized(ranges){ranges.add(from);}}
+            }
+            @Override public void onDone(String id){
+                if(!utterance.equals(id))return;
+                boolean valid;
+                synchronized(ranges){valid=ranges.size()>=3&&probe.isFile()&&probe.length()>256;}
+                finishProbe(key,valid,false,probe);
+            }
+            @Override public void onError(String id){
+                if(utterance.equals(id))finishProbe(key,false,true,probe);
+            }
+        });
+        int code=synth.setVoice(voice);
+        if(code!=TextToSpeech.SUCCESS){finishProbe(key,false,true,probe);return;}
+        int synthesis=synth.synthesizeToFile(
+            "Сегодня вечером ветер постепенно стих, а город погрузился в тишину.",
+            new android.os.Bundle(),probe,utterance);
+        if(synthesis!=TextToSpeech.SUCCESS)finishProbe(key,false,true,probe);
+    }
+    private void finishProbe(String key,boolean wordTimings,boolean failed,File probe){
+        runOnUiThread(()->{
+            if(probe!=null&&probe.exists())probe.delete();
+            if(isFinishing()||synth==null)return;
+            if(!failed){getSharedPreferences("reader",0).edit()
+                .putBoolean("tts_word_checked:"+key,true)
+                .putBoolean("tts_word_boundary:"+key,wordTimings).apply();}
+            Toast.makeText(this,failed?"Синтез недоступен для этого голоса":
+                wordTimings?"Подтверждены метки слов":"Метки слов не обнаружены: будет подсветка предложения",
+                Toast.LENGTH_LONG).show();
+            ready(TextToSpeech.SUCCESS);
+        });
     }
     private void chooseEngine(){
         ArrayList<String> names=new ArrayList<>();names.add("Системный по умолчанию");

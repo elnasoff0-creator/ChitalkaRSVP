@@ -53,6 +53,10 @@ public final class EdgeDownloadService extends Service {
     private final Handler main=new Handler(Looper.getMainLooper());
     private final ExecutorService io=Executors.newSingleThreadExecutor();
     private final ArrayList<Integer> offsets=new ArrayList<>();
+    private final ArrayList<SentenceChunks.Chunk> sentenceParts=new ArrayList<>();
+    private int cachedSavedPercent=0;
+    private boolean calculatingCoverage=false;
+    private long lastCoverageCheck=0;
     private final ArrayList<Clip> archive=new ArrayList<>();
     private final ArrayList<Observer> observers=new ArrayList<>();
     private String bookUri="",title="",bookText="",error="";
@@ -127,9 +131,9 @@ public final class EdgeDownloadService extends Service {
         return START_REDELIVER_INTENT;
     }
     private Notification notice(){
-        PendingIntent click=PendingIntent.getActivity(this,49,new Intent(this,EdgeQueueActivity.class).putExtra(EXTRA_URI,bookUri),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent click=PendingIntent.getActivity(this,49,new Intent(this,EdgeOnlineActivity.class).putExtra(EXTRA_URI,bookUri),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         return new NotificationCompat.Builder(this,CHANNEL).setSmallIcon(R.drawable.ic_reader)
-            .setContentTitle("Edge TTS · автоподгрузка")
+            .setContentTitle("Edge TTS · чтение вслух")
             .setContentText(generating==null?"Готово: "+countReady()+" файлов":"Синтез: "+partCount+" частей · "+(partBytes/1024)+" КБ")
             .setOnlyAlertOnce(true).setOngoing(active).setContentIntent(click).build();
     }
@@ -146,6 +150,38 @@ public final class EdgeDownloadService extends Service {
     public String title(){return title==null||title.trim().isEmpty()?"Книга":title.trim();}
     public int anchor(){return player!=null&&player.currentStartWord()>=0?player.currentStartWord():anchorWord;}
     public int words(){return offsets.size();}
+    public String fullText(){return bookText;}
+    public int charForWord(int word){return offsets.isEmpty()?0:offsets.get(Math.max(0,Math.min(word,offsets.size()-1)));}
+    public int wordForChar(int at){return Math.max(0,Math.min(offsets.size()-1,SentenceChunks.lowerBound(offsets,at)));}
+    /** Word-based coverage from files physically stored on disk. Never count temporary downloads. */
+    public int savedPercent(){
+        if(offsets.isEmpty()||directory==null)return 0;
+        if(!calculatingCoverage && android.os.SystemClock.uptimeMillis()-lastCoverageCheck>5000){
+            calculatingCoverage=true;
+            final ArrayList<SentenceChunks.Chunk> snapshot=new ArrayList<>(sentenceParts);
+            final String voice=voice(),rate=rate(),uri=bookUri;
+            final File folder=directory;
+            final int total=offsets.size();
+            io.execute(()->{
+                int saved=0;
+                for(SentenceChunks.Chunk part:snapshot){
+                    String key=EdgeBookStorage.key(part.text,voice,rate,"edge-direct-v1");
+                    File file=new File(folder,key+".mp3");
+                    if(file.isFile()&&file.length()>1500)saved+=part.toWord-part.fromWord;
+                }
+                final int percent=total<=0?0:Math.min(100,(int)(100L*saved/total));
+                main.post(()->{
+                    calculatingCoverage=false;
+                    if(uri.equals(bookUri)){
+                        cachedSavedPercent=percent;
+                        lastCoverageCheck=android.os.SystemClock.uptimeMillis();
+                        changed();
+                    }
+                });
+            });
+        }
+        return cachedSavedPercent;
+    }
     public int currentOrdinal(){int n=0;for(Clip c:archive)if(c.start<=anchor())n++;return n;}
     public int countReady(){int n=0;for(Clip c:archive)if(c.ready())n++;return n;}
     public int generatingStart(){return generating==null?-1:generating.start;}
@@ -158,8 +194,8 @@ public final class EdgeDownloadService extends Service {
         String playing=player==null?"":player.currentKey();
         if(!playing.isEmpty())for(Clip c:archive)
             if((c.key+":"+c.start).equals(playing))return c.copy();
-        for(Clip c:archive)if(c.start==anchor())return c.copy();
-        return null;
+        Clip candidate=clipAt(anchor());
+        return candidate==null?null:candidate.copy();
     }
     public String voice(){return getSharedPreferences("reader",0).getString("edge_voice","ru-RU-SvetlanaNeural");}
     public String rate(){return getSharedPreferences("reader",0).getString("edge_rate","+0%");}
@@ -175,7 +211,8 @@ public final class EdgeDownloadService extends Service {
         if(uri==null||uri.isEmpty())return;
         if(uri.equals(bookUri)){if(player==null||player.currentStartWord()<0)anchorWord=Math.max(0,initialWord);pump();return;}
         cancelGeneration();bookUri=uri;bookReady=false;anchorWord=Math.max(0,initialWord);
-        archive.clear();offsets.clear();bookText="";directory=null;error="";
+        cachedSavedPercent=0;lastCoverageCheck=0;
+        archive.clear();offsets.clear();sentenceParts.clear();bookText="";directory=null;error="";
         if(player!=null)player.prepareBook("edge:"+uri);
         changed();
         final String requested=uri;
@@ -185,12 +222,13 @@ public final class EdgeDownloadService extends Service {
                 String raw=book.text==null?"":book.text;
                 String name=book.title==null?"Книга":book.title;
                 ArrayList<Integer> positions=EdgeTextSegments.positions(raw);
+                ArrayList<SentenceChunks.Chunk> newParts=SentenceChunks.split(raw);
                 File bookDir=EdgeBookStorage.bookFolder(this,requested,name);
                 File dir=new File(bookDir,"EdgeTTS");dir.mkdirs();
                 DownloadsRepository.storeEdgeMeta(bookDir,requested,name,positions.size());
                 main.post(()->{
                     if(destroyed||!requested.equals(bookUri))return;
-                    bookText=raw;title=name;offsets.addAll(positions);directory=dir;
+                    bookText=raw;title=name;offsets.addAll(positions);sentenceParts.addAll(newParts);directory=dir;
                     bookReady=!offsets.isEmpty();restore();
                     if(!bookReady)error="Книга не содержит текста";
                     pump();
@@ -209,38 +247,44 @@ public final class EdgeDownloadService extends Service {
         if(selected){cancelGeneration();if(player!=null)player.clearQueue();}
         anchorWord=Math.max(0,Math.min(offsets.size()-1,word));pump();
     }
-    private Clip clipAt(int start){
-        if(start<0||start>=offsets.size())return null;
-        EdgeTextSegments.Part part=EdgeTextSegments.at(bookText,offsets,start,segmentLength);
+    /** Sentence-indexed lookup, no user-visible queue or adjustable fragments. */
+    private Clip clipAt(int word){
+        if(word<0||word>=offsets.size()||sentenceParts.isEmpty())return null;
+        SentenceChunks.Chunk part=SentenceChunks.forWord(sentenceParts,word);
         if(part==null)return null;
-        int after=part.end;
+        int start=part.fromWord,after=part.toWord;
         String text=part.text;
         String key=EdgeBookStorage.key(text,voice(),rate(),"edge-direct-v1");
-        for(Clip c:archive)if(c.start==start&&c.end==after&&c.key.equals(key)){
-            if(!c.ready()){
+        for(Clip item:archive)if(item.start==start&&item.end==after&&item.key.equals(key)){
+            if(!item.ready()){
                 File f=new File(directory,key+".mp3");
-                if(f.isFile()&&f.length()>1500){c.file=f;c.bytes=f.length();}
+                if(f.isFile()&&f.length()>1500){item.file=f;item.bytes=f.length();}
             }
-            return c;
+            return item;
         }
         Clip c=new Clip(start,after,text,key);
         c.file=new File(directory,key+".mp3");if(!c.ready())c.file=null;
         if(c.ready())c.bytes=c.file.length();
-        archive.add(c);Collections.sort(archive,(a,b)->Integer.compare(a.start,b.start));persist();changed();return c;
+        archive.add(c);Collections.sort(archive,(one,two)->Integer.compare(one.start,two.start));
+        persist();changed();return c;
     }
+    /** One playing sentence plus at most one prepared ahead. No old queue planner. */
     private void pump(){
         if(!bookReady||directory==null||destroyed)return;
-        SharedPreferences pref=getSharedPreferences("reader",0);
-        segmentLength=EdgeSegmentSettings.get(pref);windowCount=EdgePrefetchSettings.get(pref);
-        int from=anchor();ArrayList<Clip> window=new ArrayList<>();
-        ArrayList<Integer> indices=EdgeQueuePlanner.window(from,offsets.size(),windowCount,st->{Clip item=clipAt(st);return item==null?st:item.end;});
-        for(int at:indices){Clip c=clipAt(at);if(c!=null)window.add(c);}
+        ArrayList<Clip> ready=new ArrayList<>();
+        Clip current=clipAt(anchor());
+        if(current!=null){ready.add(current);
+            Clip ahead=clipAt(current.end);
+            if(ahead!=null&&ahead.start!=current.start)ready.add(ahead);
+        }
         if(player!=null){
             player.setAutoContinue(true);
-            for(Clip c:window){if(!c.ready())break;player.appendReady(c.key+":"+c.start,c.start,c.end,c.file);}
+            for(Clip c:ready){if(!c.ready())break;
+                player.appendReady(c.key+":"+c.start,c.start,c.end,c.file);
+            }
         }
         if(active&&generating==null){
-            for(Clip c:window){
+            for(Clip c:ready){
                 if(c.ready())continue;
                 if(SystemClock.uptimeMillis()<c.retryAt)break;
                 download(c);break;
@@ -341,7 +385,8 @@ public final class EdgeDownloadService extends Service {
             main.post(()->{changed();if(done!=null)done.run();});});
     }
     private void restore(){archive.clear();if(directory==null)return;
-        try{File f=new File(directory,"queue.json");
+        try{File f=new File(directory,"sentences.json");
+            if(!f.isFile())f=new File(directory,"queue.json");
             byte[] input=new byte[f.isFile()?(int)Math.min(f.length(),4*1024*1024L):0];int total=0;
             if(f.isFile())try(java.io.FileInputStream in=new java.io.FileInputStream(f)){
                 int count;while(total<input.length&&(count=in.read(input,total,input.length-total))>0)total+=count;
@@ -384,8 +429,8 @@ public final class EdgeDownloadService extends Service {
         JSONArray data=new JSONArray();try{for(Clip c:archive){JSONObject row=new JSONObject();row.put("start",c.start).put("end",c.end)
                 .put("text",c.text).put("key",c.key).put("chunks",c.chunks).put("played",c.played);data.put(row);}}catch(Exception ignored){}
         File folder=directory;
-        File file=new File(folder,"queue.json");String json=data.toString();
-        io.execute(()->{File temp=new File(folder,"queue.json.tmp");
+        File file=new File(folder,"sentences.json");String json=data.toString();
+        io.execute(()->{File temp=new File(folder,"sentences.json.tmp");
             try(FileOutputStream out=new FileOutputStream(temp)){out.write(json.getBytes(StandardCharsets.UTF_8));out.flush();
                 if(file.exists())file.delete();temp.renameTo(file);
             }catch(Exception ex){temp.delete();Log.w("EdgeQueue","Cannot persist index",ex);}});

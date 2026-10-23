@@ -79,7 +79,7 @@ public class EdgeFileExplorerActivity extends Activity {
 
     private void refresh() {
         files.clear();
-        File[] list=folder.listFiles(f->f.isFile() && (EdgeAudioFormat.forFilename(f.getName())!=null||f.getName().equals("queue.json")));
+        File[] list=folder.listFiles(f->f.isFile() && (EdgeAudioFormat.forFilename(f.getName())!=null||f.getName().equals("sentences.json")));
         if(list!=null) {
             Arrays.sort(list,Comparator.comparing(File::getName));
             files.addAll(Arrays.asList(list));
@@ -124,7 +124,7 @@ public class EdgeFileExplorerActivity extends Activity {
                 Uri outDir=DocumentsContract.createDocument(getContentResolver(),parent,
                         DocumentsContract.Document.MIME_TYPE_DIR,"ChitalkaRSVP - " + folder.getParentFile().getName());
                 if(outDir==null)throw new Exception("Не удалось создать папку");
-                File[] clips=folder.listFiles(f->f.isFile() && (EdgeAudioFormat.forFilename(f.getName())!=null||f.getName().equals("queue.json")));
+                File[] clips=folder.listFiles(f->f.isFile() && (EdgeAudioFormat.forFilename(f.getName())!=null||f.getName().equals("sentences.json")));
                 if(clips!=null)for(File f:clips) {
                     Uri doc=DocumentsContract.createDocument(getContentResolver(),outDir,
                             EdgeAudioFormat.forFilename(f.getName())!=null?EdgeAudioFormat.forFilename(f.getName()).mime:"application/json",f.getName());

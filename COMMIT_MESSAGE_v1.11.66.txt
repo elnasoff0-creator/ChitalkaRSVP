@@ -1,6 +1,0 @@
-fix(android): resolve duplicate current variable in EdgeOnlineActivity (v1.11.66-beta)
-
-- Rename EdgeDownloadService.Clip current to statusClip in refresh()
-- Preserve queue ordinal integer current and WordBoundary status behavior
-- Fix javac duplicate variable error reported by GitHub Actions
-- Bump Android versionCode to 11166 and versionName to 1.11.66-beta

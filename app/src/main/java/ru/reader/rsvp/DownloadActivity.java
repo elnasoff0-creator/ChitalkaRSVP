@@ -177,9 +177,6 @@ public final class DownloadActivity extends Activity {
             main.postDelayed(this::refresh,350);
         }catch(Exception e){Toast.makeText(this,"Ошибка Edge: "+e.getMessage(),Toast.LENGTH_LONG).show();}
     }
-    private void queue(DownloadsRepository.Item item){
-        startActivity(new Intent(this,EdgeQueueActivity.class).putExtra(EdgeDownloadService.EXTRA_URI,item.bookUri));
-    }
     private void confirmCancel(DownloadsRepository.Item item){
         new AlertDialog.Builder(this).setTitle("Отменить загрузку?")
             .setMessage("Можно сохранить уже скачанные главы или удалить файлы этой аудиокниги.")
@@ -249,7 +246,7 @@ public final class DownloadActivity extends Activity {
         PopupMenu popup=new PopupMenu(this,anchor);
         if(DownloadsRepository.EDGE.equals(item.type)){
             popup.getMenu().add(0,1,0,"Открыть Edge-плеер");
-            popup.getMenu().add(0,2,1,"Открыть очередь");
+            popup.getMenu().add(0,2,1,"Файлы озвучки");
             popup.getMenu().add(0,7,1,"Подготовить всю книгу");
             if(item.fullJob!=null&&!item.ready)
                 popup.getMenu().add(0,8,1,item.running?"Пауза полной подготовки":"Продолжить полную подготовку");
@@ -263,7 +260,7 @@ public final class DownloadActivity extends Activity {
         popup.setOnMenuItemClickListener(m->{
             switch(m.getItemId()){
                 case 1:open(item);break;
-                case 2:queue(item);break;
+                case 2:openFolder(item);break;
                 case 3:openFolder(item);break;
                 case 4:confirmDelete(item,true);break;
                 case 5:send(item,DownloadWorker.START);break;
@@ -330,9 +327,9 @@ public final class DownloadActivity extends Activity {
                     prepare.setOnClickListener(v->startActivity(new Intent(DownloadActivity.this,EdgeFullBookActivity.class)
                         .putExtra("book_uri",item.bookUri).putExtra("book_title",item.title)));
                 }
-                TextView queueButton=control("Фрагменты");
+                TextView queueButton=control("Файлы аудиокниги");
                 LinearLayout.LayoutParams qlp=new LinearLayout.LayoutParams(0,dp(42),1);qlp.leftMargin=dp(6);
-                controls.addView(queueButton,qlp);queueButton.setOnClickListener(v->queue(item));
+                controls.addView(queueButton,qlp);queueButton.setOnClickListener(v->openFolder(item));
             }else if(!item.ready){
                 TextView pause=control(item.running?"Пауза":"Продолжить");controls.addView(pause,new LinearLayout.LayoutParams(0,dp(42),1));
                 pause.setOnClickListener(v->send(item,item.running?DownloadWorker.PAUSE:DownloadWorker.START));

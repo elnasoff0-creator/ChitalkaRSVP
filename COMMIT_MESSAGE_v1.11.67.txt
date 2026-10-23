@@ -1,0 +1,11 @@
+feat(tts): unify cursor read-aloud, 600-char sentences and local voice timing (v1.11.67-beta)
+
+- Share sentence-first 600-character segmentation between Android and Edge TTS
+- Replace Edge fragment UI with a cursor-style reading screen and word tap selection
+- Use real Edge WordBoundary offsets; fall back to sentence highlighting
+- Collect Android TTS synthesis frame offsets and probe Google/Samsung voice capabilities
+- Keep system WAVs in disposable cache and Edge MP3s in permanent book storage
+- Remove legacy user-visible Edge queue and customizable prefetch settings
+- Expose audiobook completion, offline coverage and listening-duration metrics
+- Use the speedometer + WPM preset dialog across reading modes
+- Preserve existing Chteico sprites, MP3 audiobook speed and full-book downloads

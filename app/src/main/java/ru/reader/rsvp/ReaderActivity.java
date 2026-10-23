@@ -249,18 +249,21 @@ public class ReaderActivity extends Activity {
         FrameLayout.LayoutParams floatLp=new FrameLayout.LayoutParams(dp(68),dp(68),Gravity.RIGHT|Gravity.BOTTOM);
         floatLp.setMargins(dp(12),dp(12),dp(20),dp(24));
         sceneRoot.addView(floatingPlayButton,floatLp);floatingPlayButton.setVisibility(View.GONE);
-        speedPanel=column();speedPanel.setBackground(shape(panelColor(),18));speedPanel.setPadding(dp(8),dp(8),dp(8),dp(8));add(root,speedPanel);
-        LinearLayout speedRow=new LinearLayout(this);speedRow.setGravity(Gravity.CENTER_VERTICAL);add(speedPanel,speedRow);
-        ImageView gauge=new ImageView(this);gauge.setImageResource(R.drawable.ic_speed);gauge.setColorFilter(fg);
-        speedRow.addView(gauge,new LinearLayout.LayoutParams(dp(28),dp(28)));
-        speedView=text(wpm+" слов/мин",17);speedView.setGravity(Gravity.CENTER);
-        speedRow.addView(speedView,new LinearLayout.LayoutParams(0,dp(48),1));
-        Button minus=new Button(this);minus.setText("−10");minus.setBackground(shape(buttonBg(),14));
-        minus.setTextColor(contrast(buttonBg()));minus.setOnClickListener(v->changeSpeed(-10));
-        speedRow.addView(minus,new LinearLayout.LayoutParams(dp(52),dp(52)));
-        Button plus=new Button(this);plus.setText("+10");plus.setBackground(shape(buttonBg(),14));
-        plus.setTextColor(contrast(buttonBg()));plus.setOnClickListener(v->changeSpeed(10));
-        speedRow.addView(plus,new LinearLayout.LayoutParams(dp(52),dp(52)));
+        speedPanel=column();speedPanel.setBackground(shape(panelColor(),18));
+        speedPanel.setPadding(dp(8),dp(6),dp(8),dp(6));add(root,speedPanel);
+        LinearLayout speedRow=new LinearLayout(this);speedRow.setGravity(Gravity.CENTER);
+        speedRow.setClickable(true);speedRow.setBackground(shape(buttonBg(),14));
+        add(speedPanel,speedRow);
+        ImageView gauge=new ImageView(this);gauge.setImageResource(R.drawable.ic_speed);
+        gauge.setColorFilter(contrast(buttonBg()));
+        speedRow.addView(gauge,new LinearLayout.LayoutParams(dp(26),dp(26)));
+        speedView=text(String.valueOf(wpm),19);speedView.setGravity(Gravity.CENTER);
+        speedView.setTextColor(contrast(buttonBg()));
+        LinearLayout.LayoutParams wp=new LinearLayout.LayoutParams(dp(75),dp(46));
+        speedRow.addView(speedView,wp);
+        speedRow.setOnClickListener(v->TtsWpm.dialogForReader(this,wpm,value->{
+            wpm=value;if(speedView!=null)speedView.setText(String.valueOf(wpm));saveLight(true);
+        }));
         updateModeUI();updatePlayButton();
         // Jump to the indexed chunk, not to the pixel position of an enormous TextView.
         textList.post(()->ensureWordVisible(true));
@@ -566,7 +569,7 @@ public class ReaderActivity extends Activity {
         removeCountdownRing();updatePlayButton();setRsvpContextVisible(true);
         applyFullscreenUi();
     }
-    private void changeSpeed(int delta){wpm=Math.max(100,Math.min(1000,wpm+delta));if(speedView!=null)speedView.setText(wpm+" слов/мин");saveLight(true);
+    private void changeSpeed(int delta){wpm=Math.max(100,Math.min(1000,wpm+delta));if(speedView!=null)speedView.setText(String.valueOf(wpm));saveLight(true);
         if(playing&&!waitingForStart){handler.removeCallbacks(ticker);handler.postDelayed(ticker,delayForPortion(index,Math.min(portion,words.length-index)));}}
     private boolean paragraphAfter(int word){return word<words.length-1&&body.substring(map.ends[word],map.starts[word+1]).contains("\n\n");}
     private long delayForPortion(int first,int count){

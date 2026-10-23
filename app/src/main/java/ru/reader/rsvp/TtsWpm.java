@@ -29,4 +29,28 @@ public final class TtsWpm {
         }
         new AlertDialog.Builder(activity).setTitle("Скорость озвучивания").setView(content).setPositiveButton("Готово",(d,w)->{if(changed!=null)changed.run();}).show();
     }
+    /** The same speedometer dialog for independent RSVP/Cursor reading speed. */
+    public static void dialogForReader(Activity activity,int initial,java.util.function.IntConsumer applied){
+        LinearLayout content=new LinearLayout(activity);content.setOrientation(1);
+        int dp=Math.max(1,(int)(activity.getResources().getDisplayMetrics().density+.5f));
+        content.setPadding(14*dp,12*dp,14*dp,6*dp);
+        final int[] selected={Math.max(100,Math.min(1000,initial))};
+        TextView value=new TextView(activity);value.setGravity(Gravity.CENTER);value.setTextSize(27);
+        value.setText(selected[0]+" слов/мин");content.addView(value);
+        LinearLayout steps=new LinearLayout(activity);steps.setGravity(Gravity.CENTER);content.addView(steps);
+        Button minus=new Button(activity);minus.setText("−10");steps.addView(minus,new LinearLayout.LayoutParams(0,54*dp,1));
+        Button plus=new Button(activity);plus.setText("+10");steps.addView(plus,new LinearLayout.LayoutParams(0,54*dp,1));
+        Runnable apply=()->{value.setText(selected[0]+" слов/мин");applied.accept(selected[0]);};
+        minus.setOnClickListener(v->{selected[0]=Math.max(100,selected[0]-10);apply.run();});
+        plus.setOnClickListener(v->{selected[0]=Math.min(1000,selected[0]+10);apply.run();});
+        LinearLayout quick=new LinearLayout(activity);content.addView(quick);
+        for(int n:new int[]{100,200,300,400,500}){
+            Button b=new Button(activity);b.setText(String.valueOf(n));b.setTextSize(12);b.setAllCaps(false);
+            b.setPadding(0,0,0,0);quick.addView(b,new LinearLayout.LayoutParams(0,48*dp,1));
+            b.setOnClickListener(v->{selected[0]=n;apply.run();});
+        }
+        new AlertDialog.Builder(activity).setTitle("Скорость чтения")
+            .setView(content).setPositiveButton("Готово",(d,w)->applied.accept(selected[0])).show();
+    }
+
 }

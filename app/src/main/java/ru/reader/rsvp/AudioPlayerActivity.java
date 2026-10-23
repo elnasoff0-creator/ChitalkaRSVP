@@ -85,7 +85,14 @@ public class AudioPlayerActivity extends Activity {
         return cell;
     }
     void command(String action){startService(new Intent(this,AudioPlaybackService.class).setAction(action));handler.postDelayed(this::refresh,150);}
-    @Override public void onCreate(Bundle b){super.onCreate(b);bookUri=getIntent().getStringExtra("book_uri");if(bookUri==null||bookUri.isEmpty())bookUri=getSharedPreferences("reader",0).getString("uri","");String id=getIntent().getStringExtra("audio_book_id");if(id!=null)for(AudioLibrary.Book item:AudioLibrary.load(this))if(id.equals(item.id)){selected=item;break;}if(getIntent().getBooleanExtra("count_usage",false)&&selected!=null)bumpAudioUsage(selected.id);draw();String audioAction=getIntent().getStringExtra("audio_action");if(audioAction!=null)handler.post(()->{switch(audioAction){case "tts":loadTts(bookUri,getSharedPreferences("reader",0).getInt("index",0));break;case "voice":voiceMenu();break;case "marks":showMarks();break;case "cover":chooseCover();break;case "sleep":sleepMenu();break;case "speed":speedMenu();break;}});boolean resumeAudio=getIntent().getBooleanExtra("resume_audio",false);
+    @Override public void onCreate(Bundle b){super.onCreate(b);bookUri=getIntent().getStringExtra("book_uri");if(bookUri==null||bookUri.isEmpty())bookUri=getSharedPreferences("reader",0).getString("uri","");String id=getIntent().getStringExtra("audio_book_id");if(id!=null)for(AudioLibrary.Book item:AudioLibrary.load(this))if(id.equals(item.id)){selected=item;break;}if(getIntent().getBooleanExtra("count_usage",false)&&selected!=null)bumpAudioUsage(selected.id);
+        if(getIntent().getBooleanExtra("start_tts",false)&&!bookUri.isEmpty()){
+            startActivity(new Intent(this,EdgeOnlineActivity.class)
+                .putExtra("book_uri",bookUri).putExtra("tts_mode_local",true)
+                .putExtra("word_index",getIntent().getIntExtra("word_index",getSharedPreferences("reader",0).getInt("tts_word:"+bookUri,0))));
+            finish();return;
+        }
+        draw();String audioAction=getIntent().getStringExtra("audio_action");if(audioAction!=null)handler.post(()->{switch(audioAction){case "tts":loadTts(bookUri,getSharedPreferences("reader",0).getInt("index",0));break;case "voice":voiceMenu();break;case "marks":showMarks();break;case "cover":chooseCover();break;case "sleep":sleepMenu();break;case "speed":speedMenu();break;}});boolean resumeAudio=getIntent().getBooleanExtra("resume_audio",false);
         if(selected!=null&&(AudioPlaybackService.instance==null||AudioPlaybackService.instance.isTtsMode()||!selected.id.equals(AudioPlaybackService.instance.getBookId())))openSelected(selected,resumeAudio);
         else if(resumeAudio&&selected!=null)command(AudioPlaybackService.PLAY);if(getIntent().getBooleanExtra("start_tts",false)&&!bookUri.isEmpty())loadTts(bookUri,getIntent().getIntExtra("word_index",0));}
     int drawnBackground=Integer.MIN_VALUE,drawnText=Integer.MIN_VALUE;
@@ -392,12 +399,10 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
     void loadTts(String u,int index){
         if(u==null||u.isEmpty()){Toast.makeText(this,"Сначала откройте EPUB или FB2",Toast.LENGTH_SHORT).show();return;}
         bookUri=u;
-        title.setText("Загрузка книги…");
-        showTtsCover(u);
-        Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.TTS);
-        i.putExtra("bookUri",u);
-        i.putExtra("word_index",Math.max(0,index));
-        startService(i);
+        startActivity(new Intent(this,EdgeOnlineActivity.class)
+            .putExtra("book_uri",u).putExtra("tts_mode_local",true)
+            .putExtra("word_index",Math.max(0,index)));
+        finish();
     }
     void speedMenu(){
         AudioPlaybackService service=AudioPlaybackService.instance;

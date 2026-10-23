@@ -1,8 +1,0 @@
-fix(android): resolve EdgeOnlineActivity release compilation errors (v1.11.64-beta)
-
-- Pass EdgeOnlineActivity.this as Context to TtsWpm.rate() in ServiceConnection callback
-- Rename the local word-range list in refresh() to avoid shadowing existing words count
-- Bump versionCode to 11164 and versionName to 1.11.64-beta
-- Preserve all existing TTS, UI, caching, and Chteico sprite assets
-
-Validation: XML parsing and ZIP integrity verified. Android SDK/Gradle unavailable locally; rerun GitHub Actions assembleRelease.

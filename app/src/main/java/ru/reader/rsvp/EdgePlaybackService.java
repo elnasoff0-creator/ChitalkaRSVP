@@ -69,8 +69,13 @@ public final class EdgePlaybackService extends Service {
     private long sleepAtMs;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable chteicoAudioTick=new Runnable(){@Override public void run(){
-        if(isPlaying())ChteicoStore.tickAudio(EdgePlaybackService.this,activeBookId,5);
-        handler.postDelayed(this,5000);
+        if(isPlaying()){
+            ChteicoStore.tickAudio(EdgePlaybackService.this,activeBookId,1);
+            String book=activeBookId.startsWith("edge:")?activeBookId.substring(5):activeBookId;
+            android.content.SharedPreferences t=getSharedPreferences("reader",0);
+            t.edit().putLong("tts_listened_seconds:"+book,t.getLong("tts_listened_seconds:"+book,0)+1).apply();
+        }
+        handler.postDelayed(this,1000);
     }};
     private final Runnable sleepRunnable = () -> {
         sleepAtMs = 0L;
@@ -95,7 +100,7 @@ public final class EdgePlaybackService extends Service {
 
     @Override public void onCreate() {
         super.onCreate();
-        handler.postDelayed(chteicoAudioTick,5000);
+        handler.postDelayed(chteicoAudioTick,1000);
         playbackSpeed=getSharedPreferences("reader",0).getFloat("edge_playback_speed",1f);
         playbackSpeed=Math.max(0.5f,Math.min(3f,playbackSpeed));
         player = new ExoPlayer.Builder(this).build();

@@ -485,8 +485,8 @@ public class SettingsActivity extends Activity {
         header("Настройки аудио");
         list.addView(action("Эквалайзер · "+equalizerLabel(),R.drawable.ic_equalizer,this::equalizerDialog));gap(8);
         list.addView(action("Локальные голоса TTS",R.drawable.ic_tts_engine,()->startActivity(new Intent(this,TtsVoiceActivity.class))));gap(8);
-        list.addView(action("Скорость TTS: "+TtsWpm.get(this)+" слов/мин",R.drawable.ic_audio_speed,()->TtsWpm.dialog(this,this::draw)));gap(8);
-        list.addView(action("Фрагментов вперёд: "+(EdgePrefetchSettings.get(prefs)-1),()->EdgePrefetchSettings.show(this,prefs,n->draw())));gap(8);
+        list.addView(action("Скорость TTS   ·   "+TtsWpm.get(this),R.drawable.ic_audio_speed,()->TtsWpm.dialog(this,this::draw)));gap(8);
+
         list.addView(action("Автоотмотка после паузы: "+autoRewindLabel(),this::autoRewindDialog));gap(8);
         list.addView(action("Перемотка кнопками секунд: "+AudioPlaybackPrefs.seekSeconds(this)+" сек",()->seekStepDialog(false)));gap(8);
         list.addView(action("Перемотка кнопками минут: "+AudioPlaybackPrefs.seekMinutes(this)+" мин",()->seekStepDialog(true)));gap(8);
