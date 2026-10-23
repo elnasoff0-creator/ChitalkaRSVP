@@ -378,7 +378,6 @@ public final class EdgeOnlineActivity extends Activity {
         }
         if(local){offlineProgress.setText("Системный голос · временный кэш");voice.setText("Локальный голос ▾");}
         else if(downloads!=null){
-            long now=android.os.SystemClock.uptimeMillis();
             if(now>=nextCoverageAt){cachedCoverage=downloads.savedPercent();nextCoverageAt=now+6000;}
             offlineProgress.setText("Сохранено офлайн: "+Math.max(0,cachedCoverage)+"% · Edge MP3");
             voice.setText(downloads.voice().contains("Dmitry")?"Дмитрий ▾":"Светлана ▾");
