@@ -484,7 +484,9 @@ public class SettingsActivity extends Activity {
     void drawAudioSettings(){
         header("Настройки аудио");
         list.addView(action("Эквалайзер · "+equalizerLabel(),R.drawable.ic_equalizer,this::equalizerDialog));gap(8);
-        list.addView(action("Выбор движка TTS",R.drawable.ic_tts_engine,this::ttsEngineDialog));gap(8);
+        list.addView(action("Локальные голоса TTS",R.drawable.ic_tts_engine,()->startActivity(new Intent(this,TtsVoiceActivity.class))));gap(8);
+        list.addView(action("Скорость TTS: "+TtsWpm.get(this)+" слов/мин",R.drawable.ic_audio_speed,()->TtsWpm.dialog(this,this::draw)));gap(8);
+        list.addView(action("Фрагментов вперёд: "+(EdgePrefetchSettings.get(prefs)-1),()->EdgePrefetchSettings.show(this,prefs,n->draw())));gap(8);
         list.addView(action("Автоотмотка после паузы: "+autoRewindLabel(),this::autoRewindDialog));gap(8);
         list.addView(action("Перемотка кнопками секунд: "+AudioPlaybackPrefs.seekSeconds(this)+" сек",()->seekStepDialog(false)));gap(8);
         list.addView(action("Перемотка кнопками минут: "+AudioPlaybackPrefs.seekMinutes(this)+" мин",()->seekStepDialog(true)));gap(8);
@@ -611,8 +613,7 @@ public class SettingsActivity extends Activity {
         list.addView(action("Проверить версию в GitHub", R.drawable.ic_web_update, () -> new UpdateManager(this).checkVersion()));
         gap(10);
         header("Онлайн-озвучивание Edge TTS");
-        list.addView(action("Количество фрагментов предзагрузки: " + EdgePrefetchSettings.get(prefs),()-> EdgePrefetchSettings.show(this,prefs,count->draw())));gap(8);
-        list.addView(action("Размер онлайн-фрагмента: " + EdgeSegmentSettings.get(prefs) + " символов",()-> EdgeSegmentSettings.show(this,prefs,value->draw())));gap(8);
+        TextView notice=text("Автоматическая подготовка следующих фрагментов всегда включена.",14,false);notice.setPadding(dp(5),dp(12),0,dp(12));list.addView(notice);gap(8);
     }
     void theme(LinearLayout row,String name,int background,int ink){TextView chip=text(name,13,false);chip.setTextColor(ink);chip.setGravity(Gravity.CENTER);chip.setBackground(outlined(background,14));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(56),1);lp.setMargins(dp(2),0,dp(2),0);row.addView(chip,lp);chip.setOnClickListener(v->{bg=background;fg=ink;put("bg",bg);put("fg",fg);draw();});}
     void palette(int[] colors,boolean background){

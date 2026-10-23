@@ -215,7 +215,7 @@ public final class EdgePlaybackService extends Service {
     public String playbackError() { return playbackError; }
     public float playbackSpeed() { return playbackSpeed; }
     public void setPlaybackSpeed(float value) {
-        playbackSpeed = Math.max(0.5f, Math.min(3f, value));
+        playbackSpeed = Math.max(0.5f, Math.min(5f, value));
         getSharedPreferences("reader",0).edit().putFloat("edge_playback_speed",playbackSpeed).apply();
         if (player != null) player.setPlaybackParameters(new PlaybackParameters(playbackSpeed));
         updateSession();

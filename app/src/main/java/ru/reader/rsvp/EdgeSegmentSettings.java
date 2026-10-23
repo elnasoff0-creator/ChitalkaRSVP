@@ -18,7 +18,7 @@ public final class EdgeSegmentSettings {
     private EdgeSegmentSettings() {}
 
     public static int get(SharedPreferences preferences) {
-        return clamp(preferences.getInt(KEY, DEFAULT));
+        return clamp(preferences.getInt(KEY, DEFAULT)); // Preserve existing audio segment hashes; hidden from settings.
     }
 
     public static int clamp(int value) {

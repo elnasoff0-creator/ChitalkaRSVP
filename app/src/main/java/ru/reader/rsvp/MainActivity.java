@@ -277,6 +277,7 @@ public class MainActivity extends Activity {
     void openAudioBook(String id) {openAudioBook(id,false);}
     void openAudioBook(String id,boolean resumePlayback) {
         if (id == null || id.isEmpty()) return;
+        prefs.edit().putString("last_media_kind","audio").apply();
         startActivity(new Intent(this, AudioPlayerActivity.class).putExtra("audio_book_id", id)
             .putExtra("count_usage", true).putExtra("resume_audio",resumePlayback));
     }
@@ -320,11 +321,14 @@ public class MainActivity extends Activity {
         return t;
     }
 
+    FrameLayout navigationSurface,drawerShade;
     void draw() {
         stop();
         root = column();
         root.setBackgroundColor(bg);
-        setContentView(root);
+        navigationSurface = new FrameLayout(this);
+        navigationSurface.addView(root,new FrameLayout.LayoutParams(-1,-1));
+        setContentView(navigationSurface);
         if (screen == 1 && words.length > 0 && !body.isEmpty()) drawReader(); else drawHome();
     }
 
@@ -337,6 +341,8 @@ public class MainActivity extends Activity {
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
 
         LinearLayout top = row();
+        View hamburger = iconButton(R.drawable.ic_menu_lines, v -> openDrawer());
+        top.addView(hamburger,new LinearLayout.LayoutParams(dp(48),dp(48)));
         TextView titleView = text("", 23, true);
         titleView.setTypeface(Typeface.SERIF, Typeface.BOLD);
         top.addView(titleView, new LinearLayout.LayoutParams(0, -2, 1));
@@ -344,8 +350,7 @@ public class MainActivity extends Activity {
         top.addView(search, new LinearLayout.LayoutParams(dp(48), dp(48)));
         View importBtn = iconButton(R.drawable.ic_plus, v -> showAddMenu());
         top.addView(importBtn, new LinearLayout.LayoutParams(dp(48), dp(48)));
-        View menuBtn = iconButton(R.drawable.ic_settings, v -> settings());
-        top.addView(menuBtn, new LinearLayout.LayoutParams(dp(48), dp(48)));
+
         add(contentWrap, top);
 
 
@@ -444,7 +449,7 @@ public class MainActivity extends Activity {
                 add(contentWrap,audioList);
             }
         }
-        root.addView(bottomNav(0), new LinearLayout.LayoutParams(-1, -2));
+        // Navigation moved to the accessible left drawer.
     }
 
     View gap(int n) { TextView t = new TextView(this); t.setHeight(dp(n)); return t; }
@@ -969,6 +974,66 @@ public class MainActivity extends Activity {
         saveAll();
     }
 
+
+    /** Drawer overlays the library, preserving the screen and scroll position. */
+    void openDrawer(){
+        if(navigationSurface==null)return;
+        FrameLayout shade=new FrameLayout(this);drawerShade=shade;
+        shade.setBackgroundColor(0x92000000);
+        navigationSurface.addView(shade,new FrameLayout.LayoutParams(-1,-1));
+        shade.setOnClickListener(v->{navigationSurface.removeView(shade);drawerShade=null;});
+        int maxWidth=Math.min(dp(340),(int)(getResources().getDisplayMetrics().widthPixels*0.84f));
+        ScrollView scroll=new ScrollView(this);
+        scroll.setFillViewport(true);scroll.setBackgroundColor(bg);
+        scroll.setOnClickListener(v->{});
+        FrameLayout.LayoutParams panelLp=new FrameLayout.LayoutParams(maxWidth,-1,Gravity.START);
+        shade.addView(scroll,panelLp);
+        LinearLayout panel=column();panel.setPadding(dp(18),dp(23),dp(18),dp(18));scroll.addView(panel);
+        LinearLayout branding=row();branding.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView logo=new ImageView(this);logo.setImageResource(R.drawable.ic_reader);
+        branding.addView(logo,new LinearLayout.LayoutParams(dp(43),dp(43)));
+        TextView brand=text("  ПРОЧиталка",21,true);branding.addView(brand);panel.addView(branding);
+        View separator=new View(this);separator.setBackgroundColor(fg&0x44ffffff);
+        LinearLayout.LayoutParams slp=new LinearLayout.LayoutParams(-1,dp(1));slp.topMargin=dp(18);slp.bottomMargin=dp(10);panel.addView(separator,slp);
+        drawerItem(panel,R.drawable.ic_audio_chapters,"Библиотека",()->{screen=0;draw();});
+        drawerItem(panel,R.drawable.ic_book,"Чтение",()->{if(currentUri==null||currentUri.isEmpty())pick();else openBook(currentUri,false,true);});
+        drawerItem(panel,R.drawable.ic_microphone,"Аудиокнига",this::openLastMedia);
+        drawerItem(panel,R.drawable.ic_downloads,"Загрузки",()->startActivity(new Intent(this,DownloadActivity.class)));
+        drawerItem(panel,ChteicoStore.enabled(this)?R.drawable.ic_chteico_nav:R.drawable.ic_stats_nav,ChteicoStore.enabled(this)?"Чтейцо":"Статистика",()->startActivity(new Intent(this,ChteicoActivity.class)));
+        View separator2=new View(this);separator2.setBackgroundColor(fg&0x44ffffff);
+        LinearLayout.LayoutParams slp2=new LinearLayout.LayoutParams(-1,dp(1));slp2.topMargin=dp(14);slp2.bottomMargin=dp(10);panel.addView(separator2,slp2);
+        drawerItem(panel,R.drawable.ic_settings,"Настройки",this::settings);
+        drawerItem(panel,R.drawable.ic_web_update,"Обновление",()->new UpdateManager(this).checkVersion());
+        drawerItem(panel,R.drawable.ic_info_help,"Справка",()->startActivity(new Intent(this,ActivityInfo.class)));
+    }
+    void drawerItem(LinearLayout panel,int icon,String title,Runnable action){
+        LinearLayout item=row();item.setGravity(Gravity.CENTER_VERTICAL);
+        item.setPadding(dp(11),dp(12),dp(6),dp(12));
+        ImageView iv=new ImageView(this);iv.setImageResource(icon);iv.setColorFilter(fg);
+        item.addView(iv,new LinearLayout.LayoutParams(dp(24),dp(24)));
+        TextView text=text(title,17,false);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.leftMargin=dp(20);item.addView(text,lp);
+        item.setOnClickListener(v->action.run());panel.addView(item,new LinearLayout.LayoutParams(-1,dp(57)));
+    }
+    void openLastMedia(){
+        String mode=prefs.getString("last_media_kind","");
+        String lastAudio=prefs.getString("audio_last_book","");
+        ArrayList<AudioLibrary.Book> all=AudioLibrary.load(this);
+        AudioLibrary.Book found=null;for(AudioLibrary.Book b:all)if(b.id.equals(lastAudio)){found=b;break;}
+        String textUri=prefs.getString("uri","");
+        if("text".equals(mode)&&!textUri.isEmpty()){
+            startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("book_uri",textUri).putExtra("start_tts",true)
+                .putExtra("word_index",prefs.getInt("index",0)));return;
+        }
+        if(found!=null){openAudioBook(found.id,true);return;}
+        if(!textUri.isEmpty()&&"text".equals(mode)){
+            startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("book_uri",textUri).putExtra("start_tts",true));return;
+        }
+        new AlertDialog.Builder(this).setTitle("Добавить аудиокнигу")
+            .setMessage("Последняя аудиокнига не найдена. Выбрать папку с аудиофайлами?")
+            .setPositiveButton("Выбрать папку",(d,w)->chooseAudioFolder())
+            .setNegativeButton("Отмена",null).show();
+    }
+
     void showAddMenu(){
         new android.app.AlertDialog.Builder(this).setTitle("Добавить")
             .setItems(new String[]{"Книгу","Аудиокнигу"},(dialog,choice)->{
@@ -1010,7 +1075,8 @@ public class MainActivity extends Activity {
                     AudioLibrary.merge(this,found);
                     runOnUiThread(()->{android.widget.Toast.makeText(this,
                         found.isEmpty()?"В папке нет аудиофайлов":"Добавлено аудиокниг: "+found.size(),
-                        android.widget.Toast.LENGTH_LONG).show();draw();});
+                        android.widget.Toast.LENGTH_LONG).show();
+                        if(!found.isEmpty())openAudioBook(found.get(0).id);else draw();});
                 }catch(Exception e){runOnUiThread(()->android.widget.Toast.makeText(this,"Не удалось импортировать папку: "+e.getMessage(),android.widget.Toast.LENGTH_LONG).show());}
             }).start();return;
         }
@@ -1024,6 +1090,7 @@ public class MainActivity extends Activity {
     void openBook(String uriString, boolean reset, boolean switchToReader) {
         if (switchToReader) {
             bumpBookUsage(uriString);
+            prefs.edit().putString("last_media_kind","text").apply();
             stop();
             saveAll();
             Intent reader = new Intent(this, ReaderActivity.class);
@@ -1279,6 +1346,12 @@ public class MainActivity extends Activity {
                 }).setNegativeButton("Отмена", null).show();
     }
 
+    @Override public void onBackPressed(){
+        if(drawerShade!=null&&drawerShade.getParent()==navigationSurface){
+            navigationSurface.removeView(drawerShade);drawerShade=null;return;
+        }
+        super.onBackPressed();
+    }
     private boolean hasResumedOnce = false;
     @Override protected void onResume() {
         super.onResume();

@@ -7,9 +7,9 @@ import android.content.SharedPreferences;
 /** Number of Edge clips in the playback window, including the active clip. */
 public final class EdgePrefetchSettings {
     public static final String KEY = "edge_prefetch_ahead";
-    public static final int MIN = 3;
-    public static final int MAX = 10;
-    public static final int DEFAULT = 3;
+    public static final int MIN = 2;
+    public static final int MAX = 9;
+    public static final int DEFAULT = 5;
 
     private EdgePrefetchSettings() {}
 
@@ -33,7 +33,7 @@ public final class EdgePrefetchSettings {
             options[count - MIN] = count + " фрагментов: текущий + " + (count - 1);
         }
         new AlertDialog.Builder(activity)
-            .setTitle("Количество фрагментов предзагрузки Edge TTS (3–10)")
+            .setTitle("Фрагментов впереди (1–8)")
             .setSingleChoiceItems(options, get(preferences) - MIN, (dialog, index) -> {
                 int count = MIN + index;
                 preferences.edit().putInt(KEY, count).apply();
