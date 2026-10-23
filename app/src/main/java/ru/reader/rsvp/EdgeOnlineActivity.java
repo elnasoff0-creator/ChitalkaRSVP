@@ -68,7 +68,7 @@ public final class EdgeOnlineActivity extends Activity {
         @Override public void onServiceConnected(ComponentName name,IBinder binder){
             playback=((EdgePlaybackService.LocalBinder)binder).getService();
             playback.prepareBook("edge:"+bookUri);
-            playback.setPlaybackSpeed(Math.min(5f,TtsWpm.rate(this)));
+            playback.setPlaybackSpeed(Math.min(5f,TtsWpm.rate(EdgeOnlineActivity.this)));
             refresh();
             playback.addListener(playbackObserver);
         }
@@ -341,12 +341,12 @@ public final class EdgeOnlineActivity extends Activity {
             if(!t.equals(previousFragment)){previousFragment=t;textScroller.scrollTo(0,0);}
             double fraction=0;
             if(playback!=null&&playback.durationMs()>0)fraction=Math.min(.999,Math.max(0,playback.positionMs()/(double)playback.durationMs()));
-            java.util.ArrayList<int[]> words=new java.util.ArrayList<>();
+            java.util.ArrayList<int[]> wordRanges=new java.util.ArrayList<>();
             java.util.regex.Matcher w=java.util.regex.Pattern.compile("\\S+").matcher(t);
-            while(w.find())words.add(new int[]{w.start(),w.end()});
+            while(w.find())wordRanges.add(new int[]{w.start(),w.end()});
             android.text.SpannableString styled=new android.text.SpannableString(t);
-            if(!words.isEmpty()){
-                int[] r=words.get(Math.min(words.size()-1,(int)(fraction*words.size())));
+            if(!wordRanges.isEmpty()){
+                int[] r=wordRanges.get(Math.min(wordRanges.size()-1,(int)(fraction*wordRanges.size())));
                 styled.setSpan(new android.text.style.BackgroundColorSpan(0xffa9d5d0),r[0],r[1],android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             }
             fragmentText.setText(styled);
