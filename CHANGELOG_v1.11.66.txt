@@ -1,0 +1,26 @@
+PROChitalka / Chteico v1.11.66-beta CLEAN
+=======================================
+
+Fix GitHub Actions :app:assembleRelease compile failure in EdgeOnlineActivity.refresh().
+
+Root cause:
+  The method declared int current=downloads.currentOrdinal() and later
+  EdgeDownloadService.Clip current=downloads.currentClip() in the same scope.
+  Javac failed at EdgeOnlineActivity.java:366 with 'variable current is already defined'.
+
+Changes:
+- Rename the later clip variable to statusClip and update its condition.
+- Keep current (integer) for the queue status; no change to runtime behavior.
+- Increment Android versionCode to 11166, versionName to 1.11.66-beta.
+- All Edge WordBoundary metadata handling, stored MP3, playback controls,
+  18 Chteico vectors, preferences, other navigation and audio functionality
+  remain unchanged.
+
+Verification:
+- Source regression check confirms no duplicate 'current' variable declaration
+  within refresh() and the renamed statusClip variable has both uses.
+- All Android XML is well-formed, ZIP CRC passed.
+- The full Gradle Android build cannot be run in this environment (no Android SDK
+  and no Gradle installation). Run GitHub Actions assembleRelease to verify.
+
+Commit message and Git patch are supplied separately.

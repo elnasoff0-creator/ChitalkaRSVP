@@ -363,8 +363,8 @@ public final class EdgeOnlineActivity extends Activity {
                     .setNegativeButton("Отмена",null).show();
             }
         }
-        EdgeDownloadService.Clip current=downloads.currentClip();
-        if(current!=null&&current.ready()&&timedWords.isEmpty())
+        EdgeDownloadService.Clip statusClip=downloads.currentClip();
+        if(statusClip!=null&&statusClip.ready()&&timedWords.isEmpty())
             state+=" · Старый MP3 без меток слов: для точной подсветки перескачайте фрагмент через очередь";
         if(!downloads.error().isEmpty())state+=" · "+downloads.error();
         if(playback!=null&&!playback.playbackError().isEmpty())state+=" · "+playback.playbackError();
