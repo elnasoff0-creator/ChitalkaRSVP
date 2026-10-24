@@ -244,10 +244,12 @@ public final class ChteicoActivity extends Activity {
         p=ChteicoStore.prefs(this);
         root=column();root.setBackgroundColor(bg);root.setPadding(dp(13),dp(22),dp(13),dp(9));setContentView(root);
         LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);
-        TextView back=text("‹",38,false);back.setGravity(Gravity.CENTER);back.setOnClickListener(v->finish());top.addView(back,new LinearLayout.LayoutParams(dp(45),dp(52)));
+        ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_back);back.setColorFilter(fg);
+        back.setPadding(dp(10),dp(10),dp(10),dp(10));back.setOnClickListener(v->finish());
+        top.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));
         View spacer=new View(this);top.addView(spacer,new LinearLayout.LayoutParams(0,dp(20),1));
         ImageView settingsIcon=new ImageView(this);settingsIcon.setImageResource(R.drawable.ic_settings);settingsIcon.setColorFilter(fg);
-        settingsIcon.setPadding(dp(10),dp(10),dp(10),dp(10));top.addView(settingsIcon,new LinearLayout.LayoutParams(dp(46),dp(46)));
+        settingsIcon.setPadding(dp(10),dp(10),dp(10),dp(10));top.addView(settingsIcon,new LinearLayout.LayoutParams(dp(44),dp(44)));
         settingsIcon.setOnClickListener(v->startActivity(new Intent(this,SettingsActivity.class).putExtra("chteico_tab",true)));
         root.addView(top);
         ScrollView scroll=new ScrollView(this);content=column();content.setPadding(dp(2),dp(5),dp(2),dp(3));scroll.addView(content);

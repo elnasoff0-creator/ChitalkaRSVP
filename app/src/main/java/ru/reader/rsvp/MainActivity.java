@@ -321,9 +321,22 @@ public class MainActivity extends Activity {
         return t;
     }
 
-    FrameLayout navigationSurface,drawerShade;
+    FrameLayout navigationSurface, drawerShade;
+    private ScrollView drawerPanel, homeScroll;
+    private boolean drawerClosing, touchingScreen, pendingCoverRefresh;
+    private int savedHomeScrollY;
+    private static final int TOOLBAR_SIZE_DP=44;
+    private static final int TOOLBAR_GAP_DP=5;
+    private static final int COVER_CORNER_DP=14;
+
     void draw() {
         stop();
+        if(homeScroll!=null && screen==0) savedHomeScrollY=homeScroll.getScrollY();
+        // A redraw replaces the whole view hierarchy. Never keep the old drawer
+        // pointer; otherwise the menu button may silently ignore future taps.
+        drawerShade=null;
+        drawerPanel=null;
+        drawerClosing=false;
         root = column();
         root.setBackgroundColor(bg);
         navigationSurface = new FrameLayout(this);
@@ -337,28 +350,37 @@ public class MainActivity extends Activity {
         root.setPadding(dp(12), dp(23), dp(12), dp(8));
         LinearLayout contentWrap = column();
         ScrollView scroll = new ScrollView(this);
+        homeScroll=scroll;
+        scroll.setFillViewport(true);
         scroll.addView(contentWrap, new ScrollView.LayoutParams(-1, -2));
-        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        final int restoreY=savedHomeScrollY;
+        scroll.post(()->{if(homeScroll==scroll)scroll.scrollTo(0,restoreY);});
 
         LinearLayout top = row();
         View hamburger = iconButton(R.drawable.ic_menu_lines, v -> openDrawer());
-        top.addView(hamburger,new LinearLayout.LayoutParams(dp(48),dp(48)));
+        top.addView(hamburger,new LinearLayout.LayoutParams(dp(TOOLBAR_SIZE_DP),dp(TOOLBAR_SIZE_DP)));
         TextView titleView = text("", 23, true);
         titleView.setTypeface(Typeface.SERIF, Typeface.BOLD);
         top.addView(titleView, new LinearLayout.LayoutParams(0, -2, 1));
         View search = iconButton(R.drawable.ic_search, v -> showLibraryChooser());
-        top.addView(search, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        LinearLayout.LayoutParams searchLp=new LinearLayout.LayoutParams(dp(TOOLBAR_SIZE_DP),dp(TOOLBAR_SIZE_DP));
+        searchLp.leftMargin=dp(TOOLBAR_GAP_DP);
+        top.addView(search,searchLp);
         View importBtn = iconButton(R.drawable.ic_plus, v -> showAddMenu());
-        top.addView(importBtn, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        LinearLayout.LayoutParams importLp=new LinearLayout.LayoutParams(dp(TOOLBAR_SIZE_DP),dp(TOOLBAR_SIZE_DP));
+        importLp.leftMargin=dp(TOOLBAR_GAP_DP);
+        top.addView(importBtn,importLp);
 
-        add(contentWrap, top);
-
-
+        // Keep the navigation buttons above the scrolling library. A toolbar
+        // inside ScrollView can miss clicks while the library is flinging.
+        root.addView(top,new LinearLayout.LayoutParams(-1,dp(TOOLBAR_SIZE_DP)));
+        root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
 
         add(contentWrap, gap(10));
 
         LinearLayout head1 = sectionHeader("Продолжить чтение", currentUri.isEmpty() ? "" : "");
         add(contentWrap, head1);
+        add(contentWrap, gap(8));
         if (!currentUri.isEmpty() && meta(currentUri) != null) add(contentWrap, continueCard(meta(currentUri)));
         else {
             TextView empty = text("У тебя пока нет открытой книги. Нажми «+» вверху для добавления EPUB, FB2 или HTML.", 15, false);
@@ -370,6 +392,7 @@ public class MainActivity extends Activity {
 
         ArrayList<BookMeta> sortedBooks = sortedLibraryBooks();
         boolean bookExpanded=prefs.getBoolean("book_library_expanded",false);
+        add(contentWrap,gap(12));
         TextView bookToggle=buttonish("Библиотека ("+library.size()+")  "+(bookExpanded?"⌃":"⌄"),softPanel(),fg,true);
         bookToggle.setOnClickListener(v->{prefs.edit().putBoolean("book_library_expanded",!bookExpanded).apply();draw();});
         add(contentWrap,bookToggle);
@@ -387,13 +410,14 @@ public class MainActivity extends Activity {
                 if (i > 0) libPanel.addView(divider());
                 libPanel.addView(libraryRow(sortedBooks.get(i)));
             }
+            add(contentWrap, gap(8));
             add(contentWrap, libPanel);
         }
 
         }
-        add(contentWrap, gap(12));
-        // Theme presets moved to SettingsActivity.
-        add(contentWrap, gap(16));
+        // Keep one consistent separation between the text and audio groups.
+        // Previously 12 + 16 + 12 dp were stacked here.
+        add(contentWrap, gap(20));
 
         java.util.ArrayList<AudioLibrary.Book> audioBooks=AudioLibrary.load(this);
         audioBooks = sortedAudioBooks(audioBooks);
@@ -403,8 +427,8 @@ public class MainActivity extends Activity {
             for(AudioLibrary.Book item:audioBooks)if(item.id.equals(lastId)){recent=item;break;}
             if(recent==null)recent=audioBooks.get(0);
             final AudioLibrary.Book lastBook=recent;
-            add(contentWrap,gap(12));
             add(contentWrap,sectionHeader("Продолжить аудиокнигу",""));
+            add(contentWrap,gap(8));
             LinearLayout recentCard=column();recentCard.setBackground(shape(panelColor(),22));pad(recentCard,14);
             LinearLayout recentBody=row();recentBody.setGravity(Gravity.CENTER_VERTICAL);recentCard.addView(recentBody);
             recentBody.addView(audioCover(lastBook,88),new LinearLayout.LayoutParams(dp(88),dp(88)));
@@ -446,6 +470,7 @@ public class MainActivity extends Activity {
                     audioList.addView(r);
                     if(i!=audioBooks.size()-1)audioList.addView(divider());
                 }
+                add(contentWrap,gap(8));
                 add(contentWrap,audioList);
             }
         }
@@ -542,7 +567,7 @@ public class MainActivity extends Activity {
     View audioCover(AudioLibrary.Book b,int side){
         android.widget.FrameLayout frame=new android.widget.FrameLayout(this);
         GradientDrawable background=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xff42342e,0xff8f624c});
-        background.setCornerRadius(dp(14));frame.setBackground(background);frame.setClipToOutline(true);
+        background.setCornerRadius(dp(COVER_CORNER_DP));frame.setBackground(background);frame.setClipToOutline(true);
         TextView fallback=text("♫\n"+coverTitle(b.name),12,true);fallback.setGravity(Gravity.CENTER);fallback.setTextColor(0xfff6ebdc);fallback.setMaxLines(4);
         frame.addView(fallback,new android.widget.FrameLayout.LayoutParams(-1,-1));
         String imageUri=prefs.getString("audio_cover:"+b.id,"");
@@ -605,7 +630,7 @@ public class MainActivity extends Activity {
         LinearLayout card = column();
         GradientDrawable d = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
                 new int[]{0xff2c241f, 0xff544033, 0xff1d1a19});
-        d.setCornerRadius(dp(18));
+        d.setCornerRadius(dp(COVER_CORNER_DP));
         card.setBackground(d);
         pad(card, 10);
         TextView moon = new TextView(this);
@@ -628,6 +653,9 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, 0, 1);
         card.addView(t, lp);
         frame.addView(card,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        // clipToOutline alone does not define the clipping outline. Give the
+        // frame its own rounded background before drawing asynchronous covers.
+        frame.setBackground(shape(0xff30241e,COVER_CORNER_DP));
         frame.setClipToOutline(true);
         if(uri!=null && !uri.isEmpty()){
             android.graphics.Bitmap cached=BOOK_COVERS.get(uri);
@@ -741,7 +769,9 @@ public class MainActivity extends Activity {
         ImageView img = new ImageView(this);
         img.setImageResource(drawable);
         img.setColorFilter(ReaderButtonColors.contrastingText(ReaderButtonColors.neutral(this,softPanel())));
-        shell.addView(img, new LinearLayout.LayoutParams(dp(23), dp(23)));
+        shell.addView(img, new LinearLayout.LayoutParams(dp(24), dp(24)));
+        shell.setClickable(true);
+        shell.setFocusable(true);
         shell.setOnClickListener(click);
         return shell;
     }
@@ -975,39 +1005,84 @@ public class MainActivity extends Activity {
     }
 
 
-    /** Drawer overlays the library, preserving the screen and scroll position. */
+    /** Swipe from the left edge to open; swipe left on the drawer to close. */
     private float drawerDownX,drawerDownY;
-    @Override public boolean dispatchTouchEvent(android.view.MotionEvent e){
-        if(e.getActionMasked()==android.view.MotionEvent.ACTION_DOWN){
-            drawerDownX=e.getX();drawerDownY=e.getY();
-        } else if(e.getActionMasked()==android.view.MotionEvent.ACTION_UP){
-            float dx=e.getX()-drawerDownX,dy=e.getY()-drawerDownY;
-            boolean horizontal=Math.abs(dx)>dp(75)&&Math.abs(dx)>Math.abs(dy)*1.6f;
-            if(horizontal&&drawerShade==null&&drawerDownX<dp(28)&&dx>0){openDrawer();return true;}
-            if(horizontal&&drawerShade!=null&&dx<0){closeDrawer();return true;}
+    @Override public boolean dispatchTouchEvent(android.view.MotionEvent event){
+        int action=event.getActionMasked();
+        if(action==android.view.MotionEvent.ACTION_DOWN){
+            touchingScreen=true;
+            drawerDownX=event.getX();drawerDownY=event.getY();
+        }else if(action==android.view.MotionEvent.ACTION_UP||action==android.view.MotionEvent.ACTION_CANCEL){
+            touchingScreen=false;
+            if(action==android.view.MotionEvent.ACTION_UP){
+                float dx=event.getX()-drawerDownX,dy=event.getY()-drawerDownY;
+                boolean horizontal=Math.abs(dx)>dp(72)&&Math.abs(dx)>Math.abs(dy)*1.6f;
+                if(horizontal&&drawerShade==null&&drawerDownX<dp(32)&&dx>0){openDrawer();return true;}
+                if(horizontal&&drawerShade!=null&&dx<0){closeDrawer();return true;}
+            }
+            if(pendingCoverRefresh&&drawerShade==null){
+                handler.postDelayed(this::refreshCoverAfterIdle,160);
+            }
         }
-        return super.dispatchTouchEvent(e);
+        return super.dispatchTouchEvent(event);
     }
-    private void closeDrawer(){
-        if(drawerShade!=null&&navigationSurface!=null){
-            navigationSurface.removeView(drawerShade);drawerShade=null;
+    private void refreshCoverAfterIdle(){
+        if(!pendingCoverRefresh||touchingScreen||drawerShade!=null||screen!=0)return;
+        pendingCoverRefresh=false;
+        draw();
+    }
+    private void onCoverBackfilled(){
+        if(screen!=0)return;
+        pendingCoverRefresh=true;
+        // Never replace a tapped button mid-gesture or redraw over an open menu.
+        if(!touchingScreen&&drawerShade==null)handler.postDelayed(this::refreshCoverAfterIdle,180);
+    }
+    private void closeDrawer(){closeDrawer(null);}
+    private void closeDrawer(Runnable afterClose){
+        if(drawerShade==null||navigationSurface==null||drawerClosing){
+            if(drawerShade==null&&afterClose!=null)afterClose.run();
+            return;
         }
+        final FrameLayout shade=drawerShade;
+        final ScrollView panel=drawerPanel;
+        if(panel==null){navigationSurface.removeView(shade);drawerShade=null;
+            if(afterClose!=null)afterClose.run();return;}
+        drawerClosing=true;
+        panel.animate().cancel();
+        panel.animate().translationX(-panel.getWidth()).setDuration(205).start();
+        shade.animate().alpha(0f).setDuration(205).withEndAction(()->{
+            if(drawerShade==shade){
+                if(shade.getParent()==navigationSurface)navigationSurface.removeView(shade);
+                drawerShade=null;drawerPanel=null;drawerClosing=false;
+                if(afterClose!=null)afterClose.run();
+                else if(pendingCoverRefresh)handler.postDelayed(this::refreshCoverAfterIdle,80);
+            }
+        }).start();
     }
     void openDrawer(){
-        if(navigationSurface==null||drawerShade!=null)return;
+        if(navigationSurface==null)return;
+        if(drawerShade!=null){
+            // Ignore duplicate taps while the drawer is already visible.
+            return;
+        }
         FrameLayout shade=new FrameLayout(this);drawerShade=shade;
         shade.setBackgroundColor(0x92000000);
+        shade.setAlpha(0f);
         navigationSurface.addView(shade,new FrameLayout.LayoutParams(-1,-1));
         shade.setOnClickListener(v->closeDrawer());
         int maxWidth=Math.min(dp(340),(int)(getResources().getDisplayMetrics().widthPixels*0.84f));
-        ScrollView scroll=new ScrollView(this);
-        scroll.setFillViewport(true);scroll.setBackgroundColor(bg);
-        scroll.setOnClickListener(v->{});
+        ScrollView scroll=new ScrollView(this);drawerPanel=scroll;
+        scroll.setFillViewport(true);
+        scroll.setBackgroundColor(bg);
+        scroll.setClickable(true);
         FrameLayout.LayoutParams panelLp=new FrameLayout.LayoutParams(maxWidth,-1,Gravity.START);
         shade.addView(scroll,panelLp);
         LinearLayout panel=column();panel.setPadding(dp(18),dp(23),dp(18),dp(18));scroll.addView(panel);
         LinearLayout branding=row();branding.setGravity(Gravity.CENTER_VERTICAL);
-        ImageView logo=new ImageView(this);logo.setImageResource(R.drawable.ic_reader);
+        ImageView logo=new ImageView(this);
+        logo.setImageResource(R.drawable.ic_reader);
+        logo.setBackground(shape(softPanel(),14));
+        logo.setClipToOutline(true);
         branding.addView(logo,new LinearLayout.LayoutParams(dp(43),dp(43)));
         TextView brand=text("  ПРОЧиталка",21,true);branding.addView(brand);panel.addView(branding);
         View separator=new View(this);separator.setBackgroundColor(fg&0x44ffffff);
@@ -1022,6 +1097,13 @@ public class MainActivity extends Activity {
         drawerItem(panel,R.drawable.ic_settings,"Настройки",this::settings);
         drawerItem(panel,R.drawable.ic_web_update,"Обновление",()->new UpdateManager(this).checkVersion());
         drawerItem(panel,R.drawable.ic_info_help,"Справка",()->startActivity(new Intent(this,ActivityInfo.class)));
+        scroll.post(()->{
+            // Waiting for layout gives the exact width, even on tablets.
+            if(drawerPanel!=scroll||drawerShade!=shade)return;
+            scroll.setTranslationX(-scroll.getWidth());
+            shade.animate().alpha(1f).setDuration(205).start();
+            scroll.animate().translationX(0f).setDuration(220).start();
+        });
     }
     void drawerItem(LinearLayout panel,int icon,String title,Runnable action){
         LinearLayout item=row();item.setGravity(Gravity.CENTER_VERTICAL);
@@ -1029,7 +1111,8 @@ public class MainActivity extends Activity {
         ImageView iv=new ImageView(this);iv.setImageResource(icon);iv.setColorFilter(fg);
         item.addView(iv,new LinearLayout.LayoutParams(dp(24),dp(24)));
         TextView text=text(title,17,false);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.leftMargin=dp(20);item.addView(text,lp);
-        item.setOnClickListener(v->action.run());panel.addView(item,new LinearLayout.LayoutParams(-1,dp(57)));
+        item.setOnClickListener(v->closeDrawer(action));
+        panel.addView(item,new LinearLayout.LayoutParams(-1,dp(57)));
     }
     void openLastMedia(){
         String mode=prefs.getString("last_media_kind","");
@@ -1364,15 +1447,13 @@ public class MainActivity extends Activity {
     }
 
     @Override public void onBackPressed(){
-        if(drawerShade!=null&&drawerShade.getParent()==navigationSurface){
-            navigationSurface.removeView(drawerShade);drawerShade=null;return;
-        }
+        if(drawerShade!=null){closeDrawer();return;}
         super.onBackPressed();
     }
     private boolean hasResumedOnce = false;
     @Override protected void onResume() {
         super.onResume();
-        AudiobookCoverStore.backfill(this,()->{if(screen==0)draw();});
+        AudiobookCoverStore.backfill(this,this::onCoverBackfilled);
         if (hasResumedOnce) {
             loadPrefs();
             screen = 0;

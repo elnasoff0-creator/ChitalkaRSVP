@@ -46,9 +46,9 @@ public final class KvuheSearchActivity extends Activity {
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(BG);
         root.setPadding(dp(13),dp(24),dp(13),dp(12));setContentView(root);
         LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);root.addView(header,new LinearLayout.LayoutParams(-1,dp(52)));
-        ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_back);back.setPadding(dp(11),dp(11),dp(11),dp(11));
+        ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_back);back.setPadding(dp(10),dp(10),dp(10),dp(10));
         back.setColorFilter(INK);back.setBackground(shape(WHITE,15));back.setOnClickListener(v->BackNavigation.back(this));
-        back.setContentDescription("Назад");header.addView(back,new LinearLayout.LayoutParams(dp(49),dp(49)));
+        back.setContentDescription("Назад");header.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));
         TextView heading=text("Поиск аудиокниги",23);heading.setTypeface(Typeface.SERIF,Typeface.BOLD);heading.setGravity(Gravity.CENTER);
         header.addView(heading,new LinearLayout.LayoutParams(0,-1,1));header.addView(new View(this),new LinearLayout.LayoutParams(dp(49),dp(49)));
         LinearLayout search=new LinearLayout(this);search.setGravity(Gravity.CENTER_VERTICAL);LinearLayout.LayoutParams sl=new LinearLayout.LayoutParams(-1,dp(54));sl.topMargin=dp(16);root.addView(search,sl);

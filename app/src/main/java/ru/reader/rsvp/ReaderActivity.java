@@ -150,7 +150,7 @@ public class ReaderActivity extends Activity {
     private void add(LinearLayout parent,View child){parent.addView(child,new LinearLayout.LayoutParams(-1,-2));}
     private ImageButton icon(int id,View.OnClickListener click){
         ImageButton b=new ImageButton(this);b.setImageResource(id);b.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        b.setPadding(dp(13),dp(13),dp(13),dp(13));b.setBackground(shape(buttonBg(),16));
+        b.setPadding(dp(10),dp(10),dp(10),dp(10));b.setBackground(shape(buttonBg(),12));
         b.setColorFilter(contrast(buttonBg()));b.setOnClickListener(click);return b;
     }
     private int modeDrawable(){return mode==NORMAL?R.drawable.ic_book:mode==RSVP?R.drawable.ic_speed:R.drawable.ic_mode_cursor;}
@@ -162,12 +162,14 @@ public class ReaderActivity extends Activity {
         sceneRoot.addView(root,new FrameLayout.LayoutParams(-1,-1));
         setContentView(sceneRoot);
         toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);add(root,toolbar);
-        toolbar.addView(icon(R.drawable.ic_back,v->BackNavigation.back(this)),new LinearLayout.LayoutParams(dp(52),dp(53)));
+        toolbar.addView(icon(R.drawable.ic_back,v->BackNavigation.back(this)),new LinearLayout.LayoutParams(dp(44),dp(44)));
         toolbar.addView(new View(this),new LinearLayout.LayoutParams(0,dp(1),1));
-        toolbar.addView(icon(R.drawable.ic_bookmark,v->bookmark()),new LinearLayout.LayoutParams(dp(53),dp(53)));
-        toolbar.addView(icon(R.drawable.ic_microphone,v->audioMenu()),new LinearLayout.LayoutParams(dp(53),dp(53)));
+        LinearLayout.LayoutParams bookmarkLp=new LinearLayout.LayoutParams(dp(44),dp(44));bookmarkLp.leftMargin=dp(5);
+        toolbar.addView(icon(R.drawable.ic_bookmark,v->bookmark()),bookmarkLp);
+        LinearLayout.LayoutParams microphoneLp=new LinearLayout.LayoutParams(dp(44),dp(44));microphoneLp.leftMargin=dp(5);
+        toolbar.addView(icon(R.drawable.ic_microphone,v->audioMenu()),microphoneLp);
         LinearLayout speedGauge=new LinearLayout(this);speedGauge.setGravity(Gravity.CENTER);speedGauge.setOrientation(LinearLayout.VERTICAL);
-        speedGauge.setBackground(shape(buttonBg(),14));speedGauge.setPadding(dp(3),dp(2),dp(3),dp(2));
+        speedGauge.setBackground(shape(buttonBg(),12));speedGauge.setPadding(dp(3),dp(2),dp(3),dp(2));
         ImageView speedNeedle=new ImageView(this);speedNeedle.setImageResource(R.drawable.ic_audio_speed);
         speedNeedle.setColorFilter(contrast(buttonBg()));
         speedGauge.addView(speedNeedle,new LinearLayout.LayoutParams(dp(20),dp(20)));
@@ -179,8 +181,10 @@ public class ReaderActivity extends Activity {
             wpm=value;if(speedView!=null)speedView.setText(String.valueOf(wpm));saveLight(true);
         }));
         toolbarWpm=speedGauge;
-        toolbar.addView(speedGauge,new LinearLayout.LayoutParams(dp(53),dp(53)));
-        toolbar.addView(icon(R.drawable.ic_settings,v->settings()),new LinearLayout.LayoutParams(dp(53),dp(53)));
+        LinearLayout.LayoutParams gaugeLp=new LinearLayout.LayoutParams(dp(44),dp(44));gaugeLp.leftMargin=dp(5);
+        toolbar.addView(speedGauge,gaugeLp);
+        LinearLayout.LayoutParams settingsLp=new LinearLayout.LayoutParams(dp(44),dp(44));settingsLp.leftMargin=dp(5);
+        toolbar.addView(icon(R.drawable.ic_settings,v->settings()),settingsLp);
         if(words.length==0){applySystemBars(false);
             TextView intro=text("EPUB · FB2 · HTML\n\nОткройте книгу, чтобы начать чтение.",20);
             intro.setPadding(dp(24),dp(24),dp(24),dp(24));add(root,intro);

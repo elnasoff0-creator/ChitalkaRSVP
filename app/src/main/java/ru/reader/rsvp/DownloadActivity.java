@@ -70,7 +70,7 @@ public final class DownloadActivity extends Activity {
         FrameLayout top=new FrameLayout(this);root.addView(top,new LinearLayout.LayoutParams(-1,dp(53)));
         TextView heading=text("Загрузки",25,true);heading.setTypeface(Typeface.SERIF,Typeface.BOLD);heading.setGravity(Gravity.CENTER);
         top.addView(heading,new FrameLayout.LayoutParams(-1,-1));
-        ImageView back=icon(R.drawable.ic_back,"Назад",50);FrameLayout.LayoutParams bl=new FrameLayout.LayoutParams(dp(49),dp(49),Gravity.START|Gravity.CENTER_VERTICAL);
+        ImageView back=icon(R.drawable.ic_back,"Назад",44);FrameLayout.LayoutParams bl=new FrameLayout.LayoutParams(dp(44),dp(44),Gravity.START|Gravity.CENTER_VERTICAL);
         top.addView(back,bl);back.setOnClickListener(v->BackNavigation.back(this));
 
         LinearLayout actions=new LinearLayout(this);

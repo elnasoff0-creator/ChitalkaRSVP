@@ -113,12 +113,14 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         root.setPadding(dp(12),dp(29),dp(12),dp(10));setContentView(root);
         LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);
         root.addView(top,new LinearLayout.LayoutParams(-1,dp(54)));
-        top.addView(topAction(R.drawable.ic_back,"Назад",v->BackNavigation.back(this)),new LinearLayout.LayoutParams(dp(48),dp(48)));
+        top.addView(topAction(R.drawable.ic_back,"Назад",v->BackNavigation.back(this)),new LinearLayout.LayoutParams(dp(44),dp(44)));
         if(selected==null){TextView method=label("TTS ▾",13);method.setGravity(Gravity.CENTER);
             method.setOnClickListener(v->methodMenu());
-            top.addView(method,new LinearLayout.LayoutParams(0,dp(48),1));}
+            LinearLayout.LayoutParams methodLp=new LinearLayout.LayoutParams(0,dp(44),1);
+            methodLp.leftMargin=dp(5);top.addView(method,methodLp);}
         chapterPicker=topAction(R.drawable.ic_list_audio,"Выбрать главу",v->chapters());
-        top.addView(chapterPicker,new LinearLayout.LayoutParams(dp(48),dp(48)));
+        LinearLayout.LayoutParams chapterLp=new LinearLayout.LayoutParams(dp(44),dp(44));chapterLp.leftMargin=dp(5);
+        top.addView(chapterPicker,chapterLp);
         LinearLayout speedGroup=new LinearLayout(this);speedGroup.setOrientation(1);speedGroup.setGravity(Gravity.CENTER);
         speedGroup.setBackground(bg(neutralColor(),15));
         android.widget.ImageView speedIcon=new android.widget.ImageView(this);
@@ -127,7 +129,8 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         speedValue=label("1×",12);speedValue.setGravity(Gravity.CENTER);
         speedGroup.addView(speedValue,new LinearLayout.LayoutParams(-1,dp(17)));
         speedGroup.setOnClickListener(v->speedMenu());speedGroup.setContentDescription("Скорость");
-        top.addView(speedGroup,new LinearLayout.LayoutParams(dp(48),dp(48)));
+        LinearLayout.LayoutParams speedLp=new LinearLayout.LayoutParams(dp(44),dp(44));speedLp.leftMargin=dp(5);
+        top.addView(speedGroup,speedLp);
         LinearLayout timerGroup=new LinearLayout(this);timerGroup.setOrientation(LinearLayout.VERTICAL);
         timerGroup.setGravity(Gravity.CENTER);timerGroup.setBackground(bg(neutralColor(),15));
         ImageView timerIcon=new ImageView(this);timerIcon.setImageResource(R.drawable.ic_audio_timer);
@@ -136,8 +139,10 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         timerGroup.addView(timerValue,new LinearLayout.LayoutParams(-1,dp(17)));
         timerGroup.setOnClickListener(v->sleepMenu());timerGroup.setContentDescription("Таймер сна");
         timerAction=timerGroup;
-        top.addView(timerGroup,new LinearLayout.LayoutParams(dp(48),dp(48)));
-        top.addView(topAction(R.drawable.ic_settings,"Аудионастройки",v->openAudioSettings()),new LinearLayout.LayoutParams(dp(48),dp(48)));
+        LinearLayout.LayoutParams timerLp=new LinearLayout.LayoutParams(dp(44),dp(44));timerLp.leftMargin=dp(5);
+        top.addView(timerGroup,timerLp);
+        LinearLayout.LayoutParams audioSettingsLp=new LinearLayout.LayoutParams(dp(44),dp(44));audioSettingsLp.leftMargin=dp(5);
+        top.addView(topAction(R.drawable.ic_settings,"Аудионастройки",v->openAudioSettings()),audioSettingsLp);
         LinearLayout titleRow=new LinearLayout(this);titleRow.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams tl=new LinearLayout.LayoutParams(-1,-2);tl.topMargin=dp(10);root.addView(titleRow,tl);
         title=label("Аудиокнига",21);title.setGravity(Gravity.CENTER);title.setTypeface(android.graphics.Typeface.SERIF,1);

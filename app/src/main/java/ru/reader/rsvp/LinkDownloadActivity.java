@@ -54,9 +54,9 @@ public final class LinkDownloadActivity extends Activity {
     }
     private void build(){ScrollView scroll=new ScrollView(this);root=new LinearLayout(this);root.setPadding(dp(14),dp(25),dp(14),dp(22));root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(BG);scroll.addView(root);setContentView(scroll);
         LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);append(header,0);
-        ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_back);back.setColorFilter(ReaderButtonColors.contrastingText(ReaderButtonColors.neutral(this,CARD)));back.setPadding(dp(11),dp(11),dp(11),dp(11));back.setBackground(shape(ReaderButtonColors.neutral(this,CARD),15));header.addView(back,new LinearLayout.LayoutParams(dp(49),dp(49)));back.setOnClickListener(v->BackNavigation.back(this));back.setContentDescription("Назад");
+        ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_back);back.setColorFilter(ReaderButtonColors.contrastingText(ReaderButtonColors.neutral(this,CARD)));back.setPadding(dp(10),dp(10),dp(10),dp(10));back.setBackground(shape(ReaderButtonColors.neutral(this,CARD),15));header.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));back.setOnClickListener(v->BackNavigation.back(this));back.setContentDescription("Назад");
         TextView title=text("Скачать по ссылке",22,true);title.setTypeface(Typeface.SERIF,Typeface.BOLD);title.setGravity(Gravity.CENTER);header.addView(title,new LinearLayout.LayoutParams(0,dp(52),1));
-        header.addView(new View(this),new LinearLayout.LayoutParams(dp(49),dp(49)));
+        header.addView(new View(this),new LinearLayout.LayoutParams(dp(44),dp(44)));
         LinearLayout linkPanel=panel();append(linkPanel,17);linkPanel.addView(text("Ссылка на MP3, FB2, EPUB или облачный файл",16,true));
         links=new EditText(this);links.setTextSize(14);links.setHint("https://example.com/book.epub\nhttps://example.com/book.fb2\nhttps://example.com/audio.mp3");links.setMinLines(3);links.setMaxLines(7);links.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE|android.text.InputType.TYPE_TEXT_VARIATION_URI);
         linkPanel.addView(links,new LinearLayout.LayoutParams(-1,-2));
