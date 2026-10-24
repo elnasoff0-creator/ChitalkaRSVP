@@ -489,19 +489,113 @@ public class SettingsActivity extends Activity {
         toggle.setOnCheckedChangeListener((button,enabled)->prefs.edit().putBoolean(key,enabled).apply());
         list.addView(toggle);
     }
+    // Matching minimal, outlined 24dp icons with the supplied Audio screen mockup.
+    private LinearLayout audioCard(int icon,String title,String subtitle,View accessory,Runnable action){
+        LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(12),dp(9),dp(12),dp(9));row.setBackground(rounded(cardColor(),13));
+        android.widget.ImageView image=new android.widget.ImageView(this);
+        image.setImageResource(icon);image.setColorFilter(contrast(bg));
+        image.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        row.addView(image,new LinearLayout.LayoutParams(dp(27),dp(27)));
+        LinearLayout words=new LinearLayout(this);words.setOrientation(LinearLayout.VERTICAL);
+        words.setPadding(dp(13),0,dp(4),0);
+        TextView h=text(title,15,true);words.addView(h);
+        if(subtitle!=null&&!subtitle.isEmpty()){
+            TextView caption=text(subtitle,12,false);caption.setAlpha(.75f);
+            caption.setMaxLines(3);words.addView(caption);
+        }
+        row.addView(words,new LinearLayout.LayoutParams(0,-2,1));
+        if(accessory!=null)row.addView(accessory);
+        if(action!=null){row.setOnClickListener(v->action.run());}
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);
+        lp.bottomMargin=dp(5);list.addView(row,lp);
+        return row;
+    }
+    private TextView settingValue(String value){
+        TextView label=text(value,14,false);label.setGravity(Gravity.CENTER_VERTICAL);
+        return label;
+    }
+    private void audioLink(int icon,String title,String info,String value,Runnable action){
+        TextView tail=settingValue(value+"  ›");
+        audioCard(icon,title,info,tail,action);
+    }
+    private void audioToggle(int icon,String title,String info,String key,boolean initial){
+        android.widget.Switch sw=new android.widget.Switch(this);sw.setShowText(false);
+        sw.setChecked(prefs.getBoolean(key,initial));
+        sw.setOnCheckedChangeListener((v,on)->prefs.edit().putBoolean(key,on).apply());
+        audioCard(icon,title,info,sw,()->sw.setChecked(!sw.isChecked()));
+    }
+    private void audioDivider(){
+        gap(13);
+        View line=new View(this);line.setBackgroundColor(contrast(bg)==Color.WHITE?0x55ffffff:0x55866d5c);
+        list.addView(line,new LinearLayout.LayoutParams(-1,dp(1)));
+        gap(7);
+    }
     void drawAudioSettings(){
-        header("Настройки аудио");
-        list.addView(action("Эквалайзер · "+equalizerLabel(),R.drawable.ic_equalizer,this::equalizerDialog));gap(8);
-        list.addView(action("Локальные голоса TTS",R.drawable.ic_tts_engine,()->startActivity(new Intent(this,TtsVoiceActivity.class))));gap(8);
-        list.addView(action("Скорость TTS   ·   "+TtsWpm.get(this),R.drawable.ic_audio_speed,()->TtsWpm.dialog(this,this::draw)));gap(8);
-        settingSwitch("Автовоспроизведение при касании", "tts_tap_autoplay", false);
-        TextView tapInfo=text("При выборе предложения запускать TTS сразу. Если выключено — ждать нажатия Play.",13,false);
-        tapInfo.setPadding(dp(4),0,0,dp(8));list.addView(tapInfo);gap(8);
-
-        list.addView(action("Автоотмотка после паузы: "+autoRewindLabel(),this::autoRewindDialog));gap(8);
-        list.addView(action("Перемотка кнопками секунд: "+AudioPlaybackPrefs.seekSeconds(this)+" сек",()->seekStepDialog(false)));gap(8);
-        list.addView(action("Перемотка кнопками минут: "+AudioPlaybackPrefs.seekMinutes(this)+" мин",()->seekStepDialog(true)));gap(8);
+        header("TTS");
+        // Engine is a single-click toggle, using exactly the same icon resources as the old choice dialog.
+        LinearLayout choose=new LinearLayout(this);choose.setGravity(Gravity.CENTER_VERTICAL);
+        choose.setPadding(dp(12),dp(9),dp(12),dp(9));choose.setBackground(rounded(cardColor(),13));
+        android.widget.ImageView wave=new android.widget.ImageView(this);
+        wave.setImageResource(R.drawable.ic_tts_waveform);wave.setColorFilter(contrast(bg));
+        choose.addView(wave,new LinearLayout.LayoutParams(dp(27),dp(27)));
+        LinearLayout descriptions=col();descriptions.setPadding(dp(13),0,dp(5),0);
+        descriptions.addView(text("Метод озвучки",15,true));
+        TextView info=text("Один плеер для системного TTS и Microsoft Edge",12,false);info.setAlpha(.75f);
+        descriptions.addView(info);choose.addView(descriptions,new LinearLayout.LayoutParams(0,-2,1));
+        boolean local=prefs.getBoolean("tts_last_local",true);
+        for(int i=0;i<2;i++){
+            final boolean system=i==0;
+            android.widget.ImageView icon=new android.widget.ImageView(this);
+            icon.setImageResource(system?R.drawable.ic_android_tts:R.drawable.ic_edge_tts);
+            icon.setColorFilter(contrast(bg));icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+            android.graphics.drawable.GradientDrawable shape=rounded(cardColor(),11);
+            if(local==system)shape.setStroke(dp(2),activeColor());
+            icon.setBackground(shape);icon.setPadding(dp(8),dp(8),dp(8),dp(8));
+            icon.setContentDescription(system?"Системный TTS":"Edge TTS онлайн");
+            LinearLayout.LayoutParams iconLp=new LinearLayout.LayoutParams(dp(43),dp(43));
+            if(i>0)iconLp.leftMargin=dp(5);choose.addView(icon,iconLp);
+            icon.setOnClickListener(v->{prefs.edit().putBoolean("tts_last_local",system).apply();draw();});
+        }
+        LinearLayout.LayoutParams chooseLp=new LinearLayout.LayoutParams(-1,-2);chooseLp.bottomMargin=dp(5);
+        list.addView(choose,chooseLp);
+        audioLink(R.drawable.ic_tts_engine,"Локальный голос","Установленные русские голоса Samsung, Google и других движков","Выбрать",()->startActivity(new Intent(this,TtsVoiceActivity.class)));
+        audioLink(R.drawable.ic_audio_speed,"Скорость WPM","Единый диалог спидометра: пресеты и ±10",TtsWpm.get(this)+"",()->TtsWpm.dialog(this,this::draw));
+        audioToggle(R.drawable.ic_tts_autoplay,"Автовоспроизведение при касании","Начинать озвучку сразу после выбора предложения","tts_tap_autoplay",false);
+        audioCard(R.drawable.ic_tts_document,"До 600 символов на фрагмент","Предложения разделяются автоматически, по возможности без разрыва слов",settingValue("600"),null);
+        audioToggle(R.drawable.ic_tts_pause_trim,"Сокращение пауз между предложениями MS Edge","Сокращается только конечная тишина; MP3 и WordBoundary не изменяются","edge_trim_sentence_pause",true);
+        audioCard(R.drawable.ic_downloads,"Edge MP3 офлайн","Синтезированные предложения сохраняются постоянно",settingValue("Всегда"),null);
+        audioCard(R.drawable.ic_tts_storage,"Кэш системного TTS","Временные записи могут удаляться Android автоматически",settingValue("Временный"),null);
+        audioDivider();
+        header("Аудиокниги MP3 / M4A");
+        audioLink(R.drawable.ic_equalizer,"Эквалайзер","Настройка звучания аудиокниг",equalizerLabel(),this::equalizerDialog);
+        audioLink(R.drawable.ic_audio_speed,"Скорость воспроизведения","Отдельно от скорости WPM", "×",this::audioSpeedDialog);
+        audioLink(R.drawable.ic_sleep_timer,"Таймер сна","Автоматическая остановка аудиокниги","Выбрать",this::audioSleepDialog);
+        audioLink(R.drawable.ic_audio_timer,"Автоотмотка после паузы","Вернуться к ранее прослушанному месту",autoRewindLabel(),this::autoRewindDialog);
+        audioLink(R.drawable.ic_rewind_10s,"Перемотка секундами","Интервал шагов плеера",AudioPlaybackPrefs.seekSeconds(this)+" сек",()->seekStepDialog(false));
+        audioLink(R.drawable.ic_rewind_1m,"Перемотка минутами","Интервал шагов плеера",AudioPlaybackPrefs.seekMinutes(this)+" мин",()->seekStepDialog(true));
         gap(18);
+    }
+    private void audioSpeedDialog(){
+        final float[] rates={.5f,.75f,1f,1.1f,1.25f,1.5f,1.75f,2f,2.5f,3f};
+        final String[] labels={"0.5×","0.75×","1×","1.1×","1.25×","1.5×","1.75×","2×","2.5×","3×"};
+        float saved=prefs.getFloat("audio_speed",1f);int selected=2;
+        for(int i=0;i<rates.length;i++)if(Math.abs(saved-rates[i])<.01f)selected=i;
+        new AlertDialog.Builder(this).setTitle("Скорость аудиокниг")
+            .setSingleChoiceItems(labels,selected,(dialog,n)->{
+                prefs.edit().putFloat("audio_speed",rates[n]).apply();
+                startService(new Intent(this,AudioPlaybackService.class)
+                    .setAction(AudioPlaybackService.SPEED).putExtra("speed",rates[n]));
+                dialog.dismiss();draw();
+            }).setNegativeButton("Отмена",null).show();
+    }
+    private void audioSleepDialog(){
+        final int[] minutes={0,5,10,15,30,60};
+        final String[] items={"Выключить","5 минут","10 минут","15 минут","30 минут","60 минут"};
+        new AlertDialog.Builder(this).setTitle("Таймер сна")
+            .setItems(items,(dialog,n)->startService(new Intent(this,AudioPlaybackService.class)
+                .setAction(AudioPlaybackService.SLEEP).putExtra("minutes",minutes[n])))
+            .setNegativeButton("Отмена",null).show();
     }
     String autoRewindLabel(){int sec=AudioPlaybackPrefs.pauseRewindSeconds(this);
         return sec==0?"выключена":sec==60?"1 мин":sec+" сек";
@@ -620,15 +714,13 @@ public class SettingsActivity extends Activity {
     }
     void drawOnlineSettings(){
         header("Версия и обновления");
-        TextView installed=text("Установлена: v" + installedVersion() + " (сборка " + installedCode() + ")",14,false);installed.setPadding(dp(4),0,0,dp(9));list.addView(installed);
-        list.addView(action("Проверить версию в GitHub", R.drawable.ic_web_update, () -> new UpdateManager(this).checkVersion()));
-        gap(10);
-        header("Онлайн-озвучивание Edge TTS");
-        TextView notice=text("Подготовка следующего предложения работает автоматически. Очередь вручную не настраивается.",14,false);
-        notice.setPadding(dp(5),dp(12),0,dp(12));list.addView(notice);gap(8);
-        settingSwitch("Сокращение пауз между предложениями MS Edge", "edge_trim_sentence_pause", true);
-        TextView explanation=text("Пропускается только подтверждённая конечная тишина после предложения. Исходные MP3 и метки WordBoundary не изменяются.",13,false);
-        explanation.setPadding(dp(4),0,0,dp(8));list.addView(explanation);
+        TextView installed=text("Установлена: v"+installedVersion()+" (сборка "+installedCode()+")",14,false);
+        installed.setPadding(dp(4),0,0,dp(9));list.addView(installed);
+        list.addView(action("Проверить версию в GitHub",R.drawable.ic_web_update,
+                ()->new UpdateManager(this).checkVersion()));
+        gap(12);
+        TextView message=text("Параметры Microsoft Edge TTS теперь находятся во вкладке «Аудио» в разделе TTS.",14,false);
+        message.setPadding(dp(6),dp(8),dp(6),dp(12));list.addView(message);
     }
     void theme(LinearLayout row,String name,int background,int ink){TextView chip=text(name,13,false);chip.setTextColor(ink);chip.setGravity(Gravity.CENTER);chip.setBackground(outlined(background,14));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(56),1);lp.setMargins(dp(2),0,dp(2),0);row.addView(chip,lp);chip.setOnClickListener(v->{bg=background;fg=ink;put("bg",bg);put("fg",fg);draw();});}
     void palette(int[] colors,boolean background){

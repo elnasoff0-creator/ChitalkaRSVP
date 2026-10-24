@@ -88,7 +88,8 @@ public class AudioPlayerActivity extends Activity {
     @Override public void onCreate(Bundle b){super.onCreate(b);bookUri=getIntent().getStringExtra("book_uri");if(bookUri==null||bookUri.isEmpty())bookUri=getSharedPreferences("reader",0).getString("uri","");String id=getIntent().getStringExtra("audio_book_id");if(id!=null)for(AudioLibrary.Book item:AudioLibrary.load(this))if(id.equals(item.id)){selected=item;break;}if(getIntent().getBooleanExtra("count_usage",false)&&selected!=null)bumpAudioUsage(selected.id);
         if(getIntent().getBooleanExtra("start_tts",false)&&!bookUri.isEmpty()){
             startActivity(new Intent(this,EdgeOnlineActivity.class)
-                .putExtra("book_uri",bookUri).putExtra("tts_mode_local",true)
+                .putExtra("book_uri",bookUri)
+                .putExtra("tts_mode_local",getSharedPreferences("reader",0).getBoolean("tts_last_local",true))
                 .putExtra("word_index",getIntent().getIntExtra("word_index",getSharedPreferences("reader",0).getInt("tts_word:"+bookUri,0))));
             finish();return;
         }
@@ -418,12 +419,12 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
     void sleepMenu(){final int[] minutes={0,5,10,15,30,60};String[] labels={"Выключить","5 мин","10 мин","15 мин","30 мин","60 мин"};new AlertDialog.Builder(this).setTitle("Таймер сна").setItems(labels,(d,n)->{Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SLEEP);i.putExtra("minutes",minutes[n]);startService(i);Toast.makeText(this,"Таймер сохранён",Toast.LENGTH_SHORT).show();}).show();}
     void voiceMenu(){startActivity(new Intent(this,TtsVoiceActivity.class));}
     void methodMenu(){
-        if(bookUri==null||bookUri.isEmpty()){Toast.makeText(this,"Сначала откройте текстовую книгу",Toast.LENGTH_SHORT).show();return;}
-        new AlertDialog.Builder(this).setTitle("Способ озвучки")
-            .setItems(new String[]{"Системный TTS · локальный","Microsoft Edge · онлайн"},(d,n)->{
-                if(n==0){loadTts(bookUri,getSharedPreferences("reader",0).getInt("tts_word:"+bookUri,0));}
-                else{startActivity(new Intent(this,EdgeOnlineActivity.class).putExtra("book_uri",bookUri));}
-            }).setNegativeButton("Отмена",null).show();
+        if(bookUri==null||bookUri.isEmpty()){
+            Toast.makeText(this,"Сначала откройте текстовую книгу",Toast.LENGTH_SHORT).show();return;
+        }
+        boolean lastLocal=getSharedPreferences("reader",0).getBoolean("tts_last_local",true);
+        startActivity(new Intent(this,EdgeOnlineActivity.class)
+            .putExtra("book_uri",bookUri).putExtra("tts_mode_local",lastLocal));
     }
     void chapters(){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null){Toast.makeText(this,"Сначала выберите книгу",Toast.LENGTH_SHORT).show();return;}if(s.isTtsMode()){chooseTtsFragment(s);return;}int count=s.getChapterCount();if(count<1)return;String[] labels=new String[count];for(int j=0;j<count;j++)labels[j]=s.getChapterName(j);new AlertDialog.Builder(this).setTitle("Части аудиокниги").setSingleChoiceItems(labels,s.getSegment(),(d,n)->{Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.CHAPTER);i.putExtra("chapter",n);startService(i);d.dismiss();}).setNegativeButton("Отмена",null).show();}
     void chooseTtsFragment(AudioPlaybackService s){

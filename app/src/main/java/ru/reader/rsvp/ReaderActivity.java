@@ -727,39 +727,13 @@ public class ReaderActivity extends Activity {
     private void settings(){stop();startActivity(new Intent(this,SettingsActivity.class).putExtra("rsvp_tab",true));}
     private void audioMenu(){
         if(docUri.isEmpty()){Toast.makeText(this,"Сначала откройте книгу",Toast.LENGTH_SHORT).show();return;}
-        new AlertDialog.Builder(this).setTitle("Способ озвучивания")
-            .setView(audioChoiceView())
-            .setNegativeButton("Отмена",null).show();
-    }
-    private View audioChoiceView(){
-        LinearLayout wrap=column();
-        wrap.setPadding(dp(6),dp(8),dp(6),dp(2));
-        wrap.addView(audioChoiceItem(R.drawable.ic_android_tts,"Android TTS","Системное офлайн-озвучивание",()->openAudioEngine(true)),new LinearLayout.LayoutParams(-1,-2));
-        TextView gapView=new TextView(this);gapView.setHeight(dp(8));wrap.addView(gapView,new LinearLayout.LayoutParams(-1,dp(8)));
-        wrap.addView(audioChoiceItem(R.drawable.ic_edge_tts,"MS Edge TTS","Онлайн-озвучивание Microsoft Edge",()->openAudioEngine(false)),new LinearLayout.LayoutParams(-1,-2));
-        return wrap;
-    }
-    private View audioChoiceItem(int iconRes,String titleText,String subtitle,Runnable action){
-        LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.HORIZONTAL);card.setGravity(Gravity.CENTER_VERTICAL);
-        card.setPadding(dp(14),dp(14),dp(14),dp(14));card.setBackground(shape(panelColor(),18));
-        ImageView icon=new ImageView(this);icon.setImageResource(iconRes);icon.setColorFilter(fg);
-        card.addView(icon,new LinearLayout.LayoutParams(dp(30),dp(30)));
-        LinearLayout textWrap=column();textWrap.setPadding(dp(12),0,0,0);
-        TextView titleView=text(titleText,17);titleView.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
-        TextView subtitleView=text(subtitle,13);subtitleView.setAlpha(.82f);
-        textWrap.addView(titleView,new LinearLayout.LayoutParams(-1,-2));
-        textWrap.addView(subtitleView,new LinearLayout.LayoutParams(-1,-2));
-        card.addView(textWrap,new LinearLayout.LayoutParams(0,-2,1));
-        ImageView chevron=new ImageView(this);chevron.setImageResource(R.drawable.ic_next_chapter);chevron.setColorFilter(fg);
-        card.addView(chevron,new LinearLayout.LayoutParams(dp(18),dp(18)));
-        card.setOnClickListener(v->action.run());
-        return card;
+        openAudioEngine(prefs.getBoolean("tts_last_local",true));
     }
     private void openAudioEngine(boolean androidTts){
         stop();save();
-        Intent intent=new Intent(this,androidTts?AudioPlayerActivity.class:EdgeOnlineActivity.class);
+        Intent intent=new Intent(this,EdgeOnlineActivity.class);
         intent.putExtra("book_uri",docUri);intent.putExtra("word_index",index);
-        if(androidTts)intent.putExtra("start_tts",true);
+        intent.putExtra("tts_mode_local",androidTts);
         startActivity(intent);
     }
     @Override protected void onResume(){super.onResume();
