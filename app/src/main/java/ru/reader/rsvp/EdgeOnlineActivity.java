@@ -56,6 +56,8 @@ public final class EdgeOnlineActivity extends Activity {
     private ScrollView scroller;
     private TextView reading,bookTitle,progress,offlineProgress,speed;
     private ImageButton modeButton,downloadsButton;
+    private TextView sleepRemaining;
+    private View sleepControl;
     private FrameLayout playbackBar;
     private boolean switchShouldPlay=false;
     private int switchedWord=-1;
@@ -177,6 +179,7 @@ public final class EdgeOnlineActivity extends Activity {
     private void createUi(){
         root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(background);
         root.setPadding(dp(10),dp(8),dp(10),dp(8));setContentView(root);
+        SafeSystemBars.matchBackground(this,background);
         styledButtonColor=ReaderButtonColors.neutral(this,0xfffff9f0);
         styledAccentColor=ReaderButtonColors.accent(this,0xff915439);
         LinearLayout toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);
@@ -188,7 +191,19 @@ public final class EdgeOnlineActivity extends Activity {
         addToolbarButton(toolbar,modeButton,false);
         ImageButton voiceButton=toolbarIcon(R.drawable.ic_tts_engine,"Выбор голоса",this::chooseVoice);
         addToolbarButton(toolbar,voiceButton,false);
-        ImageButton sleep=toolbarIcon(R.drawable.ic_sleep_timer,"Таймер сна",this::sleepDialog);
+        // Same icon-plus-remaining-time convention as the MP3 audiobook timer.
+        LinearLayout sleep=new LinearLayout(this);
+        sleep.setOrientation(LinearLayout.VERTICAL);sleep.setGravity(Gravity.CENTER);
+        sleep.setBackground(bg(styledButtonColor,12));
+        ImageView clock=new ImageView(this);clock.setImageResource(R.drawable.ic_sleep_timer);
+        clock.setColorFilter(ReaderButtonColors.contrastingText(styledButtonColor));
+        sleep.addView(clock,new LinearLayout.LayoutParams(dp(20),dp(20)));
+        sleepRemaining=label("",10);sleepRemaining.setSingleLine(true);
+        sleepRemaining.setTextColor(ReaderButtonColors.contrastingText(styledButtonColor));
+        sleepRemaining.setGravity(Gravity.CENTER);sleepRemaining.setVisibility(View.GONE);
+        sleep.addView(sleepRemaining,new LinearLayout.LayoutParams(-1,dp(15)));
+        sleep.setContentDescription("Таймер сна");sleep.setOnClickListener(v->sleepDialog());
+        sleepControl=sleep;
         addToolbarButton(toolbar,sleep,false);
         LinearLayout gauge=new LinearLayout(this);
         gauge.setOrientation(LinearLayout.VERTICAL);
@@ -345,6 +360,22 @@ public final class EdgeOnlineActivity extends Activity {
         }else if(edge!=null){if(edge.isPlaying()){selectedWord=liveWord();edge.pause();}else edge.play();}
         refresh();
     }
+    private void updateSleepCountdown(){
+        if(sleepRemaining==null||sleepControl==null)return;
+        long left=0;
+        if(local&&AudioPlaybackService.instance!=null)
+            left=AudioPlaybackService.instance.getSleepRemainingMillis();
+        else if(!local&&edge!=null)
+            left=edge.sleepRemainingMs();
+        if(left<=0){
+            long until=getSharedPreferences("reader",0).getLong("audio_sleep_deadline",0);
+            left=Math.max(0,until-System.currentTimeMillis());
+        }
+        String formatted=left<=0?"":left<60000?Math.max(1,(left+999)/1000)+"с":(left+59999)/60000+"м";
+        if(!formatted.contentEquals(sleepRemaining.getText()))sleepRemaining.setText(formatted);
+        sleepRemaining.setVisibility(left>0?View.VISIBLE:View.GONE);
+        sleepControl.setContentDescription(left<=0?"Таймер сна выключен":"Таймер сна: осталось "+formatted);
+    }
     private void sleepDialog(){
         int[] minutes={0,5,10,15,30,60};
         String[] choices={"Выключить","5 мин","10 мин","15 мин","30 мин","60 мин"};
@@ -478,6 +509,7 @@ public final class EdgeOnlineActivity extends Activity {
         boolean playing=local?(AudioPlaybackService.instance!=null&&AudioPlaybackService.instance.isTtsMode()&&!AudioPlaybackService.instance.isPaused()):edge!=null&&edge.isPlaying();
         playIcon.setImageResource(playing?R.drawable.ic_pause:R.drawable.ic_play);
         speed.setText(String.valueOf(TtsWpm.get(this)));
+        updateSleepCountdown();
         int word=(!playing&&selectedWord>=0)?selectedWord:liveWord(),start=wordChar(word),end=start;
         if(playing)selectedWord=word;
         if(local){
@@ -552,6 +584,7 @@ public final class EdgeOnlineActivity extends Activity {
             if(nextButton!=styledButtonColor||nextAccent!=styledAccentColor||nextBg!=background||nextFg!=foreground){
                 int at=selectedWord>=0?selectedWord:liveWord();int offset=scroller==null?0:scroller.getScrollY();
                 background=nextBg;foreground=nextFg;
+                SafeSystemBars.matchBackground(this,background);
                 createUi();windowStart=-1;windowEnd=-1;
                 if(!full.isEmpty()){
                     showWindow(wordChar(at),false);

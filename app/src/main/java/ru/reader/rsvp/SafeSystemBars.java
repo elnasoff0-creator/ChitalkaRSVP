@@ -2,11 +2,31 @@ package ru.reader.rsvp;
 import android.app.Activity;
 import android.os.Build;
 import android.view.View;
+import android.view.Window;
+import android.graphics.Color;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 /** Keep every Activity below the system bars, including Android 15 edge-to-edge. */
 public final class SafeSystemBars {
     private SafeSystemBars() {}
+    /** Paint the inset strips with the active book background, not the theme's light window. */
+    public static void matchBackground(Activity activity,int color){
+        View content=activity.findViewById(android.R.id.content);
+        if(content!=null)content.setBackgroundColor(color);
+        Window window=activity.getWindow();
+        window.setStatusBarColor(color);
+        window.setNavigationBarColor(color);
+        if(Build.VERSION.SDK_INT>=29){
+            window.setStatusBarContrastEnforced(false);
+            window.setNavigationBarContrastEnforced(false);
+        }
+        View decor=window.getDecorView();
+        int flags=decor.getSystemUiVisibility();
+        flags &= ~(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+        double brightness=0.299*Color.red(color)+0.587*Color.green(color)+0.114*Color.blue(color);
+        if(brightness>=150)flags|=View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+        decor.setSystemUiVisibility(flags);
+    }
     public static void install(Activity activity) {
         // Before Android 15, non-immersive windows already fit content below bars.
         // Extra padding there would count system insets twice.

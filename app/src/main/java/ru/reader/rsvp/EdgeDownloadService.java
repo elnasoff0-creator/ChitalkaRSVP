@@ -33,6 +33,9 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
@@ -58,6 +61,11 @@ public final class EdgeDownloadService extends Service {
     private boolean calculatingCoverage=false;
     private long lastCoverageCheck=0;
     private final ArrayList<Clip> archive=new ArrayList<>();
+    // The complete, sentence-indexed catalogue is independent of which MP3 has been cached.
+    private final Map<Integer,Clip> byStart=new HashMap<>();
+    // Requested clips survive jumps and process restarts; foreground selection takes precedence.
+    private final LinkedHashSet<Integer> pendingStarts=new LinkedHashSet<>();
+    private int priorityStart=-1;
     private final ArrayList<Observer> observers=new ArrayList<>();
     private String bookUri="",title="",bookText="",error="";
     private File directory;
@@ -194,7 +202,8 @@ public final class EdgeDownloadService extends Service {
         String playing=player==null?"":player.currentKey();
         if(!playing.isEmpty())for(Clip c:archive)
             if((c.key+":"+c.start).equals(playing))return c.copy();
-        Clip candidate=clipAt(anchor());
+        // Never report an unrelated previously played MP3 as the selected sentence.
+        Clip candidate=clipAt(anchorWord);
         return candidate==null?null:candidate.copy();
     }
     public String voice(){return getSharedPreferences("reader",0).getString("edge_voice","ru-RU-SvetlanaNeural");}
@@ -205,6 +214,9 @@ public final class EdgeDownloadService extends Service {
         if(rate!=null)edit.putString("edge_rate",rate);
         edit.apply();cancelGeneration();
         if(player!=null)player.clearQueue();
+        // Every voice has separate MP3 keys; rebuild the index without deleting older audio.
+        if(bookReady){restore();priorityStart=SentenceChunks.forWord(sentenceParts,anchorWord)==null?-1:
+                SentenceChunks.forWord(sentenceParts,anchorWord).fromWord;persist();}
         pump();
     }
     public void openBook(String uri,int initialWord){
@@ -212,7 +224,8 @@ public final class EdgeDownloadService extends Service {
         if(uri.equals(bookUri)){if(player==null||player.currentStartWord()<0)anchorWord=Math.max(0,initialWord);pump();return;}
         cancelGeneration();bookUri=uri;bookReady=false;anchorWord=Math.max(0,initialWord);
         cachedSavedPercent=0;lastCoverageCheck=0;
-        archive.clear();offsets.clear();sentenceParts.clear();bookText="";directory=null;error="";
+        archive.clear();byStart.clear();pendingStarts.clear();priorityStart=-1;
+        offsets.clear();sentenceParts.clear();bookText="";directory=null;error="";
         if(player!=null)player.prepareBook("edge:"+uri);
         changed();
         final String requested=uri;
@@ -231,6 +244,8 @@ public final class EdgeDownloadService extends Service {
                     bookText=raw;title=name;offsets.addAll(positions);sentenceParts.addAll(newParts);directory=dir;
                     bookReady=!offsets.isEmpty();restore();
                     if(!bookReady)error="Книга не содержит текста";
+                    else {SentenceChunks.Chunk initial=SentenceChunks.forWord(sentenceParts,anchorWord);
+                        priorityStart=initial==null?-1:initial.fromWord;persist();}
                     pump();
                 });
             }catch(Exception ex){main.post(()->{if(requested.equals(bookUri)){error="Ошибка чтения книги: "+ex.getMessage();changed();}});}
@@ -243,51 +258,74 @@ public final class EdgeDownloadService extends Service {
         else {cancelGeneration();if(foreground){stopForeground(STOP_FOREGROUND_REMOVE);foreground=false;}changed();stopSelf();}
     }
     public void setAnchor(int word,boolean selected){
-        if(!bookReady)return;
-        if(selected){cancelGeneration();if(player!=null)player.clearTracksForSelection();}
-        anchorWord=Math.max(0,Math.min(offsets.size()-1,word));pump();
+        if(!bookReady){anchorWord=Math.max(0,word);return;}
+        int requested=Math.max(0,Math.min(offsets.size()-1,word));
+        SentenceChunks.Chunk part=SentenceChunks.forWord(sentenceParts,requested);
+        if(part==null)return;
+        Clip target=clipAt(requested);
+        if(selected){
+            // Preempt any download, even if the chosen sentence is far outside the
+            // previously prepared range. The interrupted job remains pending.
+            if(generating!=null&&generating!=target){
+                pendingStarts.add(generating.start);
+                cancelGeneration();
+            }
+            if(player!=null)player.clearTracksForSelection();
+            priorityStart=target.start;
+            pendingStarts.remove(target.start);
+        }
+        anchorWord=target.start;
+        persist();pump();
     }
-    /** Sentence-indexed lookup, no user-visible queue or adjustable fragments. */
+    /** Indexed by the requested sentence, never by the last downloaded playlist item. */
     private Clip clipAt(int word){
         if(word<0||word>=offsets.size()||sentenceParts.isEmpty())return null;
         SentenceChunks.Chunk part=SentenceChunks.forWord(sentenceParts,word);
         if(part==null)return null;
-        int start=part.fromWord,after=part.toWord;
-        String text=part.text;
-        String key=EdgeBookStorage.key(text,voice(),rate(),"edge-direct-v1");
-        for(Clip item:archive)if(item.start==start&&item.end==after&&item.key.equals(key)){
-            if(!item.ready()){
-                File f=new File(directory,key+".mp3");
-                if(f.isFile()&&f.length()>1500){item.file=f;item.bytes=f.length();}
+        Clip clip=byStart.get(part.fromWord);
+        if(clip!=null&&!clip.ready()&&directory!=null){
+            File onDisk=new File(directory,clip.key+".mp3");
+            if(onDisk.isFile()&&onDisk.length()>1500){
+                clip.file=onDisk;clip.bytes=onDisk.length();pendingStarts.remove(clip.start);
+                persist();
             }
-            return item;
         }
-        Clip c=new Clip(start,after,text,key);
-        c.file=new File(directory,key+".mp3");if(!c.ready())c.file=null;
-        if(c.ready())c.bytes=c.file.length();
-        archive.add(c);Collections.sort(archive,(one,two)->Integer.compare(one.start,two.start));
-        persist();changed();return c;
+        return clip;
     }
-    /** One playing sentence plus at most one prepared ahead. No old queue planner. */
+    /** Select the exact requested sentence first, then the next sentence, then
+     * unfinished requests interrupted by seeking. No missing earlier sentence blocks playback. */
     private void pump(){
         if(!bookReady||directory==null||destroyed)return;
-        ArrayList<Clip> ready=new ArrayList<>();
-        Clip current=clipAt(anchor());
-        if(current!=null){ready.add(current);
-            Clip ahead=clipAt(current.end);
-            if(ahead!=null&&ahead.start!=current.start)ready.add(ahead);
-        }
+        Clip current=clipAt(anchorWord);
+        Clip ahead=current==null?null:clipAt(current.end);
         if(player!=null){
             player.setAutoContinue(true);
-            for(Clip c:ready){if(!c.ready())break;
-                player.appendReady(c.key+":"+c.start,c.start,c.end,c.file);
+            if(current!=null&&current.ready()){
+                player.appendReady(current.key+":"+current.start,current.start,current.end,current.file);
+                if(ahead!=null&&ahead.ready())
+                    player.appendReady(ahead.key+":"+ahead.start,ahead.start,ahead.end,ahead.file);
             }
         }
         if(active&&generating==null){
-            for(Clip c:ready){
-                if(c.ready())continue;
-                if(SystemClock.uptimeMillis()<c.retryAt)break;
-                download(c);break;
+            Clip next=null;
+            if(priorityStart>=0){
+                Clip priority=byStart.get(priorityStart);
+                if(priority!=null&&!priority.ready())next=priority;
+                else priorityStart=-1;
+            }
+            if(next==null&&current!=null&&!current.ready())next=current;
+            if(next==null&&ahead!=null&&!ahead.ready())next=ahead;
+            if(next==null){
+                // Resume requests that were displaced by a user's manual jump.
+                for(Integer start:new ArrayList<>(pendingStarts)){
+                    Clip item=byStart.get(start);
+                    if(item==null||item.ready()){pendingStarts.remove(start);continue;}
+                    next=item;break;
+                }
+            }
+            if(next!=null&&SystemClock.uptimeMillis()>=next.retryAt){
+                pendingStarts.remove(next.start);
+                download(next);
             }
         }
         changed();
@@ -299,7 +337,7 @@ public final class EdgeDownloadService extends Service {
             main.postDelayed(this::pump,1500);return;
         }
         generationLock=candidate;
-        generating=c;int id=++session;partBytes=0;partCount=0;error="";changed();
+        generating=c;int id=++session;partBytes=0;partCount=0;error="";persist();changed();
         transport=EdgeTtsClient.synthesize(c.text,voice(),rate(),new EdgeTtsClient.Callback(){
             @Override public void progress(int chunks,long bytes){main.post(()->{if(generating==c&&id==session){partCount=chunks;partBytes=bytes;changed();}});}
             @Override public void finished(byte[] mp3,int chunks,String failure){
@@ -336,6 +374,8 @@ public final class EdgeDownloadService extends Service {
                             generating=null;transport=null;
                             EdgeGenerationGuard.release(generationLock);generationLock=null;
                             c.file=result;c.bytes=result.length();c.chunks=chunks;c.failures=0;error="";
+                            pendingStarts.remove(c.start);
+                            if(priorityStart==c.start)priorityStart=-1;
                             persist();pump();
                         });
                     });
@@ -354,6 +394,7 @@ public final class EdgeDownloadService extends Service {
         if(transport!=null){transport.cancel();transport=null;}
         generating=null;session++;
         EdgeGenerationGuard.release(generationLock);generationLock=null;
+        pendingStarts.add(c.start);
         c.failures++;long seconds=Math.min(120,5L*(1<<Math.min(4,c.failures-1)));
         c.retryAt=SystemClock.uptimeMillis()+seconds*1000;
         error="Фрагмент "+(archive.indexOf(c)+1)+": "+reason+" · повтор через "+seconds+" с";
@@ -383,60 +424,63 @@ public final class EdgeDownloadService extends Service {
     }
     public void clearAudio(Runnable done){
         setActive(false);if(player!=null)player.clearQueue();
-        archive.clear();File folder=directory;
+        archive.clear();byStart.clear();pendingStarts.clear();priorityStart=-1;File folder=directory;
         io.execute(()->{if(folder!=null){File[] children=folder.listFiles();if(children!=null)for(File f:children)f.delete();}
-            main.post(()->{changed();if(done!=null)done.run();});});
+            main.post(()->{restore();persist();changed();if(done!=null)done.run();});});
     }
-    private void restore(){archive.clear();if(directory==null)return;
-        try{File f=new File(directory,"sentences.json");
+    /** Reconstruct the COMPLETE ordered sentence catalogue for this voice.
+     * The manifest includes downloaded and missing sentences, so jumping over gaps
+     * cannot silently redirect the player to the last ready sentence. */
+    private void restore(){
+        archive.clear();byStart.clear();pendingStarts.clear();priorityStart=-1;
+        if(directory==null)return;
+        Map<Integer,JSONObject> oldRows=new HashMap<>();
+        try{
+            File f=new File(directory,"sentences.json");
             if(!f.isFile())f=new File(directory,"queue.json");
-            byte[] input=new byte[f.isFile()?(int)Math.min(f.length(),4*1024*1024L):0];int total=0;
+            byte[] input=new byte[f.isFile()?(int)Math.min(f.length(),8*1024*1024L):0];int total=0;
             if(f.isFile())try(java.io.FileInputStream in=new java.io.FileInputStream(f)){
                 int count;while(total<input.length&&(count=in.read(input,total,input.length-total))>0)total+=count;
             }
-            JSONArray data;
-            try{data=total>0?new JSONArray(new String(input,0,total,StandardCharsets.UTF_8)):new JSONArray();}
-            catch(Exception invalidOldQueue){data=new JSONArray();}
-            for(int i=0;i<data.length()&&i<10000;i++){
-                JSONObject row=data.optJSONObject(i);if(row==null)continue;
-                int st=row.optInt("start",-1),end=row.optInt("end",-1);
-                if(st<0||end<=st||end>offsets.size())continue;
-                String text=row.optString("text",""),key=row.optString("key","");
-                if(text.isEmpty()||!key.matches("[a-f0-9]{64}"))continue;
-                Clip c=new Clip(st,end,text,key);c.file=new File(directory,key+".mp3");
-                if(!c.ready())c.file=null;
-                c.bytes=c.ready()?c.file.length():0;c.chunks=row.optInt("chunks",0);c.played=row.optBoolean("played",false);
-                archive.add(c);
+            JSONArray saved=total>0?new JSONArray(new String(input,0,total,StandardCharsets.UTF_8)):new JSONArray();
+            for(int i=0;i<saved.length();i++){
+                JSONObject row=saved.optJSONObject(i);
+                if(row!=null)oldRows.put(row.optInt("start",-1),row);
             }
-            // Full-book synthesis owns full_queue.json; never write it from the autoload service.
-            EdgeFullBookStore.Job job=EdgeFullBookStore.read(directory.getParentFile());
-            if(job!=null&&voice().equals(job.voice)&&rate().equals(job.rate)
-                &&EdgeSegmentSettings.get(getSharedPreferences("reader",0))==job.chars){
-                JSONArray full=EdgeFullBookStore.queue(job);
-                for(int i=0;i<full.length();i++){
-                    JSONObject row=full.optJSONObject(i);if(row==null)continue;
-                    int st=row.optInt("start",-1),en=row.optInt("end",-1);
-                    String key=row.optString("key","");
-                    if(st<0||en<=st||en>offsets.size()||!key.matches("[a-f0-9]{64}"))continue;
-                    boolean known=false;for(Clip old:archive)if(old.start==st&&old.end==en&&old.key.equals(key)){known=true;break;}
-                    if(known)continue;
-                    Clip c=new Clip(st,en,row.optString("text",""),key);
-                    File file=new File(directory,key+".mp3");if(EdgeFullBookStore.ready(file)){c.file=file;c.bytes=file.length();}
-                    archive.add(c);
-                }
+        }catch(Exception ex){Log.w("EdgeSentences","Cannot restore older index",ex);}
+        String selectedVoice=voice(),selectedRate=rate();
+        for(SentenceChunks.Chunk part:sentenceParts){
+            String key=EdgeBookStorage.key(part.text,selectedVoice,selectedRate,"edge-direct-v1");
+            Clip c=new Clip(part.fromWord,part.toWord,part.text,key);
+            File audio=new File(directory,key+".mp3");
+            if(audio.isFile()&&audio.length()>1500){c.file=audio;c.bytes=audio.length();}
+            JSONObject old=oldRows.get(c.start);
+            if(old!=null&&key.equals(old.optString("key",""))&&c.end==old.optInt("end",-1)){
+                c.played=old.optBoolean("played",false);
+                if(!c.ready()&&(old.optBoolean("queued",false)||"downloading".equals(old.optString("status",""))))
+                    pendingStarts.add(c.start);
             }
-            Collections.sort(archive,(a,b)->Integer.compare(a.start,b.start));
-        }catch(Exception ex){Log.w("EdgeQueue","index restore failed",ex);}
+            archive.add(c);byStart.put(c.start,c);
+        }
+        // Readying a previously downloaded sentence is a direct file lookup;
+        // old MP3 files for other voices or old chunk sizes are never deleted.
     }
-    private void persist(){if(directory==null||destroyed)return;
-        JSONArray data=new JSONArray();try{for(Clip c:archive){JSONObject row=new JSONObject();row.put("start",c.start).put("end",c.end)
-                .put("text",c.text).put("key",c.key).put("chunks",c.chunks).put("played",c.played);data.put(row);}}catch(Exception ignored){}
-        File folder=directory;
-        File file=new File(folder,"sentences.json");String json=data.toString();
-        io.execute(()->{File temp=new File(folder,"sentences.json.tmp");
-            try(FileOutputStream out=new FileOutputStream(temp)){out.write(json.getBytes(StandardCharsets.UTF_8));out.flush();
-                if(file.exists())file.delete();temp.renameTo(file);
-            }catch(Exception ex){temp.delete();Log.w("EdgeQueue","Cannot persist index",ex);}});
+    private void persist(){
+        if(directory==null||destroyed)return;
+        JSONArray data=new JSONArray();
+        try{for(Clip c:archive){
+            JSONObject row=new JSONObject();row.put("start",c.start).put("end",c.end)
+                .put("key",c.key).put("ready",c.ready()).put("queued",pendingStarts.contains(c.start))
+                .put("status",c.ready()?"saved":(generating==c?"downloading":(pendingStarts.contains(c.start)?"pending":"missing")))
+                .put("played",c.played);data.put(row);
+        }}catch(Exception ex){Log.w("EdgeSentences","Cannot serialize index",ex);}
+        final File folder=directory;final String json=data.toString();
+        io.execute(()->{
+            android.util.AtomicFile atomic=new android.util.AtomicFile(new File(folder,"sentences.json"));
+            java.io.FileOutputStream output=null;
+            try{output=atomic.startWrite();output.write(json.getBytes(StandardCharsets.UTF_8));atomic.finishWrite(output);}
+            catch(Exception ex){if(output!=null)atomic.failWrite(output);Log.w("EdgeSentences","Cannot persist index",ex);}
+        });
     }
     @Override public void onDestroy(){destroyed=true;main.removeCallbacks(refreshReady);cancelGeneration();if(player!=null)player.removeListener(listener);
         try{unregisterReceiver(switchReceiver);}catch(Exception ignored){}

@@ -1,0 +1,10 @@
+fix(edge-tts): prioritize arbitrary sentence downloads and match system bar backgrounds (v1.11.74-beta)
+
+- Index every sentence and persist saved, missing and pending states in sentences.json
+- Preempt in-flight Edge synthesis when user selects a distant uncached sentence
+- Resume interrupted work after the selected sentence is ready
+- Reuse existing MP3 and WordBoundary files without re-downloading
+- Paint system status/navigation inset strips with the active reading background
+- Display remaining sleep timer minutes/seconds in the compact TTS toolbar
+- Keep only current-version README, CHANGELOG and COMMIT_MESSAGE in CLEAN archive
+- Add parse-only Java syntax QA alongside 600-character sentence tests
