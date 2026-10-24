@@ -370,7 +370,7 @@ public final class EdgeOnlineActivity extends Activity {
         boolean playing=local?(AudioPlaybackService.instance!=null&&AudioPlaybackService.instance.isTtsMode()&&!AudioPlaybackService.instance.isPaused()):edge!=null&&edge.isPlaying();
         playIcon.setImageResource(playing?R.drawable.ic_pause:R.drawable.ic_play);
         speed.setText(String.valueOf(TtsWpm.get(this)));
-        int word=(!playing&&selectedWord>=0)?selectedWord:liveWord(),start=wordChar(word),end;
+        int word=(!playing&&selectedWord>=0)?selectedWord:liveWord(),start=wordChar(word),end=start;
         if(playing)selectedWord=word;
         if(local){
             AudioPlaybackService svc=AudioPlaybackService.instance;

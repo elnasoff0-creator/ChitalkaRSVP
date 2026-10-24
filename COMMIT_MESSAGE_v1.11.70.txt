@@ -1,0 +1,6 @@
+fix(android): initialize end in EdgeOnlineActivity.refresh (v1.11.70-beta)
+
+- Initialize the highlight end offset to start before local/Edge branches
+- Avoid javac definite-assignment failure when a sentence chunk is absent
+- Preserve sentence highlight behavior and all TTS functionality
+- Bump versionCode/versionName to 11170 / 1.11.70-beta
