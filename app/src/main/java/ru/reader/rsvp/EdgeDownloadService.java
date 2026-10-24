@@ -70,6 +70,23 @@ public final class EdgeDownloadService extends Service {
     private final ArrayList<Clip> archive=new ArrayList<>();
     // The complete, sentence-indexed catalogue is independent of which MP3 has been cached.
     private final Map<Integer,Clip> byStart=new HashMap<>();
+    /** Active streaming requests outlive selection changes. File+voice keys are unique. */
+    private final LinkedHashMap<String,LiveJob> liveJobs=new LinkedHashMap<>();
+    private static final int MAX_LIVE_REQUESTS=3;
+    private static final class LiveJob {
+        final Clip clip;
+        final File folder;
+        final String fileId,bookId;
+        final EdgeLiveAudio.Buffer audio=new EdgeLiveAudio.Buffer();
+        volatile List<EdgeWordTimings.Word> words=Collections.emptyList();
+        volatile boolean firstAudio;
+        private int receivedBytes;
+        EdgeTtsClient request;
+        LiveJob(Clip clip,File folder,String bookId){
+            this.clip=clip;this.folder=folder;this.bookId=bookId;
+            this.fileId=new File(folder,clip.key+".mp3").getAbsolutePath();
+        }
+    }
     // Requested clips survive jumps and process restarts; foreground selection takes precedence.
     private final LinkedHashSet<Integer> pendingStarts=new LinkedHashSet<>();
     private int priorityStart=-1;
@@ -91,7 +108,8 @@ public final class EdgeDownloadService extends Service {
     }};
     private final BroadcastReceiver switchReceiver=new BroadcastReceiver(){
         @Override public void onReceive(Context c,Intent i){
-            if(AudioModeCoordinator.STOP_EDGE.equals(i.getAction()))setActive(false);
+            // Switching to local TTS stops sound, not previously requested downloads.
+            if(AudioModeCoordinator.STOP_EDGE.equals(i.getAction()))changed();
         }
     };
 
@@ -262,10 +280,30 @@ public final class EdgeDownloadService extends Service {
         });
     }
     public void refreshSettings(){pump();}
+    public void ensurePlaySelection(){
+        if(!bookReady)return;
+        Clip current=clipAt(anchorWord);
+        if(current!=null&&!current.ready()&&liveFor(current)==null){
+            // An explicit Play is a fresh user request: retry immediately.
+            current.retryAt=0;
+            if(generating==current)cancelGeneration();
+            startLive(current);
+        }
+        pump();
+    }
     public void setActive(boolean enabled){
         if(active==enabled)return;active=enabled;
         if(enabled){if(!bookUri.isEmpty())DownloadsRepository.showEdge(this,bookUri);promote();pump();}
-        else {cancelGeneration();if(foreground){stopForeground(STOP_FOREGROUND_REMOVE);foreground=false;}changed();stopSelf();}
+        else {
+            // Continue the independent queue while the user is in another reader.
+            boolean unfinished=false;
+            for(Clip clip:archive)if(!clip.ready()){unfinished=true;break;}
+            if(!bookReady||unfinished||generating!=null||!liveJobs.isEmpty()||!pendingStarts.isEmpty()){
+                active=true;promote();pump();return;
+            }
+            if(foreground){stopForeground(STOP_FOREGROUND_REMOVE);foreground=false;}
+            changed();stopSelf();
+        }
     }
     public void setAnchor(int word,boolean selected){
         if(!bookReady){anchorWord=Math.max(0,word);return;}
@@ -274,15 +312,17 @@ public final class EdgeDownloadService extends Service {
         if(part==null)return;
         Clip target=clipAt(requested);
         if(selected){
-            // Preempt any download, even if the chosen sentence is far outside the
-            // previously prepared range. The interrupted job remains pending.
-            if(generating!=null&&generating!=target){
-                pendingStarts.add(generating.start);
-                cancelGeneration();
-            }
+            // Keep other online requests running to completion in the background.
+            // A duplicate legacy background download for this exact sentence may be
+            // replaced with a streaming request. Its sentence remains in the index.
+            if(generating==target){cancelGeneration();pendingStarts.add(target.start);}
             if(player!=null)player.clearTracksForSelection();
             priorityStart=target.start;
             pendingStarts.remove(target.start);
+            if(!target.ready()){
+                target.retryAt=0; // A deliberate seek overrides automatic backoff.
+                startLive(target);
+            }
         }
         anchorWord=target.start;
         persist();pump();
@@ -307,13 +347,28 @@ public final class EdgeDownloadService extends Service {
     private void pump(){
         if(!bookReady||directory==null||destroyed)return;
         Clip current=clipAt(anchorWord);
+        // Start foreground streaming at the earliest opportunity, not after a
+        // legacy background request and not after the user taps Play.
+        if(active&&current!=null&&!current.ready()&&liveFor(current)==null){
+            long wait=current.retryAt-SystemClock.uptimeMillis();
+            if(wait<=0){
+                if(generating==current)cancelGeneration();
+                startLive(current);
+            }else main.postDelayed(this::pump,Math.min(120000,wait+100));
+        }
         Clip ahead=current==null?null:clipAt(current.end);
         Clip afterAhead=ahead==null?null:clipAt(ahead.end);
         if(player!=null){
             player.setAutoContinue(true);
-            if(current!=null&&current.ready()){
-                player.appendReady(current.key+":"+current.start,current.start,current.end,current.file);
-                if(ahead!=null&&ahead.ready()){
+            if(current!=null){
+                if(current.ready())
+                    player.appendReady(current.key+":"+current.start,current.start,current.end,current.file);
+                else {
+                    LiveJob live=liveFor(current);
+                    if(live!=null)player.appendLive(current.key+":"+current.start,current.start,current.end,live.audio);
+                }
+                // Next MP3 may already be complete while the current one is streaming.
+                if((current.ready()||liveFor(current)!=null)&&ahead!=null&&ahead.ready()){
                     player.appendReady(ahead.key+":"+ahead.start,ahead.start,ahead.end,ahead.file);
                     if(afterAhead!=null&&afterAhead.ready())
                         player.appendReady(afterAhead.key+":"+afterAhead.start,
@@ -322,25 +377,35 @@ public final class EdgeDownloadService extends Service {
             }
         }
         if(active&&generating==null){
+            // Give the selected stream the network head start: do not saturate the
+            // socket while the very first packet is still pending.
+            LiveJob selectedLive=current==null?null:liveFor(current);
+            if(selectedLive!=null&&!selectedLive.firstAudio){changed();return;}
             Clip next=null;
             if(priorityStart>=0){
                 Clip priority=byStart.get(priorityStart);
-                if(priority!=null&&!priority.ready())next=priority;
+                if(priority!=null&&!priority.ready()&&liveFor(priority)==null)next=priority;
                 else priorityStart=-1;
             }
-            if(next==null&&current!=null&&!current.ready())next=current;
-            if(next==null&&ahead!=null&&!ahead.ready())next=ahead;
+            if(next==null&&current!=null&&!current.ready()&&liveFor(current)==null)next=current;
+            if(next==null&&ahead!=null&&!ahead.ready()&&liveFor(ahead)==null)next=ahead;
             // Maintain up to two prepared sentences ahead of the one being
             // played, without a visible queue and without bypassing a manual seek.
             if(next==null&&ahead!=null&&ahead.ready()&&
-                    afterAhead!=null&&!afterAhead.ready())next=afterAhead;
+                    afterAhead!=null&&!afterAhead.ready()&&liveFor(afterAhead)==null)next=afterAhead;
             if(next==null){
                 // Resume requests that were displaced by a user's manual jump.
                 for(Integer start:new ArrayList<>(pendingStarts)){
                     Clip item=byStart.get(start);
                     if(item==null||item.ready()){pendingStarts.remove(start);continue;}
+                    if(liveFor(item)!=null)continue;
                     next=item;break;
                 }
+            }
+            // With idle network capacity, continue filling the full book even if
+            // playback is paused or the user jumped over a large unsaved range.
+            if(next==null)for(Clip item:archive){
+                if(!item.ready()&&liveFor(item)==null&&SystemClock.uptimeMillis()>=item.retryAt){next=item;break;}
             }
             if(next!=null&&SystemClock.uptimeMillis()>=next.retryAt){
                 pendingStarts.remove(next.start);
@@ -349,8 +414,102 @@ public final class EdgeDownloadService extends Service {
         }
         changed();
     }
+    private LiveJob liveFor(Clip clip){
+        if(clip==null||directory==null)return null;
+        return liveJobs.get(new File(directory,clip.key+".mp3").getAbsolutePath());
+    }
+    /** First-time online playback begins here, before file creation or MP3 analysis.
+     * Older live requests continue saving when the user chooses another sentence.
+     */
+    private void startLive(Clip clip){
+        if(clip==null||clip.ready()||directory==null)return;
+        LiveJob existing=liveFor(clip);
+        if(existing!=null){if(player!=null)player.appendLive(clip.key+":"+clip.start,clip.start,clip.end,existing.audio);return;}
+        // Bound the number of simultaneous sockets. Displaced requests remain queued,
+        // so even rapid random tapping cannot generate an unbounded number of sockets.
+        if(liveJobs.size()>=MAX_LIVE_REQUESTS){
+            LiveJob oldest=liveJobs.values().iterator().next();
+            liveJobs.remove(oldest.fileId);
+            if(oldest.request!=null)oldest.request.cancel();
+            oldest.audio.finish("Suspended for higher-priority streaming request");
+            if(oldest.bookId.equals(bookUri))pendingStarts.add(oldest.clip.start);
+        }
+        final LiveJob job=new LiveJob(clip,directory,bookUri);
+        liveJobs.put(job.fileId,job);
+        pendingStarts.remove(clip.start);
+        if(player!=null)player.appendLive(clip.key+":"+clip.start,clip.start,clip.end,job.audio);
+        persist();changed();
+        final String usedVoice=voice(),usedRate=rate();
+        job.request=EdgeTtsClient.synthesize(clip.text,usedVoice,usedRate,new EdgeTtsClient.Callback(){
+            @Override public void progress(int count,long length){}
+            @Override public void audio(byte[] bytes,int start,int count){
+                job.audio.append(bytes,start,count);
+                job.receivedBytes+=count;
+                // Reserve roughly two seconds of encoded sound for first playback
+                // before competing background downloads use the network.
+                if(!job.firstAudio&&job.receivedBytes>=12000){
+                    job.firstAudio=true;
+                    main.post(()->{if(!destroyed)pump();});
+                }
+            }
+            @Override public void words(List<EdgeWordTimings.Boundary> all){
+                job.words=EdgeWordTimings.align(clip.text,all);
+            }
+            @Override public void finished(byte[] mp3,int parts,String error){
+                finished(mp3,parts,error,Collections.emptyList());
+            }
+            @Override public void finished(byte[] mp3,int parts,String error,List<EdgeWordTimings.Boundary> metadata){
+                job.audio.finish(error);
+                // MP3 is committed on the disk worker; player never waits for this.
+                io.execute(()->{
+                    String failure=error;
+                    File result=new File(job.folder,clip.key+".mp3");
+                    File temp=new File(job.folder,clip.key+".part");
+                    if(failure==null)try{
+                        if(mp3==null||mp3.length<1500||!isMp3(mp3))throw new Exception("Incomplete MP3 stream");
+                        try(FileOutputStream out=new FileOutputStream(temp,false)){
+                            out.write(mp3);out.getFD().sync();
+                        }
+                        if(result.isFile()&&result.length()>1500){
+                            // Never overwrite previously verified offline audio.
+                            temp.delete();
+                        }else{
+                            if(result.exists()&&!result.delete())throw new Exception("Cannot replace invalid MP3");
+                            if(!temp.renameTo(result))throw new Exception("Cannot commit MP3");
+                        }
+                        EdgeWordTimings.store(result,clip.text,metadata);
+                    }catch(Exception e){failure=e.getMessage();temp.delete();}
+                    final String problem=failure;
+                    main.post(()->{
+                        liveJobs.remove(job.fileId);
+                        if(problem==null){
+                            clip.file=result;clip.bytes=result.length();clip.chunks=parts;
+                            clip.failures=0;clip.retryAt=0;
+                            if(getSharedPreferences("reader",0).getBoolean("edge_trim_sentence_pause",true))
+                                tailAnalysis.execute(()->EdgeTrailingSilence.detectAndStore(result,clip.text));
+                        }else{
+                            clip.failures++;
+                            clip.retryAt=SystemClock.uptimeMillis()+Math.min(120000,5000L<<Math.min(4,clip.failures-1));
+                            if(job.bookId.equals(bookUri))pendingStarts.add(clip.start);
+                            Log.w("EdgeLive", "Stream "+clip.start+" pending retry: "+problem);
+                        }
+                        if(job.bookId.equals(bookUri)){
+                            if(priorityStart==clip.start&&problem==null)priorityStart=-1;
+                            persist();pump();
+                        }
+                    });
+                });
+            }
+        });
+    }
+    /** Accurate in-memory word timestamps while the MP3 is still arriving. */
+    public List<EdgeWordTimings.Word> liveWords(Clip c){
+        LiveJob job=liveFor(c);
+        return job==null?Collections.emptyList():job.words;
+    }
+
     private void download(Clip c){
-        if(generating!=null||!active)return;
+        if(generating!=null||!active||liveFor(c)!=null)return;
         String candidate=new File(directory,c.key+".mp3").getAbsolutePath();
         if(!EdgeGenerationGuard.claim(candidate)){
             main.postDelayed(this::pump,1500);return;
@@ -448,6 +607,10 @@ public final class EdgeDownloadService extends Service {
         for(Clip c:archive)if(c.start==start){
             if(player!=null && player.isPlaying() && (c.key+":"+c.start).equals(player.currentKey())){error="Сначала приостановите воспроизведение текущего MP3";changed();return false;}
             if(generating==c)cancelGeneration();
+            LiveJob live=liveFor(c);
+            if(live!=null){liveJobs.remove(live.fileId);
+                if(live.request!=null)live.request.cancel();
+                live.audio.finish("File deleted by user");}
             if(player!=null)player.evictCachedTrack(c.key+":"+c.start);
             c.file=null;c.bytes=0;c.chunks=0;c.played=false;c.failures=0;c.retryAt=0;
             File item=new File(directory,c.key+".mp3");io.execute(()->{item.delete();EdgeWordTimings.sidecar(item).delete();main.post(()->{persist();pump();});});
@@ -458,6 +621,10 @@ public final class EdgeDownloadService extends Service {
         for(Clip c:archive)if(c.start==start){
             if(player!=null && player.isPlaying() && (c.key+":"+c.start).equals(player.currentKey())){error="Сначала приостановите воспроизведение текущего MP3";changed();return false;}
             if(generating==c)cancelGeneration();
+            LiveJob live=liveFor(c);
+            if(live!=null){liveJobs.remove(live.fileId);
+                if(live.request!=null)live.request.cancel();
+                live.audio.finish("File deleted by user");}
             if(player!=null)player.evictCachedTrack(c.key+":"+c.start);
             c.file=null;c.bytes=0;c.chunks=0;c.played=false;c.failures=0;c.retryAt=0;
             File item=new File(directory,c.key+".mp3");io.execute(()->{item.delete();EdgeWordTimings.sidecar(item).delete();main.post(()->{persist();setActive(true);pump();});});
@@ -465,7 +632,15 @@ public final class EdgeDownloadService extends Service {
         }return false;
     }
     public void clearAudio(Runnable done){
-        setActive(false);if(player!=null)player.clearQueue();
+        // An explicit deletion must stop all ongoing writers first.
+        active=false;cancelGeneration();
+        for(LiveJob job:new ArrayList<>(liveJobs.values())){
+            if(job.request!=null)job.request.cancel();
+            job.audio.finish("User cleared offline audio");
+        }
+        liveJobs.clear();
+        if(foreground){stopForeground(STOP_FOREGROUND_REMOVE);foreground=false;}
+        if(player!=null)player.clearQueue();
         archive.clear();byStart.clear();pendingStarts.clear();priorityStart=-1;File folder=directory;
         io.execute(()->{if(folder!=null){File[] children=folder.listFiles();if(children!=null)for(File f:children)f.delete();}
             main.post(()->{restore();persist();changed();if(done!=null)done.run();});});
@@ -520,7 +695,7 @@ public final class EdgeDownloadService extends Service {
         try{for(Clip c:archive){
             JSONObject row=new JSONObject();row.put("start",c.start).put("end",c.end)
                 .put("key",c.key).put("ready",c.ready()).put("queued",pendingStarts.contains(c.start))
-                .put("status",c.ready()?"saved":(generating==c?"downloading":(pendingStarts.contains(c.start)?"pending":"missing")))
+                .put("status",c.ready()?"saved":((generating==c||liveFor(c)!=null)?"downloading":(pendingStarts.contains(c.start)?"pending":"missing")))
                 .put("played",c.played);data.put(row);
         }}catch(Exception ex){Log.w("EdgeSentences","Cannot serialize index",ex);}
         final File folder=directory;final String json=data.toString();
@@ -535,6 +710,11 @@ public final class EdgeDownloadService extends Service {
         main.removeCallbacks(saveIndex);
         persistNow(); // Last selected sentence / interrupted work survives process shutdown.
         destroyed=true;main.removeCallbacks(refreshReady);cancelGeneration();
+        for(LiveJob job:new ArrayList<>(liveJobs.values())){
+            if(job.request!=null)job.request.cancel();
+            job.audio.finish("Service stopped");
+        }
+        liveJobs.clear();
         if(player!=null)player.removeListener(listener);
         try{unregisterReceiver(switchReceiver);}catch(Exception ignored){}
         if(playerBound)unbindService(playbackConnection);

@@ -1,0 +1,7 @@
+feat(edge-tts): stream MP3 to Media3 and persist all requested sentences in background (v1.11.76-beta)
+
+- Play from incoming WebSocket MP3 frames with live WordBoundary highlighting
+- Save completed audio and timing metadata outside playback critical path
+- Resume interrupted sentence queue and fill gaps without linear playback
+- Prefer manual seeks, avoid duplicate downloads, reuse offline MP3
+- Keep clean release documentation for current version only

@@ -344,10 +344,13 @@ public final class EdgeOnlineActivity extends Activity {
                 .putExtra("bookUri",uri).putExtra("word_index",selectedWord)
                 .putExtra("auto_on_selection",auto));
         }else if(downloads!=null){
+            // A seek during active speech continues immediately on the newly
+            // selected live stream. A seek while paused honours tap-autoplay.
+            boolean wasAudible=edge!=null&&edge.playRequested();
             if(edge!=null)edge.pause();
             downloads.setAnchor(selectedWord,true);
             requestedSeekWord=-1;requestedSeekKey="";
-            if(auto&&edge!=null)edge.play();
+            if((auto||wasAudible)&&edge!=null)edge.play();
         }
         int from=sentence==null?wordChar(selectedWord):sentence.fromChar;
         int end=sentence==null?Math.min(full.length(),from+1):sentence.toChar;
@@ -357,7 +360,10 @@ public final class EdgeOnlineActivity extends Activity {
         if(local){AudioPlaybackService service=AudioPlaybackService.instance;
             if(service!=null&&!service.isPaused())selectedWord=liveWord();
             startService(new Intent(this,AudioPlaybackService.class).setAction(service!=null&&!service.isPaused()?AudioPlaybackService.PAUSE:AudioPlaybackService.PLAY));
-        }else if(edge!=null){if(edge.isPlaying()){selectedWord=liveWord();edge.pause();}else edge.play();}
+        }else if(edge!=null){
+            if(edge.playRequested()){selectedWord=liveWord();edge.pause();}
+            else {if(downloads!=null)downloads.ensurePlaySelection();edge.play();}
+        }
         refresh();
     }
     private void updateSleepCountdown(){
@@ -485,8 +491,8 @@ public final class EdgeOnlineActivity extends Activity {
             if(svc!=null&&svc.isTtsMode())return wordFromChar(svc.currentTtsWordRange()[0]);
         }else if(downloads!=null){
             EdgeDownloadService.Clip clip=downloads.currentClip();
-            if(clip!=null&&edge!=null&&clip.ready()&&(clip.key+":"+clip.start).equals(edge.currentKey())){
-                List<EdgeWordTimings.Word> ticks=EdgeWordTimings.read(clip.file,clip.text);
+            if(clip!=null&&edge!=null&&(clip.key+":"+clip.start).equals(edge.currentKey())){
+                List<EdgeWordTimings.Word> ticks=clip.ready()?EdgeWordTimings.read(clip.file,clip.text):downloads.liveWords(clip);
                 int selected=EdgeWordTimings.at(ticks,edge.positionMs());
                 if(selected>=0){int base=downloads.charForWord(clip.start);
                     return wordFromChar(base+ticks.get(selected).from);
@@ -520,7 +526,9 @@ public final class EdgeOnlineActivity extends Activity {
                 if(part!=null){start=part.fromChar;end=part.toChar;}}
         }else{
             EdgeDownloadService.Clip clip=downloads==null?null:downloads.currentClip();
-            List<EdgeWordTimings.Word> ticks=clip!=null&&clip.ready()?EdgeWordTimings.read(clip.file,clip.text):Collections.emptyList();
+            List<EdgeWordTimings.Word> ticks=clip==null?Collections.emptyList():
+                (clip.ready()?EdgeWordTimings.read(clip.file,clip.text):
+                    (downloads==null?Collections.emptyList():downloads.liveWords(clip)));
             int selected=clip!=null&&edge!=null&&(clip.key+":"+clip.start).equals(edge.currentKey())?
                 EdgeWordTimings.at(ticks,edge.positionMs()):-1;
             if(selected>=0){

@@ -25,6 +25,9 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackParameters;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.DefaultLoadControl;
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
+import androidx.media3.common.util.UnstableApi;
 import androidx.core.app.NotificationCompat;
 
 import java.io.File;
@@ -35,6 +38,7 @@ import java.util.ArrayList;
  * Only ready local files enter ExoPlayer; loading a new file never starts playback.
  * All binder calls are expected on Android main thread.
  */
+@UnstableApi
 public final class EdgePlaybackService extends Service {
     public interface Listener {
         void onTrackChanged(int startWord, int endWord, String key, boolean completedPrevious);
@@ -56,6 +60,7 @@ public final class EdgePlaybackService extends Service {
     private final IBinder binder = new LocalBinder();
     private final ArrayList<Track> tracks = new ArrayList<>();
     private ExoPlayer player;
+    private EdgeLiveAudio.Factory liveDataSources;
     private final ArrayList<Listener> listeners = new ArrayList<>();
     private PlaybackAudioFocus focus;
     private MediaSession mediaSession;
@@ -107,7 +112,10 @@ public final class EdgePlaybackService extends Service {
         else sleepAtMs=0L;
         playbackSpeed=getSharedPreferences("reader",0).getFloat("edge_playback_speed",1f);
         playbackSpeed=Math.max(0.5f,Math.min(3f,playbackSpeed));
-        player = new ExoPlayer.Builder(this).build();
+        liveDataSources=new EdgeLiveAudio.Factory(this);
+        player = new ExoPlayer.Builder(this,new DefaultMediaSourceFactory(liveDataSources))
+            .setLoadControl(new DefaultLoadControl.Builder()
+                .setBufferDurationsMs(500,15000,250,500).build()).build();
         player.setPlaybackParameters(new PlaybackParameters(playbackSpeed));
         player.setAudioAttributes(new androidx.media3.common.AudioAttributes.Builder()
                 .setUsage(androidx.media3.common.C.USAGE_MEDIA)
@@ -135,7 +143,10 @@ public final class EdgePlaybackService extends Service {
                 }
                 notifyState();
             }
-            @Override public void onIsPlayingChanged(boolean isPlaying) { updateSession(); updateNotification(); notifyState(); }
+            @Override public void onIsPlayingChanged(boolean isPlaying) {
+                if(isPlaying)android.util.Log.i("EdgeTtsLatency","rendering MP3; track="+currentKey());
+                updateSession(); updateNotification(); notifyState();
+            }
             @Override public void onAudioSessionIdChanged(int audioSessionId) { AudioEqualizer.attach(EdgePlaybackService.this,audioSessionId); }
             @Override public void onPlayerError(androidx.media3.common.PlaybackException error) {
                 requestedPlay = false;
@@ -269,6 +280,7 @@ public final class EdgePlaybackService extends Service {
         player.stop();
         player.clearMediaItems();
         tracks.clear();
+        if(liveDataSources!=null)liveDataSources.clear();
         lastIndex=-1;
         focus.release();
         hideNotification();
@@ -279,7 +291,9 @@ public final class EdgePlaybackService extends Service {
     public void clearTracksForSelection() {
         requestedPlay=false;
         playbackError="";
-        player.stop();player.clearMediaItems();tracks.clear();lastIndex=-1;
+        player.stop();player.clearMediaItems();tracks.clear();
+        if(liveDataSources!=null)liveDataSources.clear();
+        lastIndex=-1;
         focus.release();hideNotification();updateSession();notifyState();
     }
     /** Remove an invalid clip from the playlist without clearing other MP3 files.
@@ -299,6 +313,27 @@ public final class EdgePlaybackService extends Service {
             return true;
         }
         return true;
+    }
+
+    /** Start decoding a growing MP3 byte stream; no disk write or completed network
+     * response is required. Background download owns the producer even after a seek.
+     */
+    public void appendLive(String key,int start,int end,EdgeLiveAudio.Buffer bytes) {
+        if(key==null||bytes==null)return;
+        for(Track t:tracks)if(t.key.equals(key))return;
+        if(liveDataSources==null)return;
+        liveDataSources.register(key,bytes);
+        Track track=new Track(key,start,end,null);
+        int insertion=0;
+        while(insertion<tracks.size()&&tracks.get(insertion).start<start)insertion++;
+        tracks.add(insertion,track);
+        MediaItem media=new MediaItem.Builder().setMediaId(key)
+            .setUri(android.net.Uri.parse("edge-live:///"+android.net.Uri.encode(key)))
+            .setMimeType("audio/mpeg").build();
+        player.addMediaItem(insertion,media);
+        if(player.getPlaybackState()==Player.STATE_IDLE)player.prepare();
+        if(requestedPlay)player.play();
+        notifyState();
     }
 
     /** Only called with fully assembled encoded audio files.
@@ -447,6 +482,7 @@ public final class EdgePlaybackService extends Service {
         hideNotification();
         if(mediaSession!=null){mediaSession.setActive(false);mediaSession.release();mediaSession=null;}
         if(player!=null){player.release();player=null;}
+        if(liveDataSources!=null)liveDataSources.clear();
         AudioEqualizer.release();
         super.onDestroy();
     }

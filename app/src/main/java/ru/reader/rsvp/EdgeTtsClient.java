@@ -28,6 +28,8 @@ import okio.ByteString;
 final class EdgeTtsClient {
     interface Callback {
         void progress(int chunks,long bytes);
+        default void audio(byte[] data,int start,int count){}
+        default void words(List<EdgeWordTimings.Boundary> boundaries){}
         void finished(byte[] mp3,int chunks,String error);
         default void finished(byte[] mp3,int chunks,String error,List<EdgeWordTimings.Boundary> boundaries){
             finished(mp3,chunks,error);
@@ -104,7 +106,10 @@ final class EdgeTtsClient {
                     String header=parts[0];
                     if(header.contains("Path:audio.metadata") && parts.length==2){
                         synchronized(EdgeTtsClient.this){
-                            if(!completed)EdgeWordTimings.parseMetadata(parts[1],boundaries);
+                            if(!completed){
+                                EdgeWordTimings.parseMetadata(parts[1],boundaries);
+                                callback.words(new ArrayList<>(boundaries));
+                            }
                         }
                     }else if(header.contains("Path:turn.end"))finish(null);
                 }
@@ -123,6 +128,7 @@ final class EdgeTtsClient {
                         if(received.size()+count>LIMIT_BYTES){finish("Аудиофрагмент превышает 12 МБ");return;}
                         if(firstAudioAt==0)firstAudioAt=SystemClock.elapsedRealtime();
                         received.write(packet,head+2,count);chunks++;
+                        callback.audio(packet,head+2,count);
                         callback.progress(chunks,received.size());
                     }
                 }
