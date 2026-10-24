@@ -976,12 +976,29 @@ public class MainActivity extends Activity {
 
 
     /** Drawer overlays the library, preserving the screen and scroll position. */
+    private float drawerDownX,drawerDownY;
+    @Override public boolean dispatchTouchEvent(android.view.MotionEvent e){
+        if(e.getActionMasked()==android.view.MotionEvent.ACTION_DOWN){
+            drawerDownX=e.getX();drawerDownY=e.getY();
+        } else if(e.getActionMasked()==android.view.MotionEvent.ACTION_UP){
+            float dx=e.getX()-drawerDownX,dy=e.getY()-drawerDownY;
+            boolean horizontal=Math.abs(dx)>dp(75)&&Math.abs(dx)>Math.abs(dy)*1.6f;
+            if(horizontal&&drawerShade==null&&drawerDownX<dp(28)&&dx>0){openDrawer();return true;}
+            if(horizontal&&drawerShade!=null&&dx<0){closeDrawer();return true;}
+        }
+        return super.dispatchTouchEvent(e);
+    }
+    private void closeDrawer(){
+        if(drawerShade!=null&&navigationSurface!=null){
+            navigationSurface.removeView(drawerShade);drawerShade=null;
+        }
+    }
     void openDrawer(){
-        if(navigationSurface==null)return;
+        if(navigationSurface==null||drawerShade!=null)return;
         FrameLayout shade=new FrameLayout(this);drawerShade=shade;
         shade.setBackgroundColor(0x92000000);
         navigationSurface.addView(shade,new FrameLayout.LayoutParams(-1,-1));
-        shade.setOnClickListener(v->{navigationSurface.removeView(shade);drawerShade=null;});
+        shade.setOnClickListener(v->closeDrawer());
         int maxWidth=Math.min(dp(340),(int)(getResources().getDisplayMetrics().widthPixels*0.84f));
         ScrollView scroll=new ScrollView(this);
         scroll.setFillViewport(true);scroll.setBackgroundColor(bg);
@@ -1028,16 +1045,16 @@ public class MainActivity extends Activity {
         if(!textUri.isEmpty()&&"text".equals(mode)){
             startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("book_uri",textUri).putExtra("start_tts",true));return;
         }
-        new AlertDialog.Builder(this).setTitle("Добавить аудиокнигу")
+        new SwipeDialogs.Builder(this).setTitle("Добавить аудиокнигу")
             .setMessage("Последняя аудиокнига не найдена. Выбрать папку с аудиофайлами?")
             .setPositiveButton("Выбрать папку",(d,w)->chooseAudioFolder())
             .setNegativeButton("Отмена",null).show();
     }
 
     void showAddMenu(){
-        new android.app.AlertDialog.Builder(this).setTitle("Добавить")
+        new SwipeDialogs.Builder(this).setTitle("Добавить")
             .setItems(new String[]{"Книгу","Аудиокнигу"},(dialog,choice)->{
-                new android.app.AlertDialog.Builder(this).setTitle(choice==0?"Добавить книгу":"Добавить аудиокнигу")
+                new SwipeDialogs.Builder(this).setTitle(choice==0?"Добавить книгу":"Добавить аудиокнигу")
                     .setItems(new String[]{choice==0?"Выбрать файл":"Выбрать папку"},(d,index)->{
                         if(choice==0)pick();
                         else chooseAudioFolder();
@@ -1046,7 +1063,7 @@ public class MainActivity extends Activity {
     }
 
     void chooseAudioFolder(){
-        new android.app.AlertDialog.Builder(this).setTitle("Аудиокнига из папки")
+        new SwipeDialogs.Builder(this).setTitle("Аудиокнига из папки")
             .setItems(new String[]{"Одна папка — одна аудиокнига","Вложенные папки — отдельные аудиокниги"},(d,n)->{
                 prefs.edit().putBoolean("audio_recursive",n==1).apply();
                 Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
@@ -1144,7 +1161,7 @@ public class MainActivity extends Activity {
                     draw();
                 });
             } catch (Exception e) {
-                runOnUiThread(() -> new AlertDialog.Builder(this)
+                runOnUiThread(() -> new SwipeDialogs.Builder(this)
                         .setMessage("Не удалось открыть книгу: " + e.getMessage())
                         .setPositiveButton("ОК", null).show());
             }
@@ -1218,7 +1235,7 @@ public class MainActivity extends Activity {
             int n = list.get(i);
             rows[i] = findChapterForIndex(n) + "\n" + excerptAroundIndex(n);
         }
-        new AlertDialog.Builder(this)
+        new SwipeDialogs.Builder(this)
                 .setTitle("Закладки")
                 .setItems(rows, (d, which) -> {
                     index = list.get(which);
@@ -1237,7 +1254,7 @@ public class MainActivity extends Activity {
         ArrayList<BookMeta> sorted = sortedLibraryBooks();
         String[] items = new String[sorted.size()];
         for (int i = 0; i < sorted.size(); i++) items[i] = sorted.get(i).title;
-        new AlertDialog.Builder(this)
+        new SwipeDialogs.Builder(this)
                 .setTitle("Библиотека")
                 .setItems(items, (d, which) -> openBook(sorted.get(which).uri, false, true))
                 .setNegativeButton("Отмена", null)
@@ -1246,7 +1263,7 @@ public class MainActivity extends Activity {
 
     void bookMenu(BookMeta m) {
         String[] items = {"Открыть", "Сделать текущей", "Удалить из библиотеки"};
-        new AlertDialog.Builder(this)
+        new SwipeDialogs.Builder(this)
                 .setTitle(m.title)
                 .setItems(items, (d, which) -> {
                     if (which == 0) openBook(m.uri, false, true);
@@ -1270,7 +1287,7 @@ public class MainActivity extends Activity {
 
     void displayDialog() {
         String[] opts = {"Только одно слово", "Предыдущее и следующее", "Текущее и следующее"};
-        new AlertDialog.Builder(this)
+        new SwipeDialogs.Builder(this)
                 .setTitle("Показ слов в скорочтении")
                 .setSingleChoiceItems(opts, display, (d, i) -> {
                     display = i; saveAll(); d.dismiss(); updateWord();
@@ -1286,7 +1303,7 @@ public class MainActivity extends Activity {
                 "Тема: светлая", "Тема: сепия", "Тема: ночная", "Тема: мягкая зелёная",
                 "Открыть книгу", "Закладки", "Проверить обновления"
         };
-        new AlertDialog.Builder(this).setTitle("Настройки")
+        new SwipeDialogs.Builder(this).setTitle("Настройки")
                 .setItems(options, (d, n) -> {
                     switch (n) {
                         case 0: displayDialog(); break;
@@ -1308,7 +1325,7 @@ public class MainActivity extends Activity {
     void theme(int b, int f) { bg = b; fg = f; saveAll(); draw(); }
 
     void fontDialog() {
-        new AlertDialog.Builder(this).setTitle("Шрифт")
+        new SwipeDialogs.Builder(this).setTitle("Шрифт")
                 .setSingleChoiceItems(fontNames, font, (d, i) -> { font = i; saveAll(); d.dismiss(); draw(); })
                 .setNegativeButton("Отмена", null).show();
     }
@@ -1317,7 +1334,7 @@ public class MainActivity extends Activity {
         SeekBar seek = new SeekBar(this);
         seek.setMax(60);
         seek.setProgress(size - 16);
-        new AlertDialog.Builder(this).setTitle("Размер шрифта: от 16 до 76")
+        new SwipeDialogs.Builder(this).setTitle("Размер шрифта: от 16 до 76")
                 .setView(seek)
                 .setPositiveButton("Применить", (d, w) -> { size = seek.getProgress() + 16; saveAll(); draw(); })
                 .setNegativeButton("Отмена", null).show();
@@ -1337,7 +1354,7 @@ public class MainActivity extends Activity {
             sliders[i] = s;
             c.addView(s);
         }
-        new AlertDialog.Builder(this).setTitle(background ? "Цвет фона (RGB)" : "Цвет текста (RGB)")
+        new SwipeDialogs.Builder(this).setTitle(background ? "Цвет фона (RGB)" : "Цвет текста (RGB)")
                 .setView(c)
                 .setPositiveButton("Применить", (d, w) -> {
                     int n = Color.rgb(sliders[0].getProgress(), sliders[1].getProgress(), sliders[2].getProgress());

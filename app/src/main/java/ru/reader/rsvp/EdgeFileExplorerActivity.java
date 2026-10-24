@@ -137,7 +137,7 @@ public class EdgeFileExplorerActivity extends Activity {
                     }
                 }
                 int count=exported;
-                runOnUiThread(()->new AlertDialog.Builder(this).setMessage("Экспортировано файлов: "+count+". Они теперь доступны в выбранной папке системного проводника.")
+                runOnUiThread(()->new SwipeDialogs.Builder(this).setMessage("Экспортировано файлов: "+count+". Они теперь доступны в выбранной папке системного проводника.")
                         .setPositiveButton("OK",null).show());
             } catch(Exception e) {
                 String reason=e.getMessage();

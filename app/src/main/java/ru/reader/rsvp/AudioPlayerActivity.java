@@ -271,7 +271,7 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         final java.util.ArrayList<String> choices=AudiobookCoverChoices.options(this,selected.id);
         LinearLayout holder=new LinearLayout(this);holder.setOrientation(1);holder.setPadding(dp(12),dp(5),dp(12),dp(8));
         ScrollView scroll=new ScrollView(this);scroll.addView(holder);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Выбор обложки")
+        AlertDialog dialog=new SwipeDialogs.Builder(this).setTitle("Выбор обложки")
             .setView(scroll).setNegativeButton("Закрыть",null).create();
         if(choices.isEmpty()){TextView empty=label("Сохранённых обложек пока нет",14);empty.setPadding(dp(12),dp(17),dp(12),dp(17));holder.addView(empty);}
         for(int start=0;start<choices.size();start+=3){
@@ -363,7 +363,7 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         final AudioLibrary.Book editing=book;
         EditText nameField=new EditText(this);nameField.setSingleLine(true);nameField.setText(book.name);nameField.selectAll();
         LinearLayout editor=new LinearLayout(this);editor.setPadding(dp(20),dp(4),dp(20),0);editor.addView(nameField);
-        new AlertDialog.Builder(this).setTitle("Изменить название аудиокниги").setView(editor)
+        new SwipeDialogs.Builder(this).setTitle("Изменить название аудиокниги").setView(editor)
             .setNegativeButton("Отмена",null).setPositiveButton("Сохранить",(d,n)->{
                 String next=nameField.getText().toString().trim();
                 if(next.isEmpty()){Toast.makeText(this,"Название не может быть пустым",Toast.LENGTH_SHORT).show();return;}
@@ -375,11 +375,11 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
                 change.putExtra("bookId",editing.id);change.putExtra("title",next);startService(change);
             }).show();
     }
-    void selectBook(){ArrayList<AudioLibrary.Book> all=sortedBooks(AudioLibrary.load(this));if(all.isEmpty()){Toast.makeText(this,"Добавьте аудиокнигу через + на главном экране",Toast.LENGTH_LONG).show();return;}String[] names=new String[all.size()];for(int k=0;k<all.size();k++)names[k]=all.get(k).name+" · "+audioProgress(all.get(k))+"%";new AlertDialog.Builder(this).setTitle("Выбрать аудиокнигу (удерживайте обложку для изменения)").setItems(names,(d,n)->{bumpAudioUsage(all.get(n).id);openSelected(all.get(n));draw();}).setNeutralButton("Обложка выбранной книги",(d,w)->chooseCover()).setNegativeButton("Отмена",null).show();}
+    void selectBook(){ArrayList<AudioLibrary.Book> all=sortedBooks(AudioLibrary.load(this));if(all.isEmpty()){Toast.makeText(this,"Добавьте аудиокнигу через + на главном экране",Toast.LENGTH_LONG).show();return;}String[] names=new String[all.size()];for(int k=0;k<all.size();k++)names[k]=all.get(k).name+" · "+audioProgress(all.get(k))+"%";new SwipeDialogs.Builder(this).setTitle("Выбрать аудиокнигу (удерживайте обложку для изменения)").setItems(names,(d,n)->{bumpAudioUsage(all.get(n).id);openSelected(all.get(n));draw();}).setNeutralButton("Обложка выбранной книги",(d,w)->chooseCover()).setNegativeButton("Отмена",null).show();}
     void seekPosition(int pos){startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SEEK).putExtra("position",pos));}
     void changeChapter(int delta){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null||s.isTtsMode())return;goChapter(Math.max(0,Math.min(s.getChapterCount()-1,s.getSegment()+delta)));}
     void goChapter(int n){startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.CHAPTER).putExtra("chapter",n));}
-    void importFolder(){new AlertDialog.Builder(this).setTitle("Добавление аудиокниг").setItems(new String[]{"Выбранная папка — одна книга","Сканировать вложенные папки как отдельные книги"},(d,n)->{getSharedPreferences("reader",0).edit().putBoolean("audio_recursive",n==1).apply();Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,FOLDER_PICK);}).show();}
+    void importFolder(){new SwipeDialogs.Builder(this).setTitle("Добавление аудиокниг").setItems(new String[]{"Выбранная папка — одна книга","Сканировать вложенные папки как отдельные книги"},(d,n)->{getSharedPreferences("reader",0).edit().putBoolean("audio_recursive",n==1).apply();Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,FOLDER_PICK);}).show();}
     void openAudioSettings(){startActivity(new Intent(this,SettingsActivity.class).putExtra("audio_tab",true).putExtra("audio_book_id",selected==null?"":selected.id));}
     void openSelected(AudioLibrary.Book b){openSelected(b,false);}
     void openSelected(AudioLibrary.Book b,boolean autoPlay){selected=b;AudiobookCoverStore.backfillOne(this,b.id,()->{if(selected!=null&&selected.id.equals(b.id))updateCover();});Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.LOAD);i.putExtra("title",b.name);i.putExtra("bookId",b.id);i.putExtra("uris",b.uris.toArray(new String[0]));i.putExtra("chapters",b.chapters.toArray(new String[0]));i.putExtra("autoplay",autoPlay);startService(i);updateCover();}
@@ -412,11 +412,11 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         }
         final String[] labels={"0.5×","0.75×","1×","1.1×","1.25×","1.5×","1.75×","2×","2.5×","3×"};
         final float[] rates={.5f,.75f,1f,1.1f,1.25f,1.5f,1.75f,2f,2.5f,3f};
-        new AlertDialog.Builder(this).setTitle("Скорость аудиокниги").setItems(labels,(d,n)->{
+        new SwipeDialogs.Builder(this).setTitle("Скорость аудиокниги").setItems(labels,(d,n)->{
             Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SPEED);i.putExtra("speed",rates[n]);startService(i);
         }).setNegativeButton("Отмена",null).show();
     }
-    void sleepMenu(){final int[] minutes={0,5,10,15,30,60};String[] labels={"Выключить","5 мин","10 мин","15 мин","30 мин","60 мин"};new AlertDialog.Builder(this).setTitle("Таймер сна").setItems(labels,(d,n)->{Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SLEEP);i.putExtra("minutes",minutes[n]);startService(i);Toast.makeText(this,"Таймер сохранён",Toast.LENGTH_SHORT).show();}).show();}
+    void sleepMenu(){final int[] minutes={0,5,10,15,30,60};String[] labels={"Выключить","5 мин","10 мин","15 мин","30 мин","60 мин"};new SwipeDialogs.Builder(this).setTitle("Таймер сна").setItems(labels,(d,n)->{Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SLEEP);i.putExtra("minutes",minutes[n]);startService(i);Toast.makeText(this,"Таймер сохранён",Toast.LENGTH_SHORT).show();}).show();}
     void voiceMenu(){startActivity(new Intent(this,TtsVoiceActivity.class));}
     void methodMenu(){
         if(bookUri==null||bookUri.isEmpty()){
@@ -426,21 +426,21 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         startActivity(new Intent(this,EdgeOnlineActivity.class)
             .putExtra("book_uri",bookUri).putExtra("tts_mode_local",lastLocal));
     }
-    void chapters(){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null){Toast.makeText(this,"Сначала выберите книгу",Toast.LENGTH_SHORT).show();return;}if(s.isTtsMode()){chooseTtsFragment(s);return;}int count=s.getChapterCount();if(count<1)return;String[] labels=new String[count];for(int j=0;j<count;j++)labels[j]=s.getChapterName(j);new AlertDialog.Builder(this).setTitle("Части аудиокниги").setSingleChoiceItems(labels,s.getSegment(),(d,n)->{Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.CHAPTER);i.putExtra("chapter",n);startService(i);d.dismiss();}).setNegativeButton("Отмена",null).show();}
+    void chapters(){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null){Toast.makeText(this,"Сначала выберите книгу",Toast.LENGTH_SHORT).show();return;}if(s.isTtsMode()){chooseTtsFragment(s);return;}int count=s.getChapterCount();if(count<1)return;String[] labels=new String[count];for(int j=0;j<count;j++)labels[j]=s.getChapterName(j);new SwipeDialogs.Builder(this).setTitle("Части аудиокниги").setSingleChoiceItems(labels,s.getSegment(),(d,n)->{Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.CHAPTER);i.putExtra("chapter",n);startService(i);d.dismiss();}).setNegativeButton("Отмена",null).show();}
     void chooseTtsFragment(AudioPlaybackService s){
         int count=s.getDuration(),current=s.getPosition();
         if(count<=0)return;
         int start=Math.max(0,current-12),end=Math.min(count,start+25);
         String[] labels=new String[end-start];
         for(int i=start;i<end;i++)labels[i-start]="Фрагмент "+(i+1)+" из "+count;
-        new AlertDialog.Builder(this).setTitle("Выбор фрагмента")
+        new SwipeDialogs.Builder(this).setTitle("Выбор фрагмента")
             .setSingleChoiceItems(labels,current-start,(d,index)->{
                 seekPosition(start+index);d.dismiss();
             }).setNegativeButton("Отмена",null).show();
     }
     void bookmark(){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null)return;String key="audio_marks:"+s.getTitle();Set<String> marks=new HashSet<>(getSharedPreferences("reader",0).getStringSet(key,new HashSet<>()));marks.add(String.valueOf(s.getPosition()));getSharedPreferences("reader",0).edit().putStringSet(key,marks).apply();Toast.makeText(this,"Аудиозакладка сохранена",Toast.LENGTH_SHORT).show();}
-    void options(){String[] choices={"Аудиозакладки","Скорость","Таймер сна","Остановить звук"};new AlertDialog.Builder(this).setItems(choices,(d,n)->{if(n==0)showMarks();if(n==1)speedMenu();if(n==2)sleepMenu();if(n==3)command(AudioPlaybackService.STOP);}).show();}
-    void showMarks(){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null)return;Set<String> ms=getSharedPreferences("reader",0).getStringSet("audio_marks:"+s.getTitle(),new HashSet<>());ArrayList<Integer> vals=new ArrayList<>();for(String v:ms)try{vals.add(Integer.parseInt(v));}catch(Exception ignored){}Collections.sort(vals);String[] names=new String[vals.size()];for(int j=0;j<vals.size();j++)names[j]=s.isTtsMode()?"Фрагмент "+vals.get(j):format(vals.get(j));new AlertDialog.Builder(this).setTitle("Аудиозакладки").setItems(names,(d,n)->{Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SEEK);i.putExtra("position",vals.get(n));startService(i);}).setPositiveButton("Закрыть",null).show();}
+    void options(){String[] choices={"Аудиозакладки","Скорость","Таймер сна","Остановить звук"};new SwipeDialogs.Builder(this).setItems(choices,(d,n)->{if(n==0)showMarks();if(n==1)speedMenu();if(n==2)sleepMenu();if(n==3)command(AudioPlaybackService.STOP);}).show();}
+    void showMarks(){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null)return;Set<String> ms=getSharedPreferences("reader",0).getStringSet("audio_marks:"+s.getTitle(),new HashSet<>());ArrayList<Integer> vals=new ArrayList<>();for(String v:ms)try{vals.add(Integer.parseInt(v));}catch(Exception ignored){}Collections.sort(vals);String[] names=new String[vals.size()];for(int j=0;j<vals.size();j++)names[j]=s.isTtsMode()?"Фрагмент "+vals.get(j):format(vals.get(j));new SwipeDialogs.Builder(this).setTitle("Аудиозакладки").setItems(names,(d,n)->{Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SEEK);i.putExtra("position",vals.get(n));startService(i);}).setPositiveButton("Закрыть",null).show();}
     String formatLong(long ms){long sec=Math.max(0,ms)/1000;return String.format(Locale.ROOT,"%d:%02d:%02d",sec/3600,(sec/60)%60,sec%60);}
     String format(int ms){long sec=ms/1000;return String.format(Locale.ROOT,"%02d:%02d:%02d",sec/3600,(sec/60)%60,sec%60);}
     private static void setTextIfDifferent(TextView view, String value) {

@@ -61,7 +61,7 @@ public final class ChteicoActivity extends Activity {
         EditText input=new EditText(this);input.setSingleLine(true);input.setHint("Имя питомца");input.setText(ChteicoStore.petName(this));
         input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(18)});input.setSelectAllOnFocus(true);
         LinearLayout wrap=column();wrap.setPadding(dp(18),dp(4),dp(18),0);wrap.addView(input);
-        new AlertDialog.Builder(this).setTitle("Как назвать питомца?")
+        new SwipeDialogs.Builder(this).setTitle("Как назвать питомца?")
             .setMessage("Выбрать имя можно только один раз. Оно останется с питомцем, когда он вырастет.")
             .setView(wrap).setNegativeButton("Отмена",null)
             .setPositiveButton("Сохранить",(d,w)->{
@@ -304,7 +304,7 @@ public final class ChteicoActivity extends Activity {
         addStatsCard();
         addRewardsCard();
     }
-    private void statistics(){new AlertDialog.Builder(this).setTitle("Книжная статистика")
+    private void statistics(){new SwipeDialogs.Builder(this).setTitle("Книжная статистика")
         .setMessage("Книг открыто: "+p.getInt("opened_books_count",0)+"\nПрочитано: "+p.getInt("finished_books_count",0)
         +"\nАудиокниг открыто: "+p.getInt("opened_audio_count",0)+"\nПрослушано полностью: "+p.getInt("finished_audio_count",0)
         +"\nОбычное чтение: "+mins("seconds_classic")+" мин\nСкорочтение и Курсор: "+mins("seconds_speed")

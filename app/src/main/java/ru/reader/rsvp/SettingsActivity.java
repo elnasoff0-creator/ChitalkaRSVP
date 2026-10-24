@@ -96,7 +96,7 @@ public class SettingsActivity extends Activity {
         if(currentTab==4){drawChteicoSettings();return;}
         preview=new TextView(this);preview.setText("Предпросмотр текста");preview.setGravity(Gravity.CENTER);preview.setLineSpacing(dp(5),1.18f);preview.setPadding(dp(19),dp(21),dp(19),dp(21));LinearLayout.LayoutParams previewLp=new LinearLayout.LayoutParams(-1,dp(90));previewLp.topMargin=dp(15);list.addView(preview,previewLp);applyPreview();
         header("Шрифт");
-        list.addView(action(fontNames[font]+"   ▾",()->new AlertDialog.Builder(this).setTitle("Выбор шрифта").setSingleChoiceItems(fontNames,font,(d,n)->{font=n;put("font",font);d.dismiss();draw();}).setNegativeButton("Отмена",null).show()));
+        list.addView(action(fontNames[font]+"   ▾",()->new SwipeDialogs.Builder(this).setTitle("Выбор шрифта").setSingleChoiceItems(fontNames,font,(d,n)->{font=n;put("font",font);d.dismiss();draw();}).setNegativeButton("Отмена",null).show()));
         gap(9);header("Размер шрифта");
         LinearLayout sizing=new LinearLayout(this);sizing.setGravity(Gravity.CENTER_VERTICAL);
         Button minus=new Button(this);minus.setText("−");minus.setOnClickListener(v->changeSize(-2));sizing.addView(minus,new LinearLayout.LayoutParams(dp(70),dp(54)));
@@ -205,7 +205,7 @@ public class SettingsActivity extends Activity {
                 android.widget.EditText input=new android.widget.EditText(this);input.setSingleLine(true);input.setHint("Имя питомца");
                 input.setText(ChteicoStore.petName(this));input.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(18)});
                 LinearLayout wrap=col();wrap.setPadding(dp(16),0,dp(16),0);wrap.addView(input);
-                new AlertDialog.Builder(this).setTitle("Имя питомца")
+                new SwipeDialogs.Builder(this).setTitle("Имя питомца")
                     .setMessage("Имя выбирается только один раз и остаётся после взросления.")
                     .setView(wrap).setNegativeButton("Отмена",null)
                     .setPositiveButton("Сохранить",(dialog,which)->{
@@ -240,11 +240,11 @@ public class SettingsActivity extends Activity {
             new android.app.TimePickerDialog(this,(v,h,m)->{game.edit().putInt("reminder_hour",h).apply();ChteicoNotifications.schedule(this);draw();},game.getInt("reminder_hour",19),0,true).show();
         }));
         gap(16);header("Сброс и тестирование");
-        list.addView(action("Сбросить вариант развития",()->new AlertDialog.Builder(this)
+        list.addView(action("Сбросить вариант развития",()->new SwipeDialogs.Builder(this)
             .setTitle("Начать новую историю?")
             .setMessage("Питомец вновь станет яйцом и сможет выбрать другой облик. Книжная статистика, библиотека и сохранённое имя останутся.")
             .setNegativeButton("Отмена",null).setPositiveButton("Сбросить",(dialog,which)->{ChteicoStore.resetBranch(this);draw();}).show()));
-        gap(8);list.addView(action("Полностью сбросить Чтейцо",()->new AlertDialog.Builder(this)
+        gap(8);list.addView(action("Полностью сбросить Чтейцо",()->new SwipeDialogs.Builder(this)
             .setTitle("Сбросить Чтейцо?")
             .setMessage("Будут сброшены игровая стадия, имя и выбранная ветка питомца. Книжная статистика, заработанные награды, книги и позиции чтения останутся нетронутыми.")
             .setNegativeButton("Отмена",null).setPositiveButton("Сбросить",(dialog,which)->{ChteicoStore.resetPet(this);draw();}).show()));
@@ -472,7 +472,7 @@ public class SettingsActivity extends Activity {
         input.setText(original==NO_COLOR?"":String.format(java.util.Locale.ROOT,"#%06X",original&0xFFFFFF));
         input.setHint(allowNone?"Пусто = без цвета":"#RRGGBB");
         LinearLayout content=col();content.setPadding(dp(18),0,dp(18),0);content.addView(input);
-        new AlertDialog.Builder(this).setTitle("Цвет · #RRGGBB").setView(content)
+        new SwipeDialogs.Builder(this).setTitle("Цвет · #RRGGBB").setView(content)
             .setNegativeButton("Отмена",null).setPositiveButton("Сохранить",(d,n)->{
                 try{
                     String value=input.getText().toString().trim();
@@ -581,7 +581,7 @@ public class SettingsActivity extends Activity {
         final String[] labels={"0.5×","0.75×","1×","1.1×","1.25×","1.5×","1.75×","2×","2.5×","3×"};
         float saved=prefs.getFloat("audio_speed",1f);int selected=2;
         for(int i=0;i<rates.length;i++)if(Math.abs(saved-rates[i])<.01f)selected=i;
-        new AlertDialog.Builder(this).setTitle("Скорость аудиокниг")
+        new SwipeDialogs.Builder(this).setTitle("Скорость аудиокниг")
             .setSingleChoiceItems(labels,selected,(dialog,n)->{
                 prefs.edit().putFloat("audio_speed",rates[n]).apply();
                 startService(new Intent(this,AudioPlaybackService.class)
@@ -592,7 +592,7 @@ public class SettingsActivity extends Activity {
     private void audioSleepDialog(){
         final int[] minutes={0,5,10,15,30,60};
         final String[] items={"Выключить","5 минут","10 минут","15 минут","30 минут","60 минут"};
-        new AlertDialog.Builder(this).setTitle("Таймер сна")
+        new SwipeDialogs.Builder(this).setTitle("Таймер сна")
             .setItems(items,(dialog,n)->startService(new Intent(this,AudioPlaybackService.class)
                 .setAction(AudioPlaybackService.SLEEP).putExtra("minutes",minutes[n])))
             .setNegativeButton("Отмена",null).show();
@@ -605,7 +605,7 @@ public class SettingsActivity extends Activity {
         final String[] names={"Выключено","5 секунд","10 секунд","15 секунд","30 секунд","1 минута"};
         int selected=0,stored=AudioPlaybackPrefs.pauseRewindSeconds(this);
         for(int i=0;i<values.length;i++)if(stored==values[i])selected=i;
-        new AlertDialog.Builder(this).setTitle("Автоотмотка после паузы")
+        new SwipeDialogs.Builder(this).setTitle("Автоотмотка после паузы")
             .setSingleChoiceItems(names,selected,(d,n)->{prefs.edit().putInt(AudioPlaybackPrefs.REWIND_ON_RESUME,values[n]).apply();d.dismiss();draw();})
             .setNegativeButton("Отмена",null).show();
     }
@@ -617,7 +617,7 @@ public class SettingsActivity extends Activity {
         LinearLayout panel=col();panel.setPadding(dp(22),dp(5),dp(22),0);
         panel.addView(text("Интервал от 1 до "+maximum+(minutes?" минут":" секунд"),14,false));
         panel.addView(field);
-        new AlertDialog.Builder(this).setTitle(minutes?"Интервал перемотки в минутах":"Интервал перемотки в секундах")
+        new SwipeDialogs.Builder(this).setTitle(minutes?"Интервал перемотки в минутах":"Интервал перемотки в секундах")
             .setView(panel).setNegativeButton("Отмена",null)
             .setPositiveButton("Сохранить",(d,w)->{
                 try{int value=Integer.parseInt(field.getText().toString().trim());
@@ -643,7 +643,7 @@ public class SettingsActivity extends Activity {
                 String key=keys.next();labels.add("Сохранённый · "+key);values.add("saved:"+key);
             }
         }catch(Exception ignored){}
-        new AlertDialog.Builder(this).setTitle("Эквалайзер")
+        new SwipeDialogs.Builder(this).setTitle("Эквалайзер")
             .setItems(labels.toArray(new String[0]),(d,which)->{
                 String choice=values.get(which);
                 if("custom".equals(choice)){customEqualizerDialog();return;}
@@ -686,7 +686,7 @@ public class SettingsActivity extends Activity {
         android.widget.EditText profile=new android.widget.EditText(this);
         profile.setSingleLine(true);profile.setHint("Название профиля");
         profile.setText(prefs.getString("eq_custom_name","Мой профиль"));panel.addView(profile);
-        new AlertDialog.Builder(this).setTitle("Пользовательский эквалайзер")
+        new SwipeDialogs.Builder(this).setTitle("Пользовательский эквалайзер")
             .setView(panel).setNeutralButton("Сброс",(d,w)->{saveCustomCurve(new float[5],"Пользовательский");draw();})
             .setNegativeButton("Отмена",null)
             .setPositiveButton("Сохранить",(d,w)->{
@@ -709,7 +709,7 @@ public class SettingsActivity extends Activity {
             catch(android.content.ActivityNotFoundException ignored){}
             catch(SecurityException ignored){}
         }
-        new AlertDialog.Builder(this).setMessage("Системные настройки синтеза речи недоступны на этом устройстве.")
+        new SwipeDialogs.Builder(this).setMessage("Системные настройки синтеза речи недоступны на этом устройстве.")
                 .setPositiveButton("OK",null).show();
     }
     void drawOnlineSettings(){
@@ -764,7 +764,7 @@ public class SettingsActivity extends Activity {
         addPauseSlider(panel,"На длинных словах (12+ букв)","pauseLongPercent",50,300);
         addPauseSlider(panel,"В конце предложения","pauseSentencePercent",120,400);
         addPauseSlider(panel,"Между абзацами","pauseParagraphPercent",150,400);
-        new AlertDialog.Builder(this).setTitle("Паузы в скорочтении")
+        new SwipeDialogs.Builder(this).setTitle("Паузы в скорочтении")
             .setView(panel).setPositiveButton("Сохранить",(d,w)->draw())
             .setNegativeButton("Отмена",null).show();
     }
@@ -790,7 +790,7 @@ public class SettingsActivity extends Activity {
             public void onProgressChanged(SeekBar b,int value,boolean from){sample.setBackground(outlined(Color.rgb(bars[0].getProgress(),bars[1].getProgress(),bars[2].getProgress()),8));}
             public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
         });
-        new AlertDialog.Builder(this).setTitle("Выбор RGB").setView(wrapper)
+        new SwipeDialogs.Builder(this).setTitle("Выбор RGB").setView(wrapper)
             .setPositiveButton("Применить",(d,w)->{int color=Color.rgb(bars[0].getProgress(),bars[1].getProgress(),bars[2].getProgress());if(background){bg=color;put("bg",bg);}else{fg=color;put("fg",fg);}draw();})
             .setNegativeButton("Отмена",null).show();
     }
@@ -814,7 +814,7 @@ public class SettingsActivity extends Activity {
             }
             public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
         });
-        new AlertDialog.Builder(this).setTitle(primary?"Цвет акцентных кнопок":"Цвет обычных кнопок")
+        new SwipeDialogs.Builder(this).setTitle(primary?"Цвет акцентных кнопок":"Цвет обычных кнопок")
             .setView(wrapper).setNeutralButton("Стандартный",(d,w)->{setButtonColor(primary,NO_COLOR);draw();})
             .setPositiveButton("Применить",(d,w)->{
                 int value=Color.rgb(bars[0].getProgress(),bars[1].getProgress(),bars[2].getProgress());

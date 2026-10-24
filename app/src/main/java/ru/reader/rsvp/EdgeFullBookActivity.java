@@ -79,12 +79,12 @@ public final class EdgeFullBookActivity extends Activity {
         SharedPreferences prefs=getSharedPreferences("reader",0);
         String selected=prefs.getString("edge_voice",voices[0]);
         int chosen=selected.contains("Dmitry")?1:0;
-        new AlertDialog.Builder(this).setTitle("Голос для всей книги")
+        new SwipeDialogs.Builder(this).setTitle("Голос для всей книги")
             .setSingleChoiceItems(voiceNames,chosen,(dialog,which)->{
                 dialog.dismiss();int length=EdgeSegmentSettings.get(prefs);
                 String message="Книга: "+title+"\nГолос: "+voiceNames[which]
                     +"\nРазмер фрагмента: "+length+" символов.\n\nЗагрузка будет работать без воспроизведения. Готовые MP3 повторно не скачиваются, если голос и границы совпадают.";
-                new AlertDialog.Builder(this).setTitle("Подготовить всю книгу?").setMessage(message)
+                new SwipeDialogs.Builder(this).setTitle("Подготовить всю книгу?").setMessage(message)
                     .setNegativeButton("Отмена",null).setPositiveButton("Начать",(d,b)->{
                         Intent i=new Intent(this,EdgeFullBookService.class).setAction(EdgeFullBookService.ADD)
                             .putExtra(EdgeFullBookService.EXTRA_URI,uri)

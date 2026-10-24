@@ -95,7 +95,7 @@ public final class LinkDownloadActivity extends Activity {
             for(int i=0;i<discovered.size();i++){final LinkDownloadStore.Entry entry=discovered.get(i);LinearLayout card=panel();LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=dp(7);previewArea.addView(card,lp);
                 CheckBox cb=new CheckBox(this);cb.setText(entry.name);cb.setChecked(true);cb.setTextColor(INK);cb.setTextSize(15);card.addView(cb);checkboxes.add(cb);
                 TextView meta=text((entry.size<0?"Размер неизвестен":String.format(Locale.ROOT,"%.1f МБ",entry.size/1048576.0))+" · "+LinkFileTypes.formatName(entry.format)+" найден",12,false);card.addView(meta);
-                Button rename=button("Переименовать",false);card.addView(rename);rename.setOnClickListener(v->{EditText name=new EditText(this);name.setSingleLine(true);name.setText(entry.name);new AlertDialog.Builder(this).setTitle("Имя файла").setView(name).setNegativeButton("Отмена",null).setPositiveButton("Сохранить",(d,w)->{entry.name=LinkFileTypes.safeFilename(name.getText().toString(),entry.format);cb.setText(entry.name);}).show();});
+                Button rename=button("Переименовать",false);card.addView(rename);rename.setOnClickListener(v->{EditText name=new EditText(this);name.setSingleLine(true);name.setText(entry.name);new SwipeDialogs.Builder(this).setTitle("Имя файла").setView(name).setNegativeButton("Отмена",null).setPositiveButton("Сохранить",(d,w)->{entry.name=LinkFileTypes.safeFilename(name.getText().toString(),entry.format);cb.setText(entry.name);}).show();});
             }
             download.setVisibility(View.VISIBLE);
         }
@@ -111,7 +111,7 @@ public final class LinkDownloadActivity extends Activity {
             String safe=LinkDownloadStore.safeName(folderName);if(!safe.equals(folderName)){status.setText("Недопустимые символы в названии папки");return;}folderName=safe;
         }
         final String finalFolder=folderName;
-        new AlertDialog.Builder(this).setTitle("Подтвердите загрузку").setMessage("Файлов: "+selected.size()+"\nПапка: "+treeLabel+(finalFolder.isEmpty()?"":" / "+finalFolder)+"\n\nСкачивайте только файлы, на которые у вас есть право доступа.")
+        new SwipeDialogs.Builder(this).setTitle("Подтвердите загрузку").setMessage("Файлов: "+selected.size()+"\nПапка: "+treeLabel+(finalFolder.isEmpty()?"":" / "+finalFolder)+"\n\nСкачивайте только файлы, на которые у вас есть право доступа.")
             .setNegativeButton("Отмена",null).setPositiveButton("Скачать",(d,w)->{
                 LinkDownloadStore.Batch batch=new LinkDownloadStore.Batch();batch.treeUri=chosenTree.toString();batch.treeLabel=treeLabel;batch.subfolder=finalFolder;batch.title=finalFolder.isEmpty()?"Загрузка по ссылке":finalFolder;batch.files.addAll(selected);LinkDownloadStore.put(this,batch);
                 getSharedPreferences("reader",0).edit().putString("direct_last_subfolder",finalFolder).apply();

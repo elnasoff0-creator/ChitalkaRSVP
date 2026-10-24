@@ -41,7 +41,30 @@ public class TtsVoiceActivity extends Activity {
         if(synth==null||isFinishing())return;
         items.removeAllViews();if(result!=TextToSpeech.SUCCESS){items.addView(row("Не удалось инициализировать TTS",16));return;}
         engines.clear();engines.addAll(synth.getEngines());
-        TextView choose=row("Движок: "+(engine.isEmpty()?"Системный по умолчанию":engine)+"   ▾",17);choose.setOnClickListener(v->chooseEngine());items.addView(choose);
+        TextView catalogTitle=row("Установленные локальные голоса (все движки)",17);
+        items.addView(catalogTitle);
+        LinearLayout catalogRows=new LinearLayout(this);catalogRows.setOrientation(1);
+        items.addView(catalogRows);
+        LocalVoiceCatalog.discover(this,found->{
+            if(isFinishing()||isDestroyed()||catalogRows.getParent()==null)return;
+            catalogRows.removeAllViews();
+            if(found.isEmpty())catalogRows.addView(row("Доступные локальные русские голоса не найдены",14));
+            for(LocalVoiceCatalog.Entry candidate:found){
+                String brand=candidate.engine.toLowerCase(Locale.ROOT).contains("samsung")?"Samsung":
+                    candidate.engine.toLowerCase(Locale.ROOT).contains("google")?"Google":candidate.label;
+                TextView item=row(brand+"  ·  "+candidate.voice.getName(),14);
+                catalogRows.addView(item);
+                item.setOnClickListener(view->{
+                    getSharedPreferences("reader",0).edit()
+                       .putString("tts_engine",candidate.engine)
+                       .putString("tts_voice",candidate.voice.getName()).apply();
+                    engine=candidate.engine;
+                    startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.ENGINE));
+                    loadEngine();
+                });
+            }
+        });
+        TextView choose=row("Текущий движок: "+(engine.isEmpty()?"Системный по умолчанию":engine)+"   ▾",17);choose.setOnClickListener(v->chooseEngine());items.addView(choose);
         items.addView(row("Русские голоса · локальные в приоритете",15));
         ArrayList<Voice> local=new ArrayList<>();ArrayList<Voice> online=new ArrayList<>();
         Set<Voice> voices=synth.getVoices();if(voices!=null)for(Voice v:voices)if(v.getLocale()!=null&&"ru".equals(v.getLocale().getLanguage())){
@@ -57,7 +80,7 @@ public class TtsVoiceActivity extends Activity {
             more.setOnClickListener(view->hidden.setVisibility(hidden.getVisibility()==View.VISIBLE?View.GONE:View.VISIBLE));
         }
         TextView system=row("Загрузить дополнительные голоса в настройках Android  ›",15);
-        system.setOnClickListener(v->{try{startActivity(new Intent("com.android.settings.TTS_SETTINGS"));}catch(Exception e){new AlertDialog.Builder(this).setMessage("Настройки TTS недоступны").setPositiveButton("ОК",null).show();}});items.addView(system);
+        system.setOnClickListener(v->{try{startActivity(new Intent("com.android.settings.TTS_SETTINGS"));}catch(Exception e){new SwipeDialogs.Builder(this).setMessage("Настройки TTS недоступны").setPositiveButton("ОК",null).show();}});items.addView(system);
     });}
     private void addVoice(Voice voice,boolean network){addVoiceTo(items,voice,network);}
     private void addVoiceTo(LinearLayout container,Voice voice,boolean network){
@@ -133,7 +156,7 @@ public class TtsVoiceActivity extends Activity {
     private void chooseEngine(){
         ArrayList<String> names=new ArrayList<>();names.add("Системный по умолчанию");
         for(TextToSpeech.EngineInfo info:engines)names.add(info.label+" ("+info.name+")");
-        new AlertDialog.Builder(this).setTitle("Выбор движка TTS")
+        new SwipeDialogs.Builder(this).setTitle("Выбор движка TTS")
             .setItems(names.toArray(new String[0]),(d,n)->{engine=n==0?"":engines.get(n-1).name;
                 getSharedPreferences("reader",0).edit().putString("tts_engine",engine).remove("tts_voice").apply();loadEngine();})
             .setNegativeButton("Отмена",null).show();

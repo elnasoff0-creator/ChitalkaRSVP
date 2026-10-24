@@ -153,7 +153,7 @@ public final class DownloadActivity extends Activity {
                 if(!job.voice.equals(prefs.getString("edge_voice","ru-RU-SvetlanaNeural"))
                     ||!job.rate.equals(prefs.getString("edge_rate","+0%"))
                     ||job.chars!=EdgeSegmentSettings.get(prefs)){
-                    new AlertDialog.Builder(this).setTitle("Прослушать готовую аудиокнигу")
+                    new SwipeDialogs.Builder(this).setTitle("Прослушать готовую аудиокнигу")
                         .setMessage("Для воспроизведения подготовленных MP3 будут выбраны голос и длина фрагмента, использованные при полной озвучке. Продолжить?")
                         .setNegativeButton("Отмена",null).setPositiveButton("Слушать",(d,w)->{
                             prefs.edit().putString("edge_voice",job.voice).putString("edge_rate",job.rate)
@@ -178,7 +178,7 @@ public final class DownloadActivity extends Activity {
         }catch(Exception e){Toast.makeText(this,"Ошибка Edge: "+e.getMessage(),Toast.LENGTH_LONG).show();}
     }
     private void confirmCancel(DownloadsRepository.Item item){
-        new AlertDialog.Builder(this).setTitle("Отменить загрузку?")
+        new SwipeDialogs.Builder(this).setTitle("Отменить загрузку?")
             .setMessage("Можно сохранить уже скачанные главы или удалить файлы этой аудиокниги.")
             .setNegativeButton("Назад",null)
             .setNeutralButton("Сохранить файлы",(d,w)->send(item,DownloadWorker.CANCEL))
@@ -208,7 +208,7 @@ public final class DownloadActivity extends Activity {
     }
     private void confirmDelete(DownloadsRepository.Item item,boolean files){
         String what=files?"Удалить загрузку и файлы?":"Убрать задание из списка?";
-        new AlertDialog.Builder(this).setTitle(what)
+        new SwipeDialogs.Builder(this).setTitle(what)
             .setMessage(files?"Аудиофайлы будут удалены. Для Edge исходная текстовая книга останется в библиотеке.":"Скачанные файлы сохранятся на устройстве.")
             .setNegativeButton("Отмена",null)
             .setPositiveButton("Удалить",(d,w)->{
@@ -238,7 +238,7 @@ public final class DownloadActivity extends Activity {
                 case 1:open(item);break;
                 case 2:LinkDownloadStore.addToLibrary(this,item.link);Toast.makeText(this,"Добавлено в библиотеку",Toast.LENGTH_SHORT).show();break;
                 case 3:linkCommand(item,DirectLinkDownloadService.START);break;
-                case 4:case 5:final boolean erase=m.getItemId()==5;new AlertDialog.Builder(this).setTitle(erase?"Удалить загруженные MP3?":"Убрать задание из списка?")
+                case 4:case 5:final boolean erase=m.getItemId()==5;new SwipeDialogs.Builder(this).setTitle(erase?"Удалить загруженные MP3?":"Убрать задание из списка?")
                     .setMessage(erase?"Будут удалены файлы этого задания в выбранной папке.":"Файлы останутся на устройстве.")
                     .setNegativeButton("Отмена",null).setPositiveButton("Удалить",(d,w)->deleteLink(item,erase)).show();break;
             }return true;});p.show();return;

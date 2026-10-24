@@ -85,7 +85,7 @@ public final class UpdateManager {
                         break;
                     }
                     final String url = apkUrl, checksum = sha;
-                    AlertDialog.Builder dialog = new AlertDialog.Builder(activity)
+                    AlertDialog.Builder dialog = new SwipeDialogs.Builder(activity)
                         .setTitle("Проверка версии")
                         .setMessage(report)
                         .setNegativeButton("Закрыть", null);
@@ -141,7 +141,7 @@ public final class UpdateManager {
                     } else if (foundUrl == null || foundUrl.isEmpty() || foundSha == null || !foundSha.matches("(?i)[0-9a-f]{64}")) {
                         if (!silent) message("Обновление недоступно", "В выпуске " + tag + " нет APK с SHA-256. Публикуйте подписанный APK через GitHub Releases.");
                     } else {
-                        new AlertDialog.Builder(activity)
+                        new SwipeDialogs.Builder(activity)
                             .setTitle("Доступна версия " + tag)
                             .setMessage("Что нового:\n" + (notes.isEmpty() ? "Исправления и улучшения" : notes))
                             .setNegativeButton("Позже", null)
@@ -260,7 +260,7 @@ public final class UpdateManager {
     private void install(File file) {
         try {
             if (Build.VERSION.SDK_INT >= 26 && !activity.getPackageManager().canRequestPackageInstalls()) {
-                new AlertDialog.Builder(activity).setTitle("Разрешение на установку")
+                new SwipeDialogs.Builder(activity).setTitle("Разрешение на установку")
                     .setMessage("Разреши установку приложений из Читалки, затем снова проверь обновление.")
                     .setPositiveButton("Настройки", (d, w) -> {
                         Intent i = new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
@@ -278,6 +278,6 @@ public final class UpdateManager {
 
     private void message(String title, String body) {
         if (activity.isFinishing()) return;
-        new AlertDialog.Builder(activity).setTitle(title).setMessage(body).setPositiveButton("OK", null).show();
+        new SwipeDialogs.Builder(activity).setTitle(title).setMessage(body).setPositiveButton("OK", null).show();
     }
 }

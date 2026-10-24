@@ -1,0 +1,11 @@
+feat(ui,tts): in-place engine switching and unified controls (v1.11.72-beta)
+
+- Switch between Edge and Android TTS without recreating Activity
+- Preserve reading position, play state, highlights and sleep deadline
+- Add single-tap engine picker and discover installed Samsung/Google voices
+- Keep Play/Pause centered; hide Edge-only controls for local TTS
+- Move WPM to compact vertical gauge and Settings to rightmost toolbar item
+- Respect Android status/navigation bar WindowInsets across activities
+- Match configured button/accent palette and remove reader play-panel background
+- Add swipe-to-dismiss dialogs and drawer edge gestures
+- Keep only current-version README, CHANGELOG and COMMIT_MESSAGE in CLEAN archive

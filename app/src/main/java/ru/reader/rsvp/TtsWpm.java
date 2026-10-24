@@ -27,7 +27,7 @@ public final class TtsWpm {
             Button b=new Button(activity);b.setText(String.valueOf(n));b.setTextSize(12);b.setAllCaps(false);b.setPadding(0,0,0,0);
             presets.addView(b,new LinearLayout.LayoutParams(0,49*dp,1));b.setOnClickListener(v->{set(activity,n);refresh.run();});
         }
-        new AlertDialog.Builder(activity).setTitle("Скорость озвучивания").setView(content).setPositiveButton("Готово",(d,w)->{if(changed!=null)changed.run();}).show();
+        new SwipeDialogs.Builder(activity).setTitle("Скорость озвучивания").setView(content).setPositiveButton("Готово",(d,w)->{if(changed!=null)changed.run();}).show();
     }
     /** The same speedometer dialog for independent RSVP/Cursor reading speed. */
     public static void dialogForReader(Activity activity,int initial,java.util.function.IntConsumer applied){
@@ -49,7 +49,7 @@ public final class TtsWpm {
             b.setPadding(0,0,0,0);quick.addView(b,new LinearLayout.LayoutParams(0,48*dp,1));
             b.setOnClickListener(v->{selected[0]=n;apply.run();});
         }
-        new AlertDialog.Builder(activity).setTitle("Скорость чтения")
+        new SwipeDialogs.Builder(activity).setTitle("Скорость чтения")
             .setView(content).setPositiveButton("Готово",(d,w)->applied.accept(selected[0])).show();
     }
 

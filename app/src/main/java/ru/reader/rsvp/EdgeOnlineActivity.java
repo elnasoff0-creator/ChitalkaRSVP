@@ -25,6 +25,7 @@ import android.widget.ImageView;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.speech.tts.TextToSpeech;
@@ -54,7 +55,11 @@ public final class EdgeOnlineActivity extends Activity {
     private LinearLayout root;
     private ScrollView scroller;
     private TextView reading,bookTitle,progress,offlineProgress,speed;
-    private ImageButton modeButton;
+    private ImageButton modeButton,downloadsButton;
+    private FrameLayout playbackBar;
+    private boolean switchShouldPlay=false;
+    private int switchedWord=-1;
+    private int styledButtonColor=Integer.MIN_VALUE,styledAccentColor=Integer.MIN_VALUE;
     private ImageView playIcon;
     private String displayedText="";
     private int windowStart=-1,windowEnd=-1,lastStart=-1,lastEnd=-1;
@@ -74,9 +79,11 @@ public final class EdgeOnlineActivity extends Activity {
     };
     private final ServiceConnection downloadConnection=new ServiceConnection(){
         @Override public void onServiceConnected(ComponentName n,IBinder binder){
+            if(local)return;
             downloads=((EdgeDownloadService.LocalBinder)binder).getService();
-            int word=getIntent().getIntExtra("word_index",getSharedPreferences("reader",0).getInt("tts_word:"+uri,0));
+            int word=switchedWord>=0?switchedWord:getIntent().getIntExtra("word_index",getSharedPreferences("reader",0).getInt("tts_word:"+uri,0));
             downloads.openBook(uri,word);
+            if(downloads.isReady())downloads.setAnchor(word,true);
             downloads.setActive(true);
             downloads.addObserver(downloadObserver);
             refresh();
@@ -85,12 +92,14 @@ public final class EdgeOnlineActivity extends Activity {
     };
     private final ServiceConnection playerConnection=new ServiceConnection(){
         @Override public void onServiceConnected(ComponentName n,IBinder binder){
+            if(local)return;
             edge=((EdgePlaybackService.LocalBinder)binder).getService();
             edge.prepareBook("edge:"+uri);
             edge.restoreSharedSleepTimer();
             edge.setAutoContinue(true);
             edge.setPlaybackSpeed(Math.min(5f,TtsWpm.rate(EdgeOnlineActivity.this)));
             edge.addListener(edgeObserver);
+            if(switchShouldPlay){switchShouldPlay=false;edge.play();}
             refresh();
         }
         @Override public void onServiceDisconnected(ComponentName n){edge=null;}
@@ -153,8 +162,9 @@ public final class EdgeOnlineActivity extends Activity {
         item.setImageResource(resource);
         item.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         item.setPadding(dp(10),dp(10),dp(10),dp(10));
-        item.setColorFilter(foreground);
-        item.setBackground(bg(0xfffff9f0,12));
+        int color=ReaderButtonColors.neutral(this,0xfffff9f0);
+        item.setColorFilter(ReaderButtonColors.contrastingText(color));
+        item.setBackground(bg(color,12));
         item.setContentDescription(description);
         item.setOnClickListener(v->click.run());
         return item;
@@ -167,28 +177,25 @@ public final class EdgeOnlineActivity extends Activity {
     private void createUi(){
         root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(background);
         root.setPadding(dp(10),dp(8),dp(10),dp(8));setContentView(root);
+        styledButtonColor=ReaderButtonColors.neutral(this,0xfffff9f0);
+        styledAccentColor=ReaderButtonColors.accent(this,0xff915439);
         LinearLayout toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);
         root.addView(toolbar,new LinearLayout.LayoutParams(-1,dp(54)));
         ImageButton back=toolbarIcon(R.drawable.ic_back,"Назад",()->BackNavigation.back(this));
         addToolbarButton(toolbar,back,true);
-        // The original two engine icons are reused directly; engine selection no longer opens a dialog.
         modeButton=toolbarIcon(local?R.drawable.ic_android_tts:R.drawable.ic_edge_tts,
-                local?"Переключить на Edge онлайн":"Переключить на системный TTS",()->switchTo(!local));
+                "Способ озвучивания",this::chooseMethod);
         addToolbarButton(toolbar,modeButton,false);
         ImageButton voiceButton=toolbarIcon(R.drawable.ic_tts_engine,"Выбор голоса",this::chooseVoice);
         addToolbarButton(toolbar,voiceButton,false);
         ImageButton sleep=toolbarIcon(R.drawable.ic_sleep_timer,"Таймер сна",this::sleepDialog);
         addToolbarButton(toolbar,sleep,false);
-        ImageButton settings=toolbarIcon(R.drawable.ic_settings,"Настройки аудио",()->{
-            startActivity(new Intent(this,SettingsActivity.class).putExtra("audio_tab",true));
-        });
-        addToolbarButton(toolbar,settings,false);
         LinearLayout gauge=new LinearLayout(this);
         gauge.setOrientation(LinearLayout.VERTICAL);
-        gauge.setGravity(Gravity.CENTER);gauge.setBackground(bg(0xfffff9f0,12));
+        gauge.setGravity(Gravity.CENTER);gauge.setBackground(bg(ReaderButtonColors.neutral(this,0xfffff9f0),12));
         ImageView needle=new ImageView(this);needle.setImageResource(R.drawable.ic_audio_speed);
-        needle.setColorFilter(foreground);gauge.addView(needle,new LinearLayout.LayoutParams(dp(19),dp(19)));
-        speed=label(String.valueOf(TtsWpm.get(this)),13);speed.setGravity(Gravity.CENTER);
+        needle.setColorFilter(ReaderButtonColors.contrastingText(styledButtonColor));gauge.addView(needle,new LinearLayout.LayoutParams(dp(19),dp(19)));
+        speed=label(String.valueOf(TtsWpm.get(this)),13);speed.setTextColor(ReaderButtonColors.contrastingText(styledButtonColor));speed.setGravity(Gravity.CENTER);
         gauge.addView(speed);gauge.setContentDescription("Скорость чтения в словах в минуту");
         gauge.setOnClickListener(v->TtsWpm.dialog(this,()->{
             speed.setText(String.valueOf(TtsWpm.get(this)));
@@ -197,6 +204,10 @@ public final class EdgeOnlineActivity extends Activity {
             refresh();
         }));
         addToolbarButton(toolbar,gauge,false);
+        ImageButton settings=toolbarIcon(R.drawable.ic_settings,"Настройки аудио",()->{
+            startActivity(new Intent(this,SettingsActivity.class).putExtra("audio_tab",true));
+        });
+        addToolbarButton(toolbar,settings,false);
         // Book title is retained as state for metadata but intentionally absent from the compact toolbar.
         bookTitle=label("",14);
         scroller=new ScrollView(this);scroller.setFillViewport(true);scroller.setBackground(bg(background,10));
@@ -224,30 +235,38 @@ public final class EdgeOnlineActivity extends Activity {
             return false;
         });
         scroller.addView(reading);
-        // The entire lower area is one compact row: listening time / Play-Pause / MP3 percentage / Downloads.
-        LinearLayout controls=new LinearLayout(this);controls.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams controlsLp=new LinearLayout.LayoutParams(-1,dp(69));
-        controlsLp.topMargin=dp(5);root.addView(controls,controlsLp);
-        progress=label("0 ч 0 мин / ~0 ч 0 мин",12);
+        // Exact center anchor is independent of left and right content widths.
+        playbackBar=new FrameLayout(this);
+        LinearLayout.LayoutParams controlsLp=new LinearLayout.LayoutParams(-1,dp(70));
+        controlsLp.topMargin=dp(5);root.addView(playbackBar,controlsLp);
+        progress=label("0 ч 0 мин / ~0 ч 0 мин",11);
         progress.setGravity(Gravity.CENTER_VERTICAL|Gravity.LEFT);progress.setMaxLines(2);
-        controls.addView(progress,new LinearLayout.LayoutParams(0,dp(60),1.5f));
-        LinearLayout playArea=new LinearLayout(this);playArea.setOrientation(LinearLayout.VERTICAL);
-        playArea.setGravity(Gravity.CENTER);
-        playArea.setBackground(bg(ReaderButtonColors.accent(this,0xff915439),19));
+        int sideWidth=Math.max(dp(68),Math.min(dp(108),
+            (getResources().getDisplayMetrics().widthPixels-dp(20)-dp(78))/2));
+        FrameLayout.LayoutParams pp=new FrameLayout.LayoutParams(sideWidth,dp(65),Gravity.START|Gravity.CENTER_VERTICAL);
+        playbackBar.addView(progress,pp);
+        FrameLayout playArea=new FrameLayout(this);
+        int playBackground=ReaderButtonColors.accent(this,0xff915439);
+        playArea.setBackground(bg(playBackground,19));
         playIcon=new ImageView(this);playIcon.setImageResource(R.drawable.ic_play);
-        playIcon.setColorFilter(Color.WHITE);
-        playArea.addView(playIcon,new LinearLayout.LayoutParams(dp(31),dp(31)));
+        playIcon.setColorFilter(ReaderButtonColors.contrastingText(playBackground));
+        playArea.addView(playIcon,new FrameLayout.LayoutParams(dp(31),dp(31),Gravity.CENTER));
         playArea.setContentDescription("Воспроизведение / пауза");
         playArea.setOnClickListener(v->togglePlay());
-        controls.addView(playArea,new LinearLayout.LayoutParams(dp(72),dp(61)));
+        playbackBar.addView(playArea,new FrameLayout.LayoutParams(dp(72),dp(63),Gravity.CENTER));
+        LinearLayout edgeStatus=new LinearLayout(this);edgeStatus.setGravity(Gravity.CENTER_VERTICAL|Gravity.END);
+        FrameLayout.LayoutParams ep=new FrameLayout.LayoutParams(sideWidth,dp(63),Gravity.END|Gravity.CENTER_VERTICAL);
+        playbackBar.addView(edgeStatus,ep);
         offlineProgress=label("0%",14);offlineProgress.setGravity(Gravity.CENTER);
-        controls.addView(offlineProgress,new LinearLayout.LayoutParams(0,dp(58),.45f));
-        ImageButton downloadsButton=toolbarIcon(R.drawable.ic_downloads,"Загрузки",()->{
+        edgeStatus.addView(offlineProgress,new LinearLayout.LayoutParams(0,dp(58),1f));
+        downloadsButton=toolbarIcon(R.drawable.ic_downloads,"Загрузки",()->{
             startActivity(new Intent(this,DownloadActivity.class));
         });
         LinearLayout.LayoutParams dl=new LinearLayout.LayoutParams(dp(45),dp(45));
-        dl.leftMargin=dp(3);controls.addView(downloadsButton,dl);
+        dl.leftMargin=dp(3);edgeStatus.addView(downloadsButton,dl);
+        edgeStatus.setVisibility(local?View.GONE:View.VISIBLE);
     }
+
     private int wordChar(int word){return wordStarts.isEmpty()?0:wordStarts.get(Math.max(0,Math.min(word,wordStarts.size()-1)));}
     private int wordFromChar(int character){return wordStarts.isEmpty()?0:Math.max(0,Math.min(wordStarts.size()-1,SentenceChunks.lowerBound(wordStarts,character)));}
     private void showWindow(int anchor,boolean center){
@@ -329,7 +348,7 @@ public final class EdgeOnlineActivity extends Activity {
     private void sleepDialog(){
         int[] minutes={0,5,10,15,30,60};
         String[] choices={"Выключить","5 мин","10 мин","15 мин","30 мин","60 мин"};
-        new AlertDialog.Builder(this).setTitle("Таймер сна")
+        new SwipeDialogs.Builder(this).setTitle("Таймер сна")
             .setItems(choices,(dialog,n)->{
                 if(local){startService(new Intent(this,AudioPlaybackService.class)
                     .setAction(AudioPlaybackService.SLEEP).putExtra("minutes",minutes[n]));}
@@ -337,15 +356,72 @@ public final class EdgeOnlineActivity extends Activity {
                 Toast.makeText(this,minutes[n]==0?"Таймер выключен":"Таймер установлен",Toast.LENGTH_SHORT).show();
             }).setNegativeButton("Отмена",null).show();
     }
+    /** Switch voice engines in place. No new Activity, layout or text reload. */
     private void switchTo(boolean toLocal){
         if(toLocal==local)return;
-        getSharedPreferences("reader",0).edit().putBoolean("tts_last_local",toLocal).apply();
-        int at=liveWord();
-        if(!local&&downloads!=null)downloads.setActive(false);
-        if(local&&AudioPlaybackService.instance!=null)startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.STOP));
-        Intent target=new Intent(this,EdgeOnlineActivity.class).putExtra("book_uri",uri)
-            .putExtra("word_index",at).putExtra("tts_mode_local",toLocal);
-        startActivity(target);finish();
+        boolean wasPlaying=local?(AudioPlaybackService.instance!=null&&AudioPlaybackService.instance.isTtsMode()
+                &&!AudioPlaybackService.instance.isPaused()):(edge!=null&&edge.isPlaying());
+        int at=selectedWord>=0&&!wasPlaying?selectedWord:liveWord();
+        switchedWord=Math.max(0,at);selectedWord=switchedWord;
+        getSharedPreferences("reader",0).edit().putBoolean("tts_last_local",toLocal)
+            .putInt("tts_word:"+uri,switchedWord).apply();
+        if(local){
+            if(AudioPlaybackService.instance!=null)startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.STOP));
+        }else{
+            if(edge!=null){edge.pause();edge.removeListener(edgeObserver);}
+            if(downloads!=null){downloads.removeObserver(downloadObserver);downloads.setActive(false);}
+            if(boundDownload){unbindService(downloadConnection);boundDownload=false;}
+            if(boundPlayer){unbindService(playerConnection);boundPlayer=false;}
+            downloads=null;edge=null;
+        }
+        local=toLocal;
+        offlinePrompt=false;requestedSeekWord=-1;requestedSeekKey="";
+        if(modeButton!=null)modeButton.setImageResource(local?R.drawable.ic_android_tts:R.drawable.ic_edge_tts);
+        if(downloadsButton!=null&&downloadsButton.getParent() instanceof View)
+            ((View)downloadsButton.getParent()).setVisibility(local?View.GONE:View.VISIBLE);
+        SentenceChunks.Chunk chosen=SentenceChunks.forWord(sentences,selectedWord);
+        if(chosen!=null)mark(chosen.fromChar,chosen.toChar,true);
+        if(local){
+            AudioModeCoordinator.stopEdge(this);
+            startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.TTS)
+                .putExtra("bookUri",uri).putExtra("word_index",switchedWord)
+                .putExtra("auto_on_selection",wasPlaying));
+        }else{
+            switchShouldPlay=wasPlaying;
+            Intent job=new Intent(this,EdgeDownloadService.class).setAction(EdgeDownloadService.ACTION_BEGIN)
+                .putExtra(EdgeDownloadService.EXTRA_URI,uri).putExtra(EdgeDownloadService.EXTRA_ANCHOR,switchedWord);
+            try{ContextCompat.startForegroundService(this,job);}catch(Exception ex){
+                Toast.makeText(this,"Не удалось подключить Edge TTS",Toast.LENGTH_LONG).show();switchShouldPlay=false;
+            }
+            boundPlayer=bindService(new Intent(this,EdgePlaybackService.class),playerConnection,BIND_AUTO_CREATE);
+            boundDownload=bindService(new Intent(this,EdgeDownloadService.class),downloadConnection,BIND_AUTO_CREATE);
+        }
+        refresh();
+    }
+    private void chooseMethod(){
+        LinearLayout rows=new LinearLayout(this);rows.setOrientation(LinearLayout.VERTICAL);
+        android.app.AlertDialog dialog=new SwipeDialogs.Builder(this).setTitle("Способ озвучивания")
+            .setView(rows).create();
+        addEngineChoice(rows,dialog,R.drawable.ic_android_tts,"Системный TTS",
+            "Установленные голоса Samsung, Google и других",true);
+        addEngineChoice(rows,dialog,R.drawable.ic_edge_tts,"Microsoft Edge TTS",
+            "Онлайн-озвучка · сохранение MP3",false);
+        dialog.show();
+    }
+    private void addEngineChoice(LinearLayout parent,android.app.AlertDialog dialog,
+                                 int icon,String title,String subtitle,boolean toLocal){
+        LinearLayout item=new LinearLayout(this);item.setGravity(Gravity.CENTER_VERTICAL);
+        item.setPadding(dp(18),dp(13),dp(18),dp(13));
+        ImageView picture=new ImageView(this);picture.setImageResource(icon);
+        item.addView(picture,new LinearLayout.LayoutParams(dp(29),dp(29)));
+        LinearLayout labels=new LinearLayout(this);labels.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.leftMargin=dp(12);item.addView(labels,lp);
+        TextView primary=label(title,17);labels.addView(primary);
+        TextView secondary=label(subtitle,12);labels.addView(secondary);
+        if(local==toLocal){ImageView tick=new ImageView(this);tick.setImageResource(android.R.drawable.checkbox_on_background);
+            item.addView(tick,new LinearLayout.LayoutParams(dp(22),dp(22)));}
+        item.setOnClickListener(v->{dialog.dismiss();switchTo(toLocal);});
+        parent.addView(item,new LinearLayout.LayoutParams(-1,-2));
     }
     private void chooseVoice(){
         if(!local){
@@ -354,7 +430,7 @@ public final class EdgeOnlineActivity extends Activity {
             String selected=getSharedPreferences("reader",0).getString("edge_voice","ru-RU-SvetlanaNeural");
             if(downloads!=null)selected=downloads.voice();
             int checked=selected.contains("Dmitry")?1:0;
-            new AlertDialog.Builder(this).setTitle("Голос Microsoft Edge")
+            new SwipeDialogs.Builder(this).setTitle("Голос Microsoft Edge")
                 .setSingleChoiceItems(names,checked,(dialog,n)->{
                     getSharedPreferences("reader",0).edit().putString("edge_voice",keys[n]).apply();
                     if(downloads!=null)downloads.choose(keys[n],null);
@@ -362,62 +438,12 @@ public final class EdgeOnlineActivity extends Activity {
                 }).setNegativeButton("Отмена",null).show();
             return;
         }
-        final android.content.SharedPreferences prefs=getSharedPreferences("reader",0);
-        final String engineId=prefs.getString("tts_engine","");
-        final AlertDialog loading=new AlertDialog.Builder(this)
-            .setTitle("Локальные голоса").setMessage("Загрузка установленных голосов…")
-            .setNegativeButton("Отмена",null).create();
-        loading.show();
-        final TextToSpeech[] synthesizer=new TextToSpeech[1];
-        try{
-            TextToSpeech.OnInitListener listener=status->runOnUiThread(()->{
-                TextToSpeech tts=synthesizer[0];
-                if(isFinishing()||!loading.isShowing()||tts==null){if(tts!=null)tts.shutdown();return;}
-                if(status!=TextToSpeech.SUCCESS){
-                    loading.setMessage("Системный TTS недоступен на устройстве.");tts.shutdown();return;
-                }
-                ArrayList<Voice> found=new ArrayList<>();
-                Set<Voice> voices=tts.getVoices();
-                if(voices!=null)for(Voice candidate:voices){
-                    if(candidate.getLocale()!=null&&"ru".equals(candidate.getLocale().getLanguage())
-                            &&!candidate.isNetworkConnectionRequired())found.add(candidate);
-                }
-                Collections.sort(found,(x,y)->x.getName().compareToIgnoreCase(y.getName()));
-                final String activeEngine=engineId.isEmpty()?tts.getDefaultEngine():engineId;
-                loading.dismiss();tts.shutdown();
-                if(found.isEmpty()){
-                    new AlertDialog.Builder(this).setTitle("Локальные голоса")
-                        .setMessage("Русские локальные голоса не обнаружены. Откройте настройки для установки голосов.")
-                        .setPositiveButton("Настройки голосов",(dialog,n)->startActivity(new Intent(this,TtsVoiceActivity.class)))
-                        .setNegativeButton("Закрыть",null).show();return;
-                }
-                String saved=prefs.getString("tts_voice","");
-                String[] labels=new String[found.size()];int active=-1;
-                for(int i=0;i<found.size();i++){
-                    Voice v=found.get(i);if(v.getName().equals(saved))active=i;
-                    String name=v.getName();
-                    String engineLabel=activeEngine.toLowerCase(Locale.ROOT).contains("samsung")?"Samsung":
-                        activeEngine.toLowerCase(Locale.ROOT).contains("google")?"Google":"Системный TTS";
-                    labels[i]=engineLabel+" · Русский голос "+(i+1)+"\n"+name;
-                }
-                new AlertDialog.Builder(this).setTitle("Локальные голоса")
-                    .setSingleChoiceItems(labels,active,(dialog,index)->{
-                        Voice choice=found.get(index);
-                        prefs.edit().putString("tts_engine",activeEngine)
-                            .putString("tts_voice",choice.getName()).apply();
-                        startService(new Intent(this,AudioPlaybackService.class)
-                            .setAction(AudioPlaybackService.ENGINE));
-                        dialog.dismiss();
-                    })
-                    .setNeutralButton("Все голоса и движки",(dialog,n)->startActivity(new Intent(this,TtsVoiceActivity.class)))
-                    .setNegativeButton("Отмена",null).show();
-            });
-            synthesizer[0]=engineId.isEmpty()?new TextToSpeech(this,listener)
-                :new TextToSpeech(this,listener,engineId);
-        }catch(Exception ex){loading.dismiss();
-            new AlertDialog.Builder(this).setMessage("Не удалось загрузить голоса: "+ex.getMessage())
-                .setPositiveButton("OK",null).show();}
+        LocalVoiceCatalog.show(this,()->{
+            startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.ENGINE));
+            refresh();
+        });
     }
+
     private void openFolder(){
         File folder=downloads==null?null:downloads.folder();
         if(folder==null){Toast.makeText(this,"Файлы книги ещё не подготовлены",Toast.LENGTH_SHORT).show();return;}
@@ -486,7 +512,7 @@ public final class EdgeOnlineActivity extends Activity {
             if(!playing&&edge!=null&&edge.playRequested()&&downloads!=null&&downloads.words()>0
                 &&clip!=null&&!clip.ready()&&!networkAvailable()&&!offlinePrompt){
                 offlinePrompt=true;
-                new AlertDialog.Builder(this).setTitle("Нет подключения к интернету")
+                new SwipeDialogs.Builder(this).setTitle("Нет подключения к интернету")
                     .setMessage("Сохранённые предложения закончились. Продолжить через системный TTS?")
                     .setPositiveButton("Продолжить",(d,w)->switchTo(true))
                     .setNegativeButton("Не сейчас",null).show();
@@ -503,7 +529,7 @@ public final class EdgeOnlineActivity extends Activity {
             getSharedPreferences("reader",0).edit().putInt("tts_word:"+uri,word).apply();
             nextWordSaveAt=now+3000;
         }
-        if(local){offlineProgress.setText("0%");}
+        if(local){offlineProgress.setText("");}
         else if(downloads!=null){
             if(now>=nextCoverageAt){cachedCoverage=downloads.savedPercent();nextCoverageAt=now+6000;}
             offlineProgress.setText(Math.max(0,cachedCoverage)+"%");
@@ -516,7 +542,27 @@ public final class EdgeOnlineActivity extends Activity {
             return c!=null&&c.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET);
         }catch(Exception ex){return true;}
     }
-    @Override protected void onResume(){super.onResume();ui.removeCallbacks(ticker);ui.post(ticker);}
+    @Override protected void onResume(){
+        super.onResume();
+        if(root!=null){
+            int nextButton=ReaderButtonColors.neutral(this,0xfffff9f0);
+            int nextAccent=ReaderButtonColors.accent(this,0xff915439);
+            android.content.SharedPreferences prefs=getSharedPreferences("reader",0);
+            int nextBg=prefs.getInt("bg",background),nextFg=prefs.getInt("fg",foreground);
+            if(nextButton!=styledButtonColor||nextAccent!=styledAccentColor||nextBg!=background||nextFg!=foreground){
+                int at=selectedWord>=0?selectedWord:liveWord();int offset=scroller==null?0:scroller.getScrollY();
+                background=nextBg;foreground=nextFg;
+                createUi();windowStart=-1;windowEnd=-1;
+                if(!full.isEmpty()){
+                    showWindow(wordChar(at),false);
+                    SentenceChunks.Chunk part=SentenceChunks.forWord(sentences,at);
+                    if(part!=null)mark(part.fromChar,part.toChar,false);
+                    scroller.post(()->scroller.scrollTo(0,offset));
+                }
+            }
+        }
+        ui.removeCallbacks(ticker);ui.post(ticker);
+    }
     @Override protected void onPause(){ui.removeCallbacks(ticker);super.onPause();}
     @Override protected void onDestroy(){
         ui.removeCallbacksAndMessages(null);

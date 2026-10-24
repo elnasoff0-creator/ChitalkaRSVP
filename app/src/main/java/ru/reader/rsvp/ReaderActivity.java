@@ -165,22 +165,22 @@ public class ReaderActivity extends Activity {
         toolbar.addView(icon(R.drawable.ic_back,v->BackNavigation.back(this)),new LinearLayout.LayoutParams(dp(52),dp(53)));
         toolbar.addView(new View(this),new LinearLayout.LayoutParams(0,dp(1),1));
         toolbar.addView(icon(R.drawable.ic_bookmark,v->bookmark()),new LinearLayout.LayoutParams(dp(53),dp(53)));
-        toolbar.addView(icon(R.drawable.ic_settings,v->settings()),new LinearLayout.LayoutParams(dp(53),dp(53)));
         toolbar.addView(icon(R.drawable.ic_microphone,v->audioMenu()),new LinearLayout.LayoutParams(dp(53),dp(53)));
-        LinearLayout speedGauge=new LinearLayout(this);speedGauge.setGravity(Gravity.CENTER_VERTICAL);
-        speedGauge.setBackground(shape(buttonBg(),14));speedGauge.setPadding(dp(7),0,dp(9),0);
+        LinearLayout speedGauge=new LinearLayout(this);speedGauge.setGravity(Gravity.CENTER);speedGauge.setOrientation(LinearLayout.VERTICAL);
+        speedGauge.setBackground(shape(buttonBg(),14));speedGauge.setPadding(dp(3),dp(2),dp(3),dp(2));
         ImageView speedNeedle=new ImageView(this);speedNeedle.setImageResource(R.drawable.ic_audio_speed);
         speedNeedle.setColorFilter(contrast(buttonBg()));
-        speedGauge.addView(speedNeedle,new LinearLayout.LayoutParams(dp(22),dp(22)));
-        speedView=text(String.valueOf(wpm),18);speedView.setTextColor(contrast(buttonBg()));
-        speedView.setGravity(Gravity.CENTER);speedView.setPadding(dp(5),0,0,0);
+        speedGauge.addView(speedNeedle,new LinearLayout.LayoutParams(dp(20),dp(20)));
+        speedView=text(String.valueOf(wpm),13);speedView.setTextColor(contrast(buttonBg()));
+        speedView.setGravity(Gravity.CENTER);speedView.setPadding(0,0,0,0);
         speedGauge.addView(speedView);
         speedGauge.setContentDescription("Скорость чтения в словах в минуту");
         speedGauge.setOnClickListener(v->TtsWpm.dialogForReader(this,wpm,value->{
             wpm=value;if(speedView!=null)speedView.setText(String.valueOf(wpm));saveLight(true);
         }));
         toolbarWpm=speedGauge;
-        toolbar.addView(speedGauge,new LinearLayout.LayoutParams(-2,dp(53)));
+        toolbar.addView(speedGauge,new LinearLayout.LayoutParams(dp(53),dp(53)));
+        toolbar.addView(icon(R.drawable.ic_settings,v->settings()),new LinearLayout.LayoutParams(dp(53),dp(53)));
         if(words.length==0){applySystemBars(false);
             TextView intro=text("EPUB · FB2 · HTML\n\nОткройте книгу, чтобы начать чтение.",20);
             intro.setPadding(dp(24),dp(24),dp(24),dp(24));add(root,intro);
@@ -247,7 +247,7 @@ public class ReaderActivity extends Activity {
                 stepRsvpByScroll(dy);
             }
         });
-        controls=new LinearLayout(this);controls.setGravity(Gravity.CENTER);controls.setBackground(shape(panelColor(),22));add(root,controls);
+        controls=new LinearLayout(this);controls.setGravity(Gravity.CENTER);controls.setBackgroundColor(Color.TRANSPARENT);add(root,controls);
         rsvpPlayFrame=new FrameLayout(this);rsvpPlayFrame.setBackground(shape(accent(),20));
         playIcon=new ImageView(this);playIcon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);playIcon.setColorFilter(contrast(accent()));
         rsvpPlayFrame.addView(playIcon,new FrameLayout.LayoutParams(dp(30),dp(30),Gravity.CENTER));
@@ -639,7 +639,7 @@ public class ReaderActivity extends Activity {
         }
     }
     private void modeDialog(){
-        new AlertDialog.Builder(this).setTitle("Режим чтения")
+        new SwipeDialogs.Builder(this).setTitle("Режим чтения")
             .setSingleChoiceItems(new String[]{"Обычный","Скорочтение","Курсор"},mode,(dialog,n)->{setMode(n);dialog.dismiss();})
             .setNegativeButton("Отмена",null).show();
     }
@@ -722,7 +722,7 @@ public class ReaderActivity extends Activity {
                 ChteicoStore.openBook(this,docUri,mode);
                 draw();saveLight(true);
             });
-        }catch(Exception ex){runOnUiThread(()->new AlertDialog.Builder(this).setMessage("Не удалось открыть книгу: "+ex.getMessage()).setPositiveButton("OK",null).show());}
+        }catch(Exception ex){runOnUiThread(()->new SwipeDialogs.Builder(this).setMessage("Не удалось открыть книгу: "+ex.getMessage()).setPositiveButton("OK",null).show());}
     }).start();}
     private void settings(){stop();startActivity(new Intent(this,SettingsActivity.class).putExtra("rsvp_tab",true));}
     private void audioMenu(){
