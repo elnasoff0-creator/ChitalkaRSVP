@@ -11,6 +11,8 @@ import java.util.UUID;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import android.os.SystemClock;
+import android.util.Log;
 
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -43,6 +45,7 @@ final class EdgeTtsClient {
     private final Callback callback;
     private final ByteArrayOutputStream received=new ByteArrayOutputStream();
     private int chunks;
+    private long startedAt,openedAt,firstAudioAt;
     private final ArrayList<EdgeWordTimings.Boundary> boundaries=new ArrayList<>();
 
     private EdgeTtsClient(Callback cb){callback=cb;}
@@ -63,11 +66,17 @@ final class EdgeTtsClient {
         if(completed)return;completed=true;
         byte[] bytes=received.toByteArray();
         if(error==null && (bytes.length<1500 || chunks==0))error="Сервис не вернул аудиоданные";
+        long finishedAt=SystemClock.elapsedRealtime();
+        Log.i("EdgeTtsLatency","websocket="+(openedAt>0?openedAt-startedAt:-1)+
+            "ms firstAudio="+(firstAudioAt>0?firstAudioAt-startedAt:-1)+
+            "ms finished="+(finishedAt-startedAt)+"ms; bytes="+bytes.length+
+            (error==null?"":"; network error="+error));
         callback.finished(error==null?bytes:null,chunks,error,new ArrayList<>(boundaries));
         if(socket!=null)socket.close(1000,"completed");
     }
     void cancel(){synchronized(this){completed=true;}if(socket!=null)socket.cancel();}
     private void connect(String text,String voice,String rate){
+        startedAt=SystemClock.elapsedRealtime();
         try{
             String uid=uuid();
             String url=ENDPOINT+"?TrustedClientToken="+EdgeToken.TOKEN
@@ -78,6 +87,7 @@ final class EdgeTtsClient {
                 .header("Cookie","muid="+uuid().toUpperCase(Locale.ROOT)+";").build();
             socket=HTTP.newWebSocket(req,new WebSocketListener(){
                 @Override public void onOpen(WebSocket ws,Response response){
+                    openedAt=SystemClock.elapsedRealtime();
                     String config="X-Timestamp:"+date()+"\r\nContent-Type:application/json; charset=utf-8\r\n"
                         +"Path:speech.config\r\n\r\n"
                         +"{\"context\":{\"synthesis\":{\"audio\":{\"metadataoptions\":{\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"true\"},"
@@ -111,6 +121,7 @@ final class EdgeTtsClient {
                     synchronized(EdgeTtsClient.this){
                         if(completed)return;
                         if(received.size()+count>LIMIT_BYTES){finish("Аудиофрагмент превышает 12 МБ");return;}
+                        if(firstAudioAt==0)firstAudioAt=SystemClock.elapsedRealtime();
                         received.write(packet,head+2,count);chunks++;
                         callback.progress(chunks,received.size());
                     }

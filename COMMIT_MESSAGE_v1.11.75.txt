@@ -1,0 +1,10 @@
+perf(edge-tts), fix(ui): decouple MP3 playback from silence analysis and paint edge-to-edge bars (v1.11.75-beta)
+
+- Publish MP3 immediately after save + WordBoundary, analyze tail asynchronously
+- Prepare two upcoming sentences without overriding manual selection
+- Avoid unnecessary ExoPlayer prepare() calls and throttle progress notifications
+- Debounce atomic sentences.json writes, add TTS latency diagnostics
+- Make Android status and navigation bars transparent across Activities
+- Paint background behind insets and preserve contrast when exiting fullscreen
+- Bump Android versionCode/versionName to 11175 / 1.11.75-beta
+- Include only new-version release documentation in CLEAN archive

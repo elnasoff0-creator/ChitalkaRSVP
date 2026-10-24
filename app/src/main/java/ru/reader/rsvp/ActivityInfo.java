@@ -16,7 +16,7 @@ public class ActivityInfo extends Activity {
     TextView text(String s,int size){TextView t=new TextView(this);t.setText(s);t.setTextSize(size);t.setTextColor(fg);return t;}
     @Override public void onCreate(Bundle state){super.onCreate(state);SharedPreferences prefs=getSharedPreferences("reader",0);
         bg=prefs.getInt("bg",0xfff3e7d5);fg=prefs.getInt("fg",0xff30221e);
-        LinearLayout root=new LinearLayout(this);root.setOrientation(1);root.setBackgroundColor(bg);root.setPadding(dp(16),dp(22),dp(16),dp(12));setContentView(root);
+        LinearLayout root=new LinearLayout(this);root.setOrientation(1);root.setBackgroundColor(bg);root.setPadding(dp(16),dp(22),dp(16),dp(12));setContentView(root);SafeSystemBars.matchBackground(this,bg);
         TextView title=text("←   Справка",24);title.setPadding(dp(2),dp(8),0,dp(18));title.setOnClickListener(v->finish());root.addView(title);
         ScrollView scroll=new ScrollView(this);root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));LinearLayout entries=new LinearLayout(this);entries.setOrientation(1);scroll.addView(entries);
         section(entries,"Библиотека","Добавляйте EPUB и FB2, открывайте последнюю книгу и управляйте обложками. Позиция чтения сохраняется автоматически.");

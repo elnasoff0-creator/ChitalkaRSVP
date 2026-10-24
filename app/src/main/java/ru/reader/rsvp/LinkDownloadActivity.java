@@ -52,7 +52,7 @@ public final class LinkDownloadActivity extends Activity {
         }
         treeLabel=p.getString("direct_last_tree_label","");build();
     }
-    private void build(){ScrollView scroll=new ScrollView(this);root=new LinearLayout(this);root.setPadding(dp(14),dp(25),dp(14),dp(22));root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(BG);scroll.addView(root);setContentView(scroll);
+    private void build(){ScrollView scroll=new ScrollView(this);root=new LinearLayout(this);root.setPadding(dp(14),dp(25),dp(14),dp(22));root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(BG);scroll.addView(root);setContentView(scroll);SafeSystemBars.matchBackground(this,BG);
         LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);append(header,0);
         ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_back);back.setColorFilter(ReaderButtonColors.contrastingText(ReaderButtonColors.neutral(this,CARD)));back.setPadding(dp(10),dp(10),dp(10),dp(10));back.setBackground(shape(ReaderButtonColors.neutral(this,CARD),15));header.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));back.setOnClickListener(v->BackNavigation.back(this));back.setContentDescription("Назад");
         TextView title=text("Скачать по ссылке",22,true);title.setTypeface(Typeface.SERIF,Typeface.BOLD);title.setGravity(Gravity.CENTER);header.addView(title,new LinearLayout.LayoutParams(0,dp(52),1));

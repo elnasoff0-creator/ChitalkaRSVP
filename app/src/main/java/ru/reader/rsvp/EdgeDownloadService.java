@@ -55,6 +55,13 @@ public final class EdgeDownloadService extends Service {
     private static final String CHANNEL="edge_download_channel";
     private final Handler main=new Handler(Looper.getMainLooper());
     private final ExecutorService io=Executors.newSingleThreadExecutor();
+    // MP3 decode must never hold the queue responsible for producing playable files.
+    private final ExecutorService tailAnalysis=Executors.newSingleThreadExecutor(r->{
+        Thread thread=new Thread(r,"EdgeTrailingSilence");
+        thread.setPriority(Thread.MIN_PRIORITY);
+        return thread;
+    });
+    private final Runnable saveIndex=this::persistNow;
     private final ArrayList<Integer> offsets=new ArrayList<>();
     private final ArrayList<SentenceChunks.Chunk> sentenceParts=new ArrayList<>();
     private int cachedSavedPercent=0;
@@ -72,6 +79,7 @@ public final class EdgeDownloadService extends Service {
     private boolean bookReady,active,destroyed,foreground,playerBound;
     private int anchorWord,segmentLength,windowCount,session,partCount;
     private long partBytes;
+    private long lastProgressNotice;
     private Clip generating;
     private String generationLock;
     private EdgeTtsClient transport;
@@ -222,6 +230,8 @@ public final class EdgeDownloadService extends Service {
     public void openBook(String uri,int initialWord){
         if(uri==null||uri.isEmpty())return;
         if(uri.equals(bookUri)){if(player==null||player.currentStartWord()<0)anchorWord=Math.max(0,initialWord);pump();return;}
+        // Flush the previous book's pending index before switching its directory.
+        main.removeCallbacks(saveIndex);persistNow();
         cancelGeneration();bookUri=uri;bookReady=false;anchorWord=Math.max(0,initialWord);
         cachedSavedPercent=0;lastCoverageCheck=0;
         archive.clear();byStart.clear();pendingStarts.clear();priorityStart=-1;
@@ -298,12 +308,17 @@ public final class EdgeDownloadService extends Service {
         if(!bookReady||directory==null||destroyed)return;
         Clip current=clipAt(anchorWord);
         Clip ahead=current==null?null:clipAt(current.end);
+        Clip afterAhead=ahead==null?null:clipAt(ahead.end);
         if(player!=null){
             player.setAutoContinue(true);
             if(current!=null&&current.ready()){
                 player.appendReady(current.key+":"+current.start,current.start,current.end,current.file);
-                if(ahead!=null&&ahead.ready())
+                if(ahead!=null&&ahead.ready()){
                     player.appendReady(ahead.key+":"+ahead.start,ahead.start,ahead.end,ahead.file);
+                    if(afterAhead!=null&&afterAhead.ready())
+                        player.appendReady(afterAhead.key+":"+afterAhead.start,
+                            afterAhead.start,afterAhead.end,afterAhead.file);
+                }
             }
         }
         if(active&&generating==null){
@@ -315,6 +330,10 @@ public final class EdgeDownloadService extends Service {
             }
             if(next==null&&current!=null&&!current.ready())next=current;
             if(next==null&&ahead!=null&&!ahead.ready())next=ahead;
+            // Maintain up to two prepared sentences ahead of the one being
+            // played, without a visible queue and without bypassing a manual seek.
+            if(next==null&&ahead!=null&&ahead.ready()&&
+                    afterAhead!=null&&!afterAhead.ready())next=afterAhead;
             if(next==null){
                 // Resume requests that were displaced by a user's manual jump.
                 for(Integer start:new ArrayList<>(pendingStarts)){
@@ -337,9 +356,17 @@ public final class EdgeDownloadService extends Service {
             main.postDelayed(this::pump,1500);return;
         }
         generationLock=candidate;
-        generating=c;int id=++session;partBytes=0;partCount=0;error="";persist();changed();
+        generating=c;int id=++session;partBytes=0;partCount=0;lastProgressNotice=0;error="";persist();changed();
+        final long networkStarted=SystemClock.elapsedRealtime();
         transport=EdgeTtsClient.synthesize(c.text,voice(),rate(),new EdgeTtsClient.Callback(){
-            @Override public void progress(int chunks,long bytes){main.post(()->{if(generating==c&&id==session){partCount=chunks;partBytes=bytes;changed();}});}
+            @Override public void progress(int chunks,long bytes){main.post(()->{
+                if(generating!=c||id!=session)return;
+                partCount=chunks;partBytes=bytes;
+                // Each WebSocket audio packet is not a UI frame. Throttle observer
+                // redraws and notification updates while retaining exact counters.
+                long now=SystemClock.uptimeMillis();
+                if(now-lastProgressNotice>=300){lastProgressNotice=now;changed();}
+            });}
             @Override public void finished(byte[] mp3,int chunks,String failure){
                 finished(mp3,chunks,failure,java.util.Collections.emptyList());
             }
@@ -350,6 +377,7 @@ public final class EdgeDownloadService extends Service {
                     if(failure!=null){retry(c,failure);return;}
                     final String key=c.key,uri=bookUri;
                     final File folder=directory;
+                    final long networkFinished=SystemClock.elapsedRealtime();
                     io.execute(()->{
                         String problem=null;File result=new File(folder,key+".mp3");
                         File tmp=new File(folder,key+".part");
@@ -364,10 +392,12 @@ public final class EdgeDownloadService extends Service {
                         }
                         if(problem!=null)tmp.delete();
                         else {
+                            // Word timing metadata is small and needs to exist before
+                            // the player shows the highlighted word.
                             EdgeWordTimings.store(result,c.text,boundaries);
-                            EdgeTrailingSilence.detectAndStore(result,c.text);
                         }
                         final String err=problem;
+                        final long playableAt=SystemClock.elapsedRealtime();
                         main.post(()->{
                             if(destroyed||generating!=c||id!=session||!uri.equals(bookUri))return;
                             if(err!=null){retry(c,err);return;}
@@ -376,7 +406,19 @@ public final class EdgeDownloadService extends Service {
                             c.file=result;c.bytes=result.length();c.chunks=chunks;c.failures=0;error="";
                             pendingStarts.remove(c.start);
                             if(priorityStart==c.start)priorityStart=-1;
+                            Log.i("EdgeTtsLatency","start="+c.start+" network="+
+                                (networkFinished-networkStarted)+"ms save="+
+                                (playableAt-networkFinished)+"ms; MP3 ready for playback");
+                            // The queued player is notified immediately. Do not wait
+                            // for an expensive full-file PCM decode of trailing silence.
                             persist();pump();
+                            if(getSharedPreferences("reader",0).getBoolean("edge_trim_sentence_pause",true)){
+                                final long storedBytes=c.bytes;
+                                tailAnalysis.execute(()->{
+                                    if(result.isFile()&&result.length()==storedBytes)
+                                        EdgeTrailingSilence.detectAndStore(result,c.text);
+                                });
+                            }
                         });
                     });
                 });
@@ -467,6 +509,13 @@ public final class EdgeDownloadService extends Service {
     }
     private void persist(){
         if(directory==null||destroyed)return;
+        // Debounce user seeks, download progress and track transitions. The entire
+        // sentence index can be large; don't serialize it on every tap.
+        main.removeCallbacks(saveIndex);
+        main.postDelayed(saveIndex,250);
+    }
+    private void persistNow(){
+        if(directory==null)return;
         JSONArray data=new JSONArray();
         try{for(Clip c:archive){
             JSONObject row=new JSONObject();row.put("start",c.start).put("end",c.end)
@@ -482,7 +531,13 @@ public final class EdgeDownloadService extends Service {
             catch(Exception ex){if(output!=null)atomic.failWrite(output);Log.w("EdgeSentences","Cannot persist index",ex);}
         });
     }
-    @Override public void onDestroy(){destroyed=true;main.removeCallbacks(refreshReady);cancelGeneration();if(player!=null)player.removeListener(listener);
+    @Override public void onDestroy(){
+        main.removeCallbacks(saveIndex);
+        persistNow(); // Last selected sentence / interrupted work survives process shutdown.
+        destroyed=true;main.removeCallbacks(refreshReady);cancelGeneration();
+        if(player!=null)player.removeListener(listener);
         try{unregisterReceiver(switchReceiver);}catch(Exception ignored){}
-        if(playerBound)unbindService(playbackConnection);io.shutdown();super.onDestroy();}
+        if(playerBound)unbindService(playbackConnection);
+        io.shutdown();tailAnalysis.shutdown();super.onDestroy();
+    }
 }

@@ -35,7 +35,7 @@ public final class EdgeFullBookActivity extends Activity {
     }
     private void build(){
         LinearLayout outer=new LinearLayout(this);outer.setOrientation(LinearLayout.VERTICAL);
-        outer.setPadding(dp(15),dp(24),dp(15),dp(12));outer.setBackgroundColor(BG);setContentView(outer);
+        outer.setPadding(dp(15),dp(24),dp(15),dp(12));outer.setBackgroundColor(BG);setContentView(outer);SafeSystemBars.matchBackground(this,BG);
         LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);outer.addView(head);
         TextView back=label("‹",35,false);back.setGravity(Gravity.CENTER);back.setBackground(rounded(PANEL));
         head.addView(back,new LinearLayout.LayoutParams(dp(50),dp(50)));back.setOnClickListener(v->BackNavigation.back(this));

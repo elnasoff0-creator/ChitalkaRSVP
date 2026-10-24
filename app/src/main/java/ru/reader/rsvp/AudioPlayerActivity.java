@@ -107,10 +107,8 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
     @Override protected void onPause(){handler.removeCallbacks(updater);try{unregisterReceiver(receiver);}catch(Exception ignored){}super.onPause();}
     void draw(){
         readPalette();drawnBackground=BACKGROUND;drawnText=TEXT;
-        getWindow().setStatusBarColor(BACKGROUND);
-        getWindow().getDecorView().setSystemUiVisibility(android.graphics.Color.luminance(BACKGROUND)>.5?View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR:0);
         root=new LinearLayout(this);root.setOrientation(1);root.setBackgroundColor(BACKGROUND);
-        root.setPadding(dp(12),dp(29),dp(12),dp(10));setContentView(root);
+        root.setPadding(dp(12),dp(29),dp(12),dp(10));setContentView(root);SafeSystemBars.matchBackground(this,BACKGROUND);
         LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);
         root.addView(top,new LinearLayout.LayoutParams(-1,dp(54)));
         top.addView(topAction(R.drawable.ic_back,"Назад",v->BackNavigation.back(this)),new LinearLayout.LayoutParams(dp(44),dp(44)));

@@ -350,7 +350,8 @@ public final class EdgePlaybackService extends Service {
                 }
                 player.seekToNextMediaItem();
             }
-            player.prepare();
+            if (player.getPlaybackState()==Player.STATE_IDLE ||
+                    player.getPlaybackState()==Player.STATE_ENDED) player.prepare();
             player.play();
         }
         updateNotification();

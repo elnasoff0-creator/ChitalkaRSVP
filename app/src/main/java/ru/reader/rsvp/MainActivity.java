@@ -138,8 +138,6 @@ public class MainActivity extends Activity {
         ChteicoStore.markAppLaunch(this);
         getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
-        getWindow().setStatusBarColor(0xffefe3d3);
-        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
         prefs = getSharedPreferences("reader", MODE_PRIVATE);
         loadPrefs();
         // Draw the library immediately. Do not decode and tokenize an entire book
@@ -342,6 +340,7 @@ public class MainActivity extends Activity {
         navigationSurface = new FrameLayout(this);
         navigationSurface.addView(root,new FrameLayout.LayoutParams(-1,-1));
         setContentView(navigationSurface);
+        SafeSystemBars.matchBackground(this, bg);
         if (screen == 1 && words.length > 0 && !body.isEmpty()) drawReader(); else drawHome();
     }
 

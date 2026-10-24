@@ -242,7 +242,7 @@ public final class ChteicoActivity extends Activity {
         SharedPreferences settings=getSharedPreferences("reader",MODE_PRIVATE);
         bg=settings.getInt("bg",0xfff3e7d5);fg=contrast(bg);accent=ReaderButtonColors.accent(this,0xff915439);
         p=ChteicoStore.prefs(this);
-        root=column();root.setBackgroundColor(bg);root.setPadding(dp(13),dp(22),dp(13),dp(9));setContentView(root);
+        root=column();root.setBackgroundColor(bg);root.setPadding(dp(13),dp(22),dp(13),dp(9));setContentView(root);SafeSystemBars.matchBackground(this,bg);
         LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);
         ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_back);back.setColorFilter(fg);
         back.setPadding(dp(10),dp(10),dp(10),dp(10));back.setOnClickListener(v->finish());

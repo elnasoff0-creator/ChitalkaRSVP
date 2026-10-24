@@ -66,7 +66,7 @@ public final class DownloadActivity extends Activity {
         bound=bindService(new Intent(this,EdgeDownloadService.class),edgeConnection,BIND_AUTO_CREATE);
     }
     private void build(){
-        LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(12),dp(25),dp(12),dp(12));root.setBackgroundColor(BG);setContentView(root);
+        LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(12),dp(25),dp(12),dp(12));root.setBackgroundColor(BG);setContentView(root);SafeSystemBars.matchBackground(this,BG);
         FrameLayout top=new FrameLayout(this);root.addView(top,new LinearLayout.LayoutParams(-1,dp(53)));
         TextView heading=text("Загрузки",25,true);heading.setTypeface(Typeface.SERIF,Typeface.BOLD);heading.setGravity(Gravity.CENTER);
         top.addView(heading,new FrameLayout.LayoutParams(-1,-1));

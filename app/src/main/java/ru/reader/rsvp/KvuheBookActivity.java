@@ -18,7 +18,7 @@ public final class KvuheBookActivity extends UrlImportActivity {
     @Override void draw(){
         handler.removeCallbacksAndMessages(null);
         LinearLayout screen=new LinearLayout(this);screen.setOrientation(LinearLayout.VERTICAL);screen.setBackgroundColor(background);
-        screen.setPadding(dp(13),dp(22),dp(13),dp(12));setContentView(screen);
+        screen.setPadding(dp(13),dp(22),dp(13),dp(12));setContentView(screen);SafeSystemBars.matchBackground(this,background);
         LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);
         screen.addView(head,new LinearLayout.LayoutParams(-1,dp(50)));
         ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_back);back.setColorFilter(foreground);

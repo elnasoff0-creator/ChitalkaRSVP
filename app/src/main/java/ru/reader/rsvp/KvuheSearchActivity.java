@@ -44,7 +44,7 @@ public final class KvuheSearchActivity extends Activity {
     @Override public void onCreate(Bundle saved){super.onCreate(saved);build();}
     private void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(BG);
-        root.setPadding(dp(13),dp(24),dp(13),dp(12));setContentView(root);
+        root.setPadding(dp(13),dp(24),dp(13),dp(12));setContentView(root);SafeSystemBars.matchBackground(this,BG);
         LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);root.addView(header,new LinearLayout.LayoutParams(-1,dp(52)));
         ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_back);back.setPadding(dp(10),dp(10),dp(10),dp(10));
         back.setColorFilter(INK);back.setBackground(shape(WHITE,15));back.setOnClickListener(v->BackNavigation.back(this));

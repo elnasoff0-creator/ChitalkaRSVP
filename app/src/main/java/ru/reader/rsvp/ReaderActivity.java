@@ -161,6 +161,7 @@ public class ReaderActivity extends Activity {
         root=column();root.setPadding(dp(10),dp(20),dp(10),dp(7));root.setBackgroundColor(bg);
         sceneRoot.addView(root,new FrameLayout.LayoutParams(-1,-1));
         setContentView(sceneRoot);
+        SafeSystemBars.matchBackground(this,bg);
         toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);add(root,toolbar);
         toolbar.addView(icon(R.drawable.ic_back,v->BackNavigation.back(this)),new LinearLayout.LayoutParams(dp(44),dp(44)));
         toolbar.addView(new View(this),new LinearLayout.LayoutParams(0,dp(1),1));
@@ -509,8 +510,11 @@ public class ReaderActivity extends Activity {
         int flags=immersive?
             (originalSystemUiVisibility|View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_LAYOUT_STABLE|
-            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION):originalSystemUiVisibility;
+            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION):
+            (originalSystemUiVisibility|View.SYSTEM_UI_FLAG_LAYOUT_STABLE|
+            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
         if(decor.getSystemUiVisibility()!=flags)decor.setSystemUiVisibility(flags);
+        if(!immersive)SafeSystemBars.matchBackground(this,bg);
     }
     @Override public void onWindowFocusChanged(boolean hasFocus){
         super.onWindowFocusChanged(hasFocus);

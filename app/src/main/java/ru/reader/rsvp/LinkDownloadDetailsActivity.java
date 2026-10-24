@@ -28,7 +28,7 @@ public final class LinkDownloadDetailsActivity extends Activity {
     private TextView text(String s,int size){TextView t=new TextView(this);t.setText(s);t.setTextSize(size);t.setTextColor(0xff30221e);return t;}
     private Button button(String s){Button b=new Button(this);b.setText(s);b.setAllCaps(false);b.setTextColor(0xff30221e);b.setBackground(bg(0xfffff9f0));return b;}
     private void add(View v){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(9);root.addView(v,p);}
-    @Override public void onCreate(Bundle b){super.onCreate(b);id=getIntent().getStringExtra(DirectLinkDownloadService.EXTRA_ID);ScrollView scroll=new ScrollView(this);root=new LinearLayout(this);root.setPadding(dp(15),dp(30),dp(15),dp(20));root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(0xfff3e7d5);scroll.addView(root);setContentView(scroll);}
+    @Override public void onCreate(Bundle b){super.onCreate(b);id=getIntent().getStringExtra(DirectLinkDownloadService.EXTRA_ID);ScrollView scroll=new ScrollView(this);root=new LinearLayout(this);root.setPadding(dp(15),dp(30),dp(15),dp(20));root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(0xfff3e7d5);scroll.addView(root);setContentView(scroll);SafeSystemBars.matchBackground(this,0xfff3e7d5);}
     @Override public void onResume(){super.onResume();visible=true;handler.post(ticker);}
     @Override public void onPause(){visible=false;handler.removeCallbacks(ticker);super.onPause();}
     private final Runnable ticker=new Runnable(){@Override public void run(){if(!visible)return;render();handler.postDelayed(this,1100);}};
