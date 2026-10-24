@@ -79,6 +79,7 @@ public final class EdgePlaybackService extends Service {
     }};
     private final Runnable sleepRunnable = () -> {
         sleepAtMs = 0L;
+        getSharedPreferences("reader",0).edit().putLong("audio_sleep_deadline",0L).apply();
         stopAudio();
         clearQueue();
         stopSelf();
@@ -101,6 +102,9 @@ public final class EdgePlaybackService extends Service {
     @Override public void onCreate() {
         super.onCreate();
         handler.postDelayed(chteicoAudioTick,1000);
+        sleepAtMs=getSharedPreferences("reader",0).getLong("audio_sleep_deadline",0L);
+        if(sleepAtMs>System.currentTimeMillis())handler.postDelayed(sleepRunnable,sleepAtMs-System.currentTimeMillis());
+        else sleepAtMs=0L;
         playbackSpeed=getSharedPreferences("reader",0).getFloat("edge_playback_speed",1f);
         playbackSpeed=Math.max(0.5f,Math.min(3f,playbackSpeed));
         player = new ExoPlayer.Builder(this).build();
@@ -226,11 +230,23 @@ public final class EdgePlaybackService extends Service {
         updateSession();
         notifyState();
     }
+    /** Refresh shared sleep deadline after switching from the Android TTS engine. */
+    public void restoreSharedSleepTimer() {
+        handler.removeCallbacks(sleepRunnable);
+        sleepAtMs=getSharedPreferences("reader",0).getLong("audio_sleep_deadline",0L);
+        if(sleepAtMs>System.currentTimeMillis())
+            handler.postDelayed(sleepRunnable,sleepAtMs-System.currentTimeMillis());
+        else sleepAtMs=0L;
+    }
     public void setSleepMinutes(int minutes) {
         handler.removeCallbacks(sleepRunnable);
-        handler.removeCallbacks(chteicoAudioTick);
-        if (minutes <= 0) { sleepAtMs = 0L; notifyState(); return; }
+        if (minutes <= 0) {
+            sleepAtMs = 0L;
+            getSharedPreferences("reader",0).edit().putLong("audio_sleep_deadline",0L).apply();
+            notifyState();return;
+        }
         sleepAtMs = System.currentTimeMillis() + minutes * 60_000L;
+        getSharedPreferences("reader",0).edit().putLong("audio_sleep_deadline",sleepAtMs).apply();
         handler.postDelayed(sleepRunnable, minutes * 60_000L);
         notifyState();
     }
@@ -249,8 +265,7 @@ public final class EdgePlaybackService extends Service {
     public void clearQueue() {
         requestedPlay=false;
         playbackError="";
-        handler.removeCallbacks(sleepRunnable);
-        sleepAtMs = 0L;
+        // Preserve the shared sleep deadline while changing book or voice.
         player.stop();
         player.clearMediaItems();
         tracks.clear();
@@ -259,6 +274,13 @@ public final class EdgePlaybackService extends Service {
         hideNotification();
         updateSession();
         notifyState();
+    }
+    /** Seek to a different sentence. Keep an active sleep timer unchanged. */
+    public void clearTracksForSelection() {
+        requestedPlay=false;
+        playbackError="";
+        player.stop();player.clearMediaItems();tracks.clear();lastIndex=-1;
+        focus.release();hideNotification();updateSession();notifyState();
     }
     /** Remove an invalid clip from the playlist without clearing other MP3 files.
      * A currently audible clip is protected against deletion; caller can retry later.
@@ -296,6 +318,14 @@ public final class EdgePlaybackService extends Service {
         MediaItem.Builder itemBuilder=new MediaItem.Builder().setMediaId(key)
                 .setUri(android.net.Uri.fromFile(file));
         if(format!=null)itemBuilder.setMimeType(format.mime);
+        // Clipping starts at zero, so every unmodified WordBoundary time stays valid.
+        if(getSharedPreferences("reader",0).getBoolean("edge_trim_sentence_pause",true)){
+            long clipEnd=EdgeTrailingSilence.clippedEnd(file);
+            if(clipEnd>0){
+                itemBuilder.setClippingConfiguration(new MediaItem.ClippingConfiguration.Builder()
+                    .setStartPositionMs(0).setEndPositionMs(clipEnd).build());
+            }
+        }
         player.addMediaItem(insertion,itemBuilder.build());
         if (oldCount==0) {
             player.prepare();

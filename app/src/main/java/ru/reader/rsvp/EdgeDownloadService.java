@@ -244,7 +244,7 @@ public final class EdgeDownloadService extends Service {
     }
     public void setAnchor(int word,boolean selected){
         if(!bookReady)return;
-        if(selected){cancelGeneration();if(player!=null)player.clearQueue();}
+        if(selected){cancelGeneration();if(player!=null)player.clearTracksForSelection();}
         anchorWord=Math.max(0,Math.min(offsets.size()-1,word));pump();
     }
     /** Sentence-indexed lookup, no user-visible queue or adjustable fragments. */
@@ -325,7 +325,10 @@ public final class EdgeDownloadService extends Service {
                             else if(!tmp.renameTo(result))problem="Не удалось сохранить MP3";
                         }
                         if(problem!=null)tmp.delete();
-                        else EdgeWordTimings.store(result,c.text,boundaries);
+                        else {
+                            EdgeWordTimings.store(result,c.text,boundaries);
+                            EdgeTrailingSilence.detectAndStore(result,c.text);
+                        }
                         final String err=problem;
                         main.post(()->{
                             if(destroyed||generating!=c||id!=session||!uri.equals(bookUri))return;

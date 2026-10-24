@@ -22,6 +22,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -53,6 +54,7 @@ public final class EdgeOnlineActivity extends Activity {
     private ImageView playIcon;
     private String displayedText="";
     private int windowStart=-1,windowEnd=-1,lastStart=-1,lastEnd=-1;
+    private int lastSentenceStart=-1,lastSentenceEnd=-1;
     private int selectedWord=-1;
     private int requestedSeekWord=-1;
     private String requestedSeekKey="";
@@ -81,6 +83,7 @@ public final class EdgeOnlineActivity extends Activity {
         @Override public void onServiceConnected(ComponentName n,IBinder binder){
             edge=((EdgePlaybackService.LocalBinder)binder).getService();
             edge.prepareBook("edge:"+uri);
+            edge.restoreSharedSleepTimer();
             edge.setAutoContinue(true);
             edge.setPlaybackSpeed(Math.min(5f,TtsWpm.rate(EdgeOnlineActivity.this)));
             edge.addListener(edgeObserver);
@@ -146,7 +149,10 @@ public final class EdgeOnlineActivity extends Activity {
         root.setPadding(dp(12),dp(18),dp(12),dp(10));setContentView(root);
         LinearLayout toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);
         root.addView(toolbar,new LinearLayout.LayoutParams(-1,dp(54)));
-        Button back=action("‹");back.setTextSize(29);back.setOnClickListener(v->BackNavigation.back(this));
+        ImageButton back=new ImageButton(this);back.setImageResource(R.drawable.ic_back);
+        back.setScaleType(ImageView.ScaleType.CENTER_INSIDE);back.setPadding(dp(11),dp(11),dp(11),dp(11));
+        back.setColorFilter(foreground);back.setBackground(bg(background,12));
+        back.setOnClickListener(v->BackNavigation.back(this));back.setContentDescription("Назад");
         toolbar.addView(back,new LinearLayout.LayoutParams(dp(48),dp(50)));
         bookTitle=label("Загрузка книги…",17);bookTitle.setSingleLine(true);bookTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
         bookTitle.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
@@ -174,7 +180,10 @@ public final class EdgeOnlineActivity extends Activity {
         voice.setGravity(Gravity.CENTER);voice.setBackground(bg(0xfffff9f0,12));voice.setOnClickListener(v->chooseVoice());
         LinearLayout.LayoutParams vl=new LinearLayout.LayoutParams(0,-1,1);vl.leftMargin=dp(7);methods.addView(voice,vl);
         if(!local){
-            Button folder=action("▣");folder.setContentDescription("Файлы аудиокниги");folder.setOnClickListener(v->openFolder());
+            ImageButton folder=new ImageButton(this);folder.setImageResource(R.drawable.ic_folder_audio);
+            folder.setColorFilter(foreground);folder.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+            folder.setPadding(dp(11),dp(11),dp(11),dp(11));folder.setBackground(bg(background,12));
+            folder.setContentDescription("Файлы аудиокниги");folder.setOnClickListener(v->openFolder());
             LinearLayout.LayoutParams fl=new LinearLayout.LayoutParams(dp(48),-1);fl.leftMargin=dp(5);methods.addView(folder,fl);
         }
         scroller=new ScrollView(this);scroller.setFillViewport(true);scroller.setBackground(bg(background,10));
@@ -213,6 +222,12 @@ public final class EdgeOnlineActivity extends Activity {
         playArea.addView(playIcon,new LinearLayout.LayoutParams(dp(31),dp(31)));
         playArea.setContentDescription("Воспроизведение / пауза");playArea.setOnClickListener(v->togglePlay());
         controls.addView(playArea,new LinearLayout.LayoutParams(dp(77),dp(61)));
+        ImageButton sleep=new ImageButton(this);sleep.setImageResource(R.drawable.ic_sleep_timer);
+        sleep.setColorFilter(foreground);sleep.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        sleep.setPadding(dp(12),dp(12),dp(12),dp(12));sleep.setBackground(bg(background,12));
+        sleep.setContentDescription("Таймер сна");sleep.setOnClickListener(v->sleepDialog());
+        LinearLayout.LayoutParams sleepLp=new LinearLayout.LayoutParams(dp(51),dp(51));sleepLp.leftMargin=dp(20);
+        controls.addView(sleep,sleepLp);
     }
     private int wordChar(int word){return wordStarts.isEmpty()?0:wordStarts.get(Math.max(0,Math.min(word,wordStarts.size()-1)));}
     private int wordFromChar(int character){return wordStarts.isEmpty()?0:Math.max(0,Math.min(wordStarts.size()-1,SentenceChunks.lowerBound(wordStarts,character)));}
@@ -224,6 +239,7 @@ public final class EdgeOnlineActivity extends Activity {
         int tail=full.indexOf('\n',last);if(tail>=0&&tail-last<250)last=tail;
         if(first==windowStart&&last==windowEnd)return;
         windowStart=first;windowEnd=last;lastStart=lastEnd=-1;
+        lastSentenceStart=lastSentenceEnd=-1;
         displayedText=full.substring(first,last);
         reading.setText(new SpannableStringBuilder(displayedText),TextView.BufferType.SPANNABLE);
         if(center)scroller.post(()->scrollToChar(anchor,true));
@@ -236,45 +252,71 @@ public final class EdgeOnlineActivity extends Activity {
         if(force||y<current+dp(35)||y>current+height-dp(80))scroller.smoothScrollTo(0,Math.max(0,y-height/3));
     }
     private void mark(int from,int to,boolean scroll){
-        if(full.isEmpty()||reading==null||from<0||to<=from)return;
-        if(from<windowStart+180||to>windowEnd-300)showWindow(from,true);
-        if(from==lastStart&&to==lastEnd)return;
+        if(full.isEmpty()||reading==null||from<0)return;
+        SentenceChunks.Chunk sentence=SentenceChunks.forWord(sentences,wordFromChar(from));
+        int sentenceFrom=sentence==null?from:sentence.fromChar;
+        int sentenceTo=sentence==null?Math.max(to,from+1):sentence.toChar;
+        if(sentenceFrom<windowStart+180||sentenceTo>windowEnd-300)showWindow(sentenceFrom,true);
+        if(from==lastStart&&to==lastEnd&&sentenceFrom==lastSentenceStart&&sentenceTo==lastSentenceEnd)return;
         Spannable text=(Spannable)reading.getText();
         for(BackgroundColorSpan span:text.getSpans(0,text.length(),BackgroundColorSpan.class))text.removeSpan(span);
         for(ForegroundColorSpan span:text.getSpans(0,text.length(),ForegroundColorSpan.class))text.removeSpan(span);
-        int start=Math.max(0,from-windowStart),end=Math.min(text.length(),to-windowStart);
-        if(start<end){text.setSpan(new BackgroundColorSpan(accent),start,end,Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-            int contrast=Color.red(accent)+Color.green(accent)+Color.blue(accent)<375?Color.WHITE:0xff30221e;
-            text.setSpan(new ForegroundColorSpan(contrast),start,end,Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+        int sf=Math.max(0,sentenceFrom-windowStart),st=Math.min(text.length(),sentenceTo-windowStart);
+        if(sf<st){
+            // 50% translucent sentence background; remain highlighted during pauses.
+            int shade=Color.argb(128,Color.red(accent),Color.green(accent),Color.blue(accent));
+            text.setSpan(new BackgroundColorSpan(shade),sf,st,Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
-        lastStart=from;lastEnd=to;
-        if(scroll&&!userTouch)scrollToChar(from,false);
+        int a=Math.max(0,from-windowStart),b=Math.min(text.length(),to-windowStart);
+        // Word highlight only when the engine provided an accurate range.
+        if(a<b && (from>sentenceFrom||to<sentenceTo)){
+            text.setSpan(new BackgroundColorSpan(accent),a,b,Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+            int contrast=Color.red(accent)+Color.green(accent)+Color.blue(accent)<375?Color.WHITE:0xff30221e;
+            text.setSpan(new ForegroundColorSpan(contrast),a,b,Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        lastStart=from;lastEnd=to;lastSentenceStart=sentenceFrom;lastSentenceEnd=sentenceTo;
+        if(scroll&&!userTouch)scrollToChar(sentenceFrom,false);
     }
     private void selectWord(int word){
         if(wordStarts.isEmpty())return;
-        selectedWord=Math.max(0,Math.min(word,wordStarts.size()-1));
+        SentenceChunks.Chunk sentence=SentenceChunks.forWord(sentences,Math.max(0,Math.min(word,wordStarts.size()-1)));
+        selectedWord=sentence==null?word:sentence.fromWord;
+        selectedWord=Math.max(0,Math.min(selectedWord,wordStarts.size()-1));
+        boolean auto=getSharedPreferences("reader",0).getBoolean("tts_tap_autoplay",false);
         getSharedPreferences("reader",0).edit().putInt("tts_word:"+uri,selectedWord).apply();
         if(local){
-            AudioPlaybackService service=AudioPlaybackService.instance;
-            if(service!=null&&service.isTtsMode())startService(new Intent(this,AudioPlaybackService.class)
-                .setAction("tts_select_word").putExtra("word_index",selectedWord));
-            else startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.TTS)
-                .putExtra("bookUri",uri).putExtra("word_index",selectedWord));
+            AudioPlaybackService svc=AudioPlaybackService.instance;
+            startService(new Intent(this,AudioPlaybackService.class)
+                .setAction(svc!=null&&svc.isTtsMode()?"tts_select_word":AudioPlaybackService.TTS)
+                .putExtra("bookUri",uri).putExtra("word_index",selectedWord)
+                .putExtra("auto_on_selection",auto));
         }else if(downloads!=null){
+            if(edge!=null)edge.pause();
             downloads.setAnchor(selectedWord,true);
-            requestedSeekWord=selectedWord;requestedSeekKey="";
-            if(edge!=null)edge.play();
+            requestedSeekWord=-1;requestedSeekKey="";
+            if(auto&&edge!=null)edge.play();
         }
-        int from=wordChar(selectedWord);
-        SentenceChunks.Chunk sentence=SentenceChunks.forWord(sentences,selectedWord);
-        if(local&&sentence!=null){mark(sentence.fromChar,sentence.toChar,true);}
-        else {int end=selectedWord+1<wordStarts.size()?Math.min(full.length(),wordStarts.get(selectedWord+1)):full.length();mark(from,end,true);}
+        int from=sentence==null?wordChar(selectedWord):sentence.fromChar;
+        int end=sentence==null?Math.min(full.length(),from+1):sentence.toChar;
+        mark(from,end,true);
     }
     private void togglePlay(){
         if(local){AudioPlaybackService service=AudioPlaybackService.instance;
+            if(service!=null&&!service.isPaused())selectedWord=liveWord();
             startService(new Intent(this,AudioPlaybackService.class).setAction(service!=null&&!service.isPaused()?AudioPlaybackService.PAUSE:AudioPlaybackService.PLAY));
-        }else if(edge!=null){if(edge.isPlaying())edge.pause();else edge.play();}
+        }else if(edge!=null){if(edge.isPlaying()){selectedWord=liveWord();edge.pause();}else edge.play();}
         refresh();
+    }
+    private void sleepDialog(){
+        int[] minutes={0,5,10,15,30,60};
+        String[] choices={"Выключить","5 мин","10 мин","15 мин","30 мин","60 мин"};
+        new AlertDialog.Builder(this).setTitle("Таймер сна")
+            .setItems(choices,(dialog,n)->{
+                if(local){startService(new Intent(this,AudioPlaybackService.class)
+                    .setAction(AudioPlaybackService.SLEEP).putExtra("minutes",minutes[n]));}
+                else if(edge!=null)edge.setSleepMinutes(minutes[n]);
+                Toast.makeText(this,minutes[n]==0?"Таймер выключен":"Таймер установлен",Toast.LENGTH_SHORT).show();
+            }).setNegativeButton("Отмена",null).show();
     }
     private void switchTo(boolean toLocal){
         if(toLocal==local)return;
@@ -328,11 +370,14 @@ public final class EdgeOnlineActivity extends Activity {
         boolean playing=local?(AudioPlaybackService.instance!=null&&AudioPlaybackService.instance.isTtsMode()&&!AudioPlaybackService.instance.isPaused()):edge!=null&&edge.isPlaying();
         playIcon.setImageResource(playing?R.drawable.ic_pause:R.drawable.ic_play);
         speed.setText(String.valueOf(TtsWpm.get(this)));
-        int word=liveWord(),start=wordChar(word),end;
+        int word=(!playing&&selectedWord>=0)?selectedWord:liveWord(),start=wordChar(word),end;
+        if(playing)selectedWord=word;
         if(local){
             AudioPlaybackService svc=AudioPlaybackService.instance;
-            int[] range=svc!=null&&svc.isTtsMode()?svc.currentTtsWordRange():new int[]{start,start};
-            start=range[0];end=range[1];
+            int[] range=playing&&svc!=null&&svc.isTtsMode()?svc.currentTtsWordRange():new int[]{start,start};
+            if(playing){start=range[0];end=range[1];}
+            else {SentenceChunks.Chunk part=SentenceChunks.forWord(sentences,word);
+                if(part!=null){start=part.fromChar;end=part.toChar;}}
         }else{
             EdgeDownloadService.Clip clip=downloads==null?null:downloads.currentClip();
             List<EdgeWordTimings.Word> ticks=clip!=null&&clip.ready()?EdgeWordTimings.read(clip.file,clip.text):Collections.emptyList();
@@ -356,7 +401,8 @@ public final class EdgeOnlineActivity extends Activity {
                     requestedSeekWord=-1;
                 }
             }
-            if(!playing&&downloads!=null&&downloads.words()>0&&clip!=null&&!clip.ready()&&!networkAvailable()&&!offlinePrompt){
+            if(!playing&&edge!=null&&edge.playRequested()&&downloads!=null&&downloads.words()>0
+                &&clip!=null&&!clip.ready()&&!networkAvailable()&&!offlinePrompt){
                 offlinePrompt=true;
                 new AlertDialog.Builder(this).setTitle("Нет подключения к интернету")
                     .setMessage("Сохранённые предложения закончились. Продолжить через системный TTS?")

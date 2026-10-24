@@ -1,0 +1,10 @@
+feat(tts): add configurable tap playback, sentence highlights and Edge tail trimming (v1.11.69-beta)
+
+- Move Cursor/RSVP WPM control to the toolbar with the shared preset dialog
+- Highlight current sentence at 50% opacity and precise spoken word where available
+- Seek by sentence only; do not auto-play on tap unless enabled under Audio settings
+- Allow on-demand synthesis of earlier or uncached Edge sentences
+- Add opt-in/out Edge end-of-sentence silence clipping without modifying MP3/WordBoundary
+- Add shared sleep timer controls and persist deadline between TTS engines
+- Replace text-based Back/Folder buttons with vector icons
+- Preserve 600-character sentence limit, Edge persistent files, and Chteico sprites

@@ -150,12 +150,18 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
           rewindOnNextPlay=false;playWhenPrepared=false;playAfterSeek=false;
           userPausedWhilePreparing=false;pendingRelativeWhilePreparing=0;
           prepareAudio(resume,intent.getBooleanExtra("autoplay",false));break;}
-        case TTS: {AudioModeCoordinator.stopEdge(this);interruptedByExternalAudio=false;if(active)saveProgress(); if(tts!=null)tts.stop();resetLocalSession(); title="Загрузка книги…";currentBook=intent.getStringExtra("bookUri");ChteicoStore.openAudio(this,currentBook);final String source=currentBook;
+        case TTS: {AudioModeCoordinator.stopEdge(this);
+          sleepDeadline=getSharedPreferences("reader",0).getLong("audio_sleep_deadline",0L);
+          if(sleepDeadline<=System.currentTimeMillis())sleepDeadline=0L;
+          interruptedByExternalAudio=false;if(active)saveProgress(); if(tts!=null)tts.stop();resetLocalSession(); title="Загрузка книги…";currentBook=intent.getStringExtra("bookUri");ChteicoStore.openAudio(this,currentBook);final String source=currentBook;
           ttsMode=true;active=true;paused=true;releasePlayer();
           getSharedPreferences("reader",0).edit().putString("last_media_kind","text").apply();
           new Thread(()->{try{BookLoader.Book book=BookLoader.load(this,Uri.parse(source));handler.post(()->{if(!ttsMode||!source.equals(currentBook))return;
               title=book.title==null||book.title.trim().isEmpty()?"Книга":book.title.trim();
-              makeChunks(book.text);int requestedWord=intent.getIntExtra("word_index",-1); int fallback=getSharedPreferences("reader",0).getInt("tts_pos:"+source,0); ttsPosition=requestedWord>=0?chunkForWord(requestedWord):Math.max(0,Math.min(chunks.size()-1,fallback));ttsStartRequested=true;startTts();notifyState();});}catch(Exception ignored){handler.post(()->{paused=true;notifyState();});}}).start();break;}
+              makeChunks(book.text);int requestedWord=intent.getIntExtra("word_index",-1); int fallback=getSharedPreferences("reader",0).getInt("tts_pos:"+source,0); ttsPosition=requestedWord>=0?chunkForWord(requestedWord):Math.max(0,Math.min(chunks.size()-1,fallback));ttsStartRequested=intent.getBooleanExtra("auto_on_selection",false);
+              paused=true;
+              if(ttsStartRequested)startTts();
+              notifyState();});}catch(Exception ignored){handler.post(()->{paused=true;notifyState();});}}).start();break;}
         case PLAY: AudioModeCoordinator.stopEdge(this);resume();break;case PAUSE: pausePlayback();break;
         case STOP: stopServicePlayback();break;
         case NEXT: jump(ttsMode?1:1);break;case PREV:jump(-1);break;
@@ -163,20 +169,16 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         case "tts_select_word": {
             if(ttsMode){
                 int target=Math.max(0,intent.getIntExtra("word_index",0));
-                int chunk=chunkForWord(target);
-                long time=0;
-                if(chunk>=0&&chunk<chunks.size()) {
-                    int relative=0;
-                    java.util.ArrayList<Integer> wp=SentenceChunks.wordPositions(chunks.get(chunk));
-                    int first=chunkWordPositions.get(chunk);
-                    int local=target-first;
-                    if(local>=0&&local<wp.size())relative=wp.get(local);
-                    time=LocalTtsWordTimings.atChar(LocalTtsWordTimings.read(localFile(chunk)),relative);
-                }
-                pendingLocalSeek=time;
-                seekTo(chunk);
-                if(paused)resume();
-            }break;
+                // No seek to an arbitrary word: navigate to the start of its sentence.
+                boolean auto=getSharedPreferences("reader",0).getBoolean("tts_tap_autoplay",false);
+                if(!paused)pausePlayback();
+                ttsPosition=chunkForWord(target);
+                pendingLocalSeek=0;
+                resetLocalSession();
+                saveProgress();notifyState();
+                if(auto)resume();
+            }
+            break;
         }
         case SEEK_RELATIVE:seekRelative(intent.getIntExtra("delta_ms",0),!paused);break;
         case SPEED: speed=Math.max(.5f,Math.min(3f,intent.getFloatExtra("speed",1)));if(!paused)applySpeed();saveProgress();notifyState();break;

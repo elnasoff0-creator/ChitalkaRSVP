@@ -481,11 +481,22 @@ public class SettingsActivity extends Activity {
                 }catch(IllegalArgumentException ex){android.widget.Toast.makeText(this,"Неверный цвет",android.widget.Toast.LENGTH_SHORT).show();}
             }).show();
     }
+    private void settingSwitch(String title,String key,boolean fallback){
+        android.widget.Switch toggle=new android.widget.Switch(this);
+        toggle.setText(title);toggle.setTextColor(contrast(bg));toggle.setTextSize(15);
+        toggle.setChecked(prefs.getBoolean(key,fallback));
+        toggle.setPadding(dp(4),dp(12),dp(4),dp(12));
+        toggle.setOnCheckedChangeListener((button,enabled)->prefs.edit().putBoolean(key,enabled).apply());
+        list.addView(toggle);
+    }
     void drawAudioSettings(){
         header("Настройки аудио");
         list.addView(action("Эквалайзер · "+equalizerLabel(),R.drawable.ic_equalizer,this::equalizerDialog));gap(8);
         list.addView(action("Локальные голоса TTS",R.drawable.ic_tts_engine,()->startActivity(new Intent(this,TtsVoiceActivity.class))));gap(8);
         list.addView(action("Скорость TTS   ·   "+TtsWpm.get(this),R.drawable.ic_audio_speed,()->TtsWpm.dialog(this,this::draw)));gap(8);
+        settingSwitch("Автовоспроизведение при касании", "tts_tap_autoplay", false);
+        TextView tapInfo=text("При выборе предложения запускать TTS сразу. Если выключено — ждать нажатия Play.",13,false);
+        tapInfo.setPadding(dp(4),0,0,dp(8));list.addView(tapInfo);gap(8);
 
         list.addView(action("Автоотмотка после паузы: "+autoRewindLabel(),this::autoRewindDialog));gap(8);
         list.addView(action("Перемотка кнопками секунд: "+AudioPlaybackPrefs.seekSeconds(this)+" сек",()->seekStepDialog(false)));gap(8);
@@ -613,7 +624,11 @@ public class SettingsActivity extends Activity {
         list.addView(action("Проверить версию в GitHub", R.drawable.ic_web_update, () -> new UpdateManager(this).checkVersion()));
         gap(10);
         header("Онлайн-озвучивание Edge TTS");
-        TextView notice=text("Автоматическая подготовка следующих фрагментов всегда включена.",14,false);notice.setPadding(dp(5),dp(12),0,dp(12));list.addView(notice);gap(8);
+        TextView notice=text("Подготовка следующего предложения работает автоматически. Очередь вручную не настраивается.",14,false);
+        notice.setPadding(dp(5),dp(12),0,dp(12));list.addView(notice);gap(8);
+        settingSwitch("Сокращение пауз между предложениями MS Edge", "edge_trim_sentence_pause", true);
+        TextView explanation=text("Пропускается только подтверждённая конечная тишина после предложения. Исходные MP3 и метки WordBoundary не изменяются.",13,false);
+        explanation.setPadding(dp(4),0,0,dp(8));list.addView(explanation);
     }
     void theme(LinearLayout row,String name,int background,int ink){TextView chip=text(name,13,false);chip.setTextColor(ink);chip.setGravity(Gravity.CENTER);chip.setBackground(outlined(background,14));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(56),1);lp.setMargins(dp(2),0,dp(2),0);row.addView(chip,lp);chip.setOnClickListener(v->{bg=background;fg=ink;put("bg",bg);put("fg",fg);draw();});}
     void palette(int[] colors,boolean background){

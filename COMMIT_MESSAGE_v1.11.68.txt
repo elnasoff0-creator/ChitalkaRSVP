@@ -1,0 +1,6 @@
+fix(android): remove duplicate now declaration in EdgeOnlineActivity (v1.11.68-beta)
+
+- Reuse the SystemClock uptime timestamp already declared in refresh()
+- Avoid the duplicate Java local variable that failed assembleRelease
+- Bump Android versionCode to 11168 and versionName to 1.11.68-beta
+- Preserve TTS Cursor UI, Edge WordBoundary, local voice support, and sprites

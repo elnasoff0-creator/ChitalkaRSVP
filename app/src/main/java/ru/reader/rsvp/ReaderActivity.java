@@ -20,7 +20,7 @@ public class ReaderActivity extends Activity {
     private static final int NORMAL=0,RSVP=1,CURSOR=2,NO_COLOR=0;
     private final Handler handler=new Handler(Looper.getMainLooper());
     private SharedPreferences prefs;
-    private LinearLayout root,speedPanel,controls,toolbar,modeRow,readingFrame;
+    private LinearLayout root,speedPanel,controls,toolbar,toolbarWpm,modeRow,readingFrame;
     private FrameLayout sceneRoot,floatingPlayButton,rsvpPlayFrame;
     private TextView bookTitle;
     private ImageView floatingPlayIcon;
@@ -167,6 +167,20 @@ public class ReaderActivity extends Activity {
         toolbar.addView(icon(R.drawable.ic_bookmark,v->bookmark()),new LinearLayout.LayoutParams(dp(53),dp(53)));
         toolbar.addView(icon(R.drawable.ic_settings,v->settings()),new LinearLayout.LayoutParams(dp(53),dp(53)));
         toolbar.addView(icon(R.drawable.ic_microphone,v->audioMenu()),new LinearLayout.LayoutParams(dp(53),dp(53)));
+        LinearLayout speedGauge=new LinearLayout(this);speedGauge.setGravity(Gravity.CENTER_VERTICAL);
+        speedGauge.setBackground(shape(buttonBg(),14));speedGauge.setPadding(dp(7),0,dp(9),0);
+        ImageView speedNeedle=new ImageView(this);speedNeedle.setImageResource(R.drawable.ic_audio_speed);
+        speedNeedle.setColorFilter(contrast(buttonBg()));
+        speedGauge.addView(speedNeedle,new LinearLayout.LayoutParams(dp(22),dp(22)));
+        speedView=text(String.valueOf(wpm),18);speedView.setTextColor(contrast(buttonBg()));
+        speedView.setGravity(Gravity.CENTER);speedView.setPadding(dp(5),0,0,0);
+        speedGauge.addView(speedView);
+        speedGauge.setContentDescription("Скорость чтения в словах в минуту");
+        speedGauge.setOnClickListener(v->TtsWpm.dialogForReader(this,wpm,value->{
+            wpm=value;if(speedView!=null)speedView.setText(String.valueOf(wpm));saveLight(true);
+        }));
+        toolbarWpm=speedGauge;
+        toolbar.addView(speedGauge,new LinearLayout.LayoutParams(-2,dp(53)));
         if(words.length==0){applySystemBars(false);
             TextView intro=text("EPUB · FB2 · HTML\n\nОткройте книгу, чтобы начать чтение.",20);
             intro.setPadding(dp(24),dp(24),dp(24),dp(24));add(root,intro);
@@ -249,21 +263,8 @@ public class ReaderActivity extends Activity {
         FrameLayout.LayoutParams floatLp=new FrameLayout.LayoutParams(dp(68),dp(68),Gravity.RIGHT|Gravity.BOTTOM);
         floatLp.setMargins(dp(12),dp(12),dp(20),dp(24));
         sceneRoot.addView(floatingPlayButton,floatLp);floatingPlayButton.setVisibility(View.GONE);
-        speedPanel=column();speedPanel.setBackground(shape(panelColor(),18));
-        speedPanel.setPadding(dp(8),dp(6),dp(8),dp(6));add(root,speedPanel);
-        LinearLayout speedRow=new LinearLayout(this);speedRow.setGravity(Gravity.CENTER);
-        speedRow.setClickable(true);speedRow.setBackground(shape(buttonBg(),14));
-        add(speedPanel,speedRow);
-        ImageView gauge=new ImageView(this);gauge.setImageResource(R.drawable.ic_speed);
-        gauge.setColorFilter(contrast(buttonBg()));
-        speedRow.addView(gauge,new LinearLayout.LayoutParams(dp(26),dp(26)));
-        speedView=text(String.valueOf(wpm),19);speedView.setGravity(Gravity.CENTER);
-        speedView.setTextColor(contrast(buttonBg()));
-        LinearLayout.LayoutParams wp=new LinearLayout.LayoutParams(dp(75),dp(46));
-        speedRow.addView(speedView,wp);
-        speedRow.setOnClickListener(v->TtsWpm.dialogForReader(this,wpm,value->{
-            wpm=value;if(speedView!=null)speedView.setText(String.valueOf(wpm));saveLight(true);
-        }));
+        // WPM is displayed in the top toolbar for both Cursor and RSVP.
+        speedPanel=null;
         updateModeUI();updatePlayButton();
         // Jump to the indexed chunk, not to the pixel position of an enormous TextView.
         textList.post(()->ensureWordVisible(true));
@@ -372,6 +373,7 @@ public class ReaderActivity extends Activity {
         if(selectWordButton!=null){selectWordButton.setVisibility(mode==NORMAL?View.VISIBLE:View.GONE);updateSelectWordButton();}
         if(controls!=null)controls.setVisibility(mode==NORMAL?View.GONE:View.VISIBLE);
         if(speedPanel!=null)speedPanel.setVisibility(mode==NORMAL?View.GONE:View.VISIBLE);
+        if(toolbarWpm!=null)toolbarWpm.setVisibility(mode==NORMAL?View.GONE:View.VISIBLE);
         if(textList!=null)textList.setVisibility(mode==RSVP&&playing?View.GONE:View.VISIBLE);
         if(mode==RSVP)updateWord();
         refreshHighlight(index);updateProgress();applyFullscreenUi();

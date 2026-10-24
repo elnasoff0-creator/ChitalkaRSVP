@@ -1,0 +1,19 @@
+ПРОЧиталка / Чтейцо v1.11.62-beta CLEAN
+Дата: 22.10.2026
+
+Основа: v1.11.61-beta CLEAN.
+
+1. Заменены 6 Android VectorDrawable XML для взрослой стадии (Чтун / adult) на предоставленные пользователем файлы, без изменений контуров:
+ - ic_chteico_adult_classic_up.xml
+ - ic_chteico_adult_classic_down.xml
+ - ic_chteico_adult_speed_up.xml
+ - ic_chteico_adult_speed_down.xml
+ - ic_chteico_adult_audio_up.xml
+ - ic_chteico_adult_audio_down.xml
+
+2. Файлы chick и reader (12 VectorDrawable, обновленные в v1.11.61) не изменены.
+3. Прочий код и настройки приложения оставлены как в v1.11.61.
+4. app/build.gradle: versionCode 11162, versionName 1.11.62-beta.
+
+Проверка: XML синтаксически обработаны и отрисованы; файлы спрайтов в точности скопированы из присланных XML, проверена целостность ZIP.
+Gradle/Android SDK отсутствуют в текущем окружении: сборка APK/установка и запуск на устройстве не выполнялись.
