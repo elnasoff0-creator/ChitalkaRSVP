@@ -14,13 +14,13 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import java.util.ArrayList;
 
-/** Existing SentenceChunks, NOT a second segmentation scheme. */
+/** UI navigation uses the same prepared BookChunkIndex blocks as ReaderActivity.
+ * Audio SentenceChunks remain independent and keep their 600-character limit. */
 final class TtsTextBlockManager {
-    interface Choose {void onChoose(SentenceChunks.Chunk chunk);}
+    interface Choose {void onChoose(BookChunkIndex.Chunk chunk);}
     private TtsTextBlockManager(){}
-    static void show(Activity owner,ArrayList<SentenceChunks.Chunk> chunks,
+    static void show(Activity owner,BookChunkIndex chunks,String bookText,
                      int bg,int fg,Choose handler){
-        int density=Math.round(owner.getResources().getDisplayMetrics().density);
         RecyclerView rows=new RecyclerView(owner);
         rows.setLayoutManager(new LinearLayoutManager(owner));
         rows.setPadding(dp(owner,12),dp(owner,4),dp(owner,12),dp(owner,10));
@@ -54,10 +54,11 @@ final class TtsTextBlockManager {
                 return new Item(card,number,range,sample);
             }
             @Override public void onBindViewHolder(Item item,int index){
-                SentenceChunks.Chunk part=chunks.get(index);
+                BookChunkIndex.Chunk part=chunks.get(index);
                 item.number.setText((index+1)+".");
-                item.range.setText(part.fromChar+"–"+Math.max(part.fromChar,part.toChar-1)+" симв.");
-                item.sample.setText(part.text.replace('\n',' ').replaceAll("\\s+"," ").trim());
+                item.range.setText(part.startChar+"–"+Math.max(part.startChar,part.endChar-1)+" симв.");
+                int snippetEnd=Math.min(part.endChar,part.startChar+240);
+                item.sample.setText(bookText.substring(part.startChar,snippetEnd).replace('\n',' ').replaceAll("\\s+"," " ).trim());
                 item.itemView.setOnClickListener(v->{dialog.dismiss();handler.onChoose(part);});
             }
             @Override public int getItemCount(){return chunks.size();}

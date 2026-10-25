@@ -48,6 +48,7 @@ public final class EdgeOnlineActivity extends Activity {
     private String uri="",full="",name="Книга";
     private ArrayList<Integer> wordStarts=new ArrayList<>();
     private ArrayList<SentenceChunks.Chunk> sentences=new ArrayList<>();
+    private BookChunkIndex textBlocks;
     private EdgeStreamingService downloads;
     private EdgePlaybackService edge;
     private boolean boundDownload,boundPlayer;
@@ -67,6 +68,8 @@ public final class EdgeOnlineActivity extends Activity {
     private int windowStart=-1,windowEnd=-1,lastStart=-1,lastEnd=-1;
     private int lastSentenceStart=-1,lastSentenceEnd=-1;
     private int selectedWord=-1;
+    // Keep a manual jump visible until the selected TTS sentence becomes active.
+    private int pendingPositionWord=-1;
     private int requestedSeekWord=-1;
     private String requestedSeekKey="";
     private int cachedCoverage=-1;
@@ -158,7 +161,9 @@ public final class EdgeOnlineActivity extends Activity {
                 final ArrayList<Integer> offsets=SentenceChunks.wordPositions(body);
                 ui.post(()->{
                     if(!requested.equals(uri)||isFinishing())return;
-                    full=body;wordStarts=offsets;sentences=SentenceChunks.split(body);name=title;bookTitle.setText(name);
+                    full=body;wordStarts=offsets;sentences=SentenceChunks.split(body);
+                    textBlocks=new BookChunkIndex(body,offsets,560);
+                    name=title;bookTitle.setText(name);
                     int from=getIntent().getIntExtra("word_index",getSharedPreferences("reader",0).getInt("tts_word:"+uri,0));
                     selectedWord=Math.max(0,Math.min(Math.max(0,wordStarts.size()-1),from));
                     showWindow(wordChar(selectedWord),true);
@@ -316,10 +321,17 @@ public final class EdgeOnlineActivity extends Activity {
     private int wordFromChar(int character){return wordStarts.isEmpty()?0:Math.max(0,Math.min(wordStarts.size()-1,SentenceChunks.lowerBound(wordStarts,character)));}
     private void showWindow(int anchor,boolean center){
         if(full.isEmpty())return;
-        int first=Math.max(0,anchor-1600),last=Math.min(full.length(),anchor+4500);
-        // Prefer complete neighboring paragraphs when inexpensive.
-        int boundary=full.lastIndexOf('\n',first);if(boundary>=0&&first-boundary<250)first=boundary+1;
-        int tail=full.indexOf('\n',last);if(tail>=0&&tail-last<250)last=tail;
+        int first,last;
+        if(textBlocks!=null&&textBlocks.size()>0){
+            // Render only the selected prepared UI block and immediate neighbors.
+            // The full book string remains the data model, not a giant TextView.
+            int chunk=textBlocks.chunkForWord(wordFromChar(anchor));
+            first=textBlocks.get(Math.max(0,chunk-1)).startChar;
+            last=textBlocks.get(Math.min(textBlocks.size()-1,chunk+1)).endChar;
+        }else{
+            first=Math.max(0,anchor-1600);
+            last=Math.min(full.length(),anchor+4500);
+        }
         if(first==windowStart&&last==windowEnd){
             if(center)scroller.post(()->scrollToChar(anchor,true));
             return;
@@ -378,6 +390,8 @@ public final class EdgeOnlineActivity extends Activity {
         SentenceChunks.Chunk sentence=SentenceChunks.forWord(sentences,Math.max(0,Math.min(word,wordStarts.size()-1)));
         selectedWord=sentence==null?word:sentence.fromWord;
         selectedWord=Math.max(0,Math.min(selectedWord,wordStarts.size()-1));
+        pendingPositionWord=selectedWord;
+        updatePositionTime(selectedWord); // Update immediately, before any network request.
         boolean auto=getSharedPreferences("reader",0).getBoolean("tts_tap_autoplay",false);
         getSharedPreferences("reader",0).edit().putInt("tts_word:"+uri,selectedWord).apply();
         if(local){
@@ -403,19 +417,23 @@ public final class EdgeOnlineActivity extends Activity {
         mark(from,end,true);
     }
     private void openTextBlocks(){
-        if(sentences.isEmpty()){
+        if(textBlocks==null||textBlocks.size()==0){
             Toast.makeText(this,"Текст ещё загружается",Toast.LENGTH_SHORT).show();return;
         }
-        TtsTextBlockManager.show(this,sentences,
+        TtsTextBlockManager.show(this,textBlocks,full,
             ReaderButtonColors.neutral(this,0xfffff9f0),foreground,
-            part->selectWord(part.fromWord));
+            part->{
+                // The UI block controls navigation; audio still uses SentenceChunks.
+                selectWord(part.startWord);
+                showWindow(part.startChar,true);
+            });
     }
     private void togglePlay(){
         if(local){AudioPlaybackService service=AudioPlaybackService.instance;
-            if(service!=null&&!service.isPaused())selectedWord=liveWord();
+            if(service!=null&&!service.isPaused()&&pendingPositionWord<0)selectedWord=liveWord();
             startService(new Intent(this,AudioPlaybackService.class).setAction(service!=null&&!service.isPaused()?AudioPlaybackService.PAUSE:AudioPlaybackService.PLAY));
         }else if(edge!=null){
-            if(edge.playRequested()){selectedWord=liveWord();edge.pause();}
+            if(edge.playRequested()){if(pendingPositionWord<0)selectedWord=liveWord();edge.pause();}
             else {edge.play();if(downloads!=null)downloads.ensurePlaySelection();}
         }
         refresh();
@@ -564,6 +582,7 @@ public final class EdgeOnlineActivity extends Activity {
         if(!local&&full.isEmpty()&&downloads!=null&&downloads.isReady()){
             full=downloads.fullText();name=downloads.title();bookTitle.setText(name);
             wordStarts=SentenceChunks.wordPositions(full);sentences=SentenceChunks.split(full);
+            textBlocks=new BookChunkIndex(full,wordStarts,560);
             selectedWord=Math.max(0,Math.min(Math.max(0,wordStarts.size()-1),downloads.anchor()));
             showWindow(wordChar(selectedWord),true);
         }
@@ -572,12 +591,24 @@ public final class EdgeOnlineActivity extends Activity {
         playIcon.setImageResource(playing?R.drawable.ic_pause:R.drawable.ic_play);
         speed.setText(String.valueOf(TtsWpm.get(this)));
         updateSleepCountdown();
-        int word=(!playing&&selectedWord>=0)?selectedWord:liveWord(),start=wordChar(word),end=start;
-        if(playing)selectedWord=word;
+        int actualWord=liveWord();
+        int word=(!playing&&selectedWord>=0)?selectedWord:actualWord;
+        boolean waitingForSelectedSentence=false;
+        if(pendingPositionWord>=0){
+            SentenceChunks.Chunk target=SentenceChunks.forWord(sentences,pendingPositionWord);
+            if(playing&&target!=null&&actualWord>=target.fromWord&&actualWord<target.toWord){
+                pendingPositionWord=-1;word=actualWord;
+            }else{
+                word=pendingPositionWord;
+                waitingForSelectedSentence=true;
+            }
+        }
+        int start=wordChar(word),end=start;
+        if(playing&&!waitingForSelectedSentence)selectedWord=word;
         if(local){
             AudioPlaybackService svc=AudioPlaybackService.instance;
-            int[] range=playing&&svc!=null&&svc.isTtsMode()?svc.currentTtsWordRange():new int[]{start,start};
-            if(playing){start=range[0];end=range[1];}
+            int[] range=playing&&!waitingForSelectedSentence&&svc!=null&&svc.isTtsMode()?svc.currentTtsWordRange():new int[]{start,start};
+            if(playing&&!waitingForSelectedSentence){start=range[0];end=range[1];}
             else {SentenceChunks.Chunk part=SentenceChunks.forWord(sentences,word);
                 if(part!=null){start=part.fromChar;end=part.toChar;}}
         }else{
@@ -587,7 +618,7 @@ public final class EdgeOnlineActivity extends Activity {
                     (downloads==null?Collections.emptyList():downloads.liveWords(clip)));
             int selected=clip!=null&&edge!=null&&(clip.key+":"+clip.start).equals(edge.currentKey())?
                 EdgeWordTimings.at(ticks,edge.positionMs()):-1;
-            if(selected>=0){
+            if(selected>=0&&!waitingForSelectedSentence){
                 start=downloads.charForWord(clip.start)+ticks.get(selected).from;
                 end=downloads.charForWord(clip.start)+ticks.get(selected).to;
             }else{
@@ -621,11 +652,8 @@ public final class EdgeOnlineActivity extends Activity {
             SentenceChunks.Chunk currently=SentenceChunks.forWord(sentences,word);
             if(currently!=null)showWindow(currently.fromChar,true);
         }
-        int total=wordStarts.size();int pct=total>0?(int)Math.min(100,word*100L/total):0;
-        int wpm=TtsWpm.get(this);int totalMinutes=(int)Math.round(total/(double)wpm);
-        int heardMinutes=(int)Math.round(word/(double)wpm);
-        long heardSeconds=getSharedPreferences("reader",0).getLong("tts_listened_seconds:"+uri,0);
-        progress.setText(time((int)(heardSeconds/60))+" / ~"+time(totalMinutes));
+        // Position in the book, not the accumulated number of minutes listened.
+        updatePositionTime(word);
         long now=android.os.SystemClock.uptimeMillis();
         if(playing&&now>=nextWordSaveAt){
             getSharedPreferences("reader",0).edit().putInt("tts_word:"+uri,word).apply();
@@ -637,7 +665,13 @@ public final class EdgeOnlineActivity extends Activity {
             offlineProgress.setText(Math.max(0,cachedCoverage)+"%");
         }
     }
-    private String time(int m){return (m/60)+" ч "+(m%60)+" мин";}
+    /** Estimate the book timeline from global word offsets and the current WPM.
+     * This is independent of cached MP3s, elapsed listening sessions and UI windows. */
+    private void updatePositionTime(int globalWord){
+        if(progress==null)return;
+        String position=TtsPositionTimeline.label(wordStarts.size(),globalWord,TtsWpm.get(this));
+        if(!position.contentEquals(progress.getText()))progress.setText(position);
+    }
     private boolean networkAvailable(){
         try{android.net.ConnectivityManager mgr=(android.net.ConnectivityManager)getSystemService(CONNECTIVITY_SERVICE);
             android.net.NetworkCapabilities c=mgr.getNetworkCapabilities(mgr.getActiveNetwork());
