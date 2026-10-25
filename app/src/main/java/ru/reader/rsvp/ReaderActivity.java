@@ -53,7 +53,7 @@ public class ReaderActivity extends Activity {
     private EdgePlaybackService ttsPlayer;
     private EdgeStreamingService ttsStreamer;
     private long lastTtsVisualUpdate=0;
-    private final EdgeStreamingService.Observer ttsStreamObserver=()->{if(mode==TTS)refreshTtsPosition();};
+    private final EdgeStreamingService.Observer ttsStreamObserver=()->{if(ReaderActivity.this.mode==TTS)refreshTtsPosition();};
     private final EdgePlaybackService.Listener ttsPlayerListener=new EdgePlaybackService.Listener(){
         @Override public void onTrackChanged(int start,int end,String key,boolean completed){if(mode==TTS)refreshTtsPosition();}
         @Override public void onPlaybackStateChanged(){if(mode==TTS)refreshTtsPosition();}

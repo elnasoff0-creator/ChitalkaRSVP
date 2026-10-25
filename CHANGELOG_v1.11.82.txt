@@ -1,0 +1,18 @@
+ПРОЧиталка v1.11.82-beta — исправление сборки
+
+ИСПРАВЛЕНО
+- ReaderActivity.java: устранена ошибка javac «illegal forward reference» в инициализаторе слушателя Edge TTS.
+- В лямбде ttsStreamObserver поле режима теперь указано квалифицированно: ReaderActivity.this.mode. Семантика и поведение TTS не меняются.
+
+ВЕРСИЯ
+- versionCode: 11182
+- versionName: 1.11.82-beta
+
+НЕ ИЗМЕНЕНО
+- Единый экран для четырёх режимов, кэш RBI3, EPUB/FB2, SentenceChunks и WordBoundary.
+- Аудиоплеер, фоновые загрузки и 18 утверждённых спрайтов «Чтейца».
+
+ПРОВЕРКИ
+- Синтаксический разбор Java и доступные JVM QA-тесты.
+- Сверка XML, Git Patch и структуры CLEAN ZIP.
+- Полная Android-сборка assembleRelease не выполнялась: отсутствуют Android SDK и Gradle.
