@@ -1,4 +1,0 @@
-fix(build): resolve ReaderActivity forward field reference (v1.11.82-beta)
-
-Qualify mode access in EdgeStreamingService observer to satisfy javac
-field initializer rules. Increment Android version and package a CLEAN source release.

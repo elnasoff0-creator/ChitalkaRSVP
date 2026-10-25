@@ -67,6 +67,20 @@ public final class EdgePlaybackService extends Service {
     private final ArrayList<Listener> listeners = new ArrayList<>();
     private PlaybackAudioFocus focus;
     private MediaSession mediaSession;
+    private android.graphics.Bitmap playbackCover;
+    private String mediaTitle="Книга",mediaAuthor="",coverBookUri="";
+    private void updateArtwork(String id){
+        String book=id.startsWith("edge:")?id.substring(5):id;
+        if(book.isEmpty()||book.equals(coverBookUri))return;
+        coverBookUri=book;playbackCover=null;
+        android.content.SharedPreferences reader=getSharedPreferences("reader",0);
+        mediaTitle=reader.getString("book_title:"+book,"Книга");
+        mediaAuthor=reader.getString("book_author:"+book,"");
+        PlaybackArtwork.load(this,book,true,"",bitmap->{
+            if(!book.equals(coverBookUri))return;
+            playbackCover=bitmap;updateSession();updateNotification();
+        });
+    }
     private boolean requestedPlay;
     private boolean autoContinue = true;
     private String activeBookId = "";
@@ -232,7 +246,8 @@ public final class EdgePlaybackService extends Service {
     public void setListener(Listener value) {listeners.clear();addListener(value);}
     public void prepareBook(String id) {
         String requested=id==null?"":id;
-        if (!requested.equals(activeBookId)) {clearQueue(); activeBookId=requested;}
+        if (!requested.equals(activeBookId)) {clearQueue(); activeBookId=requested;
+            updateArtwork(requested);updateSession();}
     }
     public void setAutoContinue(boolean enabled) { autoContinue=enabled; }
     public boolean isPlaying() { return (pcmStream!=null&&pcmStream.isPlaying()) || (player!=null && player.isPlaying()); }
@@ -519,26 +534,43 @@ public final class EdgePlaybackService extends Service {
     }
     private void updateSession() {
         if(mediaSession==null||player==null)return;
-        int state=player.isPlaying()?PlaybackState.STATE_PLAYING:PlaybackState.STATE_PAUSED;
+        int state=isPlaying()?PlaybackState.STATE_PLAYING:PlaybackState.STATE_PAUSED;
         long actions=PlaybackState.ACTION_PLAY|PlaybackState.ACTION_PAUSE|PlaybackState.ACTION_PLAY_PAUSE|
                 PlaybackState.ACTION_STOP|PlaybackState.ACTION_SKIP_TO_NEXT|PlaybackState.ACTION_SKIP_TO_PREVIOUS|
                 PlaybackState.ACTION_SEEK_TO;
+        String book=activeBookId.startsWith("edge:")?activeBookId.substring(5):activeBookId;
+        android.content.SharedPreferences p=getSharedPreferences("reader",0);
+        int totalWords=p.getInt("book_words:"+book,0);
+        int currentWord=p.getInt("tts_word:"+book,p.getInt("index",0));
+        int rate=Math.max(100,TtsWpm.get(this));
+        long duration=totalWords>0?(long)totalWords*60000L/rate:0L;
+        long position=totalWords>0?(long)Math.min(totalWords,Math.max(0,currentWord))*60000L/rate:Math.max(0,positionMs());
+        android.media.MediaMetadata.Builder meta=new android.media.MediaMetadata.Builder()
+            .putString(android.media.MediaMetadata.METADATA_KEY_TITLE,mediaTitle)
+            .putString(android.media.MediaMetadata.METADATA_KEY_ARTIST,mediaAuthor)
+            .putLong(android.media.MediaMetadata.METADATA_KEY_DURATION,duration);
+        if(playbackCover!=null)meta.putBitmap(android.media.MediaMetadata.METADATA_KEY_ART,playbackCover);
+        mediaSession.setMetadata(meta.build());
         mediaSession.setPlaybackState(new PlaybackState.Builder().setActions(actions)
-                .setState(state,positionMs(),player.isPlaying()?1f:0f).build());
+                .setState(state,position,isPlaying()?Math.max(0.5f,playbackSpeed):0f).build());
     }
     private Notification notification() {
-        PendingIntent open=PendingIntent.getActivity(this,0,new Intent(this,ReaderActivity.class).putExtra("reading_mode_override",3)
+        PendingIntent open=PendingIntent.getActivity(this,0,new Intent(this,ReaderActivity.class)
+                .putExtra("reading_mode_override",3)
                 .putExtra("book_uri",activeBookId.startsWith("edge:")?activeBookId.substring(5):activeBookId)
                 .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         PendingIntent toggle=PendingIntent.getService(this,1,new Intent(this,EdgePlaybackService.class)
                 .setAction(ACTION_TOGGLE),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-        return new NotificationCompat.Builder(this,CHANNEL)
-                .setSmallIcon(R.drawable.ic_reader).setColor(Color.rgb(153,97,68))
-                .setContentTitle("ПРОЧиталка · Edge TTS")
-                .setContentText(isPlaying()?"Воспроизведение MP3":"Пауза")
-                .setContentIntent(open).setOnlyAlertOnce(true).setOngoing(isPlaying())
-                .addAction(isPlaying()?R.drawable.ic_pause:R.drawable.ic_play,isPlaying()?"Пауза":"Play",toggle)
-                .build();
+        Notification.MediaStyle style=new Notification.MediaStyle().setShowActionsInCompactView(0);
+        if(mediaSession!=null)style.setMediaSession(mediaSession.getSessionToken());
+        Notification.Builder builder=Build.VERSION.SDK_INT>=26?
+                new Notification.Builder(this,CHANNEL):new Notification.Builder(this);
+        return builder.setSmallIcon(R.drawable.ic_reader).setColor(Color.rgb(50,110,85))
+                .setContentTitle(mediaTitle).setContentText(mediaAuthor.isEmpty()?"Озвучка":mediaAuthor)
+                .setLargeIcon(playbackCover).setContentIntent(open)
+                .setOnlyAlertOnce(true).setOngoing(isPlaying())
+                .addAction(isPlaying()?R.drawable.ic_pause:R.drawable.ic_play,
+                    isPlaying()?"Пауза":"Play",toggle).setStyle(style).build();
     }
     private void updateNotification() {
         if (player==null)return;

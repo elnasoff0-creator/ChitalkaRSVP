@@ -61,7 +61,7 @@ final class UiNavigationSheet {
         Sheet sh=sheet(a,"Выбор режима чтения");
         String[] names={"Чтение","Скорочтение","Курсор","Озвучка"};
         String[] captions={"Обычное чтение текста","Показ слов с заданной скоростью","Следование по тексту","Голосовое воспроизведение"};
-        int[] icons={R.drawable.ic_book,R.drawable.ic_speed,R.drawable.ic_mode_cursor,R.drawable.ic_microphone};
+        int[] icons={R.drawable.ic_book,R.drawable.ic_mode_speedreading,R.drawable.ic_mode_cursor,R.drawable.ic_microphone};
         int ink=a.getSharedPreferences("reader",0).getInt("fg",0xff30221e);
         int neutral=ReaderButtonColors.neutral(a,0xfffff9f0);
         for(int i=0;i<names.length;i++){

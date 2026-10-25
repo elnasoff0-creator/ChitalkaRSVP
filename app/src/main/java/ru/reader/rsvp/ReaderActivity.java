@@ -26,26 +26,28 @@ public class ReaderActivity extends Activity {
     private LinearLayout root,speedPanel,controls,toolbar,toolbarWpm,modeRow,readingFrame;
     private TextView toolbarBookName;
     private FrameLayout bottomBar;
+    private LinearLayout contentsAction;
+    private ImageButton contentsIcon;
     private LinearLayout bookHeader;
     private BookChapterIndex chapters=BookChapterIndex.empty();
     private java.util.ArrayList<SentenceChunks.Chunk> ttsParts=new java.util.ArrayList<>();
     private int pendingTtsWord=-1;
     private String cachedTimingKey="",lastTtsError="";
     private java.util.List<EdgeWordTimings.Word> cachedTimingWords=java.util.Collections.emptyList();
-    private boolean toolbarExpanded=true,bookHeaderCollapsed=false;
+    private boolean toolbarExpanded=true;
     private FrameLayout sceneRoot,floatingPlayButton,rsvpPlayFrame;
     private TextView bookTitle;
     private ImageView floatingPlayIcon;
     private FrameLayout rsvpPane;
     private CountdownRingView countdownRing;
     private boolean waitingForStart=false;
-    private boolean delayRsvpEnabled=false,delayCursorEnabled=false,fullscreenRsvpPositionManual=false;
-    private int delayRsvpSeconds=2,delayCursorSeconds=2,fullscreenRsvpPositionPercent=0;
+    private boolean delayRsvpEnabled=false,delayCursorEnabled=false;
+    private int delayRsvpSeconds=2,delayCursorSeconds=2;
     private float normalRsvpCenterOnScreen=-1f;
     private RecyclerView textList;
     private LinearLayoutManager layoutManager;
     private ChunkAdapter chunkAdapter;
-    private TextView wordView,progressView,speedView,modeButton;
+    private TextView wordView,progressView,speedView;
     private ImageView playIcon,selectWordButton,modeIcon;
     private ImageButton toolbarModeAction,toolbarEngineAction,toolbarVoiceAction,toolbarSleepAction;
     private boolean rsvpScrollWords=false;
@@ -92,9 +94,8 @@ public class ReaderActivity extends Activity {
     private int pausePunctuationPercent=60,pauseLongPercent=50,pauseSentencePercent=120,pauseParagraphPercent=150;
     private boolean focusPoint=true,focusLinesEnabled=true,playing=false,selecting=false,selectedWordActive=false;
     private boolean userScrolling=false,restoringScroll=false;
-    private boolean fullscreenNormal=false,fullscreenRsvp=false,fullscreenCursor=false;
-    private boolean normalChromeVisible=false,immersiveActive=false;
-    private int originalSystemUiVisibility=0;
+    // Overlay controls replace the legacy immersive fullscreen preference entirely.
+    private boolean normalChromeVisible=false;
     private final Runnable ttsUiTick=new Runnable(){@Override public void run(){
         if(mode==TTS){refreshTtsPosition();handler.postDelayed(this,180);}
     }};
@@ -143,7 +144,6 @@ public class ReaderActivity extends Activity {
     }};
 
     @Override public void onCreate(Bundle state){super.onCreate(state);
-        originalSystemUiVisibility=getWindow().getDecorView().getSystemUiVisibility();
         prefs=getSharedPreferences("reader",MODE_PRIVATE);readPreferences();
         docUri=getIntent().getStringExtra("book_uri");
         if(docUri==null||docUri.isEmpty())docUri=prefs.getString("uri","");
@@ -183,15 +183,11 @@ public class ReaderActivity extends Activity {
         normalSelectText=prefs.getInt("normal_select_text",0xff915439);
         normalSelectScale=Math.max(100,Math.min(180,prefs.getInt("normal_select_scale",110)));
         buttonColor=prefs.getInt("button_color",NO_COLOR);accentButtonColor=prefs.getInt("button_accent_color",NO_COLOR);
-        fullscreenNormal=prefs.getBoolean("reading_fullscreen_normal",false);
-        fullscreenRsvp=prefs.getBoolean("reading_fullscreen_rsvp",false);
-        fullscreenCursor=prefs.getBoolean("reading_fullscreen_cursor",false);
+
         delayRsvpEnabled=prefs.getBoolean("reading_start_delay_rsvp_enabled",false);
         delayCursorEnabled=prefs.getBoolean("reading_start_delay_cursor_enabled",false);
         delayRsvpSeconds=Math.max(1,Math.min(10,prefs.getInt("reading_start_delay_rsvp_seconds",2)));
         delayCursorSeconds=Math.max(1,Math.min(10,prefs.getInt("reading_start_delay_cursor_seconds",2)));
-        fullscreenRsvpPositionManual=prefs.getBoolean("rsvp_fullscreen_position_manual",false);
-        fullscreenRsvpPositionPercent=Math.max(-100,Math.min(100,prefs.getInt("rsvp_fullscreen_position",0)));
         pausePunctuationPercent=Math.max(0,Math.min(300,prefs.getInt("pausePunctuationPercent",60)));
         pauseLongPercent=Math.max(0,Math.min(300,prefs.getInt("pauseLongPercent",50)));
         pauseSentencePercent=Math.max(0,Math.min(400,prefs.getInt("pauseSentencePercent",120)));
@@ -212,16 +208,22 @@ public class ReaderActivity extends Activity {
         b.setPadding(dp(10),dp(10),dp(10),dp(10));b.setBackground(shape(buttonBg(),12));
         b.setColorFilter(contrast(buttonBg()));b.setOnClickListener(click);return b;
     }
-    private int modeDrawable(){return mode==NORMAL?R.drawable.ic_book:mode==RSVP?R.drawable.ic_speed:mode==CURSOR?R.drawable.ic_mode_cursor:R.drawable.ic_microphone;}
+    private int modeDrawable(){return mode==NORMAL?R.drawable.ic_book:mode==RSVP?R.drawable.ic_mode_speedreading:mode==CURSOR?R.drawable.ic_mode_cursor:R.drawable.ic_microphone;}
 
     private void draw(){
         stop();
         sceneRoot=new FrameLayout(this);
-        root=column();root.setPadding(dp(10),dp(20),dp(10),dp(7));root.setBackgroundColor(bg);
+        root=column();root.setPadding(0,0,0,0);root.setBackgroundColor(bg);
         sceneRoot.addView(root,new FrameLayout.LayoutParams(-1,-1));
         setContentView(sceneRoot);
+        // Reset old insets when draw() replaces the scene; prevent cumulative padding.
+        View androidContent=findViewById(android.R.id.content);
+        if(androidContent!=null)androidContent.setPadding(0,0,0,0);
+        SafeSystemBars.install(this);
         SafeSystemBars.matchBackground(this,bg);
-        toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);add(root,toolbar);
+        toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);
+        FrameLayout.LayoutParams toolbarOverlay=new FrameLayout.LayoutParams(-1,dp(48),Gravity.TOP);
+        toolbarOverlay.setMargins(dp(8),dp(7),dp(8),0);sceneRoot.addView(toolbar,toolbarOverlay);
         toolbar.addView(icon(R.drawable.ic_back,v->BackNavigation.back(this)),new LinearLayout.LayoutParams(dp(44),dp(44)));
         toolbarBookName=text("",12);
         toolbarBookName.setSingleLine(true);
@@ -230,16 +232,18 @@ public class ReaderActivity extends Activity {
         toolbarBookName.setPadding(dp(8),0,0,0);
         toolbarBookName.setVisibility(View.GONE);
         toolbar.addView(toolbarBookName,new LinearLayout.LayoutParams(0,dp(44),1));
-        LinearLayout.LayoutParams bookmarkLp=new LinearLayout.LayoutParams(dp(44),dp(44));bookmarkLp.leftMargin=dp(5);
-        toolbar.addView(icon(R.drawable.ic_bookmark,v->bookmark()),bookmarkLp);
         toolbarModeAction=icon(modeDrawable(),v->modeDialog());
         toolbarModeAction.setContentDescription("Режим чтения: Чтение, Скорочтение, Курсор, Озвучка");
         LinearLayout.LayoutParams toolbarModeLp=new LinearLayout.LayoutParams(dp(44),dp(44));
-        toolbarModeLp.leftMargin=dp(5);toolbar.addView(toolbarModeAction,toolbarModeLp);
+        toolbarModeLp.leftMargin=dp(5);toolbar.addView(toolbarModeAction,1,toolbarModeLp);
+        toolbarModeAction.setBackground(shape(accent(),12));toolbarModeAction.setColorFilter(contrast(accent()));
+        LinearLayout.LayoutParams bookmarkLp=new LinearLayout.LayoutParams(dp(44),dp(44));bookmarkLp.leftMargin=dp(5);
+        toolbar.addView(icon(R.drawable.ic_bookmark,v->bookmark()),bookmarkLp);
         toolbarEngineAction=icon(ttsLocal?R.drawable.ic_android_tts:R.drawable.ic_edge_tts,v->chooseTtsEngine());
         toolbarEngineAction.setContentDescription("Метод озвучивания");
         LinearLayout.LayoutParams engineLp=new LinearLayout.LayoutParams(dp(44),dp(44));engineLp.leftMargin=dp(5);
         toolbar.addView(toolbarEngineAction,engineLp);
+        toolbarEngineAction.setBackground(shape(accent(),12));toolbarEngineAction.setColorFilter(contrast(accent()));
         toolbarVoiceAction=icon(R.drawable.ic_tts_engine,v->chooseTtsVoice());
         toolbarVoiceAction.setContentDescription("Голос озвучивания");
         LinearLayout.LayoutParams voiceLp=new LinearLayout.LayoutParams(dp(44),dp(44));voiceLp.leftMargin=dp(5);
@@ -269,7 +273,7 @@ public class ReaderActivity extends Activity {
         });
         toolbarWpm=speedGauge;
         LinearLayout.LayoutParams gaugeLp=new LinearLayout.LayoutParams(dp(44),dp(44));gaugeLp.leftMargin=dp(5);
-        toolbar.addView(speedGauge,gaugeLp);
+        // The numeric WPM control belongs to the lower floating overlay, not the packed toolbar.
         LinearLayout.LayoutParams settingsLp=new LinearLayout.LayoutParams(dp(44),dp(44));settingsLp.leftMargin=dp(5);
         toolbar.addView(icon(R.drawable.ic_settings,v->settings()),settingsLp);
         if(words.length==0){applySystemBars(false);
@@ -280,23 +284,22 @@ public class ReaderActivity extends Activity {
         // Book cover and metadata are only displayed at the beginning of the book.
         bookHeader=column();bookHeader.setPadding(dp(7),dp(10),dp(7),dp(8));
         ImageView cover=new ImageView(this);cover.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        LinearLayout.LayoutParams coverLp=new LinearLayout.LayoutParams(-1,dp(185));
+        LinearLayout.LayoutParams coverLp=new LinearLayout.LayoutParams(-1,
+            Math.min(dp(580),Math.round(getResources().getDisplayMetrics().widthPixels*1.44f)));
         bookHeader.addView(cover,coverLp);
         CoverImageLoader.show(cover,docUri,true);
         bookTitle=text(title,23);bookTitle.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
         bookTitle.setPadding(dp(5),dp(9),0,0);add(bookHeader,bookTitle);
         TextView meta=text(author+(author.isEmpty()?"":" · ")+words.length+" слов",13);
         meta.setPadding(dp(5),dp(2),0,dp(5));add(bookHeader,meta);
-        bookHeaderCollapsed=index>=10;
         // Keep the header in the view tree even when opening a book at a saved
         // middle position. If the reader scrolls back to the beginning,
         // the cover and metadata must become visible again without recreating UI.
-        add(root,bookHeader);
-        bookHeader.setVisibility(bookHeaderCollapsed?View.GONE:View.VISIBLE);
+        // The cover and metadata are adapter item 0, so they scroll with the book text.
+        bookHeader.setVisibility(View.VISIBLE);
         if(toolbarBookName!=null)toolbarBookName.setText(title);
         modeRow=new LinearLayout(this);modeRow.setGravity(Gravity.CENTER_VERTICAL);
         progressView=text("",12);progressView.setGravity(Gravity.CENTER_VERTICAL);
-        modeRow.addView(progressView,new LinearLayout.LayoutParams(0,dp(45),1));
         selectWordButton=new ImageView(this);selectWordButton.setImageResource(R.drawable.ic_select_word);
         selectWordButton.setPadding(dp(11),dp(11),dp(11),dp(11));selectWordButton.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         selectWordButton.setContentDescription("Выбор слова");
@@ -305,11 +308,9 @@ public class ReaderActivity extends Activity {
         LinearLayout.LayoutParams selectionLp=new LinearLayout.LayoutParams(dp(44),dp(44));selectionLp.leftMargin=dp(5);
         toolbar.addView(selectWordButton,Math.max(1,toolbar.getChildCount()-2),selectionLp);
         modeIcon=null;
-        modeButton=text("",13);modeButton.setGravity(Gravity.CENTER);
-        modeButton.setPadding(dp(5),0,dp(5),0);modeButton.setBackground(shape(buttonBg(),14));
-        modeButton.setTextColor(contrast(buttonBg()));modeButton.setOnClickListener(v->modeDialog());
-        readingFrame=column();readingFrame.setBackground(shape(panelColor(),23));readingFrame.setPadding(dp(9),dp(10),dp(9),dp(10));
-        LinearLayout.LayoutParams frameLp=new LinearLayout.LayoutParams(-1,0,1);frameLp.setMargins(0,dp(7),0,dp(8));root.addView(readingFrame,frameLp);
+        readingFrame=column();readingFrame.setBackgroundColor(bg);
+        readingFrame.setPadding(0,0,0,0);
+        LinearLayout.LayoutParams frameLp=new LinearLayout.LayoutParams(-1,0,1);root.addView(readingFrame,frameLp);
         rsvpPane=new FrameLayout(this);wordView=text("",size);wordView.setGravity(Gravity.CENTER);
         rsvpPane.addView(wordView,new FrameLayout.LayoutParams(-1,-1));
         focusLines=new FocusLinesView(this);focusLines.setClickable(false);
@@ -345,29 +346,28 @@ public class ReaderActivity extends Activity {
                 if(userScrolling&&dy!=0)chteicoTouch();
                 if(userScrolling&&!restoringScroll&&Math.abs(dy)>dp(1)){
                     setToolbarExpanded(dy<0);
-                    if(bookHeader!=null&&bookHeader.getParent()!=null){
-                        if(dy>0){bookHeaderCollapsed=true;bookHeader.setVisibility(View.GONE);}
-                        else if(layoutManager!=null && layoutManager.findFirstVisibleItemPosition()==0){
-                            bookHeaderCollapsed=false;bookHeader.setVisibility(View.VISIBLE);
-                        }
-                    }
+
                 }
                 if(!userScrolling||restoringScroll||words.length==0)return;
                 if(mode!=RSVP||playing||!rsvpScrollWords)return;
                 stepRsvpByScroll(dy);
             }
         });
-        bottomBar=new FrameLayout(this);bottomBar.setBackground(shape(panelColor(),21));
-        LinearLayout.LayoutParams bottomLp=new LinearLayout.LayoutParams(-1,dp(74));bottomLp.topMargin=dp(5);
-        root.addView(bottomBar,bottomLp);
+        bottomBar=new FrameLayout(this);bottomBar.setBackgroundColor(Color.TRANSPARENT);
+        FrameLayout.LayoutParams bottomLp=new FrameLayout.LayoutParams(-1,dp(74),Gravity.BOTTOM);
+        bottomLp.setMargins(dp(8),0,dp(8),dp(8));sceneRoot.addView(bottomBar,bottomLp);
         LinearLayout left=new LinearLayout(this);left.setGravity(Gravity.CENTER_VERTICAL);
-        FrameLayout.LayoutParams leftLp=new FrameLayout.LayoutParams(Math.max(dp(120),
-            (getResources().getDisplayMetrics().widthPixels-dp(100))/2),dp(70),Gravity.LEFT|Gravity.CENTER_VERTICAL);
+        left.setBackground(shape(accent(),19));contentsAction=left;
+        left.setOnClickListener(v->showToc());
+        FrameLayout.LayoutParams leftLp=new FrameLayout.LayoutParams(Math.max(dp(105),
+            (getResources().getDisplayMetrics().widthPixels/2)-dp(74)),dp(54),Gravity.LEFT|Gravity.CENTER_VERTICAL);
         bottomBar.addView(left,leftLp);
-        ImageButton toc=icon(R.drawable.ic_list_audio,v->showToc());toc.setContentDescription("Оглавление");
-        left.addView(toc,new LinearLayout.LayoutParams(dp(44),dp(44)));
-        progressView=text("",11);progressView.setGravity(Gravity.CENTER);progressView.setMaxLines(2);
-        left.addView(progressView,new LinearLayout.LayoutParams(0,dp(68),1));
+        contentsIcon=icon(R.drawable.ic_list_audio,v->showToc());contentsIcon.setContentDescription("Оглавление и прогресс");
+        contentsIcon.setBackgroundColor(Color.TRANSPARENT);contentsIcon.setColorFilter(contrast(accent()));
+        left.addView(contentsIcon,new LinearLayout.LayoutParams(dp(42),dp(44)));
+        progressView=text("",10);progressView.setTextColor(contrast(accent()));
+        progressView.setGravity(Gravity.CENTER);progressView.setMaxLines(2);
+        left.addView(progressView,new LinearLayout.LayoutParams(0,dp(52),1));
         controls=new LinearLayout(this);controls.setGravity(Gravity.CENTER);
         bottomBar.addView(controls,new FrameLayout.LayoutParams(dp(70),dp(70),Gravity.CENTER));
         rsvpPlayFrame=new FrameLayout(this);rsvpPlayFrame.setBackground(shape(accent(),19));
@@ -375,16 +375,19 @@ public class ReaderActivity extends Activity {
         rsvpPlayFrame.addView(playIcon,new FrameLayout.LayoutParams(dp(30),dp(30),Gravity.CENTER));
         rsvpPlayFrame.setOnClickListener(v->togglePlayback());
         controls.addView(rsvpPlayFrame,new LinearLayout.LayoutParams(dp(69),dp(69)));
-        // Normal reading has NO Play/Pause; the centered button is the mode selector.
-        FrameLayout.LayoutParams modeLp=new FrameLayout.LayoutParams(dp(92),dp(53),Gravity.RIGHT|Gravity.CENTER_VERTICAL);
-        modeLp.rightMargin=dp(6);bottomBar.addView(modeButton,modeLp);
-        modeButton.setVisibility(View.GONE);
         floatingPlayButton=null;floatingPlayIcon=null;
-        // WPM is displayed in the top toolbar for both Cursor and RSVP.
+        // A shared floating WPM button on the right; Play/Pause stays geometrically centered.
+        FrameLayout.LayoutParams lowerWpm=new FrameLayout.LayoutParams(dp(65),dp(63),Gravity.RIGHT|Gravity.CENTER_VERTICAL);
+        lowerWpm.rightMargin=dp(2);bottomBar.addView(toolbarWpm,lowerWpm);
+        toolbarWpm.setBackground(shape(accent(),17));
+        for(int i=0;i<toolbarWpm.getChildCount();i++){View child=toolbarWpm.getChildAt(i);
+            if(child instanceof ImageView)((ImageView)child).setColorFilter(contrast(accent()));
+            if(child instanceof TextView)((TextView)child).setTextColor(contrast(accent()));}
         speedPanel=null;
         updateModeUI();updatePlayButton();
         // Jump to the indexed chunk, not to the pixel position of an enormous TextView.
-        textList.post(()->ensureWordVisible(true));
+        textList.post(()->{if(index<=0)layoutManager.scrollToPositionWithOffset(0,0);
+            else ensureWordVisible(true);});
     }
     private class ChunkAdapter extends RecyclerView.Adapter<ChunkAdapter.Holder> {
         class Holder extends RecyclerView.ViewHolder {
@@ -392,8 +395,9 @@ public class ReaderActivity extends Activity {
             Spannable content;
             final ArrayList<Object> applied=new ArrayList<>();
             Holder(TextView t){super(t);value=t;}
+            Holder(FrameLayout frame){super(frame);value=null;}
             void highlight(int chunkId){
-                if(content==null)return;
+                if(content==null||value==null)return;
                 for(Object span:applied)content.removeSpan(span);applied.clear();
                 if(words.length==0)return;
                 BookChunkIndex.Chunk c=chunks.get(chunkId);
@@ -428,7 +432,11 @@ public class ReaderActivity extends Activity {
             }
             void span(Object obj,int first,int last){content.setSpan(obj,first,last,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);applied.add(obj);}
         }
+        @Override public int getItemViewType(int position){return position==0?1:0;}
         @Override public Holder onCreateViewHolder(android.view.ViewGroup parent,int type){
+            if(type==1){FrameLayout headerSlot=new FrameLayout(ReaderActivity.this);
+                headerSlot.setLayoutParams(new RecyclerView.LayoutParams(-1,-2));
+                return new Holder(headerSlot);}
             TextView item=text("",Math.max(12,(int)(size*.60f)));item.setTypeface(type());
             item.setLineSpacing(dp(Math.max(8,size/3)),1.12f);
             item.setPadding(dp(14),dp(7),dp(14),dp(7));
@@ -440,7 +448,7 @@ public class ReaderActivity extends Activity {
             item.setOnTouchListener((view,event)->{
                 boolean selectingWord=(mode==CURSOR)||(mode==NORMAL&&selecting)
                     ||(mode==RSVP&&!playing&&!rsvpScrollWords)||(mode==TTS);
-                boolean togglingChrome=(mode==NORMAL&&fullscreenNormal&&!selecting);
+                boolean togglingChrome=false;
                 if(!selectingWord&&!togglingChrome)return false;
                 int eventType=event.getActionMasked();
                 if(eventType==MotionEvent.ACTION_DOWN){
@@ -460,7 +468,7 @@ public class ReaderActivity extends Activity {
                 if(togglingChrome){
                     normalChromeVisible=!normalChromeVisible;applyFullscreenUi();return true;
                 }
-                int row=holder.getBindingAdapterPosition();if(row==RecyclerView.NO_POSITION)return true;
+                int row=holder.getBindingAdapterPosition()-1;if(row<0)return true;
                 android.text.Layout l=item.getLayout();if(l==null)return true;
                 int y=(int)event.getY()-item.getTotalPaddingTop();
                 int line=l.getLineForVertical(Math.max(0,y));
@@ -474,15 +482,22 @@ public class ReaderActivity extends Activity {
             return holder;
         }
         @Override public void onBindViewHolder(Holder holder,int position){
-            BookChunkIndex.Chunk c=chunks.get(position);
+            if(position==0){
+                FrameLayout slot=(FrameLayout)holder.itemView;
+                if(bookHeader.getParent() instanceof android.view.ViewGroup)
+                    ((android.view.ViewGroup)bookHeader.getParent()).removeView(bookHeader);
+                slot.addView(bookHeader,new FrameLayout.LayoutParams(-1,-2));return;
+            }
+            int chunkIndex=position-1;
+            BookChunkIndex.Chunk c=chunks.get(chunkIndex);
             String slice=body.substring(c.startChar,c.endChar);
             holder.value.setText(slice,TextView.BufferType.SPANNABLE);
-            holder.content=(Spannable)holder.value.getText();holder.applied.clear();holder.highlight(position);
+            holder.content=(Spannable)holder.value.getText();holder.applied.clear();holder.highlight(chunkIndex);
         }
-        @Override public int getItemCount(){return chunks==null?0:chunks.size();}
+        @Override public int getItemCount(){return chunks==null?0:chunks.size()+1;}
         void updateVisible(int chunkId){
             if(chunkId<0||chunkId>=getItemCount())return;
-            RecyclerView.ViewHolder row=textList.findViewHolderForAdapterPosition(chunkId);
+            RecyclerView.ViewHolder row=textList.findViewHolderForAdapterPosition(chunkId+1);
             if(row instanceof Holder)((Holder)row).highlight(chunkId);
         }
     }
@@ -497,25 +512,41 @@ public class ReaderActivity extends Activity {
         if(rsvpPane==null)return;
         rsvpPane.setVisibility(mode==RSVP&&playing?View.VISIBLE:View.GONE);
         if(focusLines!=null){focusLines.setVisibility(mode==RSVP&&focusLinesEnabled?View.VISIBLE:View.GONE);focusLines.invalidate();}
-        if(modeButton!=null){modeButton.setVisibility(View.GONE);modeButton.setText(mode==NORMAL?"Чтение ▾":mode==RSVP?"Скорочтение ▾":mode==CURSOR?"Курсор ▾":"Озвучка ▾");
-            modeButton.setBackground(shape(buttonBg(),14));modeButton.setTextColor(contrast(buttonBg()));
-            FrameLayout.LayoutParams lp=(FrameLayout.LayoutParams)modeButton.getLayoutParams();
-            if(lp!=null){lp.gravity=(mode==NORMAL?Gravity.CENTER:Gravity.RIGHT|Gravity.CENTER_VERTICAL);
-                lp.rightMargin=mode==NORMAL?0:dp(6);lp.width=dp(mode==NORMAL?120:101);modeButton.setLayoutParams(lp);}}
         if(modeIcon!=null){modeIcon.setImageResource(modeDrawable());modeIcon.setColorFilter(contrast(buttonBg()));}
-        if(toolbarModeAction!=null)toolbarModeAction.setImageResource(modeDrawable());
+        if(toolbarModeAction!=null){toolbarModeAction.setImageResource(modeDrawable());
+            toolbarModeAction.setBackground(shape(accent(),12));toolbarModeAction.setColorFilter(contrast(accent()));}
         if(speedView!=null)speedView.setText(String.valueOf(mode==TTS?TtsWpm.get(this):wpm));
         if(selectWordButton!=null){selectWordButton.setVisibility(mode==NORMAL?View.VISIBLE:View.GONE);updateSelectWordButton();}
-        if(toolbarEngineAction!=null)toolbarEngineAction.setVisibility(mode==TTS?View.VISIBLE:View.GONE);
+        if(toolbarEngineAction!=null){toolbarEngineAction.setVisibility(mode==TTS?View.VISIBLE:View.GONE);
+            toolbarEngineAction.setBackground(shape(accent(),12));toolbarEngineAction.setColorFilter(contrast(accent()));}
         if(toolbarVoiceAction!=null)toolbarVoiceAction.setVisibility(mode==TTS?View.VISIBLE:View.GONE);
         if(toolbarSleepAction!=null)toolbarSleepAction.setVisibility(mode==TTS?View.VISIBLE:View.GONE);
         if(toolbarWpm!=null)toolbarWpm.setVisibility(mode==NORMAL?View.GONE:View.VISIBLE);
-        if(toolbar!=null){int size=mode==TTS?38:44;int margin=mode==TTS?3:5;
-            for(int n=0;n<toolbar.getChildCount();n++){View v=toolbar.getChildAt(n);
-                if(v==toolbarBookName)continue;android.view.ViewGroup.LayoutParams generic=v.getLayoutParams();
-                if(generic instanceof LinearLayout.LayoutParams){LinearLayout.LayoutParams lp=(LinearLayout.LayoutParams)generic;
-                    if(lp.width!=dp(size)||lp.leftMargin>dp(margin)){lp.width=dp(size);
-                        if(n>0)lp.leftMargin=dp(margin);v.setLayoutParams(lp);}
+        if(contentsAction!=null){contentsAction.setBackground(shape(accent(),19));
+            if(contentsIcon!=null)contentsIcon.setColorFilter(contrast(accent()));
+            if(progressView!=null)progressView.setTextColor(contrast(accent()));}
+        if(toolbarWpm!=null){toolbarWpm.setBackground(shape(accent(),17));
+            if(speedView!=null)speedView.setTextColor(contrast(accent()));}
+        if(toolbar!=null){
+            // Every visible button remains square. Compact devices shrink them
+            // together, rather than cutting off the right-hand Settings button.
+            int buttons=0;
+            for(int i=0;i<toolbar.getChildCount();i++){
+                View item=toolbar.getChildAt(i);
+                if(item!=toolbarBookName&&item.getVisibility()!=View.GONE)buttons++;
+            }
+            int available=getResources().getDisplayMetrics().widthPixels-dp(16);
+            int sizePx=Math.min(dp(44),Math.max(dp(32),
+                    (available-dp(5)*Math.max(0,buttons-1))/Math.max(1,buttons)));
+            for(int n=0;n<toolbar.getChildCount();n++){
+                View item=toolbar.getChildAt(n);
+                if(item==toolbarBookName)continue;
+                android.view.ViewGroup.LayoutParams generic=item.getLayoutParams();
+                if(generic instanceof LinearLayout.LayoutParams){
+                    LinearLayout.LayoutParams lp=(LinearLayout.LayoutParams)generic;
+                    lp.width=sizePx;lp.height=sizePx;
+                    lp.leftMargin=n==0?0:dp(5);
+                    item.setLayoutParams(lp);
                 }
             }
         }
@@ -526,106 +557,29 @@ public class ReaderActivity extends Activity {
         if(mode==RSVP)updateWord();
         refreshHighlight(index);updateProgress();applyFullscreenUi();
     }
-    /** Immersive mode is a view-state change: do not rebuild the book or text index. */
+    /** The reader content never changes size when floating controls are shown/hidden. */
     private void applyFullscreenUi(){
         if(root==null||words.length==0||readingFrame==null)return;
-        boolean readingFullscreen=mode==NORMAL&&fullscreenNormal&&!normalChromeVisible&&!selecting;
-        boolean playbackFullscreen=playing&&((mode==RSVP&&fullscreenRsvp)||(mode==CURSOR&&fullscreenCursor));
-        boolean immersive=readingFullscreen||playbackFullscreen;
-
-        if(toolbar!=null)toolbar.setVisibility(toolbarExpanded?View.VISIBLE:View.GONE);
+        if(toolbar!=null)toolbar.setVisibility(toolbarExpanded?View.VISIBLE:View.INVISIBLE);
         if(toolbarBookName!=null)toolbarBookName.setVisibility(toolbarExpanded&&index>0?View.VISIBLE:View.GONE);
-        if(bookHeader!=null && bookHeader.getParent()!=null)
-            bookHeader.setVisibility(bookHeaderCollapsed?View.GONE:View.VISIBLE);
         if(modeRow!=null)modeRow.setVisibility(View.GONE);
-        if(speedPanel!=null)speedPanel.setVisibility(immersive?View.GONE:(mode==NORMAL?View.GONE:View.VISIBLE));
         if(controls!=null)controls.setVisibility(mode==NORMAL?View.GONE:View.VISIBLE);
         if(bottomBar!=null)bottomBar.setVisibility(View.VISIBLE);
+        if(toolbarWpm!=null)toolbarWpm.setVisibility(mode==NORMAL?View.GONE:View.VISIBLE);
         if(floatingPlayButton!=null)floatingPlayButton.setVisibility(View.GONE);
-        root.setPadding(immersive?0:dp(10),immersive?0:dp(20),immersive?0:dp(10),immersive?0:dp(7));
-        readingFrame.setPadding(immersive?0:dp(9),immersive?0:dp(10),immersive?0:dp(9),immersive?0:dp(10));
-        readingFrame.setBackground(immersive?shape(bg,0):shape(panelColor(),23));
-        LinearLayout.LayoutParams frameLp=(LinearLayout.LayoutParams)readingFrame.getLayoutParams();
-        if(frameLp!=null){
-            int gap=immersive?0:dp(7);
-            int bottom=immersive?0:dp(8);
-            if(frameLp.topMargin!=gap||frameLp.bottomMargin!=bottom){
-                frameLp.setMargins(0,gap,0,bottom);readingFrame.setLayoutParams(frameLp);
-            }
-        }
+        if(mode==RSVP&&playing&&textList!=null)textList.setVisibility(View.GONE);
         if(rsvpPane!=null){
             LinearLayout.LayoutParams paneLp=(LinearLayout.LayoutParams)rsvpPane.getLayoutParams();
             if(paneLp!=null){
-                boolean rsvpFullscreen=mode==RSVP&&playbackFullscreen;
-                // Fixed-height pane: a weighted fullscreen pane used to recenter the word on Play.
-                int height=rsvpFullscreen?dp(128):dp(192);
-                int bottom=rsvpFullscreen?0:dp(8);
-                int top=rsvpFullscreen?paneLp.topMargin:0;
-                if(paneLp.height!=height||paneLp.weight!=0f||paneLp.bottomMargin!=bottom||paneLp.topMargin!=top){
-                    paneLp.height=height;paneLp.weight=0f;
-                    paneLp.bottomMargin=bottom;paneLp.topMargin=top;
-                    rsvpPane.setLayoutParams(paneLp);
-                }
-                if(rsvpFullscreen)readingFrame.post(this::positionFullscreenRsvpPane);
+                if(mode==RSVP&&playing){paneLp.height=0;paneLp.weight=1f;paneLp.bottomMargin=0;}
+                else{paneLp.height=dp(192);paneLp.weight=0f;paneLp.bottomMargin=0;}
+                rsvpPane.setLayoutParams(paneLp);
             }
         }
-        if(mode==RSVP&&playing&&textList!=null)textList.setVisibility(View.GONE);
-        applySystemBars(immersive);
-    }
-    private void rememberRsvpScreenPosition(){
-        if(rsvpPane==null||rsvpPane.getHeight()<=0)return;
-        int[] location=new int[2];rsvpPane.getLocationOnScreen(location);
-        normalRsvpCenterOnScreen=location[1]+rsvpPane.getHeight()/2f;
-        android.util.DisplayMetrics real=new android.util.DisplayMetrics();
-        getWindowManager().getDefaultDisplay().getRealMetrics(real);
-        float margin=dp(16)+dp(64);
-        float upper=margin,lower=Math.max(upper+1,real.heightPixels-margin);
-        float ratio=Math.max(0f,Math.min(1f,(normalRsvpCenterOnScreen-upper)/(lower-upper)));
-        int approxPercent=Math.round(ratio*200f-100f);
-        prefs.edit().putInt("rsvp_fullscreen_auto_percent",approxPercent).apply();
-    }
-    private void positionFullscreenRsvpPane(){
-        if(!playing||mode!=RSVP||!fullscreenRsvp||rsvpPane==null||readingFrame==null)return;
-        if(readingFrame.getHeight()<=0||rsvpPane.getHeight()<=0)return;
-        int[] parentLocation=new int[2];readingFrame.getLocationOnScreen(parentLocation);
-        float paneHalf=rsvpPane.getHeight()/2f;
-        float edge=dp(16)+paneHalf;
-        float upper=parentLocation[1]+edge;
-        float lower=parentLocation[1]+readingFrame.getHeight()-edge;
-        if(lower<upper)lower=upper;
-        float target;
-        if(fullscreenRsvpPositionManual){
-            target=upper+(lower-upper)*(fullscreenRsvpPositionPercent+100f)/200f;
-        }else if(normalRsvpCenterOnScreen>0f){
-            target=normalRsvpCenterOnScreen;
-        }else{
-            target=(upper+lower)/2f;
-        }
-        target=Math.max(upper,Math.min(lower,target));
-        int margin=Math.max(0,Math.round(target-parentLocation[1]-paneHalf));
-        LinearLayout.LayoutParams params=(LinearLayout.LayoutParams)rsvpPane.getLayoutParams();
-        if(params.topMargin!=margin){params.topMargin=margin;rsvpPane.setLayoutParams(params);}
-    }
-    private void removeCountdownRing(){
-        if(countdownRing==null)return;
-        ViewGroup parent=(ViewGroup)countdownRing.getParent();
-        if(parent!=null)parent.removeView(countdownRing);
-        countdownRing=null;
-    }
-    private void showCountdownRing(int seconds){
-        removeCountdownRing();
-        if(sceneRoot==null)return;
-        countdownRing=new CountdownRingView(this,seconds,accent());
-        if(mode==RSVP&&rsvpPane!=null){
-            // The ring is behind the word and lines, so it never covers the text.
-            int focusHeight=focusLinesEnabled?dp(90):0;
-            int wordHeight=wordView==null?dp(size):Math.max(Math.round(wordView.getTextSize()*1.25f),dp(size));
-            int diameter=Math.max(dp(65),Math.max(focusHeight,wordHeight)+dp(30));
-            rsvpPane.addView(countdownRing,0,new FrameLayout.LayoutParams(diameter,diameter,Gravity.CENTER));
-        }else{
-            // Cursor: centered on the device view, irrespective of selected word position.
-            sceneRoot.addView(countdownRing,new FrameLayout.LayoutParams(dp(124),dp(124),Gravity.CENTER));
-        }
+        root.setPadding(0,0,0,0);
+        readingFrame.setPadding(0,0,0,0);
+        readingFrame.setBackgroundColor(bg);
+        applySystemBars(false);
     }
     private class CountdownRingView extends View {
         private final Paint ring=new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -651,88 +605,12 @@ public class ReaderActivity extends Activity {
         }
     }
     private void applySystemBars(boolean immersive){
-        immersiveActive=immersive;
-        View decor=getWindow().getDecorView();
-        int flags=immersive?
-            (originalSystemUiVisibility|View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|
-            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_LAYOUT_STABLE|
-            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION):
-            (originalSystemUiVisibility|View.SYSTEM_UI_FLAG_LAYOUT_STABLE|
-            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
-        if(decor.getSystemUiVisibility()!=flags)decor.setSystemUiVisibility(flags);
-        if(!immersive)SafeSystemBars.matchBackground(this,bg);
+        // WindowInsets keep content below the status bar; transparent system bars
+        // continue the book background without ever hiding system navigation.
+        SafeSystemBars.matchBackground(this,bg);
     }
     @Override public void onWindowFocusChanged(boolean hasFocus){
         super.onWindowFocusChanged(hasFocus);
-        if(hasFocus&&immersiveActive)applySystemBars(true);
-    }
-    private void setRsvpContextVisible(boolean visible){
-        if(textList==null||mode!=RSVP)return;
-        if(textList.getVisibility()==(visible?View.VISIBLE:View.GONE))return;
-        textList.setVisibility(visible?View.VISIBLE:View.GONE);
-        if(visible)textList.post(()->ensureWordVisible(true));
-    }
-    private void stepRsvpByScroll(int dy){
-        if(words.length==0||dy==0)return;
-        int threshold=Math.max(6,dp(8));
-        scrollWordAccumulator+=dy;
-        int old=index;
-        while(scrollWordAccumulator>=threshold&&index<words.length-1){
-            index++;
-            scrollWordAccumulator-=threshold;
-        }
-        while(scrollWordAccumulator<=-threshold&&index>0){
-            index--;
-            scrollWordAccumulator+=threshold;
-        }
-        if(old!=index){
-            updateWord();refreshHighlight(old);updateProgress();saveLight(false);
-        }
-    }
-    private void updateSelectWordButton(){
-        if(selectWordButton==null)return;
-        int background=selecting?accent():buttonBg();
-        selectWordButton.setBackground(shape(background,14));
-        selectWordButton.setColorFilter(contrast(background));
-        selectWordButton.setAlpha(selecting?1f:.9f);
-    }
-    private void updateProgress(){if(progressView!=null&&words.length>0){
-        int percent=(int)((index+1L)*100/words.length);
-        if(mode==TTS){int rate=Math.max(100,TtsWpm.get(this));
-            long elapsed=index*60L/rate,total=words.length*60L/rate;
-            progressView.setText(formatReadingTime(elapsed)+" / "+formatReadingTime(total)+" · "+percent+"%");
-        }else progressView.setText((index+1)+" / "+words.length+" слов · "+percent+"%");
-    }}
-    private String formatReadingTime(long seconds){return (seconds/3600)+" ч "+((seconds%3600)/60)+" мин";}
-    private void updatePlayButton(){
-        boolean active=mode==TTS?ttsCurrentlyPlaying():playing;
-        if(playIcon!=null)playIcon.setImageResource(active?R.drawable.ic_pause:R.drawable.ic_play);
-        if(floatingPlayIcon!=null)floatingPlayIcon.setImageResource(playing?R.drawable.ic_pause:R.drawable.ic_play);
-    }
-    private void togglePlayback(){chteicoTouch();
-        if(mode==TTS){toggleTtsPlayback();return;}
-        if(playing){stop();saveLight(true);return;}
-        if(words.length==0)return;
-        if(mode==RSVP&&fullscreenRsvp)rememberRsvpScreenPosition();
-        playing=true;waitingForStart=false;
-        handler.removeCallbacks(ticker);handler.removeCallbacks(beginDelayedReading);
-        if(mode==RSVP){setRsvpContextVisible(false);if(rsvpPane!=null)rsvpPane.setVisibility(View.VISIBLE);}
-        updatePlayButton();applyFullscreenUi();
-        int seconds=mode==RSVP&&delayRsvpEnabled?delayRsvpSeconds:
-            mode==CURSOR&&delayCursorEnabled?delayCursorSeconds:0;
-        if(seconds>0){
-            waitingForStart=true;
-            showCountdownRing(seconds);
-            handler.postDelayed(beginDelayedReading,seconds*1000L);
-        }else{
-            handler.postDelayed(ticker,delayForPortion(index,Math.min(portion,words.length-index)));
-        }
-    }
-    private void stop(){
-        playing=false;waitingForStart=false;
-        handler.removeCallbacks(ticker);handler.removeCallbacks(beginDelayedReading);
-        removeCountdownRing();updatePlayButton();setRsvpContextVisible(true);if(rsvpPane!=null)rsvpPane.setVisibility(View.GONE);
-        applyFullscreenUi();
     }
     private void changeSpeed(int delta){wpm=Math.max(100,Math.min(1000,wpm+delta));if(speedView!=null)speedView.setText(String.valueOf(wpm));saveLight(true);
         if(playing&&!waitingForStart){handler.removeCallbacks(ticker);handler.postDelayed(ticker,delayForPortion(index,Math.min(portion,words.length-index)));}}
@@ -765,15 +643,15 @@ public class ReaderActivity extends Activity {
     private void ensureWordVisible(boolean force){
         if(textList==null||textList.getVisibility()!=View.VISIBLE||layoutManager==null||chunks==null||words.length==0)return;
         int chunk=chunks.chunkForWord(index);
-        int start=layoutManager.findFirstVisibleItemPosition(),end=layoutManager.findLastVisibleItemPosition();
+        int start=layoutManager.findFirstVisibleItemPosition()-1,end=layoutManager.findLastVisibleItemPosition()-1;
         if(force||chunk<start||chunk>end){
             restoringScroll=true;
-            layoutManager.scrollToPositionWithOffset(chunk,dp(14));
+            layoutManager.scrollToPositionWithOffset(chunk+1,dp(14));
             // Scroll to the selected word inside the chunk, not merely its first line.
             textList.post(()->{
                 if(textList==null||textList.getVisibility()!=View.VISIBLE)return;
-                RecyclerView.ViewHolder holder=textList.findViewHolderForAdapterPosition(chunk);
-                if(holder instanceof ChunkAdapter.Holder){
+                RecyclerView.ViewHolder holder=textList.findViewHolderForAdapterPosition(chunk+1);
+                if(holder instanceof ChunkAdapter.Holder && ((ChunkAdapter.Holder)holder).value!=null){
                     TextView value=((ChunkAdapter.Holder)holder).value;
                     android.text.Layout lay=value.getLayout();
                     if(lay!=null){
@@ -787,7 +665,7 @@ public class ReaderActivity extends Activity {
             });
             return;
         }
-        RecyclerView.ViewHolder existing=textList.findViewHolderForAdapterPosition(chunk);
+        RecyclerView.ViewHolder existing=textList.findViewHolderForAdapterPosition(chunk+1);
         if(!(existing instanceof ChunkAdapter.Holder))return;
         ChunkAdapter.Holder h=(ChunkAdapter.Holder)existing;
         android.text.Layout l=h.value.getLayout();if(l==null)return;
@@ -816,12 +694,13 @@ public class ReaderActivity extends Activity {
     private void setToolbarExpanded(boolean show){
         if(toolbarExpanded==show)return;
         toolbarExpanded=show;
-        if(toolbarBookName!=null)toolbarBookName.setVisibility(show&&words.length>0?View.VISIBLE:View.GONE);
+        if(toolbarBookName!=null)toolbarBookName.setVisibility(show&&index>0?View.VISIBLE:View.GONE);
         if(toolbar!=null){
-            if(show){toolbar.setVisibility(View.VISIBLE);toolbar.setAlpha(0f);toolbar.animate().alpha(1f).setDuration(160).start();}
-            else toolbar.animate().alpha(0f).setDuration(140).withEndAction(()->{
-                if(!toolbarExpanded)toolbar.setVisibility(View.GONE);
-            }).start();
+            toolbar.animate().cancel();
+            toolbar.setVisibility(View.VISIBLE);
+            toolbar.animate().translationY(show?0:-dp(68)).alpha(show?1f:0f)
+                .setDuration(180).start();
+            toolbar.setClickable(show);
         }
     }
     private void setMode(int next){if(next<0||next>TTS||next==mode)return;
@@ -899,6 +778,9 @@ public class ReaderActivity extends Activity {
                 stop();title=loadedTitle;author=loadedAuthor==null?"":loadedAuthor;body=loadedText;
                 map=prepared;words=prepared.words;chunks=indexed;chapters=parsedChapters;
                 ttsParts=session.speechSegments;docUri=uri.toString();
+                prefs.edit().putString("book_title:"+docUri,title)
+                    .putString("book_author:"+docUri,author)
+                    .putInt("book_words:"+docUri,words.length).apply();
                 if(reset)index=0;else index=map.clamp(index);
                 chteicoInitialIndex=index;chteicoLastWordIndex=index;chteicoReadingSeconds=0;chteicoTouch();
                 ChteicoStore.openBook(this,docUri,mode);
@@ -1063,7 +945,7 @@ public class ReaderActivity extends Activity {
         int oldNormalText=normalSelectText,oldNormalScale=normalSelectScale,oldButton=buttonColor,oldAccent=accentButtonColor;
         int oldFocus=focusColor,oldLineColor=lineColor,oldLinePos=linePosition;
         boolean oldPoint=focusPoint,oldLines=focusLinesEnabled;
-        boolean oldFullNormal=fullscreenNormal,oldFullRsvp=fullscreenRsvp,oldFullCursor=fullscreenCursor;
+
         readPreferences();
         int wantedMode=mode;
         if(root!=null&&words.length>0&&wantedMode!=oldMode){
@@ -1073,10 +955,7 @@ public class ReaderActivity extends Activity {
             ||oldCursorBg!=cursorBackground||oldCursorText!=cursorText||oldCursorScale!=cursorScale||oldNormalText!=normalSelectText
             ||oldNormalScale!=normalSelectScale||oldButton!=buttonColor||oldAccent!=accentButtonColor||oldFocus!=focusColor||oldLineColor!=lineColor
             ||oldLinePos!=linePosition||oldPoint!=focusPoint||oldLines!=focusLinesEnabled))draw();
-        else if(oldFullNormal!=fullscreenNormal||oldFullRsvp!=fullscreenRsvp||oldFullCursor!=fullscreenCursor){
-            if(mode==NORMAL&&fullscreenNormal&&!oldFullNormal)normalChromeVisible=false;
-            applyFullscreenUi();
-        }
+
     }}
     @Override protected void onPause(){
         chteicoResumed=false;handler.removeCallbacks(chteicoReadTick);

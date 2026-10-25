@@ -305,29 +305,10 @@ public class SettingsActivity extends Activity {
             TextView hint=text("Режим «Озвучка» использует тот же текст и оглавление, что и остальные режимы. Параметры голосов и кэша доступны во вкладке «Аудио».",14,false);
             list.addView(hint);list.addView(action("Настройки озвучивания",this::drawAudioSettings));return;
         }
-        addFullscreenSetting(current);
         if(current==NORMAL){drawNormalModeSettings();return;}
         addStartDelaySetting(current);
         if(current==CURSOR){drawCursorSettings();return;}
-        addFullscreenWordPositionSetting();
         drawSpeedReadingSettings();
-    }
-    void addFullscreenSetting(int selectedMode){
-        final String key=selectedMode==NORMAL?"reading_fullscreen_normal":
-            selectedMode==RSVP?"reading_fullscreen_rsvp":"reading_fullscreen_cursor";
-        header("Отображение");
-        android.widget.Switch toggle=new android.widget.Switch(this);
-        toggle.setText("Во весь экран");toggle.setTextColor(contrast(bg));toggle.setTextSize(16);
-        toggle.setChecked(prefs.getBoolean(key,false));
-        toggle.setPadding(dp(6),dp(8),dp(6),dp(8));
-        list.addView(toggle);
-        String explanation=selectedMode==NORMAL?
-            "При открытии книги интерфейс скрыт. Одно короткое касание текста показывает или скрывает панели. Прокрутка остаётся обычной и не меняет состояние интерфейса. При включённом выборе слова касание выделяет слово.":
-            "При нажатии Play скрываются панели управления, системные индикаторы и навигация. Остаётся только кнопка Pause поверх текста. После Pause весь интерфейс возвращается.";
-        TextView info=text(explanation,13,false);
-        info.setPadding(dp(4),0,dp(4),dp(12));list.addView(info);
-        toggle.setOnCheckedChangeListener((button,checked)->prefs.edit().putBoolean(key,checked).apply());
-        gap(6);
     }
     void addStartDelaySetting(int mode){
         final String suffix=mode==RSVP?"rsvp":"cursor";
@@ -359,46 +340,8 @@ public class SettingsActivity extends Activity {
         });
         gap(8);
     }
-    void addFullscreenWordPositionSetting(){
-        header("Положение слова во весь экран");
-        TextView note=text("Слово и линии фокусировки перемещаются вместе. По умолчанию сохраняется высота слова в обычном интерфейсе.",13,false);
-        note.setPadding(dp(4),0,dp(4),dp(8));list.addView(note);
-        final String manualKey="rsvp_fullscreen_position_manual";
-        final String valueKey="rsvp_fullscreen_position";
-        boolean manual=prefs.getBoolean(manualKey,false);
-        int lastAuto=Math.max(-100,Math.min(100,prefs.getInt("rsvp_fullscreen_auto_percent",-28)));
-        int initial=manual?prefs.getInt(valueKey,0):lastAuto;
-        initial=Math.max(-100,Math.min(100,initial));
-        TextView label=text(manual?"Положение: "+(initial>0?"+":"")+initial+"%":
-            "Авто: "+(initial>0?"+":"")+initial+"% · исходная высота",15,false);
-        list.addView(label);
-        SeekBar slider=new SeekBar(this);slider.setMax(200);slider.setProgress(initial+100);
-        list.addView(slider);
-        slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
-            public void onProgressChanged(SeekBar bar,int progress,boolean fromUser){
-                int value=progress-100;
-                if(fromUser){
-                    label.setText("Положение: "+(value>0?"+":"")+value+"%");
-                    prefs.edit().putInt(valueKey,value).putBoolean(manualKey,true).apply();
-                }
-            }
-            public void onStartTrackingTouch(SeekBar bar){}
-            public void onStopTrackingTouch(SeekBar bar){}
-        });
-        LinearLayout labels=new LinearLayout(this);labels.setGravity(Gravity.CENTER_VERTICAL);
-        TextView top=text("−100% · верх",12,false);labels.addView(top,new LinearLayout.LayoutParams(0,-2,1));
-        TextView middle=text("0% · центр",12,false);middle.setGravity(Gravity.CENTER);
-        labels.addView(middle,new LinearLayout.LayoutParams(0,-2,1));
-        TextView bottom=text("+100% · низ",12,false);bottom.setGravity(Gravity.RIGHT);
-        labels.addView(bottom,new LinearLayout.LayoutParams(0,-2,1));list.addView(labels);
-        gap(8);
-        list.addView(action("↺ Авто · как в обычном интерфейсе",()->{
-            prefs.edit().putBoolean(manualKey,false).apply();draw();
-        }));
-        gap(8);
-    }
     int modeIconFor(int mode){
-        return mode==NORMAL?R.drawable.ic_book:mode==RSVP?R.drawable.ic_speed:mode==CURSOR?R.drawable.ic_mode_cursor:R.drawable.ic_microphone;
+        return mode==NORMAL?R.drawable.ic_book:mode==RSVP?R.drawable.ic_mode_speedreading:mode==CURSOR?R.drawable.ic_mode_cursor:R.drawable.ic_microphone;
     }
     void drawNormalModeSettings(){
         header("Выбор слова в обычном режиме");

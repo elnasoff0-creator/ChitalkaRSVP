@@ -94,6 +94,19 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
 
     private PlaybackAudioFocus audioFocus;
     private MediaSession mediaSession;
+    private android.graphics.Bitmap playbackCover;
+    private String coverIdentity="",mediaAuthor="";
+    private void requestCover(String identity,boolean isText,String firstAudio){
+        if(identity==null||identity.isEmpty())return;
+        String key=(isText?"text:":"audio:")+identity;
+        if(key.equals(coverIdentity))return;
+        coverIdentity=key;playbackCover=null;
+        PlaybackArtwork.load(this,identity,isText,firstAudio,bitmap->{
+            if(!key.equals(coverIdentity))return;
+            playbackCover=bitmap;updateMediaSession();
+            if(active)postNotification();
+        });
+    }
     private boolean interruptedByExternalAudio;
     private final BroadcastReceiver noisyReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -142,7 +155,8 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         handler.post(tick);}
     @Override public int onStartCommand(Intent intent,int flags,int startId){if(intent==null)return START_STICKY;String action=intent.getAction();if(action==null)return START_STICKY;switch(action){
         case LOAD: {AudioModeCoordinator.stopEdge(this);interruptedByExternalAudio=false;if(active)saveProgress(); if(tts!=null&&ttsMode)tts.stop();resetLocalSession(); String[] uris=intent.getStringArrayExtra("uris");playlist.clear();if(uris!=null)for(String u:uris)if(u!=null)playlist.add(u);title=intent.getStringExtra("title");if(title==null)title="Аудиокнига";
-          bookId=intent.getStringExtra("bookId");if(bookId==null)bookId=playlistKey();ChteicoStore.openAudio(this,bookId);getSharedPreferences("reader",0).edit().putString("audio_last_book",bookId).apply();
+          bookId=intent.getStringExtra("bookId");if(bookId==null)bookId=playlistKey();
+          mediaAuthor="";requestCover(bookId,false,playlist.isEmpty()?"":playlist.get(0));ChteicoStore.openAudio(this,bookId);getSharedPreferences("reader",0).edit().putString("audio_last_book",bookId).apply();
           chapterNames.clear();String[] names=intent.getStringArrayExtra("chapters");if(names!=null)chapterNames.addAll(Arrays.asList(names));
           ttsMode=false;active=true;loadChapterDurations();speed=getSharedPreferences("reader",0).getFloat("audio_speed",1f);
           segment=Math.max(0,Math.min(Math.max(0,playlist.size()-1),getSharedPreferences("reader",0).getInt("audio_segment:"+bookId,0)));
@@ -158,6 +172,8 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
           getSharedPreferences("reader",0).edit().putString("last_media_kind","text").apply();
           new Thread(()->{try{UnifiedBookSession session=UnifiedBookSession.open(this,Uri.parse(source));
           BookLoader.Book book=session.book;handler.post(()->{if(!ttsMode||!source.equals(currentBook))return;
+              mediaAuthor=book.author==null?"":book.author;
+              requestCover(source,true,"");
               title=book.title==null||book.title.trim().isEmpty()?"Книга":book.title.trim();
               makeChunks(session);int requestedWord=intent.getIntExtra("word_index",-1); int fallback=getSharedPreferences("reader",0).getInt("tts_pos:"+source,0); ttsPosition=requestedWord>=0?chunkForWord(requestedWord):Math.max(0,Math.min(chunks.size()-1,fallback));ttsStartRequested=ttsStartRequested||intent.getBooleanExtra("auto_on_selection",false);
               paused=true;
@@ -521,7 +537,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     private void postNotification(){Intent open=ttsMode?new Intent(this,ReaderActivity.class).putExtra("book_uri",currentBook).putExtra("reading_mode_override",3).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP):new Intent(this,AudioPlayerActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);PendingIntent view=PendingIntent.getActivity(this,0,open,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);PendingIntent toggle=PendingIntent.getService(this,1,new Intent(this,AudioPlaybackService.class).setAction(paused?PLAY:PAUSE),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);PendingIntent prev=PendingIntent.getService(this,2,new Intent(this,AudioPlaybackService.class).setAction(PREV),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);PendingIntent next=PendingIntent.getService(this,3,new Intent(this,AudioPlaybackService.class).setAction(NEXT),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);PendingIntent close=PendingIntent.getService(this,4,new Intent(this,AudioPlaybackService.class).setAction(STOP),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         Notification.MediaStyle mediaStyle=new Notification.MediaStyle().setShowActionsInCompactView(0,1,2);
         if(mediaSession!=null)mediaStyle.setMediaSession(mediaSession.getSessionToken());
-        Notification.Builder builder=Build.VERSION.SDK_INT>=26?new Notification.Builder(this,CHANNEL):new Notification.Builder(this);Notification notification=builder.setSmallIcon(android.R.drawable.ic_media_play).setContentTitle(title).setContentText(ttsMode?"Озвучивание книги":"Аудиокнига").setContentIntent(view).setDeleteIntent(close).setOnlyAlertOnce(true).setOngoing(false).addAction(android.R.drawable.ic_media_previous,"Назад",prev).addAction(paused?android.R.drawable.ic_media_play:android.R.drawable.ic_media_pause,paused?"Играть":"Пауза",toggle).addAction(android.R.drawable.ic_media_next,"Вперёд",next).addAction(android.R.drawable.ic_menu_close_clear_cancel,"Закрыть",close).setStyle(mediaStyle).build();try{if(Build.VERSION.SDK_INT>=29)startForeground(41,notification,ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);else startForeground(41,notification);}catch(Exception ignored){}
+        Notification.Builder builder=Build.VERSION.SDK_INT>=26?new Notification.Builder(this,CHANNEL):new Notification.Builder(this);Notification notification=builder.setSmallIcon(android.R.drawable.ic_media_play).setContentTitle(title).setLargeIcon(playbackCover).setContentText(ttsMode?"Озвучивание книги":"Аудиокнига").setContentIntent(view).setDeleteIntent(close).setOnlyAlertOnce(true).setOngoing(false).addAction(android.R.drawable.ic_media_previous,"Назад",prev).addAction(paused?android.R.drawable.ic_media_play:android.R.drawable.ic_media_pause,paused?"Играть":"Пауза",toggle).addAction(android.R.drawable.ic_media_next,"Вперёд",next).addAction(android.R.drawable.ic_menu_close_clear_cancel,"Закрыть",close).setStyle(mediaStyle).build();try{if(Build.VERSION.SDK_INT>=29)startForeground(41,notification,ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);else startForeground(41,notification);}catch(Exception ignored){}
     }
     private void setupMediaSession() {
         mediaSession = new MediaSession(this, "ChitalkaRSVP-audio");
@@ -560,9 +576,18 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
                 |PlaybackState.ACTION_SKIP_TO_NEXT|PlaybackState.ACTION_SKIP_TO_PREVIOUS;
         int state = !active?PlaybackState.STATE_STOPPED:
                 paused?PlaybackState.STATE_PAUSED:PlaybackState.STATE_PLAYING;
+        long total=ttsMode?(long)ttsWordCount*60000L/Math.max(100,TtsWpm.get(this))
+            :Math.max(0,getDuration());
+        long position=ttsMode?(long)getTtsAnchorWord()*60000L/Math.max(100,TtsWpm.get(this))
+            :Math.max(0,getPosition());
+        android.media.MediaMetadata.Builder metadata=new android.media.MediaMetadata.Builder()
+            .putString(android.media.MediaMetadata.METADATA_KEY_TITLE,title)
+            .putString(android.media.MediaMetadata.METADATA_KEY_ARTIST,mediaAuthor)
+            .putLong(android.media.MediaMetadata.METADATA_KEY_DURATION,total);
+        if(playbackCover!=null)metadata.putBitmap(android.media.MediaMetadata.METADATA_KEY_ART,playbackCover);
+        mediaSession.setMetadata(metadata.build());
         mediaSession.setPlaybackState(new PlaybackState.Builder().setActions(actions)
-                .setState(state, ttsMode?PlaybackState.PLAYBACK_POSITION_UNKNOWN:getPosition(),
-                        paused?0f:speed).build());
+                .setState(state,position,paused?0f:(ttsMode?TtsWpm.rate(this):speed)).build());
     }
     @Override public android.os.IBinder onBind(Intent i){return null;}
     @Override public void onDestroy(){active=false;handler.removeCallbacks(tick);try{unregisterReceiver(noisyReceiver);}catch(Exception ignored){}audioFocus.release();if(mediaSession!=null){mediaSession.setActive(false);mediaSession.release();mediaSession=null;}saveProgress();releasePlayer();releaseLocalAudio();if(tts!=null){tts.stop();tts.shutdown();}AudioEqualizer.release();instance=null;super.onDestroy();}
