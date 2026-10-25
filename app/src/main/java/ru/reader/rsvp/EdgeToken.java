@@ -11,7 +11,7 @@ import java.util.Locale;
  */
 final class EdgeToken {
     static final String TOKEN="6A5AA1D4EAFF4E9FB37E23D68491D6F4";
-    static final String VERSION="2-143.0.3650.75";
+    static final String VERSION="2-155.0.4283.45";
     private static final long MASK=0xffffffffL;
     private static final int[] K={
       0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,

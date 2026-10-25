@@ -49,6 +49,9 @@ public final class EdgeOnlineActivity extends Activity {
     private ArrayList<Integer> wordStarts=new ArrayList<>();
     private ArrayList<SentenceChunks.Chunk> sentences=new ArrayList<>();
     private BookChunkIndex textBlocks;
+    private BookChapterIndex chapters=BookChapterIndex.empty();
+    private boolean pendingEdgePlay=false;
+    private String lastEdgeError="";
     private EdgeStreamingService downloads;
     private EdgePlaybackService edge;
     private boolean boundDownload,boundPlayer;
@@ -94,6 +97,7 @@ public final class EdgeOnlineActivity extends Activity {
             if(downloads.isReady())downloads.setAnchor(word,true);
             downloads.setActive(true);
             downloads.addObserver(downloadObserver);
+            if(edge!=null&&edge.playRequested())downloads.ensurePlaySelection();
             refresh();
         }
         @Override public void onServiceDisconnected(ComponentName n){downloads=null;}
@@ -107,7 +111,11 @@ public final class EdgeOnlineActivity extends Activity {
             edge.setAutoContinue(true);
             edge.setPlaybackSpeed(Math.min(5f,TtsWpm.rate(EdgeOnlineActivity.this)));
             edge.addListener(edgeObserver);
-            if(switchShouldPlay){switchShouldPlay=false;edge.play();}
+            if(switchShouldPlay||pendingEdgePlay){
+                switchShouldPlay=false;pendingEdgePlay=false;
+                edge.play();
+                if(downloads!=null)downloads.ensurePlaySelection();
+            }
             refresh();
         }
         @Override public void onServiceDisconnected(ComponentName n){edge=null;}
@@ -161,7 +169,8 @@ public final class EdgeOnlineActivity extends Activity {
                 final ArrayList<Integer> offsets=SentenceChunks.wordPositions(body);
                 ui.post(()->{
                     if(!requested.equals(uri)||isFinishing())return;
-                    full=body;wordStarts=offsets;sentences=SentenceChunks.split(body);
+                    full=body;chapters=book.chapters;
+                    wordStarts=offsets;sentences=SentenceChunks.split(body);
                     textBlocks=new BookChunkIndex(body,offsets,560);
                     name=title;bookTitle.setText(name);
                     int from=getIntent().getIntExtra("word_index",getSharedPreferences("reader",0).getInt("tts_word:"+uri,0));
@@ -401,13 +410,19 @@ public final class EdgeOnlineActivity extends Activity {
                 .putExtra("bookUri",uri).putExtra("word_index",selectedWord)
                 .putExtra("auto_on_selection",auto));
         }else if(downloads!=null){
-            // A seek during active speech continues immediately on the newly
-            // selected live stream. A seek while paused honours tap-autoplay.
-            boolean wasAudible=edge!=null&&edge.playRequested();
+            // Preserve an active or pending Play across a tap and service binding.
+            boolean wasAudible=(edge!=null&&edge.playRequested())||pendingEdgePlay;
             if(edge!=null)edge.pause();
             downloads.setAnchor(selectedWord,true);
             requestedSeekWord=-1;requestedSeekKey="";
-            if((auto||wasAudible)&&edge!=null){edge.play();downloads.ensurePlaySelection();}
+            if(auto||wasAudible){
+                if(edge!=null){edge.play();downloads.ensurePlaySelection();}
+                else pendingEdgePlay=true;
+            }
+        }else if(!local){
+            // Book/service may still be binding; remember the requested chapter.
+            switchedWord=selectedWord;
+            if(auto)pendingEdgePlay=true;
         }
         int from=sentence==null?wordChar(selectedWord):sentence.fromChar;
         int end=sentence==null?Math.min(full.length(),from+1):sentence.toChar;
@@ -420,8 +435,12 @@ public final class EdgeOnlineActivity extends Activity {
         if(textBlocks==null||textBlocks.size()==0){
             Toast.makeText(this,"Текст ещё загружается",Toast.LENGTH_SHORT).show();return;
         }
-        TtsTextBlockManager.show(this,textBlocks,full,
+        TtsTextBlockManager.show(this,textBlocks,chapters,full,
             ReaderButtonColors.neutral(this,0xfffff9f0),foreground,
+            chapterChar->{
+                int at=SentenceChunks.lowerBound(wordStarts,chapterChar);
+                selectWord(Math.max(0,Math.min(wordStarts.size()-1,at)));
+            },
             part->{
                 // The UI block controls navigation; audio still uses SentenceChunks.
                 selectWord(part.startWord);
@@ -433,8 +452,18 @@ public final class EdgeOnlineActivity extends Activity {
             if(service!=null&&!service.isPaused()&&pendingPositionWord<0)selectedWord=liveWord();
             startService(new Intent(this,AudioPlaybackService.class).setAction(service!=null&&!service.isPaused()?AudioPlaybackService.PAUSE:AudioPlaybackService.PLAY));
         }else if(edge!=null){
-            if(edge.playRequested()){if(pendingPositionWord<0)selectedWord=liveWord();edge.pause();}
-            else {edge.play();if(downloads!=null)downloads.ensurePlaySelection();}
+            if(edge.playRequested()){
+                pendingEdgePlay=false;
+                if(pendingPositionWord<0)selectedWord=liveWord();edge.pause();
+            } else {
+                pendingEdgePlay=false;
+                edge.play();if(downloads!=null)downloads.ensurePlaySelection();
+            }
+        }else{
+            // The user can tap Play before bindService callbacks have run.
+            // Remember intent rather than silently dropping the tap.
+            pendingEdgePlay=!pendingEdgePlay;
+            if(pendingEdgePlay)Toast.makeText(this,"Подключение к Edge TTS…",Toast.LENGTH_SHORT).show();
         }
         refresh();
     }
@@ -583,12 +612,25 @@ public final class EdgeOnlineActivity extends Activity {
             full=downloads.fullText();name=downloads.title();bookTitle.setText(name);
             wordStarts=SentenceChunks.wordPositions(full);sentences=SentenceChunks.split(full);
             textBlocks=new BookChunkIndex(full,wordStarts,560);
+            chapters=downloads.chapterIndex();
             selectedWord=Math.max(0,Math.min(Math.max(0,wordStarts.size()-1),downloads.anchor()));
             showWindow(wordChar(selectedWord),true);
         }
+        if(!local&&downloads!=null){
+            String problem=downloads.error();
+            if(edge!=null&&edge.playbackError()!=null&&!edge.playbackError().isEmpty())
+                problem=edge.playbackError();
+            if(problem!=null&&!problem.isEmpty()&&!problem.equals(lastEdgeError)){
+                lastEdgeError=problem;
+                Toast.makeText(this,problem,Toast.LENGTH_LONG).show();
+            }else if(problem==null||problem.isEmpty())lastEdgeError="";
+        }
         if(full.isEmpty())return;
         boolean playing=local?(AudioPlaybackService.instance!=null&&AudioPlaybackService.instance.isTtsMode()&&!AudioPlaybackService.instance.isPaused()):edge!=null&&edge.isPlaying();
-        playIcon.setImageResource(playing?R.drawable.ic_pause:R.drawable.ic_play);
+        // While the first MP3 packet is still buffering, Play is already active:
+        // show Pause so the user can cancel instead of thinking the tap failed.
+        boolean buffering=!local&&((edge!=null&&edge.playRequested())||pendingEdgePlay);
+        playIcon.setImageResource(playing||buffering?R.drawable.ic_pause:R.drawable.ic_play);
         speed.setText(String.valueOf(TtsWpm.get(this)));
         updateSleepCountdown();
         int actualWord=liveWord();

@@ -1,9 +1,0 @@
-fix(tts): base timeline on selected word and use prepared UI blocks (v1.11.78-beta)
-
-- Replace tts_listened_seconds display with global book position estimated at WPM.
-- Update position immediately on tap, even while online MP3 is buffering.
-- Keep user-selected word anchored until the target speech actually begins.
-- Bind block manager to the existing ReaderActivity BookChunkIndex (560-word targets), not SentenceChunks audio segments.
-- Render only the current UI block with neighbors in the TTS TextView.
-- Add pure Java navigation/timeline regression tests.
-- Retain all approved Chteico sprites; ship only current-version CLEAN docs.

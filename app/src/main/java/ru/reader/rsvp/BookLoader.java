@@ -17,6 +17,13 @@ import java.io.InputStream;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.regex.Pattern;
+import java.util.regex.Matcher;
+import org.jsoup.Jsoup;
+import org.jsoup.select.Elements;
 import java.util.Locale;
 import java.util.Map;
 import java.util.zip.ZipEntry;
@@ -31,7 +38,14 @@ public class BookLoader {
         String title;
         String author;
         String text;
-        Book(String title, String author, String text) { this.title = title; this.author = author; this.text = text; }
+        BookChapterIndex chapters;
+        Book(String title, String author, String text) {
+            this(title,author,text,BookChapterIndex.empty());
+        }
+        Book(String title, String author, String text,BookChapterIndex chapters) {
+            this.title=title;this.author=author;this.text=text;
+            this.chapters=chapters==null?BookChapterIndex.empty():chapters;
+        }
     }
 
     static byte[] readAll(InputStream in) throws IOException {
@@ -128,10 +142,126 @@ public class BookLoader {
             String author = fb2Author(d);
             Element body = first(d, "body");
             if (body == null) throw new IOException("В FB2 нет текста");
-            return new Book(title.isEmpty() ? filename : title, author, xmlText(body).replaceAll("\n{3,}", "\n\n").trim());
+            return fb2Book(title.isEmpty()?filename:title,author,body);
         }
         if (lower.endsWith(".html") || lower.endsWith(".htm")) return new Book(filename, "", htmlToText(decode(input)));
         throw new IOException("Поддерживаются EPUB, FB2, HTML");
+    }
+
+    private static final class ChapterStart {
+        final String title;final int rawOffset,level;
+        ChapterStart(String t,int start,int depth){title=t;rawOffset=start;level=depth;}
+    }
+    private static String tag(Node n){
+        return n.getLocalName()!=null?n.getLocalName():n.getNodeName();
+    }
+    /** The same recursive text formatting as xmlText(), with structural offsets. */
+    private static void fb2Write(Node node,StringBuilder out,List<ChapterStart> starts,int level){
+        if(node.getNodeType()==Node.TEXT_NODE){out.append(node.getNodeValue());return;}
+        if(node.getNodeType()!=Node.ELEMENT_NODE)return;
+        Element e=(Element)node;
+        String name=tag(e);
+        if("binary".equals(name))return;
+        if("section".equals(name)){
+            for(Node child=e.getFirstChild();child!=null;child=child.getNextSibling()){
+                if(child.getNodeType()==Node.ELEMENT_NODE&&"title".equals(tag(child))){
+                    String heading=child.getTextContent().trim().replaceAll("\\s+"," ");
+                    if(!heading.isEmpty())starts.add(new ChapterStart(heading,out.length(),level));
+                    break;
+                }
+            }
+            level++;
+        }
+        boolean separate=name.equals("p")||name.equals("title")||name.equals("subtitle");
+        if(separate)out.append('\n');
+        for(Node child=node.getFirstChild();child!=null;child=child.getNextSibling())
+            fb2Write(child,out,starts,level);
+        if(separate)out.append('\n');
+    }
+    private static Book fb2Book(String title,String author,Element body){
+        StringBuilder raw=new StringBuilder();
+        ArrayList<ChapterStart> starts=new ArrayList<>();
+        fb2Write(body,raw,starts,0);
+        String normalized=raw.toString().replaceAll("\\n{3,}","\\n\\n");
+        int leading=0;while(leading<normalized.length()&&normalized.charAt(leading)<=' ')leading++;
+        String text=normalized.trim();
+        // A linear source-to-normalized offset map avoids rescanning large FB2 books.
+        int[] normalizedPrefix=new int[raw.length()+1];
+        int count=0,newlines=0;
+        for(int i=0;i<raw.length();i++){
+            char ch=raw.charAt(i);
+            if(ch=='\n'){
+                newlines++;
+                if(newlines<=2)count++;
+            }else{newlines=0;count++;}
+            normalizedPrefix[i+1]=count;
+        }
+        ArrayList<BookChapterIndex.Chapter> chapters=new ArrayList<>();
+        for(ChapterStart start:starts){
+            int pos=normalizedPrefix[start.rawOffset]-leading;
+            pos=Math.max(0,Math.min(text.length(),pos));
+            chapters.add(new BookChapterIndex.Chapter(start.title,pos,0,start.level));
+        }
+        return new Book(title,author,text,BookChapterIndex.build(chapters,text.length()));
+    }
+    /** EPUB TOC navigation: prefer actual nav/NCX over guesses from spine filenames. */
+    private static final class TocLink {
+        final String label,href,base;final int level;
+        TocLink(String t,String href,String base,int level){this.label=t;this.href=href;this.base=base;this.level=level;}
+    }
+    private static ArrayList<TocLink> epubToc(Map<String,byte[]> files,Map<String,String> idHref,
+            Map<String,String> idMedia,String opfBase){
+        ArrayList<TocLink> result=new ArrayList<>();
+        String nav=null,ncx=null;
+        for(Map.Entry<String,String> pair:idHref.entrySet()){
+            String target=path(opfBase,pair.getValue().split("#")[0]);
+            if(files.get(target)==null)continue;
+            String type=idMedia.get(pair.getKey());
+            if("application/x-dtbncx+xml".equals(type))ncx=target;
+            if(type!=null&&type.contains("nav"))nav=target;
+        }
+        if(nav!=null){
+            org.jsoup.nodes.Document d=Jsoup.parse(decode(files.get(nav)));
+            for(org.jsoup.nodes.Element navEl:d.select("nav")){
+                String semantic=navEl.attr("epub:type")+" "+navEl.attr("type")+" "+navEl.id();
+                if(!semantic.contains("toc")&&d.select("nav").size()>1)continue;
+                for(org.jsoup.nodes.Element a:navEl.select("a[href]")){
+                    String heading=a.text().trim();
+                    if(!heading.isEmpty())result.add(new TocLink(heading,a.attr("href"),base(nav),0));
+                }
+                if(!result.isEmpty())break;
+            }
+        }
+        if(result.isEmpty()&&ncx!=null){
+            try{
+                Document d=xml(files.get(ncx));
+                NodeList navPoints=d.getElementsByTagNameNS("*","navPoint");
+                for(int i=0;i<navPoints.getLength();i++){
+                    Element point=(Element)navPoints.item(i);
+                    Element label=firstFrom(point,"text");Element content=firstFrom(point,"content");
+                    if(label!=null&&content!=null){
+                        String heading=label.getTextContent().trim();
+                        if(!heading.isEmpty())result.add(new TocLink(heading,content.getAttribute("src"),base(ncx),0));
+                    }
+                }
+            }catch(Exception ignored){}
+        }
+        return result;
+    }
+    /** Map an XHTML anchor into normalized visible text; source stays unchanged. */
+    private static int anchorOffset(String xhtml,String plain,String fragment){
+        if(fragment==null||fragment.isEmpty())return 0;
+        org.jsoup.nodes.Element match=Jsoup.parse(xhtml).getElementById(fragment);
+        if(match==null)return 0;
+        String heading=match.text().trim();
+        if(!heading.isEmpty()){
+            int at=plain.indexOf(heading);
+            if(at>=0)return at;
+        }
+        Pattern p=Pattern.compile("(?is)<[^>]*\\bid\\s*=\\s*['\\\"]"+Pattern.quote(fragment)+"['\\\"][^>]*>");
+        Matcher m=p.matcher(xhtml);
+        if(m.find())return Math.min(plain.length(),htmlToText(xhtml.substring(0,m.start())).length());
+        return 0;
     }
 
     static String fb2Author(Document d) {
@@ -178,15 +308,21 @@ public class BookLoader {
         Document d = xml(files.get(opfPath));
         String title = content(first(d, "title"));
         String author = content(first(d, "creator"));
-        Map<String, String> idToHref = new HashMap<>();
+        Map<String, String> idToHref = new LinkedHashMap<>();
+        Map<String, String> idToMedia = new HashMap<>();
         NodeList items = d.getElementsByTagNameNS("*", "item");
         for (int i = 0; i < items.getLength(); i++) {
             Element el = (Element) items.item(i);
             idToHref.put(el.getAttribute("id"), el.getAttribute("href"));
+            idToMedia.put(el.getAttribute("id"), el.getAttribute("media-type")+(el.getAttribute("properties").contains("nav")?" nav":""));
         }
 
         StringBuilder text = new StringBuilder();
         String opfBase = base(opfPath);
+        Map<String,Integer> spineStart=new HashMap<>();
+        Map<String,String> spineRaw=new HashMap<>();
+        Map<String,String> spinePlain=new HashMap<>();
+        ArrayList<BookChapterIndex.Chapter> spineFallback=new ArrayList<>();
         NodeList spine = d.getElementsByTagNameNS("*", "itemref");
         for (int i = 0; i < spine.getLength(); i++) {
             Element e = (Element) spine.item(i);
@@ -194,9 +330,35 @@ public class BookLoader {
             if (href == null) continue;
             String target = path(opfBase, href.split("#")[0]);
             byte[] page = files.get(target);
-            if (page != null) text.append(htmlToText(decode(page))).append("\n\n");
+            if (page != null) {
+                String html=decode(page);
+                String plain=htmlToText(html);
+                int offset=text.length();
+                spineStart.put(target,offset);
+                spineRaw.put(target,html);
+                spinePlain.put(target,plain);
+                text.append(plain).append("\n\n");
+                String heading="";
+                org.jsoup.nodes.Element h=Jsoup.parse(html).selectFirst("h1,h2,h3");
+                if(h!=null)heading=h.text().trim();
+                if(heading.isEmpty())heading="Раздел "+(spineFallback.size()+1);
+                if(!plain.isEmpty())spineFallback.add(new BookChapterIndex.Chapter(heading,offset,0,1));
+            }
         }
         if (text.length() == 0) throw new IOException("В EPUB не найден читаемый текст");
-        return new Book(title.isEmpty() ? filename : title, author, text.toString().trim());
+        String complete=text.toString().trim();
+        ArrayList<BookChapterIndex.Chapter> chapters=new ArrayList<>();
+        for(TocLink link:epubToc(files,idToHref,idToMedia,opfBase)){
+            String target=path(link.base,link.href.split("#")[0]);
+            Integer offset=spineStart.get(target);
+            if(offset==null)continue;
+            String frag=link.href.contains("#")?link.href.substring(link.href.indexOf('#')+1):"";
+            int inside=anchorOffset(spineRaw.get(target),spinePlain.get(target),frag);
+            chapters.add(new BookChapterIndex.Chapter(link.label,offset+inside,0,link.level));
+        }
+        // EPUBs without nav/NCX still have a reliable spine structure.
+        if(chapters.isEmpty())chapters.addAll(spineFallback);
+        return new Book(title.isEmpty()?filename:title,author,complete,
+            BookChapterIndex.build(chapters,complete.length()));
     }
 }

@@ -11,6 +11,9 @@ import java.util.UUID;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import android.os.SystemClock;
 import android.util.Log;
 
@@ -39,10 +42,15 @@ final class EdgeTtsClient {
     private static final int LIMIT_BYTES=12*1024*1024;
     private static final String ENDPOINT="wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1";
     private static final String UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        +"(KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0";
+        +"(KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36 Edg/155.0.4283.45";
     private static final OkHttpClient HTTP=new OkHttpClient.Builder()
         .connectTimeout(18,TimeUnit.SECONDS).readTimeout(0,TimeUnit.SECONDS)
         .pingInterval(15,TimeUnit.SECONDS).build();
+    private static final ScheduledExecutorService WATCHDOG=Executors.newSingleThreadScheduledExecutor(r->{
+        Thread t=new Thread(r,"EdgeTtsWatchdog");t.setDaemon(true);return t;
+    });
+    private ScheduledFuture<?> timeout;
+    private long lastPacketAt;
     private WebSocket socket;
     private boolean completed;
     private final Callback callback;
@@ -68,6 +76,7 @@ final class EdgeTtsClient {
 
     private synchronized void finish(String error){
         if(completed)return;completed=true;
+        if(timeout!=null)timeout.cancel(false);
         byte[] bytes=callback.streamOnly()?null:received.toByteArray();
         if(error==null && (totalBytes<1500 || chunks==0))error="Сервис не вернул аудиоданные";
         long finishedAt=SystemClock.elapsedRealtime();
@@ -78,9 +87,23 @@ final class EdgeTtsClient {
         callback.finished(error==null?bytes:null,chunks,error,new ArrayList<>(boundaries));
         if(socket!=null)socket.close(1000,"completed");
     }
-    void cancel(){synchronized(this){completed=true;}if(socket!=null)socket.cancel();}
+    void cancel(){synchronized(this){completed=true;if(timeout!=null)timeout.cancel(false);}
+        if(socket!=null)socket.cancel();}
     private void connect(String text,String voice,String rate){
-        startedAt=SystemClock.elapsedRealtime();
+        startedAt=SystemClock.elapsedRealtime();lastPacketAt=startedAt;
+        timeout=WATCHDOG.scheduleAtFixedRate(()->{
+            synchronized(EdgeTtsClient.this){
+                if(completed)return;
+                long now=SystemClock.elapsedRealtime();
+                if(firstAudioAt==0&&now-startedAt>20000){
+                    finish("Edge TTS не прислал аудио за 20 секунд");
+                    if(socket!=null)socket.cancel();
+                }else if(firstAudioAt>0&&now-lastPacketAt>25000){
+                    finish("Edge TTS остановил передачу аудио");
+                    if(socket!=null)socket.cancel();
+                }
+            }
+        },3,3,TimeUnit.SECONDS);
         try{
             String uid=uuid();
             String url=ENDPOINT+"?TrustedClientToken="+EdgeToken.TOKEN
@@ -91,7 +114,8 @@ final class EdgeTtsClient {
                 .header("Cookie","muid="+uuid().toUpperCase(Locale.ROOT)+";").build();
             socket=HTTP.newWebSocket(req,new WebSocketListener(){
                 @Override public void onOpen(WebSocket ws,Response response){
-                    openedAt=SystemClock.elapsedRealtime();
+                    synchronized(EdgeTtsClient.this){if(completed){ws.cancel();return;}}
+                    openedAt=SystemClock.elapsedRealtime();lastPacketAt=openedAt;
                     String config="X-Timestamp:"+date()+"\r\nContent-Type:application/json; charset=utf-8\r\n"
                         +"Path:speech.config\r\n\r\n"
                         +"{\"context\":{\"synthesis\":{\"audio\":{\"metadataoptions\":{\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"true\"},"
@@ -128,7 +152,8 @@ final class EdgeTtsClient {
                     synchronized(EdgeTtsClient.this){
                         if(completed)return;
                         if(totalBytes+count>LIMIT_BYTES){finish("Аудиофрагмент превышает 12 МБ");return;}
-                        if(firstAudioAt==0)firstAudioAt=SystemClock.elapsedRealtime();
+                        lastPacketAt=SystemClock.elapsedRealtime();
+                        if(firstAudioAt==0)firstAudioAt=lastPacketAt;
                         if(!callback.streamOnly())received.write(packet,head+2,count);
                         totalBytes+=count;chunks++;
                         callback.audio(packet,head+2,count);

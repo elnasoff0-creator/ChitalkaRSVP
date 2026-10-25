@@ -84,6 +84,7 @@ public final class EdgeStreamingService extends Service {
     private int priorityStart=-1;
     private final ArrayList<Observer> observers=new ArrayList<>();
     private String bookUri="",title="",bookText="",error="";
+    private BookChapterIndex chapters=BookChapterIndex.empty();
     private File directory;
     private boolean bookReady,active,destroyed,playerBound;
     private int anchorWord;
@@ -166,6 +167,7 @@ public final class EdgeStreamingService extends Service {
     public int anchor(){return player!=null&&player.currentStartWord()>=0?player.currentStartWord():anchorWord;}
     public int words(){return offsets.size();}
     public String fullText(){return bookText;}
+    public BookChapterIndex chapterIndex(){return chapters;}
     public int charForWord(int word){return offsets.isEmpty()?0:offsets.get(Math.max(0,Math.min(word,offsets.size()-1)));}
     public int wordForChar(int at){return Math.max(0,Math.min(offsets.size()-1,SentenceChunks.lowerBound(offsets,at)));}
     /** Word-based coverage from files physically stored on disk. Never count temporary downloads. */
@@ -240,7 +242,7 @@ public final class EdgeStreamingService extends Service {
         cancelLiveExcept(null);liveJobs.clear();bookUri=uri;bookReady=false;anchorWord=Math.max(0,initialWord);
         cachedSavedPercent=0;lastCoverageCheck=0;
         archive.clear();byStart.clear();pendingStarts.clear();priorityStart=-1;
-        offsets.clear();sentenceParts.clear();bookText="";directory=null;error="";
+        offsets.clear();sentenceParts.clear();bookText="";chapters=BookChapterIndex.empty();directory=null;error="";
         if(player!=null)player.prepareBook("edge:"+uri);
         changed();
         final String requested=uri;
@@ -249,6 +251,7 @@ public final class EdgeStreamingService extends Service {
                 BookLoader.Book book=BookLoader.load(this,Uri.parse(requested));
                 String raw=book.text==null?"":book.text;
                 String name=book.title==null?"Книга":book.title;
+                BookChapterIndex parsedChapters=book.chapters;
                 ArrayList<Integer> positions=EdgeTextSegments.positions(raw);
                 ArrayList<SentenceChunks.Chunk> newParts=SentenceChunks.split(raw);
                 File bookDir=EdgeBookStorage.bookFolder(this,requested,name);
@@ -256,7 +259,7 @@ public final class EdgeStreamingService extends Service {
                 DownloadsRepository.storeEdgeMeta(bookDir,requested,name,positions.size());
                 main.post(()->{
                     if(destroyed||!requested.equals(bookUri))return;
-                    bookText=raw;title=name;offsets.addAll(positions);sentenceParts.addAll(newParts);directory=dir;
+                    bookText=raw;title=name;chapters=parsedChapters;offsets.addAll(positions);sentenceParts.addAll(newParts);directory=dir;
                     bookReady=!offsets.isEmpty();restore();
                     for(File pending:EdgeStreamCache.recover(dir)){
                         File meta=new File(pending.getParentFile(),pending.getName().replace(".ready",".json"));
@@ -284,11 +287,17 @@ public final class EdgeStreamingService extends Service {
         if(bookReady){Clip current=clipAt(anchorWord);
             if(current!=null&&player!=null&&player.playRequested()){
                 // An explicit Play lets the user retry a previously failed stream.
-                if(current.retryAt>0&&!current.ready()&&liveFor(current)==null){
+                if(!current.ready() && (current.retryAt>0 ||
+                        (player.playbackError()!=null&&!player.playbackError().isEmpty()))){
+                    // Media3 may have rejected an old failed live DataSource. Rebuild
+                    // only on an explicit user Play, never in a retry loop.
+                    cancelLiveExcept(null);
+                    liveJobs.clear();
                     player.clearTracksForSelection();
                     player.play();
                 }
                 current.retryAt=0;
+                error="";
                 pump();
             }
         }
@@ -364,7 +373,7 @@ public final class EdgeStreamingService extends Service {
                 &&current.retryAt<=SystemClock.uptimeMillis())startLive(current);
         else if(ahead!=null&&!ahead.ready()&&liveFor(ahead)==null
                 &&activeRequests<2 && ahead.retryAt<=SystemClock.uptimeMillis()
-                &&(current.ready()||(currentLive!=null&&currentLive.firstAudio))){
+                &&(current.ready()||(currentLive!=null&&(currentLive.firstAudio||currentLive.networkDone)))){
             // Exactly ONE lookahead request, never the entire book.
             startLive(ahead);
         }
@@ -389,6 +398,7 @@ public final class EdgeStreamingService extends Service {
         if(clip==null||clip.ready()||directory==null||liveFor(clip)!=null)return;
         final LiveJob job=new LiveJob(clip,directory,bookUri);
         liveJobs.put(job.fileId,job);
+        error="";
         addTrack(clip);
         changed();
         final String voice=voice(),rate=rate();

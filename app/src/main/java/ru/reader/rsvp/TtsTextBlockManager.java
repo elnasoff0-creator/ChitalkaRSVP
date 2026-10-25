@@ -9,6 +9,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
+import android.widget.Button;
 import android.widget.TextView;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -18,17 +19,31 @@ import java.util.ArrayList;
  * Audio SentenceChunks remain independent and keep their 600-character limit. */
 final class TtsTextBlockManager {
     interface Choose {void onChoose(BookChunkIndex.Chunk chunk);}
+    interface ChooseChapter {void onChoose(int startChar);}
     private TtsTextBlockManager(){}
-    static void show(Activity owner,BookChunkIndex chunks,String bookText,
-                     int bg,int fg,Choose handler){
+    static void show(Activity owner,BookChunkIndex chunks,BookChapterIndex chapters,String bookText,
+                     int bg,int fg,ChooseChapter chapterHandler,Choose handler){
+        LinearLayout contents=new LinearLayout(owner);
+        contents.setOrientation(LinearLayout.VERTICAL);
+        final AlertDialog[] dialogHolder=new AlertDialog[1];
+        if(chapters!=null&&chapters.size()>0){
+            Button chaptersButton=new Button(owner);
+            chaptersButton.setAllCaps(false);
+            chaptersButton.setText("Главы ("+chapters.size()+")");
+            chaptersButton.setOnClickListener(v->showChapters(owner,chapters,bg,fg,
+                startChar->{dialogHolder[0].dismiss();chapterHandler.onChoose(startChar);}));
+            contents.addView(chaptersButton,new LinearLayout.LayoutParams(-1,dp(owner,48)));
+        }
         RecyclerView rows=new RecyclerView(owner);
+        contents.addView(rows,new LinearLayout.LayoutParams(-1,0,1));
         rows.setLayoutManager(new LinearLayoutManager(owner));
         rows.setPadding(dp(owner,12),dp(owner,4),dp(owner,12),dp(owner,10));
         rows.setClipToPadding(false);
         AlertDialog dialog=new SwipeDialogs.Builder(owner)
             .setTitle("Менеджер текстовых блоков")
-            .setView(rows)
+            .setView(contents)
             .create();
+        dialogHolder[0]=dialog;
         rows.setAdapter(new RecyclerView.Adapter<Item>(){
             @Override public Item onCreateViewHolder(ViewGroup parent,int type){
                 LinearLayout card=new LinearLayout(owner);
@@ -62,6 +77,45 @@ final class TtsTextBlockManager {
                 item.itemView.setOnClickListener(v->{dialog.dismiss();handler.onChoose(part);});
             }
             @Override public int getItemCount(){return chunks.size();}
+        });
+        dialog.show();
+        android.view.Window window=dialog.getWindow();
+        if(window!=null){
+            android.util.DisplayMetrics dm=owner.getResources().getDisplayMetrics();
+            window.setLayout(Math.min(dm.widthPixels-dp(owner,24),dp(owner,480)),
+                Math.min(dm.heightPixels-dp(owner,90),dp(owner,660)));
+        }
+    }
+    /** Chapter list is independent from UI BookChunkIndex and audio SentenceChunks.
+     * RecyclerView keeps the navigation cheap even for hundreds of sections. */
+    private static void showChapters(Activity owner,BookChapterIndex chapters,
+            int bg,int fg,ChooseChapter callback){
+        RecyclerView list=new RecyclerView(owner);
+        list.setLayoutManager(new LinearLayoutManager(owner));
+        list.setPadding(dp(owner,12),dp(owner,6),dp(owner,12),dp(owner,8));
+        AlertDialog dialog=new SwipeDialogs.Builder(owner)
+            .setTitle("Главы книги").setView(list).create();
+        list.setAdapter(new RecyclerView.Adapter<RecyclerView.ViewHolder>(){
+            @Override public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup parent,int viewType){
+                TextView row=new TextView(owner);
+                row.setTextColor(fg);row.setTextSize(15);
+                row.setPadding(dp(owner,14),dp(owner,12),dp(owner,14),dp(owner,12));
+                GradientDrawable back=new GradientDrawable();
+                back.setColor(bg);back.setCornerRadius(dp(owner,12));
+                back.setStroke(dp(owner,1),((fg&0x00ffffff)|0x33000000));
+                row.setBackground(back);
+                RecyclerView.LayoutParams params=new RecyclerView.LayoutParams(-1,-2);
+                params.bottomMargin=dp(owner,6);row.setLayoutParams(params);
+                return new RecyclerView.ViewHolder(row){};
+            }
+            @Override public void onBindViewHolder(RecyclerView.ViewHolder holder,int position){
+                BookChapterIndex.Chapter chapter=chapters.get(position);
+                TextView row=(TextView)holder.itemView;
+                row.setSingleLine(true);row.setEllipsize(TextUtils.TruncateAt.END);
+                row.setText((position+1)+". "+chapter.title);
+                row.setOnClickListener(v->{dialog.dismiss();callback.onChoose(chapter.startChar);});
+            }
+            @Override public int getItemCount(){return chapters.size();}
         });
         dialog.show();
         android.view.Window window=dialog.getWindow();
