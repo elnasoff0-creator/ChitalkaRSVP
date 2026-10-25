@@ -1,7 +1,0 @@
-feat(reader, media): overlay controls, scrolling book cover and cover artwork in MediaSession (v1.11.83-beta)
-
-- Put EPUB/FB2 cover into RecyclerView header and remove header GONE jumps
-- Float animated Toolbar and combined TOC/progress, centered Play and WPM
-- Retire old fullscreen setting, add distinct speed-reading vector
-- Populate platform media notifications with bounded real artwork/metadata
-- Sync MediaSession Edge PCM playback state with actual audio

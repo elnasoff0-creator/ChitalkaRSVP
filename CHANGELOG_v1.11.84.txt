@@ -1,0 +1,18 @@
+ПРОЧиталка v1.11.84-beta CLEAN — точечное исправление компиляции
+
+Исправлено:
+- ReaderActivity.java: восстановлены обработчики stop(), togglePlayback(), updatePlayButton(), updateProgress(), updateSelectWordButton(), setRsvpContextVisible(), stepRsvpByScroll(), showCountdownRing(), removeCountdownRing(), formatReadingTime().
+- Обработчики утеряны при переработке overlay-интерфейса v1.11.83 и вызывали ошибки cannot find symbol на этапе compileReleaseJavaWithJavac.
+- Сохранены функции ожидания запуска, Play/Pause для RSVP/Курсора/озвучки, обновления прогресса и визуализации счётчика задержки запуска.
+- Старую fullscreen-настройку и прежнюю полноэкранную компоновку не возвращали.
+- Добавлен qa/check_reader_methods.sh: структурная проверка наличия обработчиков ReaderActivity, дополняющая прежний parse-only тест.
+- versionName: 1.11.84-beta; versionCode: 11184.
+
+Не изменены:
+- Общая система чтения EPUB/FB2 и RBI3.
+- Архитектура Edge TTS, системного TTS, фонового MP3, WordBoundary.
+- Overlay UI, главы, управление аудиокнигами, 18 утверждённых XML-спрайтов Чтейца.
+
+Контроль качества:
+- Java syntax/AST, XML, проверки SentenceChunks и общего сеанса книги.
+- Полная Gradle-сборка недоступна в данном окружении (отсутствуют Gradle и Android SDK); проверить в GitHub Actions :app:assembleRelease.

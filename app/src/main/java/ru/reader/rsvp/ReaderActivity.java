@@ -581,6 +581,104 @@ public class ReaderActivity extends Activity {
         readingFrame.setBackgroundColor(bg);
         applySystemBars(false);
     }
+    // The overlay layout no longer uses legacy fullscreen positioning, but
+    // the RSVP, cursor and TTS playback controls must retain their handlers.
+    private void removeCountdownRing(){
+        if(countdownRing==null)return;
+        ViewGroup parent=(ViewGroup)countdownRing.getParent();
+        if(parent!=null)parent.removeView(countdownRing);
+        countdownRing=null;
+    }
+    private void showCountdownRing(int seconds){
+        removeCountdownRing();
+        if(sceneRoot==null)return;
+        countdownRing=new CountdownRingView(this,seconds,accent());
+        if(mode==RSVP&&rsvpPane!=null){
+            int focusHeight=focusLinesEnabled?dp(90):0;
+            int wordHeight=wordView==null?dp(size):Math.max(Math.round(wordView.getTextSize()*1.25f),dp(size));
+            int diameter=Math.max(dp(65),Math.max(focusHeight,wordHeight)+dp(30));
+            rsvpPane.addView(countdownRing,0,new FrameLayout.LayoutParams(diameter,diameter,Gravity.CENTER));
+        }else{
+            sceneRoot.addView(countdownRing,new FrameLayout.LayoutParams(dp(124),dp(124),Gravity.CENTER));
+        }
+    }
+    private void setRsvpContextVisible(boolean visible){
+        if(textList==null||mode!=RSVP)return;
+        if(textList.getVisibility()==(visible?View.VISIBLE:View.GONE))return;
+        textList.setVisibility(visible?View.VISIBLE:View.GONE);
+        if(visible)textList.post(()->ensureWordVisible(true));
+    }
+    private void stepRsvpByScroll(int dy){
+        if(words.length==0||dy==0)return;
+        int threshold=Math.max(6,dp(8));
+        scrollWordAccumulator+=dy;
+        int old=index;
+        while(scrollWordAccumulator>=threshold&&index<words.length-1){
+            index++;scrollWordAccumulator-=threshold;
+        }
+        while(scrollWordAccumulator<=-threshold&&index>0){
+            index--;scrollWordAccumulator+=threshold;
+        }
+        if(old!=index){
+            updateWord();refreshHighlight(old);updateProgress();saveLight(false);
+        }
+    }
+    private void updateSelectWordButton(){
+        if(selectWordButton==null)return;
+        int background=selecting?accent():buttonBg();
+        selectWordButton.setBackground(shape(background,14));
+        selectWordButton.setColorFilter(contrast(background));
+        selectWordButton.setAlpha(selecting?1f:.9f);
+    }
+    private void updateProgress(){
+        if(progressView==null||words.length==0)return;
+        int percent=(int)((index+1L)*100/words.length);
+        if(mode==TTS){
+            int rate=Math.max(100,TtsWpm.get(this));
+            long elapsed=index*60L/rate,total=words.length*60L/rate;
+            progressView.setText(formatReadingTime(elapsed)+" / "+formatReadingTime(total)+" · "+percent+"%");
+        }else{
+            progressView.setText((index+1)+" / "+words.length+" слов · "+percent+"%");
+        }
+    }
+    private String formatReadingTime(long seconds){
+        return (seconds/3600)+" ч "+((seconds%3600)/60)+" мин";
+    }
+    private void updatePlayButton(){
+        boolean active=mode==TTS?ttsCurrentlyPlaying():playing;
+        if(playIcon!=null)playIcon.setImageResource(active?R.drawable.ic_pause:R.drawable.ic_play);
+        if(floatingPlayIcon!=null)floatingPlayIcon.setImageResource(active?R.drawable.ic_pause:R.drawable.ic_play);
+    }
+    private void togglePlayback(){
+        chteicoTouch();
+        if(mode==TTS){toggleTtsPlayback();return;}
+        if(mode==NORMAL||words.length==0)return;
+        if(playing){stop();saveLight(true);return;}
+        playing=true;waitingForStart=false;
+        handler.removeCallbacks(ticker);handler.removeCallbacks(beginDelayedReading);
+        if(mode==RSVP){
+            setRsvpContextVisible(false);
+            if(rsvpPane!=null)rsvpPane.setVisibility(View.VISIBLE);
+        }
+        updatePlayButton();applyFullscreenUi();
+        int seconds=mode==RSVP&&delayRsvpEnabled?delayRsvpSeconds:
+            mode==CURSOR&&delayCursorEnabled?delayCursorSeconds:0;
+        if(seconds>0){
+            waitingForStart=true;
+            showCountdownRing(seconds);
+            handler.postDelayed(beginDelayedReading,seconds*1000L);
+        }else{
+            handler.postDelayed(ticker,delayForPortion(index,Math.min(portion,words.length-index)));
+        }
+    }
+    private void stop(){
+        playing=false;waitingForStart=false;
+        handler.removeCallbacks(ticker);handler.removeCallbacks(beginDelayedReading);
+        removeCountdownRing();updatePlayButton();setRsvpContextVisible(true);
+        if(rsvpPane!=null)rsvpPane.setVisibility(View.GONE);
+        applyFullscreenUi();
+    }
+
     private class CountdownRingView extends View {
         private final Paint ring=new Paint(Paint.ANTI_ALIAS_FLAG);
         private final long started=SystemClock.uptimeMillis(),duration;

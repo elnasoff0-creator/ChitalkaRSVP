@@ -1,0 +1,6 @@
+fix(build): restore missing ReaderActivity playback handlers (v1.11.84-beta)
+
+Restore the methods accidentally removed during the overlay reader refactor,
+including start/stop, progress, selection and countdown handling.
+Add a structural QA check for missing ReaderActivity handlers.
+Bump versionCode to 11184 and versionName to 1.11.84-beta.
