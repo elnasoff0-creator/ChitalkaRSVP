@@ -39,7 +39,7 @@ public final class DownloadActivity extends Activity {
     private static final String FILTER_KEY="downloads_filter_v2";
     private final Handler main=new Handler(Looper.getMainLooper());
     private boolean visible,bound;
-    private EdgeDownloadService edge;
+    private EdgeStreamingService edge;
     private LinearLayout filters;
     private TextView summary;
     private RecyclerView list;
@@ -48,7 +48,7 @@ public final class DownloadActivity extends Activity {
     private final ArrayList<DisplayRow> rows=new ArrayList<>();
     private final Runnable ticker=new Runnable(){@Override public void run(){if(!visible)return;refresh();main.postDelayed(this,1700);}};
     private final ServiceConnection edgeConnection=new ServiceConnection(){
-        @Override public void onServiceConnected(ComponentName n,IBinder b){edge=((EdgeDownloadService.LocalBinder)b).getService();refresh();}
+        @Override public void onServiceConnected(ComponentName n,IBinder b){edge=((EdgeStreamingService.LocalBinder)b).getService();refresh();}
         @Override public void onServiceDisconnected(ComponentName n){edge=null;refresh();}
     };
     private static final class DisplayRow{
@@ -63,7 +63,7 @@ public final class DownloadActivity extends Activity {
     @Override public void onCreate(Bundle saved){super.onCreate(saved);
         filter=getSharedPreferences("reader",0).getInt(FILTER_KEY,0);
         build();
-        bound=bindService(new Intent(this,EdgeDownloadService.class),edgeConnection,BIND_AUTO_CREATE);
+        bound=bindService(new Intent(this,EdgeStreamingService.class),edgeConnection,BIND_AUTO_CREATE);
     }
     private void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(12),dp(25),dp(12),dp(12));root.setBackgroundColor(BG);setContentView(root);SafeSystemBars.matchBackground(this,BG);

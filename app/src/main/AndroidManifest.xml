@@ -28,7 +28,7 @@
         <service android:name=".EdgePlaybackService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <service android:name=".EdgeFullBookService" android:exported="false" android:foregroundServiceType="dataSync" />
         <activity android:name=".EdgeFullBookActivity" android:exported="false" />
-        <service android:name=".EdgeDownloadService" android:exported="false" android:foregroundServiceType="dataSync" />
+        <service android:name=".EdgeStreamingService" android:exported="false" />
         <activity android:name=".EdgeFileExplorerActivity" android:exported="false" />
         <activity android:name=".EdgeOnlineActivity" android:exported="false" />
         <activity android:name=".SettingsActivity" android:exported="false" />

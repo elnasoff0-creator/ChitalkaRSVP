@@ -28,6 +28,7 @@ import okio.ByteString;
 final class EdgeTtsClient {
     interface Callback {
         void progress(int chunks,long bytes);
+        default boolean streamOnly(){return false;}
         default void audio(byte[] data,int start,int count){}
         default void words(List<EdgeWordTimings.Boundary> boundaries){}
         void finished(byte[] mp3,int chunks,String error);
@@ -47,6 +48,7 @@ final class EdgeTtsClient {
     private final Callback callback;
     private final ByteArrayOutputStream received=new ByteArrayOutputStream();
     private int chunks;
+    private long totalBytes;
     private long startedAt,openedAt,firstAudioAt;
     private final ArrayList<EdgeWordTimings.Boundary> boundaries=new ArrayList<>();
 
@@ -66,12 +68,12 @@ final class EdgeTtsClient {
 
     private synchronized void finish(String error){
         if(completed)return;completed=true;
-        byte[] bytes=received.toByteArray();
-        if(error==null && (bytes.length<1500 || chunks==0))error="Сервис не вернул аудиоданные";
+        byte[] bytes=callback.streamOnly()?null:received.toByteArray();
+        if(error==null && (totalBytes<1500 || chunks==0))error="Сервис не вернул аудиоданные";
         long finishedAt=SystemClock.elapsedRealtime();
         Log.i("EdgeTtsLatency","websocket="+(openedAt>0?openedAt-startedAt:-1)+
             "ms firstAudio="+(firstAudioAt>0?firstAudioAt-startedAt:-1)+
-            "ms finished="+(finishedAt-startedAt)+"ms; bytes="+bytes.length+
+            "ms finished="+(finishedAt-startedAt)+"ms; bytes="+totalBytes+
             (error==null?"":"; network error="+error));
         callback.finished(error==null?bytes:null,chunks,error,new ArrayList<>(boundaries));
         if(socket!=null)socket.close(1000,"completed");
@@ -125,11 +127,12 @@ final class EdgeTtsClient {
                     if(count<=0)return;
                     synchronized(EdgeTtsClient.this){
                         if(completed)return;
-                        if(received.size()+count>LIMIT_BYTES){finish("Аудиофрагмент превышает 12 МБ");return;}
+                        if(totalBytes+count>LIMIT_BYTES){finish("Аудиофрагмент превышает 12 МБ");return;}
                         if(firstAudioAt==0)firstAudioAt=SystemClock.elapsedRealtime();
-                        received.write(packet,head+2,count);chunks++;
+                        if(!callback.streamOnly())received.write(packet,head+2,count);
+                        totalBytes+=count;chunks++;
                         callback.audio(packet,head+2,count);
-                        callback.progress(chunks,received.size());
+                        callback.progress(chunks,totalBytes);
                     }
                 }
                 @Override public void onFailure(WebSocket ws,Throwable error,Response response){

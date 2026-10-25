@@ -1,0 +1,9 @@
+feat(edge-tts): isolate streaming listener, offline cache commits and text-block navigation (v1.11.77-beta)
+
+- Keep one Media3 listening session with selected sentence and one ahead
+- Disable automatic full-book downloads and listening download notifications
+- Capture live MP3/WordBoundary independently; commit only fully completed streams
+- Cancel incomplete network requests on manual sentence jump
+- Preserve existing cached MP3 and whole-book downloads service
+- Add compact SentenceChunks text-block manager and 3-second scroll idle handling
+- Retain approved Chteico sprite vectors unchanged

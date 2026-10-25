@@ -124,6 +124,8 @@ public final class EdgePlaybackService extends Service {
             @Override public void onMediaItemTransition(MediaItem item, int reason) {
                 int index = player.getCurrentMediaItemIndex();
                 boolean completed = lastIndex >= 0 && index != lastIndex && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO;
+                if(completed && lastIndex<tracks.size() && lastIndex>=0 && liveDataSources!=null)
+                    liveDataSources.unregister(tracks.get(lastIndex).key);
                 lastIndex = index;
                 if (completed && !autoContinue) {
                     requestedPlay = false;

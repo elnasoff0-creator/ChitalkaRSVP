@@ -48,7 +48,7 @@ public final class EdgeOnlineActivity extends Activity {
     private String uri="",full="",name="Книга";
     private ArrayList<Integer> wordStarts=new ArrayList<>();
     private ArrayList<SentenceChunks.Chunk> sentences=new ArrayList<>();
-    private EdgeDownloadService downloads;
+    private EdgeStreamingService downloads;
     private EdgePlaybackService edge;
     private boolean boundDownload,boundPlayer;
     private int background,foreground,accent;
@@ -73,8 +73,11 @@ public final class EdgeOnlineActivity extends Activity {
     private long nextCoverageAt=0;
     private long nextWordSaveAt=0;
     private boolean userTouch=false,offlinePrompt=false;
+    private long manualScrollUntil=0;
+    private boolean programmaticScroll=false,manualScrollSeen=false;
+    private final Runnable clearAutomaticScroll=()->programmaticScroll=false;
     private float fingerX,fingerY;
-    private final EdgeDownloadService.Observer downloadObserver=this::refresh;
+    private final EdgeStreamingService.Observer downloadObserver=this::refresh;
     private final EdgePlaybackService.Listener edgeObserver=new EdgePlaybackService.Listener(){
         @Override public void onTrackChanged(int start,int end,String key,boolean done){refresh();}
         @Override public void onPlaybackStateChanged(){refresh();}
@@ -82,7 +85,7 @@ public final class EdgeOnlineActivity extends Activity {
     private final ServiceConnection downloadConnection=new ServiceConnection(){
         @Override public void onServiceConnected(ComponentName n,IBinder binder){
             if(local)return;
-            downloads=((EdgeDownloadService.LocalBinder)binder).getService();
+            downloads=((EdgeStreamingService.LocalBinder)binder).getService();
             int word=switchedWord>=0?switchedWord:getIntent().getIntExtra("word_index",getSharedPreferences("reader",0).getInt("tts_word:"+uri,0));
             downloads.openBook(uri,word);
             if(downloads.isReady())downloads.setAnchor(word,true);
@@ -132,11 +135,16 @@ public final class EdgeOnlineActivity extends Activity {
             if(AudioPlaybackService.instance!=null&&AudioPlaybackService.instance.isTtsMode())
                 startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.STOP));
             int start=getIntent().getIntExtra("word_index",prefs.getInt("tts_word:"+uri,0));
-            Intent job=new Intent(this,EdgeDownloadService.class).setAction(EdgeDownloadService.ACTION_BEGIN)
-                .putExtra(EdgeDownloadService.EXTRA_URI,uri).putExtra(EdgeDownloadService.EXTRA_ANCHOR,start);
-            try{ContextCompat.startForegroundService(this,job);}catch(Exception e){Toast.makeText(this,"Загрузка ограничена: "+e.getMessage(),Toast.LENGTH_SHORT).show();}
+            // Ordinary listening binds the light streaming controller. No foreground
+            // download service or download notification is started.
+            // A regular streaming coordinator, not a foreground download notification.
+            startService(new Intent(this,EdgeStreamingService.class)
+                .setAction(EdgeStreamingService.ACTION_BEGIN)
+                .putExtra(EdgeStreamingService.EXTRA_URI,uri)
+                .putExtra(EdgeStreamingService.EXTRA_ANCHOR,
+                    switchedWord>=0?switchedWord:getSharedPreferences("reader",0).getInt("tts_word:"+uri,0)));
             boundPlayer=bindService(new Intent(this,EdgePlaybackService.class),playerConnection,BIND_AUTO_CREATE);
-            boundDownload=bindService(new Intent(this,EdgeDownloadService.class),downloadConnection,BIND_AUTO_CREATE);
+            boundDownload=bindService(new Intent(this,EdgeStreamingService.class),downloadConnection,BIND_AUTO_CREATE);
         }
         ui.post(ticker);
     }
@@ -226,29 +234,44 @@ public final class EdgeOnlineActivity extends Activity {
         // Book title is retained as state for metadata but intentionally absent from the compact toolbar.
         bookTitle=label("",14);
         scroller=new ScrollView(this);scroller.setFillViewport(true);scroller.setBackground(bg(background,10));
+        scroller.setOnTouchListener((v,e)->{
+            int action=e.getActionMasked();
+            if(action==MotionEvent.ACTION_DOWN){
+                fingerX=e.getX();fingerY=e.getY();userTouch=true;
+                manualScrollUntil=android.os.SystemClock.uptimeMillis()+3000;
+            }else if(action==MotionEvent.ACTION_MOVE){
+                if(Math.abs(e.getY()-fingerY)>dp(10)||Math.abs(e.getX()-fingerX)>dp(10)){
+                    manualScrollSeen=true;
+                    manualScrollUntil=android.os.SystemClock.uptimeMillis()+3000;
+                }
+            }else if(action==MotionEvent.ACTION_UP){
+                boolean tap=Math.abs(e.getY()-fingerY)<dp(10)
+                    &&Math.abs(e.getX()-fingerX)<dp(10);
+                userTouch=false;
+                if(tap&&reading!=null&&reading.getLayout()!=null&&windowStart>=0){
+                    int y=Math.max(0,(int)e.getY()+scroller.getScrollY()
+                        -reading.getTop()-reading.getTotalPaddingTop());
+                    int x=Math.max(0,(int)e.getX()-reading.getLeft()-reading.getTotalPaddingLeft());
+                    int line=reading.getLayout().getLineForVertical(y);
+                    int offset=reading.getLayout().getOffsetForHorizontal(line,x);
+                    selectWord(wordFromChar(Math.min(full.length(),windowStart+offset)));
+                }else manualScrollUntil=android.os.SystemClock.uptimeMillis()+3000;
+            }else if(action==MotionEvent.ACTION_CANCEL){
+                userTouch=false;manualScrollUntil=android.os.SystemClock.uptimeMillis()+3000;
+            }
+            // Never consume the gesture. ScrollView must retain fling handling.
+            return false;
+        });
+        scroller.setOnScrollChangeListener((v,x,y,oldX,oldY)->{
+            if(!programmaticScroll&&y!=oldY){
+                manualScrollSeen=true;manualScrollUntil=android.os.SystemClock.uptimeMillis()+3000;
+            }
+        });
         LinearLayout.LayoutParams sl=new LinearLayout.LayoutParams(-1,0,1);sl.topMargin=dp(12);root.addView(scroller,sl);
         reading=label("Ожидание текста…",Math.max(18,Math.min(35,getSharedPreferences("reader",0).getInt("size",36)*2/3)));
         reading.setTypeface(getSharedPreferences("reader",0).getInt("font",1)==1?Typeface.SERIF:Typeface.DEFAULT);
         reading.setLineSpacing(dp(7),1.16f);reading.setPadding(dp(12),dp(12),dp(12),dp(14));
-        reading.setTextIsSelectable(false);reading.setOnTouchListener((v,e)->{
-            if(e.getAction()==MotionEvent.ACTION_DOWN){fingerX=e.getX();fingerY=e.getY();userTouch=true;return true;}
-            if(e.getAction()==MotionEvent.ACTION_MOVE){
-                if(Math.abs(e.getY()-fingerY)>dp(10)||Math.abs(e.getX()-fingerX)>dp(10)){
-                    userTouch=false;return false;
-                }
-                return true;
-            }
-            if(e.getAction()==MotionEvent.ACTION_UP){
-                userTouch=false;
-                if(reading.getLayout()==null)return false;
-                int line=reading.getLayout().getLineForVertical(Math.max(0,(int)e.getY()-reading.getTotalPaddingTop()));
-                int index=reading.getLayout().getOffsetForHorizontal(line,Math.max(0,e.getX()-reading.getTotalPaddingLeft()));
-                int charOffset=Math.max(0,Math.min(full.length(),windowStart+index));
-                selectWord(wordFromChar(charOffset));userTouch=false;return true;
-            }
-            if(e.getAction()==MotionEvent.ACTION_CANCEL)userTouch=false;
-            return false;
-        });
+        reading.setTextIsSelectable(false);
         scroller.addView(reading);
         // Exact center anchor is independent of left and right content widths.
         playbackBar=new FrameLayout(this);
@@ -256,10 +279,17 @@ public final class EdgeOnlineActivity extends Activity {
         controlsLp.topMargin=dp(5);root.addView(playbackBar,controlsLp);
         progress=label("0 ч 0 мин / ~0 ч 0 мин",11);
         progress.setGravity(Gravity.CENTER_VERTICAL|Gravity.LEFT);progress.setMaxLines(2);
-        int sideWidth=Math.max(dp(68),Math.min(dp(108),
-            (getResources().getDisplayMetrics().widthPixels-dp(20)-dp(78))/2));
+        int sideWidth=Math.max(dp(115),
+            (getResources().getDisplayMetrics().widthPixels-dp(20)-dp(76))/2);
+        LinearLayout leftControls=new LinearLayout(this);
+        leftControls.setGravity(Gravity.CENTER_VERTICAL);
+        ImageButton blocksButton=toolbarIcon(R.drawable.ic_list_audio,
+            "Менеджер текстовых блоков",this::openTextBlocks);
+        leftControls.addView(blocksButton,new LinearLayout.LayoutParams(dp(41),dp(44)));
+        LinearLayout.LayoutParams textLp=new LinearLayout.LayoutParams(0,dp(62),1);
+        textLp.leftMargin=dp(4);leftControls.addView(progress,textLp);
         FrameLayout.LayoutParams pp=new FrameLayout.LayoutParams(sideWidth,dp(65),Gravity.START|Gravity.CENTER_VERTICAL);
-        playbackBar.addView(progress,pp);
+        playbackBar.addView(leftControls,pp);
         FrameLayout playArea=new FrameLayout(this);
         int playBackground=ReaderButtonColors.accent(this,0xff915439);
         playArea.setBackground(bg(playBackground,19));
@@ -290,7 +320,10 @@ public final class EdgeOnlineActivity extends Activity {
         // Prefer complete neighboring paragraphs when inexpensive.
         int boundary=full.lastIndexOf('\n',first);if(boundary>=0&&first-boundary<250)first=boundary+1;
         int tail=full.indexOf('\n',last);if(tail>=0&&tail-last<250)last=tail;
-        if(first==windowStart&&last==windowEnd)return;
+        if(first==windowStart&&last==windowEnd){
+            if(center)scroller.post(()->scrollToChar(anchor,true));
+            return;
+        }
         windowStart=first;windowEnd=last;lastStart=lastEnd=-1;
         lastSentenceStart=lastSentenceEnd=-1;
         displayedText=full.substring(first,last);
@@ -302,14 +335,24 @@ public final class EdgeOnlineActivity extends Activity {
         int localChar=Math.max(0,Math.min(reading.getText().length()-1,charOffset-windowStart));
         int y=reading.getLayout().getLineTop(reading.getLayout().getLineForOffset(localChar));
         int current=scroller.getScrollY(),height=scroller.getHeight();
-        if(force||y<current+dp(35)||y>current+height-dp(80))scroller.smoothScrollTo(0,Math.max(0,y-height/3));
+        if(force||android.os.SystemClock.uptimeMillis()>=manualScrollUntil){
+            if(force||y<current+dp(35)||y>current+height-dp(80)){
+                programmaticScroll=true;
+                ui.removeCallbacks(clearAutomaticScroll);
+                scroller.smoothScrollTo(0,Math.max(0,y-height/2));
+                ui.postDelayed(clearAutomaticScroll,700);
+            }
+        }
     }
     private void mark(int from,int to,boolean scroll){
         if(full.isEmpty()||reading==null||from<0)return;
         SentenceChunks.Chunk sentence=SentenceChunks.forWord(sentences,wordFromChar(from));
         int sentenceFrom=sentence==null?from:sentence.fromChar;
         int sentenceTo=sentence==null?Math.max(to,from+1):sentence.toChar;
-        if(sentenceFrom<windowStart+180||sentenceTo>windowEnd-300)showWindow(sentenceFrom,true);
+        boolean freeToFollow=android.os.SystemClock.uptimeMillis()>=manualScrollUntil;
+        if((sentenceFrom<windowStart+180||sentenceTo>windowEnd-300)&&freeToFollow)
+            showWindow(sentenceFrom,false);
+        if(sentenceFrom<windowStart||sentenceFrom>=windowEnd)return;
         if(from==lastStart&&to==lastEnd&&sentenceFrom==lastSentenceStart&&sentenceTo==lastSentenceEnd)return;
         Spannable text=(Spannable)reading.getText();
         for(BackgroundColorSpan span:text.getSpans(0,text.length(),BackgroundColorSpan.class))text.removeSpan(span);
@@ -328,7 +371,7 @@ public final class EdgeOnlineActivity extends Activity {
             text.setSpan(new ForegroundColorSpan(contrast),a,b,Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
         lastStart=from;lastEnd=to;lastSentenceStart=sentenceFrom;lastSentenceEnd=sentenceTo;
-        if(scroll&&!userTouch)scrollToChar(sentenceFrom,false);
+        if(scroll&&!userTouch&&freeToFollow)scrollToChar(sentenceFrom,false);
     }
     private void selectWord(int word){
         if(wordStarts.isEmpty())return;
@@ -350,11 +393,22 @@ public final class EdgeOnlineActivity extends Activity {
             if(edge!=null)edge.pause();
             downloads.setAnchor(selectedWord,true);
             requestedSeekWord=-1;requestedSeekKey="";
-            if((auto||wasAudible)&&edge!=null)edge.play();
+            if((auto||wasAudible)&&edge!=null){edge.play();downloads.ensurePlaySelection();}
         }
         int from=sentence==null?wordChar(selectedWord):sentence.fromChar;
         int end=sentence==null?Math.min(full.length(),from+1):sentence.toChar;
+        // An explicit tap/manager jump always centers, even after manual scrolling.
+        manualScrollUntil=0;manualScrollSeen=false;
+        showWindow(from,true);
         mark(from,end,true);
+    }
+    private void openTextBlocks(){
+        if(sentences.isEmpty()){
+            Toast.makeText(this,"Текст ещё загружается",Toast.LENGTH_SHORT).show();return;
+        }
+        TtsTextBlockManager.show(this,sentences,
+            ReaderButtonColors.neutral(this,0xfffff9f0),foreground,
+            part->selectWord(part.fromWord));
     }
     private void togglePlay(){
         if(local){AudioPlaybackService service=AudioPlaybackService.instance;
@@ -362,7 +416,7 @@ public final class EdgeOnlineActivity extends Activity {
             startService(new Intent(this,AudioPlaybackService.class).setAction(service!=null&&!service.isPaused()?AudioPlaybackService.PAUSE:AudioPlaybackService.PLAY));
         }else if(edge!=null){
             if(edge.playRequested()){selectedWord=liveWord();edge.pause();}
-            else {if(downloads!=null)downloads.ensurePlaySelection();edge.play();}
+            else {edge.play();if(downloads!=null)downloads.ensurePlaySelection();}
         }
         refresh();
     }
@@ -425,13 +479,15 @@ public final class EdgeOnlineActivity extends Activity {
                 .putExtra("auto_on_selection",wasPlaying));
         }else{
             switchShouldPlay=wasPlaying;
-            Intent job=new Intent(this,EdgeDownloadService.class).setAction(EdgeDownloadService.ACTION_BEGIN)
-                .putExtra(EdgeDownloadService.EXTRA_URI,uri).putExtra(EdgeDownloadService.EXTRA_ANCHOR,switchedWord);
-            try{ContextCompat.startForegroundService(this,job);}catch(Exception ex){
-                Toast.makeText(this,"Не удалось подключить Edge TTS",Toast.LENGTH_LONG).show();switchShouldPlay=false;
-            }
+            // Switching engine does not launch foreground downloader.
+            // A regular streaming coordinator, not a foreground download notification.
+            startService(new Intent(this,EdgeStreamingService.class)
+                .setAction(EdgeStreamingService.ACTION_BEGIN)
+                .putExtra(EdgeStreamingService.EXTRA_URI,uri)
+                .putExtra(EdgeStreamingService.EXTRA_ANCHOR,
+                    switchedWord>=0?switchedWord:getSharedPreferences("reader",0).getInt("tts_word:"+uri,0)));
             boundPlayer=bindService(new Intent(this,EdgePlaybackService.class),playerConnection,BIND_AUTO_CREATE);
-            boundDownload=bindService(new Intent(this,EdgeDownloadService.class),downloadConnection,BIND_AUTO_CREATE);
+            boundDownload=bindService(new Intent(this,EdgeStreamingService.class),downloadConnection,BIND_AUTO_CREATE);
         }
         refresh();
     }
@@ -490,7 +546,7 @@ public final class EdgeOnlineActivity extends Activity {
         if(local){AudioPlaybackService svc=AudioPlaybackService.instance;
             if(svc!=null&&svc.isTtsMode())return wordFromChar(svc.currentTtsWordRange()[0]);
         }else if(downloads!=null){
-            EdgeDownloadService.Clip clip=downloads.currentClip();
+            EdgeStreamingService.Clip clip=downloads.currentClip();
             if(clip!=null&&edge!=null&&(clip.key+":"+clip.start).equals(edge.currentKey())){
                 List<EdgeWordTimings.Word> ticks=clip.ready()?EdgeWordTimings.read(clip.file,clip.text):downloads.liveWords(clip);
                 int selected=EdgeWordTimings.at(ticks,edge.positionMs());
@@ -525,7 +581,7 @@ public final class EdgeOnlineActivity extends Activity {
             else {SentenceChunks.Chunk part=SentenceChunks.forWord(sentences,word);
                 if(part!=null){start=part.fromChar;end=part.toChar;}}
         }else{
-            EdgeDownloadService.Clip clip=downloads==null?null:downloads.currentClip();
+            EdgeStreamingService.Clip clip=downloads==null?null:downloads.currentClip();
             List<EdgeWordTimings.Word> ticks=clip==null?Collections.emptyList():
                 (clip.ready()?EdgeWordTimings.read(clip.file,clip.text):
                     (downloads==null?Collections.emptyList():downloads.liveWords(clip)));
@@ -559,6 +615,12 @@ public final class EdgeOnlineActivity extends Activity {
             }
         }
         if(end>start)mark(start,end,playing);
+        if(manualScrollSeen&&playing&&
+                android.os.SystemClock.uptimeMillis()>=manualScrollUntil){
+            manualScrollSeen=false;
+            SentenceChunks.Chunk currently=SentenceChunks.forWord(sentences,word);
+            if(currently!=null)showWindow(currently.fromChar,true);
+        }
         int total=wordStarts.size();int pct=total>0?(int)Math.min(100,word*100L/total):0;
         int wpm=TtsWpm.get(this);int totalMinutes=(int)Math.round(total/(double)wpm);
         int heardMinutes=(int)Math.round(word/(double)wpm);

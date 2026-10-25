@@ -83,7 +83,7 @@ final class DownloadsRepository {
         if(item.downloadedBytes>0)item.description+=" · "+String.format(Locale.ROOT,"%.1f МБ",item.downloadedBytes/1048576.0);
         return item;
     }
-    private static Item fromEdge(File bookDir,String uri,String title,int totalWords,EdgeDownloadService live){
+    private static Item fromEdge(File bookDir,String uri,String title,int totalWords,EdgeStreamingService live){
         File audio=new File(bookDir,"EdgeTTS");
         JSONArray queue=readArray(new File(audio,"queue.json"));
         EdgeFullBookStore.Job full=EdgeFullBookStore.read(bookDir);
@@ -107,7 +107,7 @@ final class DownloadsRepository {
             if(ready>item.done)item.done=ready;
             item.total=Math.max(item.total,live.snapshot().size());
             item.running=live.isActive();item.voice=live.voice();
-            if(item.done>0&&item.downloadedBytes==0)for(EdgeDownloadService.Clip c:live.snapshot())if(c.ready())item.downloadedBytes+=c.bytes;
+            if(item.done>0&&item.downloadedBytes==0)for(EdgeStreamingService.Clip c:live.snapshot())if(c.ready())item.downloadedBytes+=c.bytes;
         }
         item.ready=totalWords>0&&contiguous>=totalWords&&allReady&&item.total>0;
         item.unknownTotal=!item.ready;
@@ -152,7 +152,7 @@ final class DownloadsRepository {
         for(LinkDownloadStore.Entry e:b.files)item.downloadedBytes+=e.bytes;
         return item;
     }
-    static ArrayList<Item> load(Context ctx,EdgeDownloadService live){
+    static ArrayList<Item> load(Context ctx,EdgeStreamingService live){
         ArrayList<Item> all=new ArrayList<>();
         for(BookImportManager.Job j:BookImportManager.load(ctx))all.add(fromAudio(ctx,j));
         for(LinkDownloadStore.Batch b:LinkDownloadStore.load(ctx))all.add(fromLink(b));
