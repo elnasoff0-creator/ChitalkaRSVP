@@ -87,7 +87,7 @@ public class AudioPlayerActivity extends Activity {
     void command(String action){startService(new Intent(this,AudioPlaybackService.class).setAction(action));handler.postDelayed(this::refresh,150);}
     @Override public void onCreate(Bundle b){super.onCreate(b);bookUri=getIntent().getStringExtra("book_uri");if(bookUri==null||bookUri.isEmpty())bookUri=getSharedPreferences("reader",0).getString("uri","");String id=getIntent().getStringExtra("audio_book_id");if(id!=null)for(AudioLibrary.Book item:AudioLibrary.load(this))if(id.equals(item.id)){selected=item;break;}if(getIntent().getBooleanExtra("count_usage",false)&&selected!=null)bumpAudioUsage(selected.id);
         if(getIntent().getBooleanExtra("start_tts",false)&&!bookUri.isEmpty()){
-            startActivity(new Intent(this,EdgeOnlineActivity.class)
+            startActivity(new Intent(this,ReaderActivity.class).putExtra("reading_mode_override",3)
                 .putExtra("book_uri",bookUri)
                 .putExtra("tts_mode_local",getSharedPreferences("reader",0).getBoolean("tts_last_local",true))
                 .putExtra("word_index",getIntent().getIntExtra("word_index",getSharedPreferences("reader",0).getInt("tts_word:"+bookUri,0))));
@@ -112,11 +112,12 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);
         root.addView(top,new LinearLayout.LayoutParams(-1,dp(54)));
         top.addView(topAction(R.drawable.ic_back,"Назад",v->BackNavigation.back(this)),new LinearLayout.LayoutParams(dp(44),dp(44)));
+        top.addView(new View(this),new LinearLayout.LayoutParams(0,dp(1),1f));
         if(selected==null){TextView method=label("TTS ▾",13);method.setGravity(Gravity.CENTER);
             method.setOnClickListener(v->methodMenu());
             LinearLayout.LayoutParams methodLp=new LinearLayout.LayoutParams(0,dp(44),1);
             methodLp.leftMargin=dp(5);top.addView(method,methodLp);}
-        chapterPicker=topAction(R.drawable.ic_list_audio,"Выбрать главу",v->chapters());
+        chapterPicker=topAction(R.drawable.ic_list_audio,"Аудиоглавы",v->chapters());
         LinearLayout.LayoutParams chapterLp=new LinearLayout.LayoutParams(dp(44),dp(44));chapterLp.leftMargin=dp(5);
         top.addView(chapterPicker,chapterLp);
         LinearLayout speedGroup=new LinearLayout(this);speedGroup.setOrientation(1);speedGroup.setGravity(Gravity.CENTER);
@@ -403,7 +404,7 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
     void loadTts(String u,int index){
         if(u==null||u.isEmpty()){Toast.makeText(this,"Сначала откройте EPUB или FB2",Toast.LENGTH_SHORT).show();return;}
         bookUri=u;
-        startActivity(new Intent(this,EdgeOnlineActivity.class)
+        startActivity(new Intent(this,ReaderActivity.class).putExtra("reading_mode_override",3)
             .putExtra("book_uri",u).putExtra("tts_mode_local",true)
             .putExtra("word_index",Math.max(0,index)));
         finish();
@@ -426,10 +427,10 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
             Toast.makeText(this,"Сначала откройте текстовую книгу",Toast.LENGTH_SHORT).show();return;
         }
         boolean lastLocal=getSharedPreferences("reader",0).getBoolean("tts_last_local",true);
-        startActivity(new Intent(this,EdgeOnlineActivity.class)
+        startActivity(new Intent(this,ReaderActivity.class).putExtra("reading_mode_override",3)
             .putExtra("book_uri",bookUri).putExtra("tts_mode_local",lastLocal));
     }
-    void chapters(){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null){Toast.makeText(this,"Сначала выберите книгу",Toast.LENGTH_SHORT).show();return;}if(s.isTtsMode()){chooseTtsFragment(s);return;}int count=s.getChapterCount();if(count<1)return;String[] labels=new String[count];for(int j=0;j<count;j++)labels[j]=s.getChapterName(j);new SwipeDialogs.Builder(this).setTitle("Части аудиокниги").setSingleChoiceItems(labels,s.getSegment(),(d,n)->{Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.CHAPTER);i.putExtra("chapter",n);startService(i);d.dismiss();}).setNegativeButton("Отмена",null).show();}
+    void chapters(){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null){Toast.makeText(this,"Сначала выберите книгу",Toast.LENGTH_SHORT).show();return;}if(s.isTtsMode()){chooseTtsFragment(s);return;}int count=s.getChapterCount();if(count<1)return;String[] labels=new String[count];for(int j=0;j<count;j++)labels[j]=s.getChapterName(j);UiNavigationSheet.showAudiobookChapters(this,labels,s.getSegment(),n->{Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.CHAPTER);i.putExtra("chapter",n);startService(i);});}
     void chooseTtsFragment(AudioPlaybackService s){
         int count=s.getDuration(),current=s.getPosition();
         if(count<=0)return;

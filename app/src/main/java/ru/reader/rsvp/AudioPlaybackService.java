@@ -154,15 +154,18 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
           sleepDeadline=getSharedPreferences("reader",0).getLong("audio_sleep_deadline",0L);
           if(sleepDeadline<=System.currentTimeMillis())sleepDeadline=0L;
           interruptedByExternalAudio=false;if(active)saveProgress(); if(tts!=null)tts.stop();resetLocalSession(); title="Загрузка книги…";currentBook=intent.getStringExtra("bookUri");ChteicoStore.openAudio(this,currentBook);final String source=currentBook;
-          ttsMode=true;active=true;paused=true;releasePlayer();
+          ttsMode=true;active=true;paused=true;ttsStartRequested=false;releasePlayer();
           getSharedPreferences("reader",0).edit().putString("last_media_kind","text").apply();
-          new Thread(()->{try{BookLoader.Book book=BookLoader.load(this,Uri.parse(source));handler.post(()->{if(!ttsMode||!source.equals(currentBook))return;
+          new Thread(()->{try{UnifiedBookSession session=UnifiedBookSession.open(this,Uri.parse(source));
+          BookLoader.Book book=session.book;handler.post(()->{if(!ttsMode||!source.equals(currentBook))return;
               title=book.title==null||book.title.trim().isEmpty()?"Книга":book.title.trim();
-              makeChunks(book.text);int requestedWord=intent.getIntExtra("word_index",-1); int fallback=getSharedPreferences("reader",0).getInt("tts_pos:"+source,0); ttsPosition=requestedWord>=0?chunkForWord(requestedWord):Math.max(0,Math.min(chunks.size()-1,fallback));ttsStartRequested=intent.getBooleanExtra("auto_on_selection",false);
+              makeChunks(session);int requestedWord=intent.getIntExtra("word_index",-1); int fallback=getSharedPreferences("reader",0).getInt("tts_pos:"+source,0); ttsPosition=requestedWord>=0?chunkForWord(requestedWord):Math.max(0,Math.min(chunks.size()-1,fallback));ttsStartRequested=ttsStartRequested||intent.getBooleanExtra("auto_on_selection",false);
               paused=true;
               if(ttsStartRequested)startTts();
               notifyState();});}catch(Exception ignored){handler.post(()->{paused=true;notifyState();});}}).start();break;}
-        case PLAY: AudioModeCoordinator.stopEdge(this);resume();break;case PAUSE: pausePlayback();break;
+        case PLAY: AudioModeCoordinator.stopEdge(this);
+          if(ttsMode&&chunks.isEmpty()){ttsStartRequested=true;break;}
+          resume();break;case PAUSE: pausePlayback();break;
         case STOP: stopServicePlayback();break;
         case NEXT: jump(ttsMode?1:1);break;case PREV:jump(-1);break;
         case SEEK:seekTo(intent.getIntExtra("position",0));break;
@@ -335,6 +338,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         playWhenPrepared=false;playAfterSeek=false;
         boolean wasPlaying=!paused;
         if(ttsMode){
+            ttsStartRequested=false;
             if(ttsAudio!=null){try{ttsAudio.pause();}catch(Exception ignored){} }
             else if(tts!=null){tts.stop();localPending.clear();}paused=true;
         }
@@ -382,10 +386,10 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         int at=java.util.Collections.binarySearch(chunkWordPositions,Math.max(0,wordIndex));
         return Math.max(0,Math.min(chunkWordPositions.size()-1,at>=0?at:-at-2));
     }
-    private void makeChunks(String full){
+    private void makeChunks(UnifiedBookSession session){
         chunks.clear();chunkWordPositions.clear();ttsChunkCharPositions.clear();
-        java.util.ArrayList<SentenceChunks.Chunk> parts=SentenceChunks.split(full);
-        ttsWordCount=SentenceChunks.wordPositions(full==null?"":full).size();
+        java.util.ArrayList<SentenceChunks.Chunk> parts=session.speechSegments;
+        ttsWordCount=session.ttsWordPositions.size();
         for(SentenceChunks.Chunk part:parts){
             chunks.add(part.text);
             chunkWordPositions.add(part.fromWord);
@@ -514,7 +518,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     public boolean isPaused(){return paused;} public boolean isTtsMode(){return ttsMode;} public float getSpeed(){return speed;} public long getSleepRemainingMillis(){return sleepDeadline>0?Math.max(0,sleepDeadline-System.currentTimeMillis()):0;}public String getTitle(){return title;}public String getTtsBookUri(){return ttsMode?currentBook:"";}public int getSegment(){return segment;} public int getChapterCount(){return playlist.size();} public String getChapterName(int n){return n>=0&&n<chapterNames.size()?chapterNames.get(n):"Глава "+(n+1);} public String getBookId(){return bookId;} public String getCurrentText(){return ttsMode&&ttsPosition>=0&&ttsPosition<chunks.size()?chunks.get(ttsPosition):"";}
     private void saveProgress(){android.content.SharedPreferences.Editor e=getSharedPreferences("reader",0).edit();if(ttsMode){e.putInt("tts_pos:"+currentBook,ttsPosition);saveTtsReadingPosition(e);}else{e.putInt("audio_pos:"+bookId,getPosition()).putInt("audio_segment:"+bookId,segment).putString("audio_current_title",title).putInt("audio_progress:"+bookId,audioProgressPercent()).putFloat("audio_speed",speed);}e.putBoolean("audio_tts",ttsMode).apply();}
     private void notifyState(){updateMediaSession();Intent i=new Intent(ACTION_STATE);i.setPackage(getPackageName());sendBroadcast(i);if(active)postNotification();}
-    private void postNotification(){Intent open=ttsMode?new Intent(this,EdgeOnlineActivity.class).putExtra("book_uri",currentBook).putExtra("tts_mode_local",true).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP):new Intent(this,AudioPlayerActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);PendingIntent view=PendingIntent.getActivity(this,0,open,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);PendingIntent toggle=PendingIntent.getService(this,1,new Intent(this,AudioPlaybackService.class).setAction(paused?PLAY:PAUSE),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);PendingIntent prev=PendingIntent.getService(this,2,new Intent(this,AudioPlaybackService.class).setAction(PREV),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);PendingIntent next=PendingIntent.getService(this,3,new Intent(this,AudioPlaybackService.class).setAction(NEXT),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);PendingIntent close=PendingIntent.getService(this,4,new Intent(this,AudioPlaybackService.class).setAction(STOP),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+    private void postNotification(){Intent open=ttsMode?new Intent(this,ReaderActivity.class).putExtra("book_uri",currentBook).putExtra("reading_mode_override",3).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP):new Intent(this,AudioPlayerActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);PendingIntent view=PendingIntent.getActivity(this,0,open,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);PendingIntent toggle=PendingIntent.getService(this,1,new Intent(this,AudioPlaybackService.class).setAction(paused?PLAY:PAUSE),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);PendingIntent prev=PendingIntent.getService(this,2,new Intent(this,AudioPlaybackService.class).setAction(PREV),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);PendingIntent next=PendingIntent.getService(this,3,new Intent(this,AudioPlaybackService.class).setAction(NEXT),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);PendingIntent close=PendingIntent.getService(this,4,new Intent(this,AudioPlaybackService.class).setAction(STOP),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         Notification.MediaStyle mediaStyle=new Notification.MediaStyle().setShowActionsInCompactView(0,1,2);
         if(mediaSession!=null)mediaStyle.setMediaSession(mediaSession.getSessionToken());
         Notification.Builder builder=Build.VERSION.SDK_INT>=26?new Notification.Builder(this,CHANNEL):new Notification.Builder(this);Notification notification=builder.setSmallIcon(android.R.drawable.ic_media_play).setContentTitle(title).setContentText(ttsMode?"Озвучивание книги":"Аудиокнига").setContentIntent(view).setDeleteIntent(close).setOnlyAlertOnce(true).setOngoing(false).addAction(android.R.drawable.ic_media_previous,"Назад",prev).addAction(paused?android.R.drawable.ic_media_play:android.R.drawable.ic_media_pause,paused?"Играть":"Пауза",toggle).addAction(android.R.drawable.ic_media_next,"Вперёд",next).addAction(android.R.drawable.ic_menu_close_clear_cancel,"Закрыть",close).setStyle(mediaStyle).build();try{if(Build.VERSION.SDK_INT>=29)startForeground(41,notification,ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);else startForeground(41,notification);}catch(Exception ignored){}

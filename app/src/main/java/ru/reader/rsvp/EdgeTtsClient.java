@@ -45,7 +45,7 @@ final class EdgeTtsClient {
         +"(KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36 Edg/155.0.4283.45";
     private static final OkHttpClient HTTP=new OkHttpClient.Builder()
         .connectTimeout(18,TimeUnit.SECONDS).readTimeout(0,TimeUnit.SECONDS)
-        .pingInterval(15,TimeUnit.SECONDS).build();
+        .build();
     private static final ScheduledExecutorService WATCHDOG=Executors.newSingleThreadScheduledExecutor(r->{
         Thread t=new Thread(r,"EdgeTtsWatchdog");t.setDaemon(true);return t;
     });
@@ -56,6 +56,8 @@ final class EdgeTtsClient {
     private final Callback callback;
     private final ByteArrayOutputStream received=new ByteArrayOutputStream();
     private int chunks;
+    private int connectAttempts;
+    private volatile boolean retryScheduled;
     private long totalBytes;
     private long startedAt,openedAt,firstAudioAt;
     private final ArrayList<EdgeWordTimings.Boundary> boundaries=new ArrayList<>();
@@ -90,7 +92,10 @@ final class EdgeTtsClient {
     void cancel(){synchronized(this){completed=true;if(timeout!=null)timeout.cancel(false);}
         if(socket!=null)socket.cancel();}
     private void connect(String text,String voice,String rate){
-        startedAt=SystemClock.elapsedRealtime();lastPacketAt=startedAt;
+        connectAttempts++;
+        retryScheduled=false;
+        if(connectAttempts==1)startedAt=SystemClock.elapsedRealtime();
+        lastPacketAt=SystemClock.elapsedRealtime();
         timeout=WATCHDOG.scheduleAtFixedRate(()->{
             synchronized(EdgeTtsClient.this){
                 if(completed)return;
@@ -106,7 +111,12 @@ final class EdgeTtsClient {
         },3,3,TimeUnit.SECONDS);
         try{
             String uid=uuid();
-            String url=ENDPOINT+"?TrustedClientToken="+EdgeToken.TOKEN
+            boolean alternateEndpoint=connectAttempts>1;
+            String base=alternateEndpoint
+                ?"wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1"
+                :ENDPOINT;
+            String parameter=alternateEndpoint?"Ocp-Apim-Subscription-Key":"TrustedClientToken";
+            String url=base+"?"+parameter+"="+EdgeToken.TOKEN
                 +"&ConnectionId="+uid+"&Sec-MS-GEC="+EdgeToken.gec()+"&Sec-MS-GEC-Version="+EdgeToken.VERSION;
             Request req=new Request.Builder().url(url).header("Origin","chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold")
                 .header("Pragma","no-cache").header("Cache-Control","no-cache")
@@ -162,9 +172,34 @@ final class EdgeTtsClient {
                 }
                 @Override public void onFailure(WebSocket ws,Throwable error,Response response){
                     String suffix=response==null?"":" HTTP "+response.code();
+                    // A transient reset before any audio must not poison the live Media3 source.
+                    // Retry once with fresh ConnectionId; keep the same callback/live buffer.
+                    synchronized(EdgeTtsClient.this){
+                        // Ignore the old WebSocket's late failure after a retry
+                        // has already replaced it. Otherwise it can abort a
+                        // healthy replacement connection before first audio.
+                        if(ws!=socket)return;
+                        if(!completed && connectAttempts<2 && firstAudioAt==0 &&
+                                (response==null || response.code()==403 || response.code()>=500)){
+                            retryScheduled=true;
+                            WATCHDOG.schedule(()->{
+                                synchronized(EdgeTtsClient.this){
+                                    if(completed)return;
+                                    if(timeout!=null)timeout.cancel(false);
+                                    connect(text,voice,rate);
+                                }
+                            },350,TimeUnit.MILLISECONDS);
+                            return;
+                        }
+                    }
                     finish("Соединение Edge TTS"+suffix+": "+(error==null?"неизвестная ошибка":error.getMessage()));
                 }
-                @Override public void onClosed(WebSocket ws,int code,String reason){if(!completed)finish("Edge закрыл соединение до завершения: "+code);}
+                @Override public void onClosed(WebSocket ws,int code,String reason){
+                    synchronized(EdgeTtsClient.this){
+                        if(ws!=socket)return;
+                        if(!completed&&!retryScheduled)finish("Edge закрыл соединение до завершения: "+code);
+                    }
+                }
             });
         }catch(Exception ex){finish("Не удалось подключиться к Edge: "+ex.getMessage());}
     }

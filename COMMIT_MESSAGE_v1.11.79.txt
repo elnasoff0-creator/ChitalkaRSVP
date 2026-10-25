@@ -1,8 +1,0 @@
-fix(tts): recover Edge live playback and index EPUB/FB2 chapters (v1.11.79-beta)
-
-- preserve Play requested before service bind; allow pending selections
-- reset failed streaming Media3 tracks upon explicit retry
-- expose WebSocket/media errors; update v2 Edge version and watchdog
-- recognize EPUB nav/NCX and FB2 section/title structural chapters
-- navigate real chapters alongside existing BookChunkIndex UI blocks
-- keep MP3/WordBoundary files and all 18 pet sprites unchanged

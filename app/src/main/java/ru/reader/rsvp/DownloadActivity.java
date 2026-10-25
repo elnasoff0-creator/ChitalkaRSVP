@@ -21,6 +21,7 @@ import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.PopupMenu;
+import android.widget.ImageButton;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -40,7 +41,6 @@ public final class DownloadActivity extends Activity {
     private final Handler main=new Handler(Looper.getMainLooper());
     private boolean visible,bound;
     private EdgeStreamingService edge;
-    private LinearLayout filters;
     private TextView summary;
     private RecyclerView list;
     private JobsAdapter adapter;
@@ -67,30 +67,40 @@ public final class DownloadActivity extends Activity {
     }
     private void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(12),dp(25),dp(12),dp(12));root.setBackgroundColor(BG);setContentView(root);SafeSystemBars.matchBackground(this,BG);
-        FrameLayout top=new FrameLayout(this);root.addView(top,new LinearLayout.LayoutParams(-1,dp(53)));
-        TextView heading=text("Загрузки",25,true);heading.setTypeface(Typeface.SERIF,Typeface.BOLD);heading.setGravity(Gravity.CENTER);
-        top.addView(heading,new FrameLayout.LayoutParams(-1,-1));
-        ImageView back=icon(R.drawable.ic_back,"Назад",44);FrameLayout.LayoutParams bl=new FrameLayout.LayoutParams(dp(44),dp(44),Gravity.START|Gravity.CENTER_VERTICAL);
-        top.addView(back,bl);back.setOnClickListener(v->BackNavigation.back(this));
-
-        LinearLayout actions=new LinearLayout(this);
-        LinearLayout.LayoutParams al=new LinearLayout.LayoutParams(-1,dp(120));al.topMargin=dp(12);root.addView(actions,al);
-        TextView fullBook=center("▤  Подготовить всю книгу Edge TTS",15);
-        fullBook.setTypeface(Typeface.DEFAULT,Typeface.BOLD);fullBook.setBackground(bg(PANEL,17));
-        LinearLayout.LayoutParams fullLp=new LinearLayout.LayoutParams(-1,dp(49));fullLp.topMargin=dp(9);
-        root.addView(fullBook,fullLp);
-        fullBook.setOnClickListener(v->startActivity(new Intent(this,EdgeFullBookActivity.class)));
-        addMainAction(actions,R.drawable.ic_search_audiobook,"Поиск аудиокниги",()->startActivity(new Intent(this,KvuheSearchActivity.class)),false);
-        addMainAction(actions,R.drawable.ic_import_link,"Скачать по ссылке",()->startActivity(new Intent(this,LinkDownloadActivity.class)),true);
-
-        HorizontalScrollView scrolling=new HorizontalScrollView(this);scrolling.setHorizontalScrollBarEnabled(false);
-        LinearLayout.LayoutParams fl=new LinearLayout.LayoutParams(-1,dp(52));fl.topMargin=dp(12);root.addView(scrolling,fl);
-        filters=new LinearLayout(this);filters.setGravity(Gravity.CENTER_VERTICAL);scrolling.addView(filters);
-        updateFilterButtons();
+        LinearLayout toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);
+        root.addView(toolbar,new LinearLayout.LayoutParams(-1,dp(52)));
+        ImageView back=icon(R.drawable.ic_back,"Назад",44);
+        toolbar.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        back.setOnClickListener(v->BackNavigation.back(this));
+        toolbar.addView(new View(this),new LinearLayout.LayoutParams(0,dp(1),1));
+        toolbarAction(toolbar,R.drawable.ic_search_audiobook,"Поиск аудиокниг",()->startActivity(new Intent(this,KvuheSearchActivity.class)));
+        toolbarAction(toolbar,R.drawable.ic_import_link,"Импорт по ссылке",()->startActivity(new Intent(this,LinkDownloadActivity.class)));
+        toolbarAction(toolbar,R.drawable.ic_autoload,"Подготовить книгу Edge",()->startActivity(new Intent(this,EdgeFullBookActivity.class)));
+        toolbarAction(toolbar,R.drawable.ic_settings,"Настройки загрузок",()->startActivity(new Intent(this,SettingsActivity.class).putExtra("audio_tab",true)));
+        TextView heading=text("Загрузки",25,true);heading.setTypeface(Typeface.SERIF,Typeface.BOLD);
+        LinearLayout.LayoutParams hl=new LinearLayout.LayoutParams(-1,-2);hl.topMargin=dp(14);root.addView(heading,hl);
+        String[] currentFilters={"Все загрузки","В процессе","Аудиокниги","Edge TTS","По ссылке"};
+        TextView filterSelect=center(currentFilters[Math.max(0,Math.min(filter,4))]+"  ▾",16);
+        filterSelect.setGravity(Gravity.CENTER_VERTICAL|Gravity.CENTER_HORIZONTAL);
+        filterSelect.setBackground(bg(ReaderButtonColors.neutral(this,PANEL),15));
+        filterSelect.setTextColor(ReaderButtonColors.contrastingText(ReaderButtonColors.neutral(this,PANEL)));
+        LinearLayout.LayoutParams fl=new LinearLayout.LayoutParams(-1,dp(49));fl.topMargin=dp(14);root.addView(filterSelect,fl);
+        filterSelect.setOnClickListener(v->{
+            PopupMenu menu=new PopupMenu(this,filterSelect);
+            String[] names={"Все загрузки","В процессе","Аудиокниги","Edge TTS","По ссылке"};
+            for(int i=0;i<names.length;i++){final int ix=i;menu.getMenu().add(names[i]).setOnMenuItemClickListener(item->{
+                filter=ix;filterSelect.setText(names[ix]+"  ▾");getSharedPreferences("reader",0).edit().putInt(FILTER_KEY,ix).apply();refresh();return true;});}
+            menu.show();
+        });
         summary=text("Загрузка данных…",13,false);summary.setTextColor(MUTED);summary.setGravity(Gravity.CENTER);
         summary.setPadding(0,dp(11),0,dp(11));root.addView(summary);
         list=new RecyclerView(this);list.setLayoutManager(new LinearLayoutManager(this));
         adapter=new JobsAdapter();list.setAdapter(adapter);root.addView(list,new LinearLayout.LayoutParams(-1,0,1));
+    }
+    private void toolbarAction(LinearLayout toolbar,int drawable,String hint,Runnable action){
+        ImageView button=icon(drawable,hint,44);
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(dp(44),dp(44));lp.leftMargin=dp(5);
+        toolbar.addView(button,lp);button.setOnClickListener(v->action.run());
     }
     private void addMainAction(LinearLayout parent,int drawable,String title,Runnable click,boolean right){
         LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setGravity(Gravity.CENTER);
@@ -102,16 +112,7 @@ public final class DownloadActivity extends Activity {
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=dp(4);card.addView(label,lp);
         card.setContentDescription(title);card.setOnClickListener(v->click.run());
     }
-    private void updateFilterButtons(){
-        filters.removeAllViews();String[] labels={"Все","В процессе","Аудиокниги","Edge TTS","По ссылке"};
-        for(int i=0;i<labels.length;i++){
-            final int n=i;TextView v=center(labels[i],14);v.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
-            v.setPadding(dp(14),0,dp(14),0);v.setMinWidth(dp(78));
-            int fill=n==filter?ReaderButtonColors.accent(this,ACCENT):ReaderButtonColors.neutral(this,PANEL);v.setTextColor(ReaderButtonColors.contrastingText(fill));v.setBackground(bg(fill,17));
-            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,dp(45));if(i>0)lp.leftMargin=dp(7);filters.addView(v,lp);
-            v.setOnClickListener(view->{filter=n;getSharedPreferences("reader",0).edit().putInt(FILTER_KEY,n).apply();updateFilterButtons();refresh();});
-        }
-    }
+
     @Override protected void onResume(){super.onResume();visible=true;
         AudiobookCoverStore.backfill(this,()->{if(visible)refresh();});
         main.post(ticker);}
@@ -158,11 +159,11 @@ public final class DownloadActivity extends Activity {
                         .setNegativeButton("Отмена",null).setPositiveButton("Слушать",(d,w)->{
                             prefs.edit().putString("edge_voice",job.voice).putString("edge_rate",job.rate)
                                 .putInt(EdgeSegmentSettings.KEY,job.chars).apply();
-                            startActivity(new Intent(this,EdgeOnlineActivity.class).putExtra("book_uri",item.bookUri));
+                            startActivity(new Intent(this,ReaderActivity.class).putExtra("reading_mode_override",3).putExtra("book_uri",item.bookUri));
                         }).show();return;
                 }
             }
-            startActivity(new Intent(this,EdgeOnlineActivity.class).putExtra("book_uri",item.bookUri));
+            startActivity(new Intent(this,ReaderActivity.class).putExtra("reading_mode_override",3).putExtra("book_uri",item.bookUri));
         }else if(item.ready){
             startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_book_id","url:"+item.source));
         }else startActivity(new Intent(this,UrlImportActivity.class).putExtra("source",item.source));
@@ -246,13 +247,11 @@ public final class DownloadActivity extends Activity {
         PopupMenu popup=new PopupMenu(this,anchor);
         if(DownloadsRepository.EDGE.equals(item.type)){
             popup.getMenu().add(0,1,0,"Открыть Edge-плеер");
-            popup.getMenu().add(0,2,1,"Файлы озвучки");
-            popup.getMenu().add(0,7,1,"Подготовить всю книгу");
             if(item.fullJob!=null&&!item.ready)
                 popup.getMenu().add(0,8,1,item.running?"Пауза полной подготовки":"Продолжить полную подготовку");
         }else{
             popup.getMenu().add(0,1,0,item.ready?"Слушать аудиокнигу":"Подробнее / главы");
-            if(!item.ready)popup.getMenu().add(0,5,1,"Продолжить загрузку");
+            if(!item.ready)popup.getMenu().add(0,5,1,item.running?"Приостановить":"Продолжить загрузку");
         }
         popup.getMenu().add(0,3,2,"Открыть файлы");
         popup.getMenu().add(0,6,3,"Убрать из списка");
@@ -260,13 +259,10 @@ public final class DownloadActivity extends Activity {
         popup.setOnMenuItemClickListener(m->{
             switch(m.getItemId()){
                 case 1:open(item);break;
-                case 2:openFolder(item);break;
                 case 3:openFolder(item);break;
                 case 4:confirmDelete(item,true);break;
-                case 5:send(item,DownloadWorker.START);break;
+                case 5:send(item,item.running?DownloadWorker.PAUSE:DownloadWorker.START);break;
                 case 6:confirmDelete(item,false);break;
-                case 7:startActivity(new Intent(this,EdgeFullBookActivity.class)
-                    .putExtra("book_uri",item.bookUri).putExtra("book_title",item.title));break;
                 case 8:fullCommand(item,item.running);break;
             }return true;
         });popup.show();
@@ -307,40 +303,11 @@ public final class DownloadActivity extends Activity {
                 if(item.total==0)progress.setIndeterminate(item.running);
                 LinearLayout.LayoutParams pl=new LinearLayout.LayoutParams(-1,dp(7));pl.topMargin=dp(9);detail.addView(progress,pl);
             }
-            LinearLayout controls=new LinearLayout(DownloadActivity.this);controls.setGravity(Gravity.CENTER_VERTICAL);
-            LinearLayout.LayoutParams ctl=new LinearLayout.LayoutParams(-1,dp(44));ctl.topMargin=dp(10);card.addView(controls,ctl);
-            if(DownloadsRepository.LINK.equals(item.type) && !item.ready){
-                TextView pause=control(item.running?"Пауза":"Продолжить");controls.addView(pause,new LinearLayout.LayoutParams(0,dp(42),1));pause.setOnClickListener(v->linkCommand(item,item.running?DirectLinkDownloadService.PAUSE:DirectLinkDownloadService.START));
-                TextView details=control("Файлы");LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(42),1);p.leftMargin=dp(6);controls.addView(details,p);details.setOnClickListener(v->open(item));
-            }else if(DownloadsRepository.EDGE.equals(item.type)){
-                if(item.fullJob!=null&&!item.ready){
-                    TextView pause=control(item.running?"Пауза":"Продолжить");
-                    controls.addView(pause,new LinearLayout.LayoutParams(0,dp(42),1));
-                    pause.setOnClickListener(v->fullCommand(item,item.running));
-                }else if(item.ready){
-                    TextView listen=control("Слушать офлайн");
-                    controls.addView(listen,new LinearLayout.LayoutParams(0,dp(42),1));
-                    listen.setOnClickListener(v->open(item));
-                }else{
-                    TextView prepare=control("Подготовить всю книгу");
-                    controls.addView(prepare,new LinearLayout.LayoutParams(0,dp(42),1));
-                    prepare.setOnClickListener(v->startActivity(new Intent(DownloadActivity.this,EdgeFullBookActivity.class)
-                        .putExtra("book_uri",item.bookUri).putExtra("book_title",item.title)));
-                }
-                TextView queueButton=control("Файлы аудиокниги");
-                LinearLayout.LayoutParams qlp=new LinearLayout.LayoutParams(0,dp(42),1);qlp.leftMargin=dp(6);
-                controls.addView(queueButton,qlp);queueButton.setOnClickListener(v->openFolder(item));
-            }else if(!item.ready){
-                TextView pause=control(item.running?"Пауза":"Продолжить");controls.addView(pause,new LinearLayout.LayoutParams(0,dp(42),1));
-                pause.setOnClickListener(v->send(item,item.running?DownloadWorker.PAUSE:DownloadWorker.START));
-                TextView cancel=control("Отмена");LinearLayout.LayoutParams cb=new LinearLayout.LayoutParams(0,dp(42),1);cb.leftMargin=dp(7);controls.addView(cancel,cb);
-                cancel.setOnClickListener(v->confirmCancel(item));
-            }else{
-                TextView done=control("✓ Скачано");done.setTextColor(GREEN);done.setOnClickListener(v->open(item));
-                controls.addView(done,new LinearLayout.LayoutParams(0,dp(42),1));
-            }
-            ImageView more=icon(android.R.drawable.ic_menu_more,"Дополнительные действия",43);
-            LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(43),dp(43));moreParams.leftMargin=dp(8);controls.addView(more,moreParams);
+            // Every row exposes its actions through one compact overflow menu.
+            // No duplicate file buttons or bulky download controls.
+            ImageView more=icon(android.R.drawable.ic_menu_more,"Действия загрузки",43);
+            LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(43),dp(43));
+            moreParams.leftMargin=dp(5);top.addView(more,moreParams);
             more.setOnClickListener(v->menu(more,item));card.setOnClickListener(v->open(item));
         }
         TextView control(String caption){TextView b=center(caption,13);b.setBackground(bg(0xfff1e4d7,12));b.setTextColor(INK);return b;}

@@ -1,6 +1,9 @@
 package ru.reader.rsvp;
 
 import android.app.*;
+import android.content.ComponentName;
+import android.content.ServiceConnection;
+import android.os.IBinder;
 import android.content.*;
 import android.graphics.*;
 import android.graphics.drawable.Drawable;
@@ -17,10 +20,19 @@ import java.util.*;
 
 /** Three modes, one global word index, lazily bound text chunks. */
 public class ReaderActivity extends Activity {
-    private static final int NORMAL=0,RSVP=1,CURSOR=2,NO_COLOR=0;
+    private static final int NORMAL=0,RSVP=1,CURSOR=2,TTS=3,NO_COLOR=0;
     private final Handler handler=new Handler(Looper.getMainLooper());
     private SharedPreferences prefs;
     private LinearLayout root,speedPanel,controls,toolbar,toolbarWpm,modeRow,readingFrame;
+    private TextView toolbarBookName;
+    private FrameLayout bottomBar;
+    private LinearLayout bookHeader;
+    private BookChapterIndex chapters=BookChapterIndex.empty();
+    private java.util.ArrayList<SentenceChunks.Chunk> ttsParts=new java.util.ArrayList<>();
+    private int pendingTtsWord=-1;
+    private String cachedTimingKey="",lastTtsError="";
+    private java.util.List<EdgeWordTimings.Word> cachedTimingWords=java.util.Collections.emptyList();
+    private boolean toolbarExpanded=true,bookHeaderCollapsed=false;
     private FrameLayout sceneRoot,floatingPlayButton,rsvpPlayFrame;
     private TextView bookTitle;
     private ImageView floatingPlayIcon;
@@ -35,6 +47,39 @@ public class ReaderActivity extends Activity {
     private ChunkAdapter chunkAdapter;
     private TextView wordView,progressView,speedView,modeButton;
     private ImageView playIcon,selectWordButton,modeIcon;
+    private ImageButton toolbarModeAction,toolbarEngineAction,toolbarVoiceAction,toolbarSleepAction;
+    private boolean rsvpScrollWords=false;
+    private boolean ttsLocal=true,ttsBoundPlayer=false,ttsBoundStream=false,ttsPendingPlay=false;
+    private EdgePlaybackService ttsPlayer;
+    private EdgeStreamingService ttsStreamer;
+    private long lastTtsVisualUpdate=0;
+    private final EdgeStreamingService.Observer ttsStreamObserver=()->{if(mode==TTS)refreshTtsPosition();};
+    private final EdgePlaybackService.Listener ttsPlayerListener=new EdgePlaybackService.Listener(){
+        @Override public void onTrackChanged(int start,int end,String key,boolean completed){if(mode==TTS)refreshTtsPosition();}
+        @Override public void onPlaybackStateChanged(){if(mode==TTS)refreshTtsPosition();}
+    };
+    private final ServiceConnection ttsPlayerConnection=new ServiceConnection(){
+        @Override public void onServiceConnected(ComponentName name,IBinder binder){
+            if(mode!=TTS||ttsLocal)return;
+            ttsPlayer=((EdgePlaybackService.LocalBinder)binder).getService();
+            ttsPlayer.prepareBook("edge:"+docUri);ttsPlayer.restoreSharedSleepTimer();
+            ttsPlayer.setAutoContinue(true);ttsPlayer.setPlaybackSpeed(Math.min(5f,TtsWpm.rate(ReaderActivity.this)));
+            ttsPlayer.addListener(ttsPlayerListener);
+            if(ttsPendingPlay){ttsPendingPlay=false;ttsPlayer.play();if(ttsStreamer!=null)ttsStreamer.ensurePlaySelection();}
+            refreshTtsPosition();
+        }
+        @Override public void onServiceDisconnected(ComponentName name){ttsPlayer=null;}
+    };
+    private final ServiceConnection ttsStreamConnection=new ServiceConnection(){
+        @Override public void onServiceConnected(ComponentName name,IBinder binder){
+            if(mode!=TTS||ttsLocal)return;
+            ttsStreamer=((EdgeStreamingService.LocalBinder)binder).getService();
+            ttsStreamer.openBook(docUri,index);ttsStreamer.addObserver(ttsStreamObserver);
+            ttsStreamer.setActive(true);ttsStreamer.setAnchor(index,true);
+            if(ttsPlayer!=null&&ttsPlayer.playRequested())ttsStreamer.ensurePlaySelection();
+        }
+        @Override public void onServiceDisconnected(ComponentName name){ttsStreamer=null;}
+    };
     private FocusLinesView focusLines;
     private ReadingWordMap map=ReadingWordMap.parse("");
     private BookChunkIndex chunks;
@@ -50,6 +95,9 @@ public class ReaderActivity extends Activity {
     private boolean fullscreenNormal=false,fullscreenRsvp=false,fullscreenCursor=false;
     private boolean normalChromeVisible=false,immersiveActive=false;
     private int originalSystemUiVisibility=0;
+    private final Runnable ttsUiTick=new Runnable(){@Override public void run(){
+        if(mode==TTS){refreshTtsPosition();handler.postDelayed(this,180);}
+    }};
     private float touchDownX,touchDownY;
     private long touchDownTime;
     private boolean touchMoved=false;
@@ -110,12 +158,23 @@ public class ReaderActivity extends Activity {
         index=prefs.getInt("position:"+docUri,index);
         if(!getIntent().getBooleanExtra("reset",false))index=prefs.getInt("tts_word:"+docUri,index);
         if(getIntent().getBooleanExtra("reset",false))index=0;
+        int requestedMode=getIntent().getIntExtra("reading_mode_override",-1);
+        if(requestedMode>=0&&requestedMode<=TTS){mode=requestedMode;
+            prefs.edit().putInt("reading_mode",requestedMode).apply();}
+        if(getIntent().hasExtra("tts_mode_local")){
+            ttsLocal=getIntent().getBooleanExtra("tts_mode_local",ttsLocal);
+            prefs.edit().putBoolean("tts_last_local",ttsLocal).apply();
+        }
+        if(!getIntent().getBooleanExtra("reset",false)&&getIntent().hasExtra("word_index"))
+            index=Math.max(0,getIntent().getIntExtra("word_index",index));
         draw();if(!docUri.isEmpty())load(Uri.parse(docUri),getIntent().getBooleanExtra("reset",false));
     }
     private void readPreferences(){
         wpm=prefs.getInt("wpm",350);portion=ReadingWordMap.portion(prefs.getInt("rsvp_portion",1));
         size=prefs.getInt("size",36);bg=prefs.getInt("bg",0xfff3e7d5);fg=prefs.getInt("fg",0xff30221e);font=prefs.getInt("font",1);
-        mode=prefs.getInt("reading_mode",prefs.getBoolean("rsvp",true)?RSVP:NORMAL);mode=Math.max(0,Math.min(2,mode));
+        mode=prefs.getInt("reading_mode",prefs.getBoolean("rsvp",true)?RSVP:NORMAL);mode=Math.max(0,Math.min(3,mode));
+        rsvpScrollWords=prefs.getBoolean("rsvp_scroll_words",false);
+        ttsLocal=prefs.getBoolean("tts_last_local",true);
         focusPoint=prefs.getBoolean("rsvp_focus_point",true);focusLinesEnabled=prefs.getBoolean("rsvp_focus_lines",true);
         focusColor=prefs.getInt("rsvp_focus_color",0xffed3030);lineColor=prefs.getInt("rsvp_line_color",0xff915439);
         linePosition=Math.max(0,Math.min(100,prefs.getInt("rsvp_line_position",50)));
@@ -153,7 +212,7 @@ public class ReaderActivity extends Activity {
         b.setPadding(dp(10),dp(10),dp(10),dp(10));b.setBackground(shape(buttonBg(),12));
         b.setColorFilter(contrast(buttonBg()));b.setOnClickListener(click);return b;
     }
-    private int modeDrawable(){return mode==NORMAL?R.drawable.ic_book:mode==RSVP?R.drawable.ic_speed:R.drawable.ic_mode_cursor;}
+    private int modeDrawable(){return mode==NORMAL?R.drawable.ic_book:mode==RSVP?R.drawable.ic_speed:mode==CURSOR?R.drawable.ic_mode_cursor:R.drawable.ic_microphone;}
 
     private void draw(){
         stop();
@@ -164,11 +223,31 @@ public class ReaderActivity extends Activity {
         SafeSystemBars.matchBackground(this,bg);
         toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);add(root,toolbar);
         toolbar.addView(icon(R.drawable.ic_back,v->BackNavigation.back(this)),new LinearLayout.LayoutParams(dp(44),dp(44)));
-        toolbar.addView(new View(this),new LinearLayout.LayoutParams(0,dp(1),1));
+        toolbarBookName=text("",12);
+        toolbarBookName.setSingleLine(true);
+        toolbarBookName.setEllipsize(TextUtils.TruncateAt.END);
+        toolbarBookName.setGravity(Gravity.CENTER_VERTICAL);
+        toolbarBookName.setPadding(dp(8),0,0,0);
+        toolbarBookName.setVisibility(View.GONE);
+        toolbar.addView(toolbarBookName,new LinearLayout.LayoutParams(0,dp(44),1));
         LinearLayout.LayoutParams bookmarkLp=new LinearLayout.LayoutParams(dp(44),dp(44));bookmarkLp.leftMargin=dp(5);
         toolbar.addView(icon(R.drawable.ic_bookmark,v->bookmark()),bookmarkLp);
-        LinearLayout.LayoutParams microphoneLp=new LinearLayout.LayoutParams(dp(44),dp(44));microphoneLp.leftMargin=dp(5);
-        toolbar.addView(icon(R.drawable.ic_microphone,v->audioMenu()),microphoneLp);
+        toolbarModeAction=icon(modeDrawable(),v->modeDialog());
+        toolbarModeAction.setContentDescription("Режим чтения: Чтение, Скорочтение, Курсор, Озвучка");
+        LinearLayout.LayoutParams toolbarModeLp=new LinearLayout.LayoutParams(dp(44),dp(44));
+        toolbarModeLp.leftMargin=dp(5);toolbar.addView(toolbarModeAction,toolbarModeLp);
+        toolbarEngineAction=icon(ttsLocal?R.drawable.ic_android_tts:R.drawable.ic_edge_tts,v->chooseTtsEngine());
+        toolbarEngineAction.setContentDescription("Метод озвучивания");
+        LinearLayout.LayoutParams engineLp=new LinearLayout.LayoutParams(dp(44),dp(44));engineLp.leftMargin=dp(5);
+        toolbar.addView(toolbarEngineAction,engineLp);
+        toolbarVoiceAction=icon(R.drawable.ic_tts_engine,v->chooseTtsVoice());
+        toolbarVoiceAction.setContentDescription("Голос озвучивания");
+        LinearLayout.LayoutParams voiceLp=new LinearLayout.LayoutParams(dp(44),dp(44));voiceLp.leftMargin=dp(5);
+        toolbar.addView(toolbarVoiceAction,voiceLp);
+        toolbarSleepAction=icon(R.drawable.ic_sleep_timer,v->chooseTtsSleep());
+        toolbarSleepAction.setContentDescription("Таймер сна");
+        LinearLayout.LayoutParams sleepLp=new LinearLayout.LayoutParams(dp(44),dp(44));sleepLp.leftMargin=dp(5);
+        toolbar.addView(toolbarSleepAction,sleepLp);
         LinearLayout speedGauge=new LinearLayout(this);speedGauge.setGravity(Gravity.CENTER);speedGauge.setOrientation(LinearLayout.VERTICAL);
         speedGauge.setBackground(shape(buttonBg(),12));speedGauge.setPadding(dp(3),dp(2),dp(3),dp(2));
         ImageView speedNeedle=new ImageView(this);speedNeedle.setImageResource(R.drawable.ic_audio_speed);
@@ -178,9 +257,16 @@ public class ReaderActivity extends Activity {
         speedView.setGravity(Gravity.CENTER);speedView.setPadding(0,0,0,0);
         speedGauge.addView(speedView);
         speedGauge.setContentDescription("Скорость чтения в словах в минуту");
-        speedGauge.setOnClickListener(v->TtsWpm.dialogForReader(this,wpm,value->{
-            wpm=value;if(speedView!=null)speedView.setText(String.valueOf(wpm));saveLight(true);
-        }));
+        speedGauge.setOnClickListener(v->{
+            if(mode==TTS){TtsWpm.dialog(this,()->{
+                if(speedView!=null)speedView.setText(String.valueOf(TtsWpm.get(this)));
+                if(ttsLocal)startService(new Intent(this,AudioPlaybackService.class).setAction("tts_wpm"));
+                else if(ttsPlayer!=null)ttsPlayer.setPlaybackSpeed(Math.min(5f,TtsWpm.rate(this)));
+                updateProgress();
+            });}else TtsWpm.dialogForReader(this,wpm,value->{
+                wpm=value;if(speedView!=null)speedView.setText(String.valueOf(wpm));saveLight(true);
+            });
+        });
         toolbarWpm=speedGauge;
         LinearLayout.LayoutParams gaugeLp=new LinearLayout.LayoutParams(dp(44),dp(44));gaugeLp.leftMargin=dp(5);
         toolbar.addView(speedGauge,gaugeLp);
@@ -191,27 +277,37 @@ public class ReaderActivity extends Activity {
             intro.setPadding(dp(24),dp(24),dp(24),dp(24));add(root,intro);
             Button pick=new Button(this);pick.setText("Открыть книгу");pick.setOnClickListener(v->pick());add(root,pick);return;
         }
-        bookTitle=text(title,19);bookTitle.setTypeface(Typeface.SERIF,Typeface.BOLD);
-        bookTitle.setSingleLine(true);bookTitle.setEllipsize(TextUtils.TruncateAt.END);
-        bookTitle.setPadding(dp(12),dp(12),dp(12),dp(12));add(root,bookTitle);
-        modeRow=new LinearLayout(this);modeRow.setGravity(Gravity.CENTER_VERTICAL);add(root,modeRow);
-        progressView=text("",13);progressView.setGravity(Gravity.CENTER_VERTICAL);
-        modeRow.addView(progressView,new LinearLayout.LayoutParams(0,dp(49),1));
+        // Book cover and metadata are only displayed at the beginning of the book.
+        bookHeader=column();bookHeader.setPadding(dp(7),dp(10),dp(7),dp(8));
+        ImageView cover=new ImageView(this);cover.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        LinearLayout.LayoutParams coverLp=new LinearLayout.LayoutParams(-1,dp(185));
+        bookHeader.addView(cover,coverLp);
+        CoverImageLoader.show(cover,docUri,true);
+        bookTitle=text(title,23);bookTitle.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        bookTitle.setPadding(dp(5),dp(9),0,0);add(bookHeader,bookTitle);
+        TextView meta=text(author+(author.isEmpty()?"":" · ")+words.length+" слов",13);
+        meta.setPadding(dp(5),dp(2),0,dp(5));add(bookHeader,meta);
+        bookHeaderCollapsed=index>=10;
+        // Keep the header in the view tree even when opening a book at a saved
+        // middle position. If the reader scrolls back to the beginning,
+        // the cover and metadata must become visible again without recreating UI.
+        add(root,bookHeader);
+        bookHeader.setVisibility(bookHeaderCollapsed?View.GONE:View.VISIBLE);
+        if(toolbarBookName!=null)toolbarBookName.setText(title);
+        modeRow=new LinearLayout(this);modeRow.setGravity(Gravity.CENTER_VERTICAL);
+        progressView=text("",12);progressView.setGravity(Gravity.CENTER_VERTICAL);
+        modeRow.addView(progressView,new LinearLayout.LayoutParams(0,dp(45),1));
         selectWordButton=new ImageView(this);selectWordButton.setImageResource(R.drawable.ic_select_word);
-        selectWordButton.setPadding(dp(10),dp(10),dp(10),dp(10));selectWordButton.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        selectWordButton.setContentDescription("Выбрать стартовое слово");
-        selectWordButton.setOnClickListener(v->{selecting=!selecting;if(selecting)normalChromeVisible=true;
-            updateSelectWordButton();refreshHighlight(index);applyFullscreenUi();
-            Toast.makeText(this,selecting?"Выбор слова включён":"Выбор слова выключен",Toast.LENGTH_SHORT).show();});
-        modeRow.addView(selectWordButton,new LinearLayout.LayoutParams(dp(47),dp(47)));
-        modeIcon=new ImageView(this);modeIcon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        modeIcon.setPadding(dp(10),dp(10),dp(10),dp(10));
-        modeIcon.setBackground(shape(buttonBg(),14));modeIcon.setOnClickListener(v->modeDialog());
-        LinearLayout.LayoutParams iconLp=new LinearLayout.LayoutParams(dp(47),dp(47));iconLp.leftMargin=dp(5);modeRow.addView(modeIcon,iconLp);
-        modeButton=text("",14);modeButton.setGravity(Gravity.CENTER);modeButton.setPadding(dp(12),0,dp(12),0);
-        modeButton.setOnClickListener(v->modeDialog());
-        LinearLayout.LayoutParams modeLp=new LinearLayout.LayoutParams(-2,dp(47));modeLp.leftMargin=dp(5);modeRow.addView(modeButton,modeLp);
-
+        selectWordButton.setPadding(dp(11),dp(11),dp(11),dp(11));selectWordButton.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        selectWordButton.setContentDescription("Выбор слова");
+        selectWordButton.setOnClickListener(v->{selecting=!selecting;normalChromeVisible=true;
+            updateSelectWordButton();refreshHighlight(index);applyFullscreenUi();});
+        LinearLayout.LayoutParams selectionLp=new LinearLayout.LayoutParams(dp(44),dp(44));selectionLp.leftMargin=dp(5);
+        toolbar.addView(selectWordButton,Math.max(1,toolbar.getChildCount()-2),selectionLp);
+        modeIcon=null;
+        modeButton=text("",13);modeButton.setGravity(Gravity.CENTER);
+        modeButton.setPadding(dp(5),0,dp(5),0);modeButton.setBackground(shape(buttonBg(),14));
+        modeButton.setTextColor(contrast(buttonBg()));modeButton.setOnClickListener(v->modeDialog());
         readingFrame=column();readingFrame.setBackground(shape(panelColor(),23));readingFrame.setPadding(dp(9),dp(10),dp(9),dp(10));
         LinearLayout.LayoutParams frameLp=new LinearLayout.LayoutParams(-1,0,1);frameLp.setMargins(0,dp(7),0,dp(8));root.addView(readingFrame,frameLp);
         rsvpPane=new FrameLayout(this);wordView=text("",size);wordView.setGravity(Gravity.CENTER);
@@ -220,7 +316,7 @@ public class ReaderActivity extends Activity {
         rsvpPane.addView(focusLines,new FrameLayout.LayoutParams(-1,-1));
         LinearLayout.LayoutParams rsvpLp=new LinearLayout.LayoutParams(-1,dp(192));rsvpLp.bottomMargin=dp(8);readingFrame.addView(rsvpPane,rsvpLp);
         wordView.setOnTouchListener((v,e)->{
-            if(mode!=RSVP)return false;
+            if(mode!=RSVP||!playing)return false;
             if(e.getAction()==MotionEvent.ACTION_DOWN){stop();swipeStartY=e.getY();swipeStartIndex=index;return true;}
             if(e.getAction()==MotionEvent.ACTION_MOVE){int old=index;index=map.clamp(swipeStartIndex+Math.round((swipeStartY-e.getY())/dp(25)));
                 if(old!=index){updateWord();refreshHighlight(old);}return true;}
@@ -247,27 +343,43 @@ public class ReaderActivity extends Activity {
             }
             @Override public void onScrolled(RecyclerView rv,int dx,int dy){
                 if(userScrolling&&dy!=0)chteicoTouch();
+                if(userScrolling&&!restoringScroll&&Math.abs(dy)>dp(1)){
+                    setToolbarExpanded(dy<0);
+                    if(bookHeader!=null&&bookHeader.getParent()!=null){
+                        if(dy>0){bookHeaderCollapsed=true;bookHeader.setVisibility(View.GONE);}
+                        else if(layoutManager!=null && layoutManager.findFirstVisibleItemPosition()==0){
+                            bookHeaderCollapsed=false;bookHeader.setVisibility(View.VISIBLE);
+                        }
+                    }
+                }
                 if(!userScrolling||restoringScroll||words.length==0)return;
-                if(mode!=RSVP)return;
+                if(mode!=RSVP||playing||!rsvpScrollWords)return;
                 stepRsvpByScroll(dy);
             }
         });
-        controls=new LinearLayout(this);controls.setGravity(Gravity.CENTER);controls.setBackgroundColor(Color.TRANSPARENT);add(root,controls);
-        rsvpPlayFrame=new FrameLayout(this);rsvpPlayFrame.setBackground(shape(accent(),20));
+        bottomBar=new FrameLayout(this);bottomBar.setBackground(shape(panelColor(),21));
+        LinearLayout.LayoutParams bottomLp=new LinearLayout.LayoutParams(-1,dp(74));bottomLp.topMargin=dp(5);
+        root.addView(bottomBar,bottomLp);
+        LinearLayout left=new LinearLayout(this);left.setGravity(Gravity.CENTER_VERTICAL);
+        FrameLayout.LayoutParams leftLp=new FrameLayout.LayoutParams(Math.max(dp(120),
+            (getResources().getDisplayMetrics().widthPixels-dp(100))/2),dp(70),Gravity.LEFT|Gravity.CENTER_VERTICAL);
+        bottomBar.addView(left,leftLp);
+        ImageButton toc=icon(R.drawable.ic_list_audio,v->showToc());toc.setContentDescription("Оглавление");
+        left.addView(toc,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        progressView=text("",11);progressView.setGravity(Gravity.CENTER);progressView.setMaxLines(2);
+        left.addView(progressView,new LinearLayout.LayoutParams(0,dp(68),1));
+        controls=new LinearLayout(this);controls.setGravity(Gravity.CENTER);
+        bottomBar.addView(controls,new FrameLayout.LayoutParams(dp(70),dp(70),Gravity.CENTER));
+        rsvpPlayFrame=new FrameLayout(this);rsvpPlayFrame.setBackground(shape(accent(),19));
         playIcon=new ImageView(this);playIcon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);playIcon.setColorFilter(contrast(accent()));
         rsvpPlayFrame.addView(playIcon,new FrameLayout.LayoutParams(dp(30),dp(30),Gravity.CENTER));
         rsvpPlayFrame.setOnClickListener(v->togglePlayback());
-        controls.addView(rsvpPlayFrame,new LinearLayout.LayoutParams(dp(72),dp(72)));
-
-        // A separate overlay keeps only Pause visible in immersive playback.
-        floatingPlayButton=new FrameLayout(this);floatingPlayButton.setBackground(shape(accent(),20));
-        floatingPlayIcon=new ImageView(this);floatingPlayIcon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        floatingPlayIcon.setColorFilter(contrast(accent()));
-        floatingPlayButton.addView(floatingPlayIcon,new FrameLayout.LayoutParams(dp(29),dp(29),Gravity.CENTER));
-        floatingPlayButton.setOnClickListener(v->togglePlayback());
-        FrameLayout.LayoutParams floatLp=new FrameLayout.LayoutParams(dp(68),dp(68),Gravity.RIGHT|Gravity.BOTTOM);
-        floatLp.setMargins(dp(12),dp(12),dp(20),dp(24));
-        sceneRoot.addView(floatingPlayButton,floatLp);floatingPlayButton.setVisibility(View.GONE);
+        controls.addView(rsvpPlayFrame,new LinearLayout.LayoutParams(dp(69),dp(69)));
+        // Normal reading has NO Play/Pause; the centered button is the mode selector.
+        FrameLayout.LayoutParams modeLp=new FrameLayout.LayoutParams(dp(92),dp(53),Gravity.RIGHT|Gravity.CENTER_VERTICAL);
+        modeLp.rightMargin=dp(6);bottomBar.addView(modeButton,modeLp);
+        modeButton.setVisibility(View.GONE);
+        floatingPlayButton=null;floatingPlayIcon=null;
         // WPM is displayed in the top toolbar for both Cursor and RSVP.
         speedPanel=null;
         updateModeUI();updatePlayButton();
@@ -294,6 +406,16 @@ public class ReaderActivity extends Activity {
                     if(cursorBackground!=NO_COLOR)span(new BackgroundColorSpan(cursorBackground),from,to);
                     if(cursorText!=NO_COLOR)span(new ForegroundColorSpan(cursorText),from,to);
                     if(cursorScale>100)span(new RelativeSizeSpan(cursorScale/100f),from,to);
+                }else if(mode==TTS){
+                    SentenceChunks.Chunk sentence=SentenceChunks.forWord(ttsParts,first);
+                    if(sentence!=null){
+                        int sentenceFrom=Math.max(0,sentence.fromChar-c.startChar);
+                        int sentenceTo=Math.min(content.length(),sentence.toChar-c.startChar);
+                        if(sentenceTo>sentenceFrom)span(new BackgroundColorSpan(0x66edca43),sentenceFrom,sentenceTo);
+                    }
+                    // The word is stronger than the sentence background, using
+                    // exact TTS range start when the engine provides WordBoundary.
+                    span(new BackgroundColorSpan(0xffffda00),from,to);
                 }else if(mode==RSVP){
                     // Paused RSVP context uses the same typography as ordinary word selection.
                     int selectedEnd=map.ends[first]-c.startChar;
@@ -316,7 +438,8 @@ public class ReaderActivity extends Activity {
             // the parent RecyclerView can still intercept a scrolling drag.
             item.setClickable(true);
             item.setOnTouchListener((view,event)->{
-                boolean selectingWord=(mode==CURSOR)||(mode==NORMAL&&selecting);
+                boolean selectingWord=(mode==CURSOR)||(mode==NORMAL&&selecting)
+                    ||(mode==RSVP&&!playing&&!rsvpScrollWords)||(mode==TTS);
                 boolean togglingChrome=(mode==NORMAL&&fullscreenNormal&&!selecting);
                 if(!selectingWord&&!togglingChrome)return false;
                 int eventType=event.getActionMasked();
@@ -343,7 +466,9 @@ public class ReaderActivity extends Activity {
                 int line=l.getLineForVertical(Math.max(0,y));
                 int offset=l.getOffsetForHorizontal(line,Math.max(0,event.getX()-item.getTotalPaddingLeft()));
                 int old=index;index=map.atCharacter(chunks.get(row).startChar+offset);
-                selectedWordActive=true;refreshHighlight(old);updateProgress();saveLight(true);
+                selectedWordActive=true;
+                if(mode==TTS)selectTtsWord(index);
+                refreshHighlight(old);updateProgress();saveLight(true);
                 return true;
             });
             return holder;
@@ -370,12 +495,30 @@ public class ReaderActivity extends Activity {
     }
     private void updateModeUI(){
         if(rsvpPane==null)return;
-        rsvpPane.setVisibility(mode==RSVP?View.VISIBLE:View.GONE);
+        rsvpPane.setVisibility(mode==RSVP&&playing?View.VISIBLE:View.GONE);
         if(focusLines!=null){focusLines.setVisibility(mode==RSVP&&focusLinesEnabled?View.VISIBLE:View.GONE);focusLines.invalidate();}
-        if(modeButton!=null){modeButton.setText(mode==NORMAL?"Обычный ▾":mode==RSVP?"Скорочтение ▾":"Курсор ▾");
-            modeButton.setBackground(shape(accent(),14));modeButton.setTextColor(contrast(accent()));}
+        if(modeButton!=null){modeButton.setVisibility(View.GONE);modeButton.setText(mode==NORMAL?"Чтение ▾":mode==RSVP?"Скорочтение ▾":mode==CURSOR?"Курсор ▾":"Озвучка ▾");
+            modeButton.setBackground(shape(buttonBg(),14));modeButton.setTextColor(contrast(buttonBg()));
+            FrameLayout.LayoutParams lp=(FrameLayout.LayoutParams)modeButton.getLayoutParams();
+            if(lp!=null){lp.gravity=(mode==NORMAL?Gravity.CENTER:Gravity.RIGHT|Gravity.CENTER_VERTICAL);
+                lp.rightMargin=mode==NORMAL?0:dp(6);lp.width=dp(mode==NORMAL?120:101);modeButton.setLayoutParams(lp);}}
         if(modeIcon!=null){modeIcon.setImageResource(modeDrawable());modeIcon.setColorFilter(contrast(buttonBg()));}
+        if(toolbarModeAction!=null)toolbarModeAction.setImageResource(modeDrawable());
+        if(speedView!=null)speedView.setText(String.valueOf(mode==TTS?TtsWpm.get(this):wpm));
         if(selectWordButton!=null){selectWordButton.setVisibility(mode==NORMAL?View.VISIBLE:View.GONE);updateSelectWordButton();}
+        if(toolbarEngineAction!=null)toolbarEngineAction.setVisibility(mode==TTS?View.VISIBLE:View.GONE);
+        if(toolbarVoiceAction!=null)toolbarVoiceAction.setVisibility(mode==TTS?View.VISIBLE:View.GONE);
+        if(toolbarSleepAction!=null)toolbarSleepAction.setVisibility(mode==TTS?View.VISIBLE:View.GONE);
+        if(toolbarWpm!=null)toolbarWpm.setVisibility(mode==NORMAL?View.GONE:View.VISIBLE);
+        if(toolbar!=null){int size=mode==TTS?38:44;int margin=mode==TTS?3:5;
+            for(int n=0;n<toolbar.getChildCount();n++){View v=toolbar.getChildAt(n);
+                if(v==toolbarBookName)continue;android.view.ViewGroup.LayoutParams generic=v.getLayoutParams();
+                if(generic instanceof LinearLayout.LayoutParams){LinearLayout.LayoutParams lp=(LinearLayout.LayoutParams)generic;
+                    if(lp.width!=dp(size)||lp.leftMargin>dp(margin)){lp.width=dp(size);
+                        if(n>0)lp.leftMargin=dp(margin);v.setLayoutParams(lp);}
+                }
+            }
+        }
         if(controls!=null)controls.setVisibility(mode==NORMAL?View.GONE:View.VISIBLE);
         if(speedPanel!=null)speedPanel.setVisibility(mode==NORMAL?View.GONE:View.VISIBLE);
         if(toolbarWpm!=null)toolbarWpm.setVisibility(mode==NORMAL?View.GONE:View.VISIBLE);
@@ -390,12 +533,15 @@ public class ReaderActivity extends Activity {
         boolean playbackFullscreen=playing&&((mode==RSVP&&fullscreenRsvp)||(mode==CURSOR&&fullscreenCursor));
         boolean immersive=readingFullscreen||playbackFullscreen;
 
-        if(toolbar!=null)toolbar.setVisibility(immersive?View.GONE:View.VISIBLE);
-        if(bookTitle!=null)bookTitle.setVisibility(immersive?View.GONE:View.VISIBLE);
-        if(modeRow!=null)modeRow.setVisibility(immersive?View.GONE:View.VISIBLE);
+        if(toolbar!=null)toolbar.setVisibility(toolbarExpanded?View.VISIBLE:View.GONE);
+        if(toolbarBookName!=null)toolbarBookName.setVisibility(toolbarExpanded&&index>0?View.VISIBLE:View.GONE);
+        if(bookHeader!=null && bookHeader.getParent()!=null)
+            bookHeader.setVisibility(bookHeaderCollapsed?View.GONE:View.VISIBLE);
+        if(modeRow!=null)modeRow.setVisibility(View.GONE);
         if(speedPanel!=null)speedPanel.setVisibility(immersive?View.GONE:(mode==NORMAL?View.GONE:View.VISIBLE));
-        if(controls!=null)controls.setVisibility(immersive?View.GONE:(mode==NORMAL?View.GONE:View.VISIBLE));
-        if(floatingPlayButton!=null)floatingPlayButton.setVisibility(playbackFullscreen?View.VISIBLE:View.GONE);
+        if(controls!=null)controls.setVisibility(mode==NORMAL?View.GONE:View.VISIBLE);
+        if(bottomBar!=null)bottomBar.setVisibility(View.VISIBLE);
+        if(floatingPlayButton!=null)floatingPlayButton.setVisibility(View.GONE);
         root.setPadding(immersive?0:dp(10),immersive?0:dp(20),immersive?0:dp(10),immersive?0:dp(7));
         readingFrame.setPadding(immersive?0:dp(9),immersive?0:dp(10),immersive?0:dp(9),immersive?0:dp(10));
         readingFrame.setBackground(immersive?shape(bg,0):shape(panelColor(),23));
@@ -550,18 +696,27 @@ public class ReaderActivity extends Activity {
         selectWordButton.setColorFilter(contrast(background));
         selectWordButton.setAlpha(selecting?1f:.9f);
     }
-    private void updateProgress(){if(progressView!=null&&words.length>0)progressView.setText((index+1)+" / "+words.length+" слов · "+((index+1)*100/words.length)+"%");}
+    private void updateProgress(){if(progressView!=null&&words.length>0){
+        int percent=(int)((index+1L)*100/words.length);
+        if(mode==TTS){int rate=Math.max(100,TtsWpm.get(this));
+            long elapsed=index*60L/rate,total=words.length*60L/rate;
+            progressView.setText(formatReadingTime(elapsed)+" / "+formatReadingTime(total)+" · "+percent+"%");
+        }else progressView.setText((index+1)+" / "+words.length+" слов · "+percent+"%");
+    }}
+    private String formatReadingTime(long seconds){return (seconds/3600)+" ч "+((seconds%3600)/60)+" мин";}
     private void updatePlayButton(){
-        if(playIcon!=null)playIcon.setImageResource(playing?R.drawable.ic_pause:R.drawable.ic_play);
+        boolean active=mode==TTS?ttsCurrentlyPlaying():playing;
+        if(playIcon!=null)playIcon.setImageResource(active?R.drawable.ic_pause:R.drawable.ic_play);
         if(floatingPlayIcon!=null)floatingPlayIcon.setImageResource(playing?R.drawable.ic_pause:R.drawable.ic_play);
     }
     private void togglePlayback(){chteicoTouch();
+        if(mode==TTS){toggleTtsPlayback();return;}
         if(playing){stop();saveLight(true);return;}
         if(words.length==0)return;
         if(mode==RSVP&&fullscreenRsvp)rememberRsvpScreenPosition();
         playing=true;waitingForStart=false;
         handler.removeCallbacks(ticker);handler.removeCallbacks(beginDelayedReading);
-        if(mode==RSVP)setRsvpContextVisible(false);
+        if(mode==RSVP){setRsvpContextVisible(false);if(rsvpPane!=null)rsvpPane.setVisibility(View.VISIBLE);}
         updatePlayButton();applyFullscreenUi();
         int seconds=mode==RSVP&&delayRsvpEnabled?delayRsvpSeconds:
             mode==CURSOR&&delayCursorEnabled?delayCursorSeconds:0;
@@ -576,7 +731,7 @@ public class ReaderActivity extends Activity {
     private void stop(){
         playing=false;waitingForStart=false;
         handler.removeCallbacks(ticker);handler.removeCallbacks(beginDelayedReading);
-        removeCountdownRing();updatePlayButton();setRsvpContextVisible(true);
+        removeCountdownRing();updatePlayButton();setRsvpContextVisible(true);if(rsvpPane!=null)rsvpPane.setVisibility(View.GONE);
         applyFullscreenUi();
     }
     private void changeSpeed(int delta){wpm=Math.max(100,Math.min(1000,wpm+delta));if(speedView!=null)speedView.setText(String.valueOf(wpm));saveLight(true);
@@ -647,13 +802,35 @@ public class ReaderActivity extends Activity {
         }
     }
     private void modeDialog(){
-        new SwipeDialogs.Builder(this).setTitle("Режим чтения")
-            .setSingleChoiceItems(new String[]{"Обычный","Скорочтение","Курсор"},mode,(dialog,n)->{setMode(n);dialog.dismiss();})
-            .setNegativeButton("Отмена",null).show();
+        UiNavigationSheet.showModes(this,mode,selected->{
+            setMode(selected);
+        });
     }
-    private void setMode(int next){if(next<0||next>2||next==mode)return;
-        chteicoTouch();stop();int old=index;mode=next;selecting=false;normalChromeVisible=false;
+    private void showToc(){
+        UiNavigationSheet.showContents(this,chapters,chunks,body,map,index,word->{
+            if(word<0||word>=words.length)return;
+            int previous=index;stop();index=word;selectedWordActive=true;
+            refreshHighlight(previous);updateProgress();ensureWordVisible(true);saveLight(true);
+        });
+    }
+    private void setToolbarExpanded(boolean show){
+        if(toolbarExpanded==show)return;
+        toolbarExpanded=show;
+        if(toolbarBookName!=null)toolbarBookName.setVisibility(show&&words.length>0?View.VISIBLE:View.GONE);
+        if(toolbar!=null){
+            if(show){toolbar.setVisibility(View.VISIBLE);toolbar.setAlpha(0f);toolbar.animate().alpha(1f).setDuration(160).start();}
+            else toolbar.animate().alpha(0f).setDuration(140).withEndAction(()->{
+                if(!toolbarExpanded)toolbar.setVisibility(View.GONE);
+            }).start();
+        }
+    }
+    private void setMode(int next){if(next<0||next>TTS||next==mode)return;
+        chteicoTouch();stop();int old=index,previousMode=mode;
+        if(previousMode==TTS)releaseTts();
+        pendingTtsWord=-1;
+        mode=next;selecting=false;normalChromeVisible=false;toolbarExpanded=true;
         updateModeUI();refreshHighlight(old);ensureWordVisible(true);saveLight(true);
+        if(mode==TTS)startTtsSession();
     }
     private void chteicoTouch(){chteicoLastInteraction=SystemClock.elapsedRealtime();}
     private void chteicoCompleteIfReachedEnd(){
@@ -708,41 +885,175 @@ public class ReaderActivity extends Activity {
     }
     private void load(Uri uri,boolean reset){new Thread(()->{
         try{
-            ReaderBookCache.CachedBook cached=ReaderBookCache.load(this,uri);
-            BookLoader.Book book=null;ReadingWordMap prepared;
-            if(cached!=null&&cached.map.size()>0){prepared=cached.map;}
-            else{
-                book=BookLoader.load(this,uri);
-                if(book.text.isEmpty())throw new Exception("Нет текста");
-                prepared=ReadingWordMap.parse(book.text);
-                if(prepared.size()==0)throw new Exception("Не найдены слова");
-                ReaderBookCache.store(this,uri,book.title,book.author,book.text,prepared);
-            }
-            final String loadedText=cached!=null?cached.text:book.text;
-            final String loadedTitle=cached!=null?cached.title:book.title;
-            final String loadedAuthor=cached!=null?cached.author:book.author;
-            final BookChunkIndex indexed=new BookChunkIndex(loadedText,prepared,560);
+            // Reuse exactly one immutable book, word map, chapter index and UI
+            // chunk index for all four reading modes and their speech engines.
+            UnifiedBookSession session=UnifiedBookSession.open(this,uri);
+            BookLoader.Book book=session.book;
+            final String loadedText=book.text;
+            final String loadedTitle=book.title;
+            final String loadedAuthor=book.author;
+            final ReadingWordMap prepared=session.words;
+            final BookChapterIndex parsedChapters=book.chapters;
+            final BookChunkIndex indexed=session.blocks;
             runOnUiThread(()->{
                 stop();title=loadedTitle;author=loadedAuthor==null?"":loadedAuthor;body=loadedText;
-                map=prepared;words=prepared.words;chunks=indexed;docUri=uri.toString();
+                map=prepared;words=prepared.words;chunks=indexed;chapters=parsedChapters;
+                ttsParts=session.speechSegments;docUri=uri.toString();
                 if(reset)index=0;else index=map.clamp(index);
                 chteicoInitialIndex=index;chteicoLastWordIndex=index;chteicoReadingSeconds=0;chteicoTouch();
                 ChteicoStore.openBook(this,docUri,mode);
-                draw();saveLight(true);
+                draw();saveLight(true);if(mode==TTS)startTtsSession();
             });
         }catch(Exception ex){runOnUiThread(()->new SwipeDialogs.Builder(this).setMessage("Не удалось открыть книгу: "+ex.getMessage()).setPositiveButton("OK",null).show());}
     }).start();}
-    private void settings(){stop();startActivity(new Intent(this,SettingsActivity.class).putExtra("rsvp_tab",true));}
+    private void settings(){if(mode!=TTS)stop();startActivity(new Intent(this,SettingsActivity.class).putExtra("rsvp_tab",true));}
     private void audioMenu(){
         if(docUri.isEmpty()){Toast.makeText(this,"Сначала откройте книгу",Toast.LENGTH_SHORT).show();return;}
         openAudioEngine(prefs.getBoolean("tts_last_local",true));
     }
     private void openAudioEngine(boolean androidTts){
-        stop();save();
-        Intent intent=new Intent(this,EdgeOnlineActivity.class);
-        intent.putExtra("book_uri",docUri);intent.putExtra("word_index",index);
-        intent.putExtra("tts_mode_local",androidTts);
-        startActivity(intent);
+        ttsLocal=androidTts;prefs.edit().putBoolean("tts_last_local",androidTts).apply();
+        setMode(TTS);
+    }
+    private void startTtsSession(){
+        if(mode!=TTS||docUri.isEmpty()||words.length==0)return;
+        handler.removeCallbacks(ttsUiTick);
+        ttsPendingPlay=false;
+        if(ttsLocal){
+            AudioModeCoordinator.stopEdge(this);
+            startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.TTS)
+                .putExtra("bookUri",docUri).putExtra("word_index",index));
+        }else{
+            if(AudioPlaybackService.instance!=null&&AudioPlaybackService.instance.isTtsMode())
+                startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.STOP));
+            startService(new Intent(this,EdgeStreamingService.class)
+                .setAction(EdgeStreamingService.ACTION_BEGIN)
+                .putExtra(EdgeStreamingService.EXTRA_URI,docUri)
+                .putExtra(EdgeStreamingService.EXTRA_ANCHOR,index));
+            ttsBoundPlayer=bindService(new Intent(this,EdgePlaybackService.class),ttsPlayerConnection,BIND_AUTO_CREATE);
+            ttsBoundStream=bindService(new Intent(this,EdgeStreamingService.class),ttsStreamConnection,BIND_AUTO_CREATE);
+        }
+        handler.post(ttsUiTick);
+        updatePlayButton();updateProgress();
+    }
+    private void releaseTts(){
+        handler.removeCallbacks(ttsUiTick);ttsPendingPlay=false;pendingTtsWord=-1;
+        cachedTimingKey="";cachedTimingWords=java.util.Collections.emptyList();lastTtsError="";
+        if(ttsLocal){
+            if(AudioPlaybackService.instance!=null&&AudioPlaybackService.instance.isTtsMode())
+                startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.STOP));
+        }else{
+            if(ttsPlayer!=null){ttsPlayer.pause();ttsPlayer.removeListener(ttsPlayerListener);}
+            if(ttsStreamer!=null){ttsStreamer.removeObserver(ttsStreamObserver);ttsStreamer.setActive(false);}
+            if(ttsBoundStream){unbindService(ttsStreamConnection);ttsBoundStream=false;}
+            if(ttsBoundPlayer){unbindService(ttsPlayerConnection);ttsBoundPlayer=false;}
+            ttsStreamer=null;ttsPlayer=null;
+        }
+    }
+    private boolean ttsCurrentlyPlaying(){
+        if(ttsLocal){AudioPlaybackService s=AudioPlaybackService.instance;
+            return s!=null&&s.isTtsMode()&&!s.isPaused();}
+        return ttsPendingPlay||ttsPlayer!=null&&ttsPlayer.playRequested();
+    }
+    private void toggleTtsPlayback(){
+        if(ttsLocal){AudioPlaybackService s=AudioPlaybackService.instance;
+            boolean running=s!=null&&s.isTtsMode()&&!s.isPaused();
+            startService(new Intent(this,AudioPlaybackService.class)
+                .setAction(running?AudioPlaybackService.PAUSE:AudioPlaybackService.PLAY));
+        }else if(ttsPlayer!=null){
+            if(ttsPlayer.playRequested())ttsPlayer.pause();
+            else {ttsPlayer.play();if(ttsStreamer!=null)ttsStreamer.ensurePlaySelection();}
+        }else ttsPendingPlay=!ttsPendingPlay;
+        updatePlayButton();
+    }
+    private void selectTtsWord(int at){
+        // A tap selects the sentence; the book's UI block is never reloaded.
+        index=map.clamp(at);
+        SentenceChunks.Chunk sentence=SentenceChunks.forWord(ttsParts,index);
+        if(sentence!=null)index=sentence.fromWord;
+        pendingTtsWord=index;
+        prefs.edit().putInt("tts_word:"+docUri,index).apply();
+        boolean autoplay=prefs.getBoolean("tts_tap_autoplay",false);
+        if(ttsLocal){
+            startService(new Intent(this,AudioPlaybackService.class).setAction("tts_select_word")
+                .putExtra("word_index",index));
+        }else if(ttsStreamer!=null){
+            boolean audible=ttsPlayer!=null&&ttsPlayer.isPlaying();
+            if(ttsPlayer!=null)ttsPlayer.pause();
+            ttsStreamer.setAnchor(index,true);
+            if(autoplay||audible){if(ttsPlayer!=null){ttsPlayer.play();ttsStreamer.ensurePlaySelection();}else ttsPendingPlay=true;}
+        }
+    }
+    private void refreshTtsPosition(){
+        if(mode!=TTS||words.length==0)return;
+        int actual=-1;
+        if(ttsLocal){AudioPlaybackService s=AudioPlaybackService.instance;
+            if(s!=null&&s.isTtsMode())actual=map.atCharacter(s.currentTtsWordRange()[0]);
+        }else if(ttsStreamer!=null){
+            EdgeStreamingService.Clip clip=ttsStreamer.currentClip();
+            String problem=ttsStreamer.error();
+            if(ttsPlayer!=null&&ttsPlayer.playbackError()!=null&&!ttsPlayer.playbackError().isEmpty())
+                problem=ttsPlayer.playbackError();
+            if(problem!=null&&!problem.isEmpty()&&!problem.equals(lastTtsError)){
+                lastTtsError=problem;Toast.makeText(this,problem,Toast.LENGTH_LONG).show();
+            }else if(problem==null||problem.isEmpty())lastTtsError="";
+            if(clip!=null&&ttsPlayer!=null&&(clip.key+":"+clip.start).equals(ttsPlayer.currentKey())){
+                String timingKey=clip.key+":"+clip.start;
+                java.util.List<EdgeWordTimings.Word> ticks;
+                if(clip.ready()){
+                    if(!timingKey.equals(cachedTimingKey)){
+                        cachedTimingWords=EdgeWordTimings.read(clip.file,clip.text);
+                        cachedTimingKey=timingKey;
+                    }
+                    ticks=cachedTimingWords;
+                }else ticks=ttsStreamer.liveWords(clip);
+                int at=EdgeWordTimings.at(ticks,ttsPlayer.positionMs());
+                if(at>=0)actual=map.atCharacter(ttsStreamer.charForWord(clip.start)+ticks.get(at).from);
+            }
+        }
+        boolean active=ttsCurrentlyPlaying();
+        if(pendingTtsWord>=0){
+            SentenceChunks.Chunk target=SentenceChunks.forWord(ttsParts,pendingTtsWord);
+            if(target!=null&&actual>=target.fromWord&&actual<target.toWord)pendingTtsWord=-1;
+            else actual=-1; // stale callback from the previous streamed sentence
+        }
+        if(active&&actual>=0&&actual<words.length&&actual!=index){
+            int old=index;index=actual;refreshHighlight(old);updateProgress();
+            long now=SystemClock.uptimeMillis();
+            if(now-lastTtsVisualUpdate>900){ensureWordVisible(false);lastTtsVisualUpdate=now;}
+        }
+        updatePlayButton();
+    }
+    private void chooseTtsEngine(){
+        if(mode!=TTS)return;
+        new SwipeDialogs.Builder(this).setTitle("Способ озвучивания")
+            .setItems(new String[]{"Системный TTS","Microsoft Edge TTS"},(dialog,choice)->{
+                boolean toLocal=choice==0;if(toLocal==ttsLocal)return;
+                int pos=index;releaseTts();ttsLocal=toLocal;
+                prefs.edit().putBoolean("tts_last_local",ttsLocal).putInt("tts_word:"+docUri,pos).apply();
+                if(toolbarEngineAction!=null)toolbarEngineAction.setImageResource(
+                    ttsLocal?R.drawable.ic_android_tts:R.drawable.ic_edge_tts);
+                startTtsSession();
+            }).show();
+    }
+    private void chooseTtsVoice(){
+        if(mode!=TTS)return;
+        if(ttsLocal){LocalVoiceCatalog.show(this,()->startService(new Intent(this,AudioPlaybackService.class)
+            .setAction(AudioPlaybackService.ENGINE)));return;}
+        String[] names={"Светлана","Дмитрий"};String[] keys={"ru-RU-SvetlanaNeural","ru-RU-DmitryNeural"};
+        new SwipeDialogs.Builder(this).setTitle("Голос Microsoft Edge")
+            .setItems(names,(dialog,n)->{prefs.edit().putString("edge_voice",keys[n]).apply();
+                if(ttsStreamer!=null)ttsStreamer.choose(keys[n],null);
+            }).show();
+    }
+    private void chooseTtsSleep(){
+        if(mode!=TTS)return;
+        int[] values={0,5,10,15,30,60};String[] names={"Выключить","5 мин","10 мин","15 мин","30 мин","60 мин"};
+        new SwipeDialogs.Builder(this).setTitle("Таймер сна").setItems(names,(dialog,n)->{
+            if(ttsLocal)startService(new Intent(this,AudioPlaybackService.class)
+                .setAction(AudioPlaybackService.SLEEP).putExtra("minutes",values[n]));
+            else if(ttsPlayer!=null)ttsPlayer.setSleepMinutes(values[n]);
+        }).show();
     }
     @Override protected void onResume(){super.onResume();
         chteicoResumed=true;chteicoTouch();handler.removeCallbacks(chteicoReadTick);handler.postDelayed(chteicoReadTick,10000);
@@ -754,6 +1065,10 @@ public class ReaderActivity extends Activity {
         boolean oldPoint=focusPoint,oldLines=focusLinesEnabled;
         boolean oldFullNormal=fullscreenNormal,oldFullRsvp=fullscreenRsvp,oldFullCursor=fullscreenCursor;
         readPreferences();
+        int wantedMode=mode;
+        if(root!=null&&words.length>0&&wantedMode!=oldMode){
+            mode=oldMode;setMode(wantedMode);
+        }
         if(root!=null&&words.length>0&&(oldBg!=bg||oldFg!=fg||oldSize!=size||oldFont!=font||oldMode!=mode||oldPortion!=portion
             ||oldCursorBg!=cursorBackground||oldCursorText!=cursorText||oldCursorScale!=cursorScale||oldNormalText!=normalSelectText
             ||oldNormalScale!=normalSelectScale||oldButton!=buttonColor||oldAccent!=accentButtonColor||oldFocus!=focusColor||oldLineColor!=lineColor
@@ -767,7 +1082,7 @@ public class ReaderActivity extends Activity {
         chteicoResumed=false;handler.removeCallbacks(chteicoReadTick);
         chteicoCompleteIfReachedEnd();save();stop();super.onPause();
     }
-    @Override protected void onDestroy(){stop();applySystemBars(false);super.onDestroy();}
+    @Override protected void onDestroy(){if(mode==TTS)releaseTts();stop();applySystemBars(false);super.onDestroy();}
     @Override public void onBackPressed(){BackNavigation.back(this);}
     private class FocusLinesView extends View {
         final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);

@@ -22,25 +22,21 @@ final class TtsTextBlockManager {
     interface ChooseChapter {void onChoose(int startChar);}
     private TtsTextBlockManager(){}
     static void show(Activity owner,BookChunkIndex chunks,BookChapterIndex chapters,String bookText,
-                     int bg,int fg,ChooseChapter chapterHandler,Choose handler){
+                     int bg,int fg,int currentChar,ChooseChapter chapterHandler,Choose handler){
+        if(chapters!=null && chapters.size()>0){
+            showChapters(owner,chapters,bg,fg,currentChar,chapterHandler);
+            return;
+        }
         LinearLayout contents=new LinearLayout(owner);
         contents.setOrientation(LinearLayout.VERTICAL);
         final AlertDialog[] dialogHolder=new AlertDialog[1];
-        if(chapters!=null&&chapters.size()>0){
-            Button chaptersButton=new Button(owner);
-            chaptersButton.setAllCaps(false);
-            chaptersButton.setText("Главы ("+chapters.size()+")");
-            chaptersButton.setOnClickListener(v->showChapters(owner,chapters,bg,fg,
-                startChar->{dialogHolder[0].dismiss();chapterHandler.onChoose(startChar);}));
-            contents.addView(chaptersButton,new LinearLayout.LayoutParams(-1,dp(owner,48)));
-        }
         RecyclerView rows=new RecyclerView(owner);
         contents.addView(rows,new LinearLayout.LayoutParams(-1,0,1));
         rows.setLayoutManager(new LinearLayoutManager(owner));
         rows.setPadding(dp(owner,12),dp(owner,4),dp(owner,12),dp(owner,10));
         rows.setClipToPadding(false);
         AlertDialog dialog=new SwipeDialogs.Builder(owner)
-            .setTitle("Менеджер текстовых блоков")
+            .setTitle("Оглавление")
             .setView(contents)
             .create();
         dialogHolder[0]=dialog;
@@ -82,19 +78,24 @@ final class TtsTextBlockManager {
         android.view.Window window=dialog.getWindow();
         if(window!=null){
             android.util.DisplayMetrics dm=owner.getResources().getDisplayMetrics();
-            window.setLayout(Math.min(dm.widthPixels-dp(owner,24),dp(owner,480)),
-                Math.min(dm.heightPixels-dp(owner,90),dp(owner,660)));
+            window.setBackgroundDrawableResource(android.R.color.transparent);
+            window.setGravity(Gravity.BOTTOM);
+            window.setLayout(-1,Math.min(dm.heightPixels-dp(owner,70),dp(owner,720)));
+            View panel=window.getDecorView();panel.setTranslationY(dp(owner,80));
+            panel.animate().translationY(0f).setDuration(230).start();
         }
     }
     /** Chapter list is independent from UI BookChunkIndex and audio SentenceChunks.
      * RecyclerView keeps the navigation cheap even for hundreds of sections. */
     private static void showChapters(Activity owner,BookChapterIndex chapters,
-            int bg,int fg,ChooseChapter callback){
+            int bg,int fg,int currentChar,ChooseChapter callback){
         RecyclerView list=new RecyclerView(owner);
         list.setLayoutManager(new LinearLayoutManager(owner));
         list.setPadding(dp(owner,12),dp(owner,6),dp(owner,12),dp(owner,8));
         AlertDialog dialog=new SwipeDialogs.Builder(owner)
-            .setTitle("Главы книги").setView(list).create();
+            .setTitle("Оглавление").setView(list).create();
+        // Reuse the prepared global char offset, never rebuild a full-book word index.
+        BookChapterIndex.Chapter active=chapters.atChar(currentChar);
         list.setAdapter(new RecyclerView.Adapter<RecyclerView.ViewHolder>(){
             @Override public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup parent,int viewType){
                 TextView row=new TextView(owner);
@@ -112,7 +113,10 @@ final class TtsTextBlockManager {
                 BookChapterIndex.Chapter chapter=chapters.get(position);
                 TextView row=(TextView)holder.itemView;
                 row.setSingleLine(true);row.setEllipsize(TextUtils.TruncateAt.END);
-                row.setText((position+1)+". "+chapter.title);
+                row.setText(chapter.title);
+                boolean selected=active!=null&&chapter.startChar==active.startChar;
+                row.setTextColor(selected?0xffa53b4c:fg);
+                row.setBackground(selected?bg(owner,0xffead7d1,12):bg(owner,bg,12));
                 row.setOnClickListener(v->{dialog.dismiss();callback.onChoose(chapter.startChar);});
             }
             @Override public int getItemCount(){return chapters.size();}
@@ -121,9 +125,16 @@ final class TtsTextBlockManager {
         android.view.Window window=dialog.getWindow();
         if(window!=null){
             android.util.DisplayMetrics dm=owner.getResources().getDisplayMetrics();
-            window.setLayout(Math.min(dm.widthPixels-dp(owner,24),dp(owner,480)),
-                Math.min(dm.heightPixels-dp(owner,90),dp(owner,660)));
+            window.setBackgroundDrawableResource(android.R.color.transparent);
+            window.setGravity(Gravity.BOTTOM);
+            window.setLayout(-1,Math.min(dm.heightPixels-dp(owner,70),dp(owner,720)));
+            View panel=window.getDecorView();panel.setTranslationY(dp(owner,80));
+            panel.animate().translationY(0f).setDuration(230).start();
         }
+    }
+    private static GradientDrawable bg(Activity a,int fill,int radius){
+        GradientDrawable drawable=new GradientDrawable();drawable.setColor(fill);
+        drawable.setCornerRadius(dp(a,radius));return drawable;
     }
     private static int dp(Activity a,int d){return Math.round(d*a.getResources().getDisplayMetrics().density);}
     private static final class Item extends RecyclerView.ViewHolder {

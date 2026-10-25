@@ -1,0 +1,10 @@
+feat(reader): unify four reading modes and reuse a single cached book session (v1.11.81-beta)
+
+- Move voice reading into ReaderActivity without reloading EPUB/FB2 or rebuilding UI
+- Use one structural TOC, global word map and virtualized BookChunkIndex
+- Add RBI3 cache with persisted chapter metadata and shared SentenceChunks
+- Put all modes in toolbar; simplify bottom controls and keep Play/Pause conditional
+- Show RSVP focus only after Play, add optional scroll-to-select setting
+- Preserve local/Edge voice controls, live WordBoundary and saved MP3 playback
+- Redirect external text-TTS entries to the unified reading screen
+- Add JVM regression test for in-memory and disk cache reuse

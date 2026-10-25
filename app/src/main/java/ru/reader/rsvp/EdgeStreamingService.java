@@ -248,12 +248,13 @@ public final class EdgeStreamingService extends Service {
         final String requested=uri;
         io.execute(()->{
             try{
-                BookLoader.Book book=BookLoader.load(this,Uri.parse(requested));
+                UnifiedBookSession session=UnifiedBookSession.open(this,Uri.parse(requested));
+                BookLoader.Book book=session.book;
                 String raw=book.text==null?"":book.text;
                 String name=book.title==null?"Книга":book.title;
                 BookChapterIndex parsedChapters=book.chapters;
-                ArrayList<Integer> positions=EdgeTextSegments.positions(raw);
-                ArrayList<SentenceChunks.Chunk> newParts=SentenceChunks.split(raw);
+                ArrayList<Integer> positions=session.ttsWordPositions;
+                ArrayList<SentenceChunks.Chunk> newParts=session.speechSegments;
                 File bookDir=EdgeBookStorage.bookFolder(this,requested,name);
                 File dir=new File(bookDir,"EdgeTTS");dir.mkdirs();
                 DownloadsRepository.storeEdgeMeta(bookDir,requested,name,positions.size());

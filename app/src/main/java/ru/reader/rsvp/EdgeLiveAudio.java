@@ -38,6 +38,17 @@ final class EdgeLiveAudio {
             int count=(int)Math.min(requested,length-from);
             System.arraycopy(bytes,(int)from,destination,off,count);return count;
         }
+        interface Closed {boolean isClosed();}
+        synchronized int readForPcm(long from,byte[] destination,int off,int requested,Closed closed) throws IOException {
+            while(from>=length&&!finished&&!closed.isClosed()){
+                try{wait(300);}catch(InterruptedException ex){Thread.currentThread().interrupt();throw new IOException("Audio stream interrupted",ex);}
+            }
+            if(closed.isClosed())return -1;
+            if(from>=length){if(failure!=null)throw new IOException(failure);return -1;}
+            int count=(int)Math.min(requested,length-from);
+            System.arraycopy(bytes,(int)from,destination,off,count);
+            return count;
+        }
         synchronized void wake(){notifyAll();}
     }
     private static final class Reader extends BaseDataSource {

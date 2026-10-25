@@ -11,13 +11,14 @@ import java.security.MessageDigest;
 
 /** Versioned compact index: stores book text ONCE and word offsets, not repeated word strings. */
 public final class ReaderBookCache {
-    private static final int MAGIC=0x52424932; // RBI2
+    private static final int MAGIC=0x52424933; // RBI3 includes structural chapters
     private static final int MAX_WORDS=2_500_000;
     public static final class CachedBook {
         public final String title,author,text;
         public final ReadingWordMap map;
-        CachedBook(String title,String author,String text,ReadingWordMap map){
-            this.title=title;this.author=author;this.text=text;this.map=map;
+        public final BookChapterIndex chapters;
+        CachedBook(String title,String author,String text,ReadingWordMap map,BookChapterIndex chapters){
+            this.title=title;this.author=author;this.text=text;this.map=map;this.chapters=chapters;
         }
     }
     private ReaderBookCache(){}
@@ -66,10 +67,19 @@ public final class ReaderBookCache {
                 starts[i]=in.readInt();ends[i]=in.readInt();
                 if(starts[i]<0||ends[i]>text.length()||ends[i]<=starts[i]||(i>0&&starts[i]<ends[i-1]))return null;
             }
-            return new CachedBook(title,author,text,ReadingWordMap.fromOffsets(text,starts,ends));
+            int chapterCount=in.readInt();
+            if(chapterCount<0||chapterCount>10000)return null;
+            java.util.ArrayList<BookChapterIndex.Chapter> chapters=new java.util.ArrayList<>();
+            for(int i=0;i<chapterCount;i++){
+                String name=readString(in,16384);
+                int start=in.readInt(),level=in.readInt();
+                chapters.add(new BookChapterIndex.Chapter(name,start,0,level));
+            }
+            return new CachedBook(title,author,text,ReadingWordMap.fromOffsets(text,starts,ends),
+                BookChapterIndex.build(chapters,text.length()));
         }catch(Exception e){return null;}
     }
-    public static void store(Context context,Uri uri,String title,String author,String text,ReadingWordMap map){
+    public static void store(Context context,Uri uri,String title,String author,String text,ReadingWordMap map,BookChapterIndex chapters){
         if(uri==null||text==null||map==null||map.size()==0)return;
         File destination=file(context,uri),temp=new File(destination.getParentFile(),destination.getName()+".tmp");
         try(DataOutputStream out=new DataOutputStream(new BufferedOutputStream(new FileOutputStream(temp)))){
@@ -77,6 +87,11 @@ public final class ReaderBookCache {
             writeString(out,title);writeString(out,author);writeString(out,text);
             out.writeInt(map.size());
             for(int i=0;i<map.size();i++){out.writeInt(map.starts[i]);out.writeInt(map.ends[i]);}
+            int n=chapters==null?0:chapters.size();out.writeInt(n);
+            for(int i=0;i<n;i++){
+                BookChapterIndex.Chapter c=chapters.get(i);
+                writeString(out,c.title);out.writeInt(c.startChar);out.writeInt(c.level);
+            }
         }catch(Exception e){temp.delete();return;}
         if(!temp.renameTo(destination)){
             destination.delete();

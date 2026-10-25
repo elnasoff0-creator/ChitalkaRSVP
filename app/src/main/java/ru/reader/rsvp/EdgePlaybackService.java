@@ -52,6 +52,7 @@ public final class EdgePlaybackService extends Service {
         String key;
         int start, end;
         File file;
+        EdgeLiveAudio.Buffer stream;
         Track(String key, int start, int end, File file) { this.key=key;this.start=start;this.end=end;this.file=file; }
     }
     public final class LocalBinder extends Binder {
@@ -61,6 +62,8 @@ public final class EdgePlaybackService extends Service {
     private final ArrayList<Track> tracks = new ArrayList<>();
     private ExoPlayer player;
     private EdgeLiveAudio.Factory liveDataSources;
+    private EdgePcmStream pcmStream;
+    private String pcmKey="",pcmCompletedKey="";
     private final ArrayList<Listener> listeners = new ArrayList<>();
     private PlaybackAudioFocus focus;
     private MediaSession mediaSession;
@@ -127,6 +130,10 @@ public final class EdgePlaybackService extends Service {
                 if(completed && lastIndex<tracks.size() && lastIndex>=0 && liveDataSources!=null)
                     liveDataSources.unregister(tracks.get(lastIndex).key);
                 lastIndex = index;
+                if(requestedPlay && index>=0 && index<tracks.size()){
+                    Track selected=tracks.get(index);
+                    if(selected.stream!=null)startPcm(selected);
+                }
                 if (completed && !autoContinue) {
                     requestedPlay = false;
                     player.pause();
@@ -151,6 +158,12 @@ public final class EdgePlaybackService extends Service {
             }
             @Override public void onAudioSessionIdChanged(int audioSessionId) { AudioEqualizer.attach(EdgePlaybackService.this,audioSessionId); }
             @Override public void onPlayerError(androidx.media3.common.PlaybackException error) {
+                int current=trackIndex();
+                if(current>=0&&current<tracks.size()&&tracks.get(current).stream!=null){
+                    // A live MP3 is decoded by MediaCodec/AudioTrack, not a growing
+                    // ExoPlayer progressive source. Exo failure must not stop it.
+                    startPcm(tracks.get(current));return;
+                }
                 requestedPlay = false;
                 playbackError = "Android не смог воспроизвести аудиофайл: "
                         + error.getErrorCodeName();
@@ -222,9 +235,9 @@ public final class EdgePlaybackService extends Service {
         if (!requested.equals(activeBookId)) {clearQueue(); activeBookId=requested;}
     }
     public void setAutoContinue(boolean enabled) { autoContinue=enabled; }
-    public boolean isPlaying() { return player!=null && player.isPlaying(); }
+    public boolean isPlaying() { return (pcmStream!=null&&pcmStream.isPlaying()) || (player!=null && player.isPlaying()); }
     public boolean hasFiles() { return !tracks.isEmpty(); }
-    public boolean isAtEnd() {return player!=null&&player.getPlaybackState()==Player.STATE_ENDED&&player.getMediaItemCount()>0;}
+    public boolean isAtEnd() {return !pcmCompletedKey.isEmpty() || (player!=null&&player.getPlaybackState()==Player.STATE_ENDED&&player.getMediaItemCount()>0);}
     public boolean playRequested() { return requestedPlay; }
     public int trackIndex() { return player==null?-1:player.getCurrentMediaItemIndex(); }
     public int trackCount() { return tracks.size(); }
@@ -240,6 +253,7 @@ public final class EdgePlaybackService extends Service {
         playbackSpeed = Math.max(0.5f, Math.min(5f, value));
         getSharedPreferences("reader",0).edit().putFloat("edge_playback_speed",playbackSpeed).apply();
         if (player != null) player.setPlaybackParameters(new PlaybackParameters(playbackSpeed));
+        if(pcmStream!=null)pcmStream.setSpeed(playbackSpeed);
         updateSession();
         notifyState();
     }
@@ -266,7 +280,7 @@ public final class EdgePlaybackService extends Service {
     public long sleepRemainingMs() {
         return sleepAtMs <= 0L ? 0L : Math.max(0L, sleepAtMs - System.currentTimeMillis());
     }
-    public long positionMs() { return player==null?0:Math.max(0,player.getCurrentPosition()); }
+    public long positionMs() { return pcmStream!=null?pcmStream.positionMs():player==null?0:Math.max(0,player.getCurrentPosition()); }
     public long durationMs() {
         if (player==null) return 0;
         long value=player.getDuration();
@@ -279,6 +293,7 @@ public final class EdgePlaybackService extends Service {
         requestedPlay=false;
         playbackError="";
         // Preserve the shared sleep deadline while changing book or voice.
+        stopPcm();pcmCompletedKey="";
         player.stop();
         player.clearMediaItems();
         tracks.clear();
@@ -293,6 +308,7 @@ public final class EdgePlaybackService extends Service {
     public void clearTracksForSelection() {
         requestedPlay=false;
         playbackError="";
+        stopPcm();pcmCompletedKey="";
         player.stop();player.clearMediaItems();tracks.clear();
         if(liveDataSources!=null)liveDataSources.clear();
         lastIndex=-1;
@@ -317,6 +333,54 @@ public final class EdgePlaybackService extends Service {
         return true;
     }
 
+    /** Live online path: decode compressed frames on a worker and feed one AudioTrack.
+     * ExoPlayer is kept for finalized local MP3 files only. */
+    private void startPcm(Track clip){
+        if(clip==null||clip.stream==null||!requestedPlay)return;
+        if(pcmStream!=null && pcmKey.equals(clip.key)){
+            pcmStream.play();notifyState();return;
+        }
+        stopPcm();
+        pcmKey=clip.key;pcmCompletedKey="";
+        player.pause();
+        EdgePcmStream stream=new EdgePcmStream(clip.stream,problem->{
+            if(!clip.key.equals(pcmKey))return; // stale callback from a prior selection
+            stopPcm();
+            if(problem!=null){
+                requestedPlay=false;playbackError="Edge PCM: "+problem;
+                updateNotification();notifyState();return;
+            }
+            pcmCompletedKey=clip.key;
+            advanceCompletedPcm();
+            updateNotification();notifyState();
+        });
+        pcmStream=stream;
+        stream.setSpeed(playbackSpeed);
+        stream.play();
+        updateNotification();notifyState();
+    }
+    private void stopPcm(){
+        if(pcmStream!=null){pcmStream.stop();pcmStream=null;}
+        pcmKey="";
+    }
+    private void advanceCompletedPcm(){
+        if(pcmCompletedKey.isEmpty()||!requestedPlay)return;
+        int current=trackIndex();
+        if(current<0||current>=tracks.size()||!tracks.get(current).key.equals(pcmCompletedKey))return;
+        int next=current+1;
+        if(next>=tracks.size())return; // next stream may still be buffering
+        pcmCompletedKey="";
+        player.seekTo(next,0);
+        Track target=tracks.get(next);
+        if(target.stream!=null)startPcm(target);
+        else if(target.file!=null){
+            stopPcm();
+            if(player.getPlaybackState()==Player.STATE_IDLE||player.getPlaybackState()==Player.STATE_ENDED)player.prepare();
+            player.play();
+        }
+        for(Listener listener:new ArrayList<>(listeners))listener.onTrackChanged(target.start,target.end,target.key,true);
+    }
+
     /** Start decoding a growing MP3 byte stream; no disk write or completed network
      * response is required. Background download owns the producer even after a seek.
      */
@@ -326,6 +390,7 @@ public final class EdgePlaybackService extends Service {
         if(liveDataSources==null)return;
         liveDataSources.register(key,bytes);
         Track track=new Track(key,start,end,null);
+        track.stream=bytes;
         int insertion=0;
         while(insertion<tracks.size()&&tracks.get(insertion).start<start)insertion++;
         tracks.add(insertion,track);
@@ -333,8 +398,8 @@ public final class EdgePlaybackService extends Service {
             .setUri(android.net.Uri.parse("edge-live:///"+android.net.Uri.encode(key)))
             .setMimeType("audio/mpeg").build();
         player.addMediaItem(insertion,media);
-        if(player.getPlaybackState()==Player.STATE_IDLE)player.prepare();
-        if(requestedPlay)player.play();
+        advanceCompletedPcm();
+        if(requestedPlay&&trackIndex()==insertion)startPcm(track);
         notifyState();
     }
 
@@ -370,7 +435,9 @@ public final class EdgePlaybackService extends Service {
             player.seekTo(oldCount,0);
             player.prepare();
         }
-        if (requestedPlay && !player.isPlaying() && player.getPlaybackState()!=Player.STATE_ENDED) player.play();
+        advanceCompletedPcm();
+        if (requestedPlay && !player.isPlaying() && player.getPlaybackState()!=Player.STATE_ENDED &&
+                pcmStream==null && trackIndex()>=0 && trackIndex()<tracks.size() && tracks.get(trackIndex()).file!=null)player.play();
         updateSession();
         notifyState();
     }
@@ -380,6 +447,17 @@ public final class EdgePlaybackService extends Service {
         requestedPlay=true;
         if(activeBookId!=null&&!activeBookId.isEmpty())ChteicoStore.openAudio(this,activeBookId);
         if (player.getMediaItemCount()>0) {
+            if(!pcmCompletedKey.isEmpty()){
+                advanceCompletedPcm();
+                if(!pcmCompletedKey.isEmpty()){
+                    updateNotification();updateSession();notifyState();return;
+                }
+            }
+            int current=trackIndex();
+            if(current>=0&&current<tracks.size()&&tracks.get(current).stream!=null){
+                startPcm(tracks.get(current));
+                updateNotification();updateSession();notifyState();return;
+            }
             if (player.getPlaybackState()==Player.STATE_ENDED) {
                 // At end of available cache wait for the downloader, NEVER replay last.
                 if (player.getCurrentMediaItemIndex()>=player.getMediaItemCount()-1) {
@@ -397,6 +475,7 @@ public final class EdgePlaybackService extends Service {
     }
     public void pause() {
         requestedPlay=false;
+        if(pcmStream!=null)pcmStream.pause();
         player.pause();
         focus.release();
         updateNotification();
@@ -405,6 +484,7 @@ public final class EdgePlaybackService extends Service {
     }
     public void stopAudio() {
         requestedPlay=false;
+        stopPcm();pcmCompletedKey="";
         player.pause();
         if (player.getMediaItemCount()>0) player.seekTo(0);
         focus.release();
@@ -413,7 +493,7 @@ public final class EdgePlaybackService extends Service {
         notifyState();
     }
     public void seekWithin(long positionMs) {
-        if (player.getMediaItemCount()>0) player.seekTo(Math.max(0,positionMs));
+        if (player.getMediaItemCount()>0 && pcmStream==null) player.seekTo(Math.max(0,positionMs));
         notifyState();
     }
     public void rewind10() { seekWithin(Math.max(0,positionMs()-10000)); }
@@ -447,7 +527,7 @@ public final class EdgePlaybackService extends Service {
                 .setState(state,positionMs(),player.isPlaying()?1f:0f).build());
     }
     private Notification notification() {
-        PendingIntent open=PendingIntent.getActivity(this,0,new Intent(this,EdgeOnlineActivity.class)
+        PendingIntent open=PendingIntent.getActivity(this,0,new Intent(this,ReaderActivity.class).putExtra("reading_mode_override",3)
                 .putExtra("book_uri",activeBookId.startsWith("edge:")?activeBookId.substring(5):activeBookId)
                 .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         PendingIntent toggle=PendingIntent.getService(this,1,new Intent(this,EdgePlaybackService.class)
@@ -482,6 +562,7 @@ public final class EdgePlaybackService extends Service {
         handler.removeCallbacks(sleepRunnable);
         focus.release();
         hideNotification();
+        stopPcm();
         if(mediaSession!=null){mediaSession.setActive(false);mediaSession.release();mediaSession=null;}
         if(player!=null){player.release();player=null;}
         if(liveDataSources!=null)liveDataSources.clear();

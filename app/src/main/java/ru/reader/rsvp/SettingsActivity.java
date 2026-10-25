@@ -276,7 +276,7 @@ public class SettingsActivity extends Activity {
     }
     void drawRsvpSettings(){
         header("Режим чтения");
-        int current=Math.max(0,Math.min(2,prefs.getInt("reading_mode",prefs.getBoolean("rsvp",true)?1:0)));
+        int current=Math.max(0,Math.min(3,prefs.getInt("reading_mode",prefs.getBoolean("rsvp",true)?1:0)));
         LinearLayout selector=new LinearLayout(this);selector.setGravity(Gravity.CENTER_VERTICAL);
         ImageView modeImage=new ImageView(this);
         modeImage.setImageResource(modeIconFor(current));modeImage.setColorFilter(contrast(bg));
@@ -285,7 +285,7 @@ public class SettingsActivity extends Activity {
         modeImage.setPadding(dp(13),dp(13),dp(13),dp(13));
         selector.addView(modeImage,new LinearLayout.LayoutParams(dp(52),dp(52)));
         android.widget.Spinner spinner=new android.widget.Spinner(this);
-        String[] labels={"Обычный","Скорочтение","Курсор"};
+        String[] labels={"Обычный","Скорочтение","Курсор","Озвучка"};
         android.widget.ArrayAdapter<String> items=new android.widget.ArrayAdapter<>(this,android.R.layout.simple_spinner_item,labels);
         items.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinner.setAdapter(items);spinner.setSelection(current,false);
@@ -295,12 +295,16 @@ public class SettingsActivity extends Activity {
         selector.addView(spinner,spinnerLp);list.addView(selector);
         spinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
             @Override public void onItemSelected(android.widget.AdapterView<?> parent,View view,int n,long id){
-                int chosen=Math.max(0,Math.min(2,prefs.getInt("reading_mode",prefs.getBoolean("rsvp",true)?1:0)));
+                int chosen=Math.max(0,Math.min(3,prefs.getInt("reading_mode",prefs.getBoolean("rsvp",true)?1:0)));
                 if(n!=chosen){prefs.edit().putInt("reading_mode",n).putBoolean("rsvp",n==RSVP).apply();draw();}
             }
             @Override public void onNothingSelected(android.widget.AdapterView<?> parent){}
         });
         gap(10);
+        if(current==3){
+            TextView hint=text("Режим «Озвучка» использует тот же текст и оглавление, что и остальные режимы. Параметры голосов и кэша доступны во вкладке «Аудио».",14,false);
+            list.addView(hint);list.addView(action("Настройки озвучивания",this::drawAudioSettings));return;
+        }
         addFullscreenSetting(current);
         if(current==NORMAL){drawNormalModeSettings();return;}
         addStartDelaySetting(current);
@@ -394,7 +398,7 @@ public class SettingsActivity extends Activity {
         gap(8);
     }
     int modeIconFor(int mode){
-        return mode==NORMAL?R.drawable.ic_book:mode==RSVP?R.drawable.ic_speed:R.drawable.ic_mode_cursor;
+        return mode==NORMAL?R.drawable.ic_book:mode==RSVP?R.drawable.ic_speed:mode==CURSOR?R.drawable.ic_mode_cursor:R.drawable.ic_microphone;
     }
     void drawNormalModeSettings(){
         header("Выбор слова в обычном режиме");
@@ -436,7 +440,8 @@ public class SettingsActivity extends Activity {
         position.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
             public void onProgressChanged(SeekBar b,int v,boolean user){positionLabel.setText("Горизонтальная позиция: "+v+"%");if(user)put("rsvp_line_position",v);}            public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
         });
-        TextView extra=text("Во время прокрутки вверх и вниз в скорочтении снова показывается весь текст книги с подсветкой текущего места.",13,false);extra.setPadding(0,dp(8),0,0);list.addView(extra);
+        addFocusSwitch("Выбирать слово прокруткой вместо касания", "rsvp_scroll_words",false);
+        TextView extra=text("По умолчанию слово для старта выбирается касанием текста. Если включить настройку, прокрутка меняет выбранное слово. Панель слова и линий появляется только после Play.",13,false);extra.setPadding(0,dp(8),0,0);list.addView(extra);
         gap(18);
     }
     void addFocusSwitch(String caption,String key,boolean defaultValue){

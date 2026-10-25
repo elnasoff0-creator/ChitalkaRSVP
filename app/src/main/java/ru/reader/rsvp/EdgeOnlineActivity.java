@@ -58,6 +58,10 @@ public final class EdgeOnlineActivity extends Activity {
     private int background,foreground,accent;
     private LinearLayout root;
     private ScrollView scroller;
+    private LinearLayout topToolbar;
+    private LinearLayout bookHeaderTts;
+    private TextView coverMetadata,topBookName;
+    private boolean topToolbarVisible=true;
     private TextView reading,bookTitle,progress,offlineProgress,speed;
     private ImageButton modeButton,downloadsButton;
     private TextView sleepRemaining;
@@ -163,7 +167,7 @@ public final class EdgeOnlineActivity extends Activity {
         final String requested=uri;
         new Thread(()->{
             try{
-                BookLoader.Book book=BookLoader.load(this,android.net.Uri.parse(requested));
+                BookLoader.Book book=UnifiedBookSession.open(this,android.net.Uri.parse(requested)).book;
                 final String body=book.text==null?"":book.text;
                 final String title=book.title==null?"Книга":book.title;
                 final ArrayList<Integer> offsets=SentenceChunks.wordPositions(body);
@@ -173,6 +177,12 @@ public final class EdgeOnlineActivity extends Activity {
                     wordStarts=offsets;sentences=SentenceChunks.split(body);
                     textBlocks=new BookChunkIndex(body,offsets,560);
                     name=title;bookTitle.setText(name);
+                    if(topBookName!=null)topBookName.setText(name);
+                    if(bookHeaderTts!=null){
+                        View heading=bookHeaderTts.findViewWithTag("bookHeaderTitle");
+                        if(heading instanceof TextView)((TextView)heading).setText(name);
+                        if(coverMetadata!=null)coverMetadata.setText(wordStarts.size()+" слов · "+(chapters==null?0:chapters.size())+" глав");
+                    }
                     int from=getIntent().getIntExtra("word_index",getSharedPreferences("reader",0).getInt("tts_word:"+uri,0));
                     selectedWord=Math.max(0,Math.min(Math.max(0,wordStarts.size()-1),from));
                     showWindow(wordChar(selectedWord),true);
@@ -204,10 +214,13 @@ public final class EdgeOnlineActivity extends Activity {
         SafeSystemBars.matchBackground(this,background);
         styledButtonColor=ReaderButtonColors.neutral(this,0xfffff9f0);
         styledAccentColor=ReaderButtonColors.accent(this,0xff915439);
-        LinearLayout toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout toolbar=new LinearLayout(this);topToolbar=toolbar;toolbar.setGravity(Gravity.CENTER_VERTICAL);
         root.addView(toolbar,new LinearLayout.LayoutParams(-1,dp(54)));
         ImageButton back=toolbarIcon(R.drawable.ic_back,"Назад",()->BackNavigation.back(this));
         addToolbarButton(toolbar,back,true);
+        ImageButton readModes=toolbarIcon(R.drawable.ic_book,"Режим чтения",()->
+            UiNavigationSheet.showModes(this,3,chosen->openReadingMode(chosen)));
+        addToolbarButton(toolbar,readModes,false);
         modeButton=toolbarIcon(local?R.drawable.ic_android_tts:R.drawable.ic_edge_tts,
                 "Способ озвучивания",this::chooseMethod);
         addToolbarButton(toolbar,modeButton,false);
@@ -245,7 +258,12 @@ public final class EdgeOnlineActivity extends Activity {
             startActivity(new Intent(this,SettingsActivity.class).putExtra("audio_tab",true));
         });
         addToolbarButton(toolbar,settings,false);
-        // Book title is retained as state for metadata but intentionally absent from the compact toolbar.
+        topBookName=label("",12);topBookName.setSingleLine(true);
+        topBookName.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        topBookName.setPadding(dp(8),0,0,0);
+        topBookName.setVisibility(View.GONE);
+        root.addView(topBookName,new LinearLayout.LayoutParams(-1,dp(20)));
+        // Header is shown at the beginning; a compact title appears with the revealed toolbar.
         bookTitle=label("",14);
         scroller=new ScrollView(this);scroller.setFillViewport(true);scroller.setBackground(bg(background,10));
         scroller.setOnTouchListener((v,e)->{
@@ -277,6 +295,7 @@ public final class EdgeOnlineActivity extends Activity {
             return false;
         });
         scroller.setOnScrollChangeListener((v,x,y,oldX,oldY)->{
+            if(!programmaticScroll&&Math.abs(y-oldY)>dp(2))setTopToolbarVisible(y<oldY);
             if(!programmaticScroll&&y!=oldY){
                 manualScrollSeen=true;manualScrollUntil=android.os.SystemClock.uptimeMillis()+3000;
             }
@@ -286,7 +305,18 @@ public final class EdgeOnlineActivity extends Activity {
         reading.setTypeface(getSharedPreferences("reader",0).getInt("font",1)==1?Typeface.SERIF:Typeface.DEFAULT);
         reading.setLineSpacing(dp(7),1.16f);reading.setPadding(dp(12),dp(12),dp(12),dp(14));
         reading.setTextIsSelectable(false);
-        scroller.addView(reading);
+        LinearLayout page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);
+        bookHeaderTts=new LinearLayout(this);bookHeaderTts.setOrientation(LinearLayout.VERTICAL);
+        ImageView cover=new ImageView(this);cover.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        bookHeaderTts.addView(cover,new LinearLayout.LayoutParams(-1,dp(190)));
+        CoverImageLoader.show(cover,uri,true);
+        TextView titleCard=label("",23);titleCard.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        titleCard.setTag("bookHeaderTitle");bookHeaderTts.addView(titleCard);
+        coverMetadata=label("",12);bookHeaderTts.addView(coverMetadata);
+        bookHeaderTts.setPadding(dp(12),dp(5),dp(12),dp(10));
+        page.addView(bookHeaderTts);
+        page.addView(reading,new LinearLayout.LayoutParams(-1,-2));
+        scroller.addView(page);
         // Exact center anchor is independent of left and right content widths.
         playbackBar=new FrameLayout(this);
         LinearLayout.LayoutParams controlsLp=new LinearLayout.LayoutParams(-1,dp(70));
@@ -328,6 +358,19 @@ public final class EdgeOnlineActivity extends Activity {
 
     private int wordChar(int word){return wordStarts.isEmpty()?0:wordStarts.get(Math.max(0,Math.min(word,wordStarts.size()-1)));}
     private int wordFromChar(int character){return wordStarts.isEmpty()?0:Math.max(0,Math.min(wordStarts.size()-1,SentenceChunks.lowerBound(wordStarts,character)));}
+    private void setTopToolbarVisible(boolean visible){
+        if(topToolbar==null||topToolbarVisible==visible)return;
+        topToolbarVisible=visible;
+        if(topBookName!=null)topBookName.setVisibility(visible&&windowStart>0?View.VISIBLE:View.GONE);
+        if(visible){
+            topToolbar.setAlpha(0f);topToolbar.setVisibility(View.VISIBLE);
+            topToolbar.animate().alpha(1f).setDuration(170).start();
+        }else{
+            topToolbar.animate().alpha(0f).setDuration(150).withEndAction(()->{
+                if(!topToolbarVisible)topToolbar.setVisibility(View.GONE);
+            }).start();
+        }
+    }
     private void showWindow(int anchor,boolean center){
         if(full.isEmpty())return;
         int first,last;
@@ -346,6 +389,8 @@ public final class EdgeOnlineActivity extends Activity {
             return;
         }
         windowStart=first;windowEnd=last;lastStart=lastEnd=-1;
+        if(bookHeaderTts!=null)bookHeaderTts.setVisibility(first==0?View.VISIBLE:View.GONE);
+        if(topBookName!=null)topBookName.setVisibility(topToolbarVisible&&first>0?View.VISIBLE:View.GONE);
         lastSentenceStart=lastSentenceEnd=-1;
         displayedText=full.substring(first,last);
         reading.setText(new SpannableStringBuilder(displayedText),TextView.BufferType.SPANNABLE);
@@ -436,7 +481,7 @@ public final class EdgeOnlineActivity extends Activity {
             Toast.makeText(this,"Текст ещё загружается",Toast.LENGTH_SHORT).show();return;
         }
         TtsTextBlockManager.show(this,textBlocks,chapters,full,
-            ReaderButtonColors.neutral(this,0xfffff9f0),foreground,
+            ReaderButtonColors.neutral(this,0xfffff9f0),foreground,wordChar(selectedWord>=0?selectedWord:liveWord()),
             chapterChar->{
                 int at=SentenceChunks.lowerBound(wordStarts,chapterChar);
                 selectWord(Math.max(0,Math.min(wordStarts.size()-1,at)));
@@ -537,6 +582,21 @@ public final class EdgeOnlineActivity extends Activity {
             boundDownload=bindService(new Intent(this,EdgeStreamingService.class),downloadConnection,BIND_AUTO_CREATE);
         }
         refresh();
+    }
+    private void openReadingMode(int selected){
+        if(selected<0||selected>3||selected==3)return;
+        int word=selectedWord>=0?selectedWord:liveWord();
+        getSharedPreferences("reader",0).edit()
+            .putInt("reading_mode",selected)
+            .putInt("position:"+uri,word)
+            .putInt("tts_word:"+uri,word).apply();
+        if(edge!=null)edge.pause();
+        if(downloads!=null)downloads.setActive(false);
+        if(local&&AudioPlaybackService.instance!=null&&AudioPlaybackService.instance.isTtsMode()){
+            startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.PAUSE));
+        }
+        startActivity(new Intent(this,ReaderActivity.class).putExtra("book_uri",uri));
+        finish();
     }
     private void chooseMethod(){
         LinearLayout rows=new LinearLayout(this);rows.setOrientation(LinearLayout.VERTICAL);
