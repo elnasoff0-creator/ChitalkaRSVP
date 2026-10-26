@@ -27,26 +27,31 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 
 import java.io.File;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /** Unified online-download dashboard. Neither downloader is owned/started by this screen. */
 public final class DownloadActivity extends Activity {
     private static final int BG=0xfff3e7d5,PANEL=0xfffff9f0,INK=0xff30221e,MUTED=0xff716259,ACCENT=0xffa26949,GREEN=0xff2b6145;
     private static final String FILTER_KEY="downloads_filter_v2";
     private final Handler main=new Handler(Looper.getMainLooper());
-    private boolean visible,bound;
+    private boolean visible,bound,refreshInFlight;
+    private final ExecutorService scan=Executors.newSingleThreadExecutor(r->{Thread t=new Thread(r,"DownloadListDisk");t.setPriority(Thread.MIN_PRIORITY);return t;});
     private EdgeStreamingService edge;
     private TextView summary;
     private RecyclerView list;
     private JobsAdapter adapter;
     private int filter;
     private final ArrayList<DisplayRow> rows=new ArrayList<>();
-    private final Runnable ticker=new Runnable(){@Override public void run(){if(!visible)return;refresh();main.postDelayed(this,1700);}};
+    private ArrayList<DownloadsRepository.Item> lastAll=new ArrayList<>();
+    private final Runnable ticker=new Runnable(){@Override public void run(){if(!visible)return;refresh();main.postDelayed(this,2600);}};
     private final ServiceConnection edgeConnection=new ServiceConnection(){
         @Override public void onServiceConnected(ComponentName n,IBinder b){edge=((EdgeStreamingService.LocalBinder)b).getService();refresh();}
         @Override public void onServiceDisconnected(ComponentName n){edge=null;refresh();}
@@ -89,7 +94,7 @@ public final class DownloadActivity extends Activity {
             PopupMenu menu=new PopupMenu(this,filterSelect);
             String[] names={"Все загрузки","В процессе","Аудиокниги","Edge TTS","По ссылке"};
             for(int i=0;i<names.length;i++){final int ix=i;menu.getMenu().add(names[i]).setOnMenuItemClickListener(item->{
-                filter=ix;filterSelect.setText(names[ix]+"  ▾");getSharedPreferences("reader",0).edit().putInt(FILTER_KEY,ix).apply();refresh();return true;});}
+                filter=ix;filterSelect.setText(names[ix]+"  ▾");getSharedPreferences("reader",0).edit().putInt(FILTER_KEY,ix).apply();showCachedFilter();return true;});}
             menu.getMenu().add(1,101,99,"Удалить скачанные файлы")
                 .setOnMenuItemClickListener(item->{confirmDeleteAllDownloads();return true;});
             menu.show();
@@ -97,7 +102,7 @@ public final class DownloadActivity extends Activity {
         summary=text("Загрузка данных…",13,false);summary.setTextColor(MUTED);summary.setGravity(Gravity.CENTER);
         summary.setPadding(0,dp(11),0,dp(11));root.addView(summary);
         list=new RecyclerView(this);list.setLayoutManager(new LinearLayoutManager(this));
-        adapter=new JobsAdapter();list.setAdapter(adapter);root.addView(list,new LinearLayout.LayoutParams(-1,0,1));
+        adapter=new JobsAdapter();adapter.setHasStableIds(true);list.setItemAnimator(null);list.setAdapter(adapter);root.addView(list,new LinearLayout.LayoutParams(-1,0,1));
     }
     private void toolbarAction(LinearLayout toolbar,int drawable,String hint,Runnable action){
         ImageView button=icon(drawable,hint,44);
@@ -119,12 +124,96 @@ public final class DownloadActivity extends Activity {
         AudiobookCoverStore.backfill(this,()->{if(visible)refresh();});
         main.post(ticker);}
     @Override protected void onPause(){visible=false;main.removeCallbacks(ticker);super.onPause();}
-    @Override protected void onDestroy(){if(bound)unbindService(edgeConnection);main.removeCallbacksAndMessages(null);super.onDestroy();}
-    private void refresh(){if(list==null||adapter==null)return;
-        ArrayList<DownloadsRepository.Item> all=DownloadsRepository.load(this,edge);
-        int active=0,done=0;for(DownloadsRepository.Item item:all){if(item.ready)done++;else active++;}
-        summary.setText("Онлайн-загрузки: "+all.size()+"  ·  В процессе: "+active+"  ·  Готово: "+done);
-        rows.clear();ArrayList<DownloadsRepository.Item> unfinished=new ArrayList<>(),ready=new ArrayList<>();
+    @Override protected void onDestroy(){if(bound)unbindService(edgeConnection);main.removeCallbacksAndMessages(null);scan.shutdownNow();super.onDestroy();}
+    /** Never traverse book directories, parse JSON or stat MP3 on the UI thread.
+     * Only one scan can run; refresh requests that arrive while it runs are merged
+     * into the next periodic tick, so a slow SD card cannot create a backlog.
+     */
+    private void refresh(){
+        if(!visible||adapter==null||refreshInFlight||scan.isShutdown())return;
+        refreshInFlight=true;
+        final int currentFilter=filter;
+        // Read the bound Service only on the main thread. Background scanning
+        // receives immutable values and never touches its mutable playback state.
+        final String liveUri=edge!=null&&edge.isActive()?edge.bookUri():"";
+        final String liveTitle=liveUri.isEmpty()?"":edge.title();
+        final ArrayList<DisplayRow> before=new ArrayList<>(rows);
+        scan.execute(()->{
+            try{
+                ArrayList<DownloadsRepository.Item> all=DownloadsRepository.load(getApplicationContext(),null);
+                if(!liveUri.isEmpty()){
+                    boolean found=false;
+                    for(DownloadsRepository.Item item:all)if(liveUri.equals(item.bookUri)){
+                        found=true;item.running=true;item.ready=false;
+                        item.status="Идёт озвучивание";
+                        break;
+                    }
+                    if(!found){
+                        DownloadsRepository.Item live=new DownloadsRepository.Item();
+                        live.type=DownloadsRepository.EDGE;live.id="edge:"+liveUri;
+                        live.bookUri=liveUri;live.cover=liveUri;live.title=liveTitle;
+                        live.status="Идёт озвучивание";live.description="Текущий аудиофрагмент";
+                        live.running=true;all.add(0,live);
+                    }
+                }
+                int active=0,done=0;
+                for(DownloadsRepository.Item item:all){if(item.ready)done++;else active++;}
+                ArrayList<DisplayRow> after=makeRows(all,currentFilter);
+                DiffUtil.DiffResult changes=DiffUtil.calculateDiff(new DiffUtil.Callback(){
+                    @Override public int getOldListSize(){return before.size();}
+                    @Override public int getNewListSize(){return after.size();}
+                    @Override public boolean areItemsTheSame(int a,int b){
+                        return rowId(before.get(a)).equals(rowId(after.get(b)));
+                    }
+                    @Override public boolean areContentsTheSame(int a,int b){
+                        return rowState(before.get(a)).equals(rowState(after.get(b)));
+                    }
+                },false);
+                final int running=active,complete=done;
+                main.post(()->{
+                    refreshInFlight=false;
+                    if(!visible||adapter==null)return;
+                    lastAll=all;
+                    if(filter!=currentFilter){showCachedFilter();return;}
+                    rows.clear();rows.addAll(after);
+                    summary.setText("Онлайн-загрузки: "+all.size()+"  ·  В процессе: "+running+"  ·  Готово: "+complete);
+                    changes.dispatchUpdatesTo(adapter);
+                });
+            }catch(Exception error){
+                android.util.Log.w("DownloadActivity","Index scan failed",error);
+                main.post(()->{refreshInFlight=false;if(visible&&rows.isEmpty())summary.setText("Не удалось загрузить список");});
+            }
+        });
+    }
+    /** Filter changes only touch the already indexed snapshot, never wait on storage. */
+    private void showCachedFilter(){
+        if(lastAll.isEmpty()){refresh();return;}
+        ArrayList<DisplayRow> next=makeRows(lastAll,filter);
+        ArrayList<DisplayRow> previous=new ArrayList<>(rows);
+        DiffUtil.DiffResult diff=DiffUtil.calculateDiff(new DiffUtil.Callback(){
+            @Override public int getOldListSize(){return previous.size();}
+            @Override public int getNewListSize(){return next.size();}
+            @Override public boolean areItemsTheSame(int old,int nextIndex){
+                return rowId(previous.get(old)).equals(rowId(next.get(nextIndex)));
+            }
+            @Override public boolean areContentsTheSame(int old,int nextIndex){
+                return rowState(previous.get(old)).equals(rowState(next.get(nextIndex)));
+            }
+        },false);
+        rows.clear();rows.addAll(next);diff.dispatchUpdatesTo(adapter);
+    }
+    private static String rowId(DisplayRow row){
+        return row.item==null?"section:"+row.section:row.item.id;
+    }
+    private static String rowState(DisplayRow row){
+        if(row.item==null)return row.section;
+        DownloadsRepository.Item i=row.item;
+        return i.title+"\n"+i.description+"\n"+i.status+"\n"+i.cover+"\n"+
+            i.ready+":"+i.running+":"+i.failed+":"+i.paused+":"+i.done+":"+i.total+":"+i.coveragePercent;
+    }
+    private static ArrayList<DisplayRow> makeRows(ArrayList<DownloadsRepository.Item> all,int filter){
+        ArrayList<DisplayRow> result=new ArrayList<>();
+        ArrayList<DownloadsRepository.Item> unfinished=new ArrayList<>(),ready=new ArrayList<>();
         for(DownloadsRepository.Item item:all){
             if(filter==1&&item.ready)continue;
             if(filter==2&&!DownloadsRepository.AUDIO.equals(item.type))continue;
@@ -133,13 +222,15 @@ public final class DownloadActivity extends Activity {
             (item.ready?ready:unfinished).add(item);
         }
         if(!unfinished.isEmpty()){
-            rows.add(new DisplayRow("В процессе",null));for(DownloadsRepository.Item item:unfinished)rows.add(new DisplayRow(null,item));
+            result.add(new DisplayRow("В процессе",null));
+            for(DownloadsRepository.Item item:unfinished)result.add(new DisplayRow(null,item));
         }
         if(!ready.isEmpty()){
-            rows.add(new DisplayRow("Готово",null));for(DownloadsRepository.Item item:ready)rows.add(new DisplayRow(null,item));
+            result.add(new DisplayRow("Готово",null));
+            for(DownloadsRepository.Item item:ready)result.add(new DisplayRow(null,item));
         }
-        if(rows.isEmpty())rows.add(new DisplayRow(filter==0?"Загрузок пока нет":"Нет загрузок в этом разделе",null));
-        adapter.notifyDataSetChanged();
+        if(result.isEmpty())result.add(new DisplayRow(filter==0?"Загрузок пока нет":"Нет загрузок в этом разделе",null));
+        return result;
     }
     private void send(DownloadsRepository.Item item,String command){
         Intent i=new Intent(this,DownloadWorker.class).setAction(command).putExtra("source",item.source);
@@ -236,9 +327,9 @@ public final class DownloadActivity extends Activity {
             .setPositiveButton("Удалить",(dialog,which)->deleteAllDownloads()).show();
     }
     private void deleteAllDownloads(){
-        final ArrayList<DownloadsRepository.Item> items=DownloadsRepository.load(this,edge);
         final String playingBook=edge!=null&&edge.isActive()?edge.bookUri():"";
         new Thread(()->{
+            final ArrayList<DownloadsRepository.Item> items=DownloadsRepository.load(getApplicationContext(),null);
             int deleted=0,skipped=0;
             for(DownloadsRepository.Item item:items){
                 if(item.running || (DownloadsRepository.EDGE.equals(item.type)&&item.bookUri.equals(playingBook))){skipped++;continue;}
@@ -263,6 +354,7 @@ public final class DownloadActivity extends Activity {
                                     ||name.endsWith(".mp3.part")))file.delete();
                             }
                         }
+                        EdgeAudioManager.invalidate(folder);
                         deleted++;
                     }else if(DownloadsRepository.LINK.equals(item.type)&&item.link!=null){
                         for(LinkDownloadStore.Entry entry:item.link.files){
@@ -324,6 +416,7 @@ public final class DownloadActivity extends Activity {
         });popup.show();
     }
     private final class JobsAdapter extends RecyclerView.Adapter<JobsAdapter.Holder>{
+        @Override public long getItemId(int position){return rowId(rows.get(position)).hashCode();}
         @Override public int getItemViewType(int p){return rows.get(p).item==null?0:1;}
         @Override public Holder onCreateViewHolder(android.view.ViewGroup parent,int type){
             LinearLayout root=new LinearLayout(DownloadActivity.this);root.setOrientation(LinearLayout.VERTICAL);

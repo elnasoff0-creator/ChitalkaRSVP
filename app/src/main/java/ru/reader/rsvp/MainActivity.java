@@ -476,21 +476,22 @@ public class MainActivity extends Activity {
         if(ChteicoStore.enabled(this) && prefs.getBoolean("mini_pet_on_home",true)){
             add(contentWrap,gap(14));
             // Transparent home companion: no header, helper text or surrounding card.
-            LinearLayout petArea=column();petArea.setGravity(Gravity.CENTER_HORIZONTAL);
+            // Fixed-size overlay: the speech bubble is drawn above the pet.
+            // Showing a reply changes visibility only, never parent measurements.
+            FrameLayout petArea=new FrameLayout(this);
+            LinearLayout.LayoutParams areaLp=new LinearLayout.LayoutParams(-1,dp(168));
+            areaLp.gravity=Gravity.CENTER_HORIZONTAL;
+            ChteicoPetView pet=new ChteicoPetView(this);
+            FrameLayout.LayoutParams petLp=new FrameLayout.LayoutParams(dp(105),dp(112),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);
+            petArea.addView(pet,petLp);
             ChteicoSpeechBubble bubble=new ChteicoSpeechBubble(this,bg,fg);
             TextView reply=text("",15,false);
-            reply.setGravity(Gravity.CENTER);
-            reply.setMaxLines(5);
-            bubble.addView(reply,new android.widget.FrameLayout.LayoutParams(-1,-2));
-            LinearLayout.LayoutParams bubbleLp=new LinearLayout.LayoutParams(dp(260),-2);
-            bubbleLp.gravity=Gravity.CENTER_HORIZONTAL;
-            bubbleLp.bottomMargin=dp(3);
+            reply.setGravity(Gravity.CENTER);reply.setMaxLines(4);
+            bubble.addView(reply,new FrameLayout.LayoutParams(-1,-2));
+            FrameLayout.LayoutParams bubbleLp=new FrameLayout.LayoutParams(dp(260),-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL);
             petArea.addView(bubble,bubbleLp);
+            bubble.setElevation(dp(8));
             bubble.setVisibility(View.GONE);
-            ChteicoPetView pet=new ChteicoPetView(this);
-            LinearLayout.LayoutParams petLp=new LinearLayout.LayoutParams(dp(105),dp(112));
-            petLp.gravity=Gravity.CENTER_HORIZONTAL;
-            petArea.addView(pet,petLp);
             final Runnable dismissReply=()->bubble.setVisibility(View.GONE);
             pet.setOnClickListener(v->{
                 android.content.SharedPreferences game=ChteicoStore.prefs(this);
@@ -507,7 +508,7 @@ public class MainActivity extends Activity {
                 bubble.removeCallbacks(dismissReply);
                 startActivity(new Intent(this,ChteicoActivity.class));return true;
             });
-            add(contentWrap,petArea);
+            contentWrap.addView(petArea,areaLp);
         }
         // Navigation moved to the accessible left drawer.
     }

@@ -18,7 +18,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import java.util.*;
 
-/** Three modes, one global word index, lazily bound text chunks. */
+/** Four modes, one ReaderActivity and a single global word index. */
 public class ReaderActivity extends Activity {
     private static final int NORMAL=0,RSVP=1,CURSOR=2,TTS=3,NO_COLOR=0;
     private final Handler handler=new Handler(Looper.getMainLooper());
@@ -280,11 +280,7 @@ public class ReaderActivity extends Activity {
         // The numeric WPM control belongs to the lower floating overlay, not the packed toolbar.
         LinearLayout.LayoutParams settingsLp=new LinearLayout.LayoutParams(dp(44),dp(44));settingsLp.leftMargin=dp(5);
         toolbar.addView(icon(R.drawable.ic_more_vertical,v->{
-            UiNavigationSheet.showActions(this,"Дополнительно",
-                mode==TTS?new String[]{"Закладки","Настройки","Голос озвучки","Загрузка озвучки"}:new String[]{"Закладки","Настройки","Загрузка озвучки"},
-                mode==TTS?new int[]{R.drawable.ic_bookmark,R.drawable.ic_settings,R.drawable.ic_tts_engine,R.drawable.ic_downloads}
-                    :new int[]{R.drawable.ic_bookmark,R.drawable.ic_settings,R.drawable.ic_downloads},
-                which->{if(which==0)bookmark();else if(which==1)settings();
+            ReaderSheets.overflow(this,mode==TTS,which->{if(which==0)bookmark();else if(which==1)settings();
                     else if(mode==TTS&&which==2)chooseTtsVoice();
                     else if(!docUri.isEmpty())startActivity(new Intent(this,EdgeChapterDownloadsActivity.class)
                         .putExtra("book_uri",docUri).putExtra("book_title",title));});
@@ -552,29 +548,7 @@ public class ReaderActivity extends Activity {
             if(progressView!=null)progressView.setTextColor(contrast(buttonBg()));}
         if(toolbarWpm!=null){toolbarWpm.setBackground(shape(buttonBg(),12));
             if(speedView!=null)speedView.setTextColor(contrast(buttonBg()));}
-        if(toolbar!=null){
-            // Every visible button remains square. Compact devices shrink them
-            // together, rather than cutting off the right-hand Settings button.
-            int buttons=0;
-            for(int i=0;i<toolbar.getChildCount();i++){
-                View item=toolbar.getChildAt(i);
-                if(item!=toolbarSpacer&&item.getVisibility()!=View.GONE)buttons++;
-            }
-            int available=getResources().getDisplayMetrics().widthPixels-dp(16);
-            int sizePx=Math.min(dp(44),Math.max(dp(32),
-                    (available-dp(5)*Math.max(0,buttons-1))/Math.max(1,buttons)));
-            for(int n=0;n<toolbar.getChildCount();n++){
-                View item=toolbar.getChildAt(n);
-                if(item==toolbarSpacer)continue;
-                android.view.ViewGroup.LayoutParams generic=item.getLayoutParams();
-                if(generic instanceof LinearLayout.LayoutParams){
-                    LinearLayout.LayoutParams lp=(LinearLayout.LayoutParams)generic;
-                    lp.width=sizePx;lp.height=sizePx;
-                    lp.leftMargin=n==0?0:dp(5);
-                    item.setLayoutParams(lp);
-                }
-            }
-        }
+        ReaderToolbarController.measure(toolbar,toolbarSpacer);
         if(controls!=null)controls.setVisibility(mode==NORMAL?View.GONE:View.VISIBLE);
         if(speedPanel!=null)speedPanel.setVisibility(mode==NORMAL?View.GONE:View.VISIBLE);
         if(toolbarWpm!=null)toolbarWpm.setVisibility(mode==NORMAL?View.GONE:View.VISIBLE);
@@ -802,7 +776,7 @@ public class ReaderActivity extends Activity {
         }
     }
     private void modeDialog(){
-        UiNavigationSheet.showModes(this,mode,selected->{
+        ReaderSheets.modes(this,mode,selected->{
             setMode(selected);
         });
     }
@@ -816,23 +790,14 @@ public class ReaderActivity extends Activity {
     private void setToolbarExpanded(boolean show){
         if(toolbarExpanded==show)return;
         toolbarExpanded=show;
-        if(toolbarStack!=null){
-            toolbarStack.animate().cancel();
-            toolbarStack.setVisibility(View.VISIBLE);
-            toolbarStack.animate().translationY(show?0:-dp(87)).alpha(show?1f:0f)
-                .setDuration(180).withEndAction(()->{
-                    if(!toolbarExpanded&&toolbarStack!=null)toolbarStack.setVisibility(View.INVISIBLE);
-                }).start();
-            toolbarStack.setClickable(show);
-        }
+        ReaderToolbarController.reveal(toolbarStack,show,87);
     }
     private void setMode(int next){if(next<0||next>TTS||next==mode)return;
         chteicoTouch();stop();int old=index,previousMode=mode;
         if(previousMode==TTS)releaseTts();
         pendingTtsWord=-1;
         mode=next;selecting=false;normalChromeVisible=false;toolbarExpanded=true;
-        if(toolbarStack!=null){toolbarStack.animate().cancel();toolbarStack.setVisibility(View.VISIBLE);
-            toolbarStack.setTranslationY(0f);toolbarStack.setAlpha(1f);}
+        ReaderToolbarController.reset(toolbarStack);
         updateModeUI();refreshHighlight(old);ensureWordVisible(true);saveLight(true);
         if(mode==TTS)startTtsSession();
     }
@@ -935,17 +900,8 @@ public class ReaderActivity extends Activity {
         if(mode!=TTS||docUri.isEmpty()||words.length==0)return;
         handler.removeCallbacks(ttsUiTick);
         ttsPendingPlay=false;
-        if(ttsLocal){
-            AudioModeCoordinator.stopEdge(this);
-            startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.TTS)
-                .putExtra("bookUri",docUri).putExtra("word_index",index));
-        }else{
-            if(AudioPlaybackService.instance!=null&&AudioPlaybackService.instance.isTtsMode())
-                startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.STOP));
-            startService(new Intent(this,EdgeStreamingService.class)
-                .setAction(EdgeStreamingService.ACTION_BEGIN)
-                .putExtra(EdgeStreamingService.EXTRA_URI,docUri)
-                .putExtra(EdgeStreamingService.EXTRA_ANCHOR,index));
+        ReaderTtsController.begin(this,ttsLocal,docUri,index);
+        if(!ttsLocal){
             ttsBoundPlayer=bindService(new Intent(this,EdgePlaybackService.class),ttsPlayerConnection,BIND_AUTO_CREATE);
             ttsBoundStream=bindService(new Intent(this,EdgeStreamingService.class),ttsStreamConnection,BIND_AUTO_CREATE);
         }
@@ -956,8 +912,7 @@ public class ReaderActivity extends Activity {
         handler.removeCallbacks(ttsUiTick);ttsPendingPlay=false;pendingTtsWord=-1;
         cachedTimingKey="";cachedTimingWords=java.util.Collections.emptyList();lastTtsError="";
         if(ttsLocal){
-            if(AudioPlaybackService.instance!=null&&AudioPlaybackService.instance.isTtsMode())
-                startService(new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.STOP));
+            ReaderTtsController.stopLocal(this);
         }else{
             if(ttsPlayer!=null){ttsPlayer.pause();ttsPlayer.removeListener(ttsPlayerListener);}
             if(ttsStreamer!=null){ttsStreamer.removeObserver(ttsStreamObserver);ttsStreamer.setActive(false);}
@@ -972,10 +927,7 @@ public class ReaderActivity extends Activity {
         return ttsPendingPlay||ttsPlayer!=null&&ttsPlayer.playRequested();
     }
     private void toggleTtsPlayback(){
-        if(ttsLocal){AudioPlaybackService s=AudioPlaybackService.instance;
-            boolean running=s!=null&&s.isTtsMode()&&!s.isPaused();
-            startService(new Intent(this,AudioPlaybackService.class)
-                .setAction(running?AudioPlaybackService.PAUSE:AudioPlaybackService.PLAY));
+        if(ttsLocal){ReaderTtsController.localPauseOrResume(this);
         }else if(ttsPlayer!=null){
             if(ttsPlayer.playRequested())ttsPlayer.pause();
             else {ttsPlayer.play();if(ttsStreamer!=null)ttsStreamer.ensurePlaySelection();}
@@ -991,8 +943,7 @@ public class ReaderActivity extends Activity {
         prefs.edit().putInt("tts_word:"+docUri,index).apply();
         boolean autoplay=prefs.getBoolean("tts_tap_autoplay",false);
         if(ttsLocal){
-            startService(new Intent(this,AudioPlaybackService.class).setAction("tts_select_word")
-                .putExtra("word_index",index));
+            ReaderTtsController.localSelect(this,index);
         }else if(ttsStreamer!=null){
             boolean audible=ttsPlayer!=null&&ttsPlayer.isPlaying();
             if(ttsPlayer!=null)ttsPlayer.pause();

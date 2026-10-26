@@ -131,7 +131,7 @@ public final class EdgeFullBookService extends Service {
             JSONArray index=new JSONArray();
             for(EdgeTextSegments.Part part:parts){
                 JSONObject o=new JSONObject();
-                String key=EdgeBookStorage.key(part.text,job.voice,job.rate,"edge-direct-v1");
+                String key=EdgeAudioManager.key(part.text,job.voice,job.rate);
                 o.put("start",part.start).put("end",part.end).put("text",part.text).put("key",key);
                 index.put(o);
             }
@@ -182,7 +182,7 @@ public final class EdgeFullBookService extends Service {
                                     throw new Exception("Не удалось заменить повреждённый MP3");
                                 if(!target.exists()&&!tmp.renameTo(target))throw new Exception("Не удалось сохранить MP3");
                                 saved=EdgeFullBookStore.ready(target);
-                                if(saved)EdgeWordTimings.store(target,o.getString("text"),result.boundaries);
+                                if(saved){EdgeWordTimings.store(target,o.getString("text"),result.boundaries);EdgeAudioManager.invalidate(job.mp3Folder());}
                                 tmp.delete();
                             }catch(Exception e){problem=e.getMessage();}
                         }else problem=result.error==null?"Сервис вернул не MP3":result.error;

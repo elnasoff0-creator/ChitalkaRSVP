@@ -27,7 +27,7 @@ final class EdgeSpeechFiles {
             }
             if(file.exists()&&!file.delete())throw new IOException("Cannot replace incomplete MP3");
             if(!part.renameTo(file))throw new IOException("Cannot finalize MP3");
-            // WordBoundary remains compatible with EdgeOnlineActivity highlighting.
+            // WordBoundary remains compatible with ReaderActivity highlighting.
             EdgeWordTimings.store(file,text,metadata);
             return file;
         }finally{part.delete();}

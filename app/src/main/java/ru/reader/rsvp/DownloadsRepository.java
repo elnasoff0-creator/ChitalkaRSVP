@@ -89,7 +89,7 @@ final class DownloadsRepository {
     private static Item fromEdge(File bookDir,String uri,String title,int totalWords,EdgeStreamingService live){
         File audio=new File(bookDir,"EdgeTTS");
         EdgeFullBookStore.Job full=EdgeFullBookStore.read(bookDir);
-        ArrayList<EdgeOfflineIndex.Segment> saved=EdgeOfflineIndex.readySegments(audio);
+        ArrayList<EdgeOfflineIndex.Segment> saved=EdgeAudioManager.segments(audio);
         if(saved.isEmpty()&&full==null&&(live==null||!uri.equals(live.bookUri())||live.snapshot().isEmpty()))return null;
         Item item=new Item();item.type=EDGE;item.bookUri=uri;item.id="edge:"+uri;
         item.title=title.isEmpty()?"Текстовая книга":title;item.cover=uri;item.folder=audio;

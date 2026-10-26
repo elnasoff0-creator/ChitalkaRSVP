@@ -1,9 +1,0 @@
-feat(edge): chapter-aware offline cache, background warmup and stable seeking (v1.11.98-beta)
-
-- Reconcile legacy, sentence, bulk and manual-jump MP3 indexes without migration.
-- Show verified per-chapter offline word coverage and manage selected chapter jobs.
-- Share text boundaries and persistent MP3 cache across playback and download.
-- Warm the selected Edge block silently and reuse its live buffer on Play.
-- Pin word highlighting until the selected track actually begins.
-- Remove intrusive network Toast messages from Edge reader.
-- Keep the three release notes limited to this version.

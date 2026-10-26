@@ -33,6 +33,8 @@ public final class EdgeChapterDownloadsActivity extends Activity {
     private TextView summary;
     private LinearLayout entries;
     private boolean visible,loading;
+    private final ArrayList<Entry> displayed=new ArrayList<>();
+    private final ArrayList<ChapterViews> chapterViews=new ArrayList<>();
     private ArrayList<Integer> offsets=new ArrayList<>();
     private BookChapterIndex toc=BookChapterIndex.empty();
     private static final class Entry {String title; int chapter,from,to; EdgeOfflineIndex.Stats stats;}
@@ -112,7 +114,7 @@ public final class EdgeChapterDownloadsActivity extends Activity {
         final ArrayList<Integer> positions=new ArrayList<>(offsets);
         final BookChapterIndex chapters=toc;
         worker.execute(()->{
-            ArrayList<EdgeOfflineIndex.Segment> segments=EdgeOfflineIndex.readySegments(audio);
+            ArrayList<EdgeOfflineIndex.Segment> segments=EdgeAudioManager.segments(audio);
             EdgeOfflineIndex.Stats total=EdgeOfflineIndex.stats(segments,0,positions.size());
             ArrayList<Entry> result=new ArrayList<>();
             if(chapters.size()==0){
@@ -130,10 +132,40 @@ public final class EdgeChapterDownloadsActivity extends Activity {
                 String status=job==null?"":(" · "+(EdgeFullBookStore.RUNNING.equals(job.status)?"загрузка":job.status));
                 summary.setText("Сохранено "+total.percent()+"% текста · "+total.files+" MP3 · "+
                     String.format(Locale.ROOT,"%.1f МБ",total.bytes/1048576.0)+status);
-                entries.removeAllViews();
-                for(Entry entry:result)addEntry(entry);
+                if(chapterViews.size()!=result.size()||!sameChapters(result)){
+                    entries.removeAllViews();chapterViews.clear();displayed.clear();
+                    for(Entry entry:result){addEntry(entry);displayed.add(entry);}
+                }else{
+                    for(int i=0;i<result.size();i++){
+                        Entry entry=result.get(i);
+                        ChapterViews view=chapterViews.get(i);
+                        if(!sameStats(displayed.get(i),entry)){
+                            view.percent.setText(entry.stats.percent()+"%");
+                            view.bar.setProgress(entry.stats.percent());
+                            view.details.setText(details(entry));
+                        }
+                        displayed.set(i,entry);
+                    }
+                }
             });
         });
+    }
+    private static boolean sameStats(Entry a,Entry b){
+        return a.stats.covered==b.stats.covered&&a.stats.bytes==b.stats.bytes&&a.stats.files==b.stats.files;
+    }
+    private boolean sameChapters(ArrayList<Entry> next){
+        if(displayed.size()!=next.size())return false;
+        for(int i=0;i<next.size();i++)if(displayed.get(i).chapter!=next.get(i).chapter
+            ||!displayed.get(i).title.equals(next.get(i).title))return false;
+        return true;
+    }
+    private static String details(Entry item){
+        return item.stats.files+" MP3 · "+String.format(Locale.ROOT,"%.1f МБ",item.stats.bytes/1048576.0)
+            +(item.stats.complete()?" · готово":" · нажмите для загрузки");
+    }
+    private static final class ChapterViews {
+        final TextView percent,details;final ProgressBar bar;
+        ChapterViews(TextView percent,TextView details,ProgressBar bar){this.percent=percent;this.details=details;this.bar=bar;}
     }
     private void addEntry(Entry item){
         LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);
@@ -146,10 +178,10 @@ public final class EdgeChapterDownloadsActivity extends Activity {
         ProgressBar progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
         progress.setMax(100);progress.setProgress(item.stats.percent());
         LinearLayout.LayoutParams bar=new LinearLayout.LayoutParams(-1,dp(6));bar.topMargin=dp(7);card.addView(progress,bar);
-        TextView meta=text(item.stats.files+" MP3 · "+String.format(Locale.ROOT,"%.1f МБ",item.stats.bytes/1048576.0)
-            +(item.stats.complete()?" · готово":" · нажмите для загрузки"),12,false);
+        TextView meta=text(details(item),12,false);
         meta.setTextColor(MUTED);LinearLayout.LayoutParams ml=new LinearLayout.LayoutParams(-1,-2);ml.topMargin=dp(5);card.addView(meta,ml);
         card.setOnClickListener(v->command(item.chapter));
+        chapterViews.add(new ChapterViews(progressText,meta,progress));
     }
     @Override protected void onResume(){super.onResume();visible=true;main.post(ticker);}
     @Override protected void onPause(){visible=false;main.removeCallbacks(ticker);super.onPause();}

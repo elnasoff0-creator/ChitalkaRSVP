@@ -6,6 +6,8 @@ import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Locale;
+import java.util.HashMap;
+import java.util.Map;
 
 /** Stable folder identity and cache-file identity for Edge TTS. */
 public final class EdgeBookStorage {
@@ -25,6 +27,22 @@ public final class EdgeBookStorage {
             return out.toString();
         } catch(Exception e) {return Integer.toHexString(value.hashCode());}
     }
+    private static final Map<String,File> folderIndex=new HashMap<>();
+    private static long folderIndexTime=0L, folderRootStamp=Long.MIN_VALUE;
+    private static String folderIndexRoot="";
+    private static synchronized File existing(File root,String suffix){
+        long now=android.os.SystemClock.elapsedRealtime();
+        String path=root.getAbsolutePath();long stamp=root.lastModified();
+        if(!path.equals(folderIndexRoot)||stamp!=folderRootStamp||now-folderIndexTime>5000L){
+            folderIndex.clear();
+            File[] dirs=root.listFiles(File::isDirectory);
+            if(dirs!=null)for(File dir:dirs){String n=dir.getName();int pos=n.lastIndexOf("--");
+                if(pos>=0)folderIndex.put(n.substring(pos),dir);
+            }
+            folderIndexTime=now;folderRootStamp=stamp;folderIndexRoot=path;
+        }
+        return folderIndex.get(suffix);
+    }
     public static File bookFolder(Context context, String uri, String title) {
         String clean=title==null?"Книга":title.trim().replaceAll("[\\/:*?\"<>|\\p{Cntrl}]","_");
         if(clean.isEmpty())clean="Книга";
@@ -32,8 +50,8 @@ public final class EdgeBookStorage {
         File root=booksRoot(context);
         String suffix="--"+sha256(uri,8);
         // Titles in library metadata and parsed EPUB/FB2 can differ. URI is the stable identity.
-        File[] existing=root.listFiles(f->f.isDirectory()&&f.getName().endsWith(suffix));
-        if(existing!=null&&existing.length>0)return existing[0];
+        File existing=existing(root,suffix);
+        if(existing!=null)return existing;
         return new File(root,clean+suffix);
     }
     public static void removeBook(Context context,String uri) {

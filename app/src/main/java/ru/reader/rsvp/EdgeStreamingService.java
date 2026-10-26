@@ -208,7 +208,7 @@ public final class EdgeStreamingService extends Service {
             io.execute(()->{
                 int saved=0;
                 for(SentenceChunks.Chunk part:snapshot){
-                    String key=EdgeBookStorage.key(part.text,voice,rate,"edge-direct-v1");
+                    String key=EdgeAudioManager.key(part.text,voice,rate);
                     File file=new File(folder,key+".mp3");
                     if(file.isFile()&&file.length()>1500)saved+=part.toWord-part.fromWord;
                 }
@@ -406,7 +406,7 @@ public final class EdgeStreamingService extends Service {
                 int from=charForWord(requested);
                 if(grouped!=null&&from<grouped.toChar){
                     String remainder=bookText.substring(from,grouped.toChar);
-                    String key=EdgeBookStorage.key(remainder,voice(),rate(),"edge-direct-v1");
+                    String key=EdgeAudioManager.key(remainder,voice(),rate());
                     target=new Clip(requested,base.end,remainder,key);
                     selectedOverride=target;
                 }
@@ -572,7 +572,7 @@ public final class EdgeStreamingService extends Service {
                     if(job.buffer!=null)job.buffer.complete();
                     io.execute(()->{
                         File saved=null;String failed=null;
-                        try{saved=EdgeSpeechFiles.save(job.folder,clip.key,clip.text,mp3,metadata);}
+                        try{saved=EdgeSpeechFiles.save(job.folder,clip.key,clip.text,mp3,metadata);if(saved)EdgeAudioManager.invalidate(job.folder);}
                         catch(Exception e){failed=e.getMessage();}
                         final File ready=saved;final String cacheError=failed;
                         main.post(()->{
@@ -702,7 +702,7 @@ public final class EdgeStreamingService extends Service {
         }catch(Exception ex){Log.w("EdgeSentences","Cannot restore older index",ex);}
         String selectedVoice=voice(),selectedRate=rate();
         for(SentenceChunks.Chunk part:sentenceParts){
-            String key=EdgeBookStorage.key(part.text,selectedVoice,selectedRate,"edge-direct-v1");
+            String key=EdgeAudioManager.key(part.text,selectedVoice,selectedRate);
             Clip c=new Clip(part.fromWord,part.toWord,part.text,key);
             File audio=new File(directory,key+".mp3");
             if(audio.isFile()&&audio.length()>1500){c.file=audio;c.bytes=audio.length();}
