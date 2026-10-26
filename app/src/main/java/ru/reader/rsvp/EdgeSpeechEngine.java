@@ -60,13 +60,22 @@ final class EdgeSpeechEngine {
         this.priority=priority;this.callback=callback;
     }
     void start(){
-        synchronized(this){if(finished||canceled)return;ticket=EdgeSpeechQueue.submit(priority,this::open);}
+        synchronized(this){if(finished||canceled)return;ticket=EdgeSpeechQueue.submit(priority,this::open,this::preempt);}
     }
     void cancel(){
         WebSocket old;
         synchronized(this){if(finished)return;finished=true;canceled=true;stopWatchdog();old=socket;
             EdgeSpeechQueue.release(ticket);ticket=null;}
         if(old!=null)old.cancel();
+    }
+    /** A foreground tap can preempt speculative/bulk work. Unlike user cancel,
+     * this completes the background callback so whole-book workers do not wait
+     * for their long timeout holding a generation lock. */
+    private void preempt(){
+        WebSocket existing;
+        synchronized(this){if(finished)return;existing=socket;}
+        finish("Edge TTS: запрос прерван ради активного чтения");
+        if(existing!=null)existing.cancel();
     }
     private static String id(){return UUID.randomUUID().toString().replace("-","");}
     private static String escaped(String s){return s.replace("&","&amp;").replace("<","&lt;")
@@ -149,8 +158,14 @@ final class EdgeSpeechEngine {
                     String path=EdgeWsFrames.textPath(message);
                     if("audio.metadata".equals(path)){
                         String body=EdgeWsFrames.textBody(message);
-                        if(!body.isEmpty())synchronized(EdgeSpeechEngine.this){
-                            if(!finished)EdgeWordTimings.parseMetadata(body,words);
+                        if(!body.isEmpty()){
+                            List<EdgeWordTimings.Boundary> snapshot;
+                            synchronized(EdgeSpeechEngine.this){
+                                if(finished)return;
+                                EdgeWordTimings.parseMetadata(body,words);
+                                snapshot=new ArrayList<>(words);
+                            }
+                            callback.metadata(snapshot);
                         }
                     }else if("turn.end".equals(path))finish(null);
                 }
@@ -179,6 +194,7 @@ final class EdgeSpeechEngine {
                         }
                     }
                     if(tooLarge){finish("MP3 превысил 12 МБ");return;}
+                    try{callback.audio(data,frame.dataOffset,frame.dataLength);}catch(Exception e){finish("Ошибка передачи MP3 в плеер: "+e);return;}
                     if((frames&7)==0)callback.progress(frames,audio.size());
                 }
                 @Override public void onFailure(WebSocket ws,Throwable e,Response response){

@@ -77,8 +77,6 @@ public final class EdgeOnlineActivity extends Activity {
     private int selectedWord=-1;
     // Keep a manual jump visible until the selected TTS sentence becomes active.
     private int pendingPositionWord=-1;
-    private int requestedSeekWord=-1;
-    private String requestedSeekKey="";
     private int cachedCoverage=-1;
     private long nextCoverageAt=0;
     private long nextWordSaveAt=0;
@@ -459,7 +457,6 @@ public final class EdgeOnlineActivity extends Activity {
             boolean wasAudible=(edge!=null&&edge.playRequested())||pendingEdgePlay;
             if(edge!=null)edge.pause();
             downloads.setAnchor(selectedWord,true);
-            requestedSeekWord=-1;requestedSeekKey="";
             if(auto||wasAudible){
                 if(edge!=null){edge.play();downloads.ensurePlaySelection();}
                 else pendingEdgePlay=true;
@@ -558,7 +555,7 @@ public final class EdgeOnlineActivity extends Activity {
             downloads=null;edge=null;
         }
         local=toLocal;
-        offlinePrompt=false;requestedSeekWord=-1;requestedSeekKey="";
+        offlinePrompt=false;
         if(modeButton!=null)modeButton.setImageResource(local?R.drawable.ic_android_tts:R.drawable.ic_edge_tts);
         if(downloadsButton!=null&&downloadsButton.getParent() instanceof View)
             ((View)downloadsButton.getParent()).setVisibility(local?View.GONE:View.VISIBLE);
@@ -726,17 +723,6 @@ public final class EdgeOnlineActivity extends Activity {
             }else{
                 SentenceChunks.Chunk part=SentenceChunks.forWord(sentences,word);
                 start=part==null?0:part.fromChar;end=part==null?0:part.toChar;
-            }
-            if(requestedSeekWord>=0&&clip!=null&&clip.ready()&&edge!=null){
-                String key=clip.key+":"+clip.start;
-                if(key.equals(edge.currentKey())&&!key.equals(requestedSeekKey)){
-                    requestedSeekKey=key;
-                    int desiredChar=downloads.charForWord(requestedSeekWord)-downloads.charForWord(clip.start);
-                    for(EdgeWordTimings.Word tick:ticks)if(desiredChar>=tick.from&&desiredChar<tick.to){
-                        edge.seekWithin(tick.startMs);break;
-                    }
-                    requestedSeekWord=-1;
-                }
             }
             if(!playing&&edge!=null&&edge.playRequested()&&downloads!=null&&downloads.words()>0
                 &&clip!=null&&!clip.ready()&&!networkAvailable()&&!offlinePrompt){

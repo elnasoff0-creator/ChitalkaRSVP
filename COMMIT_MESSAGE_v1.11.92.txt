@@ -1,0 +1,8 @@
+refactor(edge): stream MP3 directly into Media3 and prioritize sentence jumps (v1.11.92-beta)
+
+- Replace file-first foreground playback with EdgeLiveBuffer/EdgeLiveDataSource.
+- Remove 4.5s foreground pacing and 15min prefetch penalty.
+- Preempt slower background synthesis for explicit user navigation.
+- Preserve Retry-After and avoid automatic request storms on HTTP 429.
+- Expose live word timing and retain atomic MP3 disk cache.
+- Keep only current release notes and existing nine user vector icons.

@@ -14,16 +14,16 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import okhttp3.Response;
 
-/** A single permit for all Edge traffic, including whole-book generation.
- * Requests are paced, never concurrently retried and never routed around 429.
- * A cached file requires no permit and plays immediately.
+/** Edge network single-flight arbiter. User navigation has no artificial wait.
+ * Speculative/background work stays lower priority. A real server Retry-After is
+ * still honored; neither 15 minute prefetch block nor 4.5s PLAY pacing exists.
  */
 final class EdgeSpeechQueue {
-    static final int PLAY=0, PREFETCH=1, BULK=2;
+    static final int PLAY=0,PREFETCH=1,BULK=2;
     static final class Ticket {
-        final int priority;final long order;final Runnable run;
+        final int priority;final long order;final Runnable run,cancel;
         boolean canceled;
-        Ticket(int p,long o,Runnable r){priority=p;order=o;run=r;}
+        Ticket(int p,long o,Runnable r,Runnable c){priority=p;order=o;run=r;cancel=c;}
     }
     private static final ScheduledExecutorService TIMER=Executors.newSingleThreadScheduledExecutor(r->{
         Thread t=new Thread(r,"EdgeSpeechQueue");t.setDaemon(true);return t;
@@ -31,45 +31,68 @@ final class EdgeSpeechQueue {
     private static final ArrayList<Ticket> pending=new ArrayList<>();
     private static Ticket current;
     private static ScheduledFuture<?> wake;
-    private static long order,nextRequestAt,blockedUntil;
-    private static int consecutive429;
-    private static final long PACING_MS=1400L;
-    private static final long MAX_COOLDOWN_MS=30L*60*1000L;
+    private static long order,blockedUntil,lastCompletedAt,lastLimitedAt;
+    // Only background jobs are gently paced. A new tap/Play is never paced.
+    private static final long BACKGROUND_GAP_MS=850L;
+    private static final long DEFAULT_429_DEBOUNCE_MS=3000L;
     private EdgeSpeechQueue(){}
-    static synchronized Ticket submit(int priority,Runnable run){
-        Ticket t=new Ticket(priority,++order,run);pending.add(t);schedule();return t;
+    static Ticket submit(int priority,Runnable run){return submit(priority,run,null);}
+    static Ticket submit(int priority,Runnable run,Runnable onPreempt){
+        Runnable preempt=null;Ticket t;
+        synchronized(EdgeSpeechQueue.class){
+            t=new Ticket(priority,++order,run,onPreempt);
+            pending.add(t);
+            if(priority==PLAY&&current!=null&&current.priority>PLAY&&current.cancel!=null)
+                preempt=current.cancel;
+            schedule();
+        }
+        if(preempt!=null)preempt.run();
+        return t;
     }
     static synchronized void release(Ticket ticket){
         if(ticket==null)return;
         ticket.canceled=true;pending.remove(ticket);
-        if(current==ticket){current=null;nextRequestAt=Math.max(nextRequestAt,SystemClock.elapsedRealtime()+PACING_MS);}
+        if(current==ticket){current=null;lastCompletedAt=SystemClock.elapsedRealtime();}
         schedule();
     }
-    static synchronized long remainingMs(){return Math.max(0L,blockedUntil-SystemClock.elapsedRealtime());}
-    static synchronized long nextRetryAt(){return Math.max(blockedUntil,SystemClock.elapsedRealtime());}
-    static synchronized void success(){consecutive429=0;}
+    static synchronized void restoreCooldown(long wallClockDeadlineMs){
+        long remaining=wallClockDeadlineMs-System.currentTimeMillis();
+        if(remaining>0){blockedUntil=Math.max(blockedUntil,SystemClock.elapsedRealtime()+remaining);schedule();}
+    }
+    static synchronized long remainingMs(){return Math.max(0,blockedUntil-SystemClock.elapsedRealtime());}
+    static synchronized boolean allowPrefetch(){
+        // No arbitrary 15-minute penalty. Briefly suppress only speculative traffic
+        // after server overload while foreground PLAY remains available after Retry-After.
+        return lastLimitedAt==0 || SystemClock.elapsedRealtime()-lastLimitedAt>=10000L;
+    }
+    static synchronized void success(){lastLimitedAt=0;}
     static synchronized void limited(Response response){
-        consecutive429=Math.min(6,consecutive429+1);
-        long delay=Math.min(MAX_COOLDOWN_MS,30000L*(1L<<Math.min(4,consecutive429-1)));
+        long delay=DEFAULT_429_DEBOUNCE_MS;
         String after=response==null?null:response.header("Retry-After");
         if(after!=null)try{
-            delay=Math.max(delay,Math.multiplyExact(Long.parseLong(after.trim()),1000L));
+            delay=Math.max(delay,Long.parseLong(after.trim())*1000L);
         }catch(Exception ignored){try{
             SimpleDateFormat fmt=new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz",Locale.US);
             fmt.setTimeZone(TimeZone.getTimeZone("GMT"));
             Date date=fmt.parse(after.trim());
             if(date!=null)delay=Math.max(delay,date.getTime()-System.currentTimeMillis());
         }catch(Exception ignoredAgain){}}
-        delay=Math.min(MAX_COOLDOWN_MS,Math.max(30000L,delay));
-        blockedUntil=Math.max(blockedUntil,SystemClock.elapsedRealtime()+delay);
-        Log.w("EdgeSpeechQueue","Server 429: respecting cooldown "+delay+"ms");
+        lastLimitedAt=SystemClock.elapsedRealtime();
+        blockedUntil=Math.max(blockedUntil,lastLimitedAt+Math.max(0,delay));
+        Log.w("EdgeSpeechQueue","429 Retry-After/debounce="+delay+"ms");
         schedule();
     }
     private static void schedule(){
         if(wake!=null){wake.cancel(false);wake=null;}
+        pending.removeIf(t->t.canceled);
         if(current!=null||pending.isEmpty())return;
-        long delay=Math.max(0L,Math.max(nextRequestAt,blockedUntil)-SystemClock.elapsedRealtime());
-        wake=TIMER.schedule(EdgeSpeechQueue::dispatch,delay,TimeUnit.MILLISECONDS);
+        Ticket next=pending.stream().min(Comparator.comparingInt((Ticket t)->t.priority)
+            .thenComparingLong(t->t.order)).orElse(null);
+        if(next==null)return;
+        long now=SystemClock.elapsedRealtime();
+        long due=blockedUntil;
+        if(next.priority!=PLAY)due=Math.max(due,lastCompletedAt+BACKGROUND_GAP_MS);
+        wake=TIMER.schedule(EdgeSpeechQueue::dispatch,Math.max(0,due-now),TimeUnit.MILLISECONDS);
     }
     private static void dispatch(){
         Ticket next;
@@ -77,13 +100,16 @@ final class EdgeSpeechQueue {
             wake=null;
             pending.removeIf(t->t.canceled);
             if(current!=null||pending.isEmpty())return;
-            if(SystemClock.elapsedRealtime()<Math.max(nextRequestAt,blockedUntil)){schedule();return;}
             next=pending.stream().min(Comparator.comparingInt((Ticket t)->t.priority)
                 .thenComparingLong(t->t.order)).orElse(null);
             if(next==null)return;
+            long now=SystemClock.elapsedRealtime();
+            if(now<blockedUntil || (next.priority!=PLAY&&now<lastCompletedAt+BACKGROUND_GAP_MS)){
+                schedule();return;
+            }
             pending.remove(next);current=next;
         }
         try{if(!next.canceled)next.run.run();else release(next);}
-        catch(Throwable ex){Log.e("EdgeSpeechQueue","Cannot begin synthesis",ex);release(next);}
+        catch(Throwable ex){Log.e("EdgeSpeechQueue","Cannot start speech",ex);release(next);}
     }
 }

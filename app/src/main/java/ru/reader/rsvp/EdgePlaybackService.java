@@ -26,6 +26,7 @@ import androidx.media3.common.PlaybackParameters;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.DefaultLoadControl;
+import androidx.media3.exoplayer.source.ProgressiveMediaSource;
 import androidx.media3.common.util.UnstableApi;
 import androidx.core.app.NotificationCompat;
 
@@ -33,8 +34,8 @@ import java.io.File;
 import java.util.ArrayList;
 
 /**
- * Native Media3 playlist for completed, verified MP3 fragments.
- * No custom MediaCodec, AudioTrack or progressive live source is used.
+ * Media3 native progressive MP3 streaming with complete-file disk cache fallback.
+ * No custom MediaCodec, AudioTrack or intermediate PCM pipeline.
  * All binder calls are expected on Android main thread.
  */
 @UnstableApi
@@ -51,6 +52,7 @@ public final class EdgePlaybackService extends Service {
         String key;
         int start, end;
         File file;
+        EdgeLiveBuffer live;
         Track(String key, int start, int end, File file) { this.key=key;this.start=start;this.end=end;this.file=file; }
     }
     public final class LocalBinder extends Binder {
@@ -82,6 +84,9 @@ public final class EdgePlaybackService extends Service {
     private String activeBookId = "";
     private boolean notificationShowing;
     private String playbackError = "";
+    private String armedSeekKey = "";
+    private long armedSeekMs;
+
     private int lastIndex = -1;
     private float playbackSpeed = 1f;
     private long sleepAtMs;
@@ -296,6 +301,7 @@ public final class EdgePlaybackService extends Service {
     public void clearQueue() {
         requestedPlay=false;requestedPlayAtMs=0;
         playbackError="";
+        armedSeekKey="";armedSeekMs=0;
         // Preserve the shared sleep deadline while changing book or voice.
         player.stop();
         player.clearMediaItems();
@@ -310,9 +316,25 @@ public final class EdgePlaybackService extends Service {
     public void clearTracksForSelection() {
         requestedPlay=false;requestedPlayAtMs=0;
         playbackError="";
+        armedSeekKey="";armedSeekMs=0;
         player.stop();player.clearMediaItems();tracks.clear();
         lastIndex=-1;
         focus.release();hideNotification();updateSession();notifyState();
+    }
+    /** Arm a user-selected sentence BEFORE inserting a MediaItem. An MP3 that
+     * arrives later must never start audibly at the beginning of its group. */
+    public void armSelectedPosition(String key,long ms) {
+        armedSeekKey=key==null?"":key;
+        armedSeekMs=Math.max(0,ms);
+        applyArmedPosition();
+    }
+    private void applyArmedPosition() {
+        if(armedSeekKey.isEmpty())return;
+        for(int i=0;i<tracks.size();i++)if(tracks.get(i).key.equals(armedSeekKey)){
+            player.seekTo(i,armedSeekMs);
+            armedSeekKey="";armedSeekMs=0;
+            break;
+        }
     }
     /** Remove an invalid clip from the playlist without clearing other MP3 files.
      * A currently audible clip is protected against deletion; caller can retry later.
@@ -333,6 +355,46 @@ public final class EdgePlaybackService extends Service {
         return true;
     }
 
+    /** First MP3 bytes are read directly by Media3 while WebSocket is still
+     * generating. Completed bytes are independently committed to disk cache.
+     * The live URI has no filesystem dependency and is never persisted.
+     */
+    public void appendLive(String key,int start,int end,EdgeLiveBuffer stream){
+        if(key==null||stream==null)return;
+        for(Track t:tracks)if(t.key.equals(key))return;
+        int oldCount=tracks.size();
+        int insertion=0;
+        while(insertion<tracks.size()&&tracks.get(insertion).start<start)insertion++;
+        Track track=new Track(key,start,end,null);
+        track.live=stream;
+        tracks.add(insertion,track);
+        MediaItem item=new MediaItem.Builder().setMediaId(key)
+            .setUri("edge-live://speech/"+start).setMimeType("audio/mpeg").build();
+        ProgressiveMediaSource source=new ProgressiveMediaSource.Factory(
+            new EdgeLiveDataSource.Factory(stream)).createMediaSource(item);
+        player.addMediaSource(insertion,source);
+        applyArmedPosition();
+        if(oldCount==0)player.prepare();
+        else if(insertion==oldCount && player.getPlaybackState()==Player.STATE_ENDED && requestedPlay){
+            player.seekTo(insertion,0);player.prepare();
+        }
+        if(requestedPlay && player.getPlaybackState()!=Player.STATE_ENDED)player.play();
+        updateSession();notifyState();
+    }
+    /** Remove an aborted live item before another selection or an explicit retry. */
+    public void evictFailedLive(String key){
+        if(key==null)return;
+        for(int i=0;i<tracks.size();i++){
+            Track t=tracks.get(i);
+            if(!key.equals(t.key)||t.live==null)return;
+            t.live.fail(new java.io.IOException("Edge stream failed"));
+            tracks.remove(i);
+            player.removeMediaItem(i);
+            lastIndex=player.getCurrentMediaItemIndex();
+            notifyState();
+            return;
+        }
+    }
     /** Only called with fully assembled encoded audio files.
      * Use word-order insertion so a manually redownloaded clip returns to its original
      * position rather than being appended behind later, already downloaded clips.
@@ -359,6 +421,9 @@ public final class EdgePlaybackService extends Service {
             }
         }
         player.addMediaItem(insertion,itemBuilder.build());
+        // Perform user-selected seek before prepare()/play(), including when
+        // the requested MP3 was downloaded only after the tap.
+        applyArmedPosition();
         if (oldCount==0) {
             player.prepare();
         } else if (insertion==oldCount && player.getPlaybackState()==Player.STATE_ENDED && requestedPlay) {

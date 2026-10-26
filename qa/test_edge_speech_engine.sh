@@ -96,15 +96,22 @@ class EdgeSpeechEngineSmoke {
  public static void main(String[] args)throws Exception{
   CountDownLatch finish=new CountDownLatch(1);
   final byte[][] saved={null};final String[] errors={null};
+  final long[] firstPacket={0},ended={0};
   EdgeTtsClient c=EdgeTtsClient.synthesize("Проверка быстрого синтеза.","ru-RU-DmitryNeural","+28%",new EdgeTtsClient.Callback(){
    public void progress(int n,long b){}
+   public void audio(byte[] bytes,int from,int length){
+      if(firstPacket[0]==0)firstPacket[0]=System.nanoTime();
+      if(length!=2700)throw new AssertionError("Missing live MP3 bytes");
+   }
    public void finished(byte[] mp3,int chunks,String problem){
-      saved[0]=mp3;errors[0]=problem;finish.countDown();
+      ended[0]=System.nanoTime();saved[0]=mp3;errors[0]=problem;finish.countDown();
    }
   });
   if(!finish.await(3,TimeUnit.SECONDS))throw new AssertionError("Never finished");
   if(saved[0]==null||saved[0].length!=2700||errors[0]!=null||EdgeAudioFormat.identify(saved[0],saved[0].length)==null)
       throw new AssertionError("MP3 incomplete: "+errors[0]);
+  if(firstPacket[0]==0 || firstPacket[0]>=ended[0])
+      throw new AssertionError("First audio must be streamed before turn.end");
   if(!WebSocket.sent.contains("rate='+28%'"))throw new AssertionError("SSML rate not applied");
   if(!OkHttpClient.target.startsWith("wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1?Ocp-Apim-Subscription-Key="))
       throw new AssertionError("Outdated Edge endpoint: "+OkHttpClient.target);

@@ -42,6 +42,8 @@ public final class EdgeFullBookService extends Service {
     private int notificationCounter;
 
     @Override public void onCreate(){super.onCreate();serviceAlive=true;
+        EdgeSpeechQueue.restoreCooldown(getSharedPreferences("reader",0)
+                .getLong("edge_v2_retry_after_epoch_ms",0));
         if(Build.VERSION.SDK_INT>=26){NotificationManager nm=getSystemService(NotificationManager.class);
             if(nm!=null)nm.createNotificationChannel(new NotificationChannel(CHANNEL,"Edge TTS: вся книга",NotificationManager.IMPORTANCE_LOW));}
     }
@@ -169,7 +171,14 @@ public final class EdgeFullBookService extends Service {
                             }catch(Exception e){problem=e.getMessage();}
                         }else problem=result.error==null?"Сервис вернул не MP3":result.error;
                         if(saved)break;
+                        if(problem!=null&&problem.contains("прерван ради активного чтения")){
+                            EdgeFullBookStore.status(job,EdgeFullBookStore.PAUSED);
+                            return;
+                        }
                         if(problem!=null&&problem.contains("HTTP 429")){
+                            getSharedPreferences("reader",0).edit().putLong(
+                                "edge_v2_retry_after_epoch_ms",
+                                System.currentTimeMillis()+EdgeSpeechQueue.remainingMs()).apply();
                             // Do not keep retrying a service that explicitly
                             // asked us to reduce the request rate.
                             EdgeFullBookStore.progress(job,EdgeFullBookStore.readyCount(job),count,problem);
