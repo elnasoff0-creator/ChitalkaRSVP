@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import xml.etree.ElementTree as ET
 root=Path(__file__).resolve().parents[1]
 src=root/'app/src/main/java/ru/reader/rsvp'
@@ -19,7 +20,7 @@ has('SettingsActivity.java','TextView chevron=text("▾"','Справка об �
 audio=files['SettingsActivity.java'].split('    void drawAudioSettings(){',1)[1].split('    private void audioSpeedDialog()',1)[0]
 assert 'Метод озвучки' not in audio and 'tts_last_local' not in audio
 assert '"Настройки озвучивания"' not in files['SettingsActivity.java']
-assert "versionName '1.11.99-beta'" in (root/'app/build.gradle').read_text()
+assert re.search(r"versionName\s+'1\.11\.\d+-beta'", (root/'app/build.gradle').read_text())
 print('PASS: retained UI features, deleted Edge screen, and shared controls')
 
 # New v1.11.97 regressions
@@ -32,7 +33,7 @@ has('ReaderActivity.java','rsvpPlayFrame.setBackground(shape(accent(),12))','new
 has('ReaderToolbarController.java','static void measure','static void reveal','static void reset')
 has('PlaybackAudioFocus.java','AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK && keepPlayingOnDuck','setWillPauseWhenDucked(!keepPlayingOnDuck)','if (!registered) return;')
 has('AudioPlaybackService.java','},true); // Ignore duck-only notification focus changes')
-assert "versionName '1.11.99-beta'" in (root/'app/build.gradle').read_text()
+assert re.search(r"versionName\s+'1\.11\.\d+-beta'", (root/'app/build.gradle').read_text())
 print('PASS: audiobook sheets, gestures, standard buttons, safe audio focus and XML')
 
 # v1.11.99 architectural and performance invariants

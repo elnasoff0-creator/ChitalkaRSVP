@@ -572,7 +572,7 @@ public final class EdgeStreamingService extends Service {
                     if(job.buffer!=null)job.buffer.complete();
                     io.execute(()->{
                         File saved=null;String failed=null;
-                        try{saved=EdgeSpeechFiles.save(job.folder,clip.key,clip.text,mp3,metadata);if(saved)EdgeAudioManager.invalidate(job.folder);}
+                        try{saved=EdgeSpeechFiles.save(job.folder,clip.key,clip.text,mp3,metadata);if(saved!=null)EdgeAudioManager.invalidate(job.folder);}
                         catch(Exception e){failed=e.getMessage();}
                         final File ready=saved;final String cacheError=failed;
                         main.post(()->{

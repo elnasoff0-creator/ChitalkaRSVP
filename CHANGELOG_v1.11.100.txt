@@ -1,0 +1,14 @@
+ПРОЧиталка v1.11.100-beta CLEAN
+
+Исправление компиляции после архитектурного обновления v1.11.99:
+- EdgeStreamingService.java: в обработчике завершенного синтеза EdgeSpeechFiles.save() возвращает java.io.File, а не boolean. Условие инвалидирования общего EdgeAudioManager изменено с if(saved) на if(saved!=null).
+- Сохранение MP3, WordBoundary, старые ключи кэша и логика приоритетов не изменены.
+- Добавлена проверка контракта EdgeSpeechFiles.save() в qa/test_edge_save_contract.sh.
+- Проверка прежних UI-инвариантов переименована в qa/check_ui_core.py и больше не привязана к номеру v1.11.99.
+- Обновлены versionCode и versionName; удалены README/CHANGELOG/COMMIT_MESSAGE старых выпусков из корня.
+
+Основание: Gradle :app:compileReleaseJavaWithJavac, EdgeStreamingService.java:575,
+error: incompatible types: File cannot be converted to boolean.
+
+Проверки выполняются локально без Android SDK. Полная Android Release-сборка
+должна быть повторно выполнена в CI, где установлен compileSdk 35.

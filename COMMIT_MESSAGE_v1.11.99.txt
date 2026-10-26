@@ -1,8 +1,0 @@
-refactor(core): unify four-mode reader, Edge cache, downloads UI and mini pet (v1.11.99-beta)
-
-- move download repository scans off the main thread; diff list changes
-- reuse per-book Edge cache snapshots across playback, warmup and generation
-- remove unused EdgeOnlineActivity and centralize Reader TTS routing
-- share Reader toolbar sizing, visibility and sheet entrypoints
-- overlay home pet's speech bubble without relayout
-- preserve legacy MP3 keys and retain only current-version release notes
