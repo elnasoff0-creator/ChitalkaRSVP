@@ -204,7 +204,9 @@ public final class EdgeOnlineActivity extends Activity {
         return item;
     }
     private void addToolbarButton(LinearLayout bar,View item,boolean first){
-        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(44),1f);
+        int available=getResources().getDisplayMetrics().widthPixels-dp(20);
+        int width=Math.min(dp(44),Math.max(dp(34),(available-dp(5)*6)/7));
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(width,width);
         if(!first)lp.leftMargin=dp(5);
         bar.addView(item,lp);
     }
@@ -257,11 +259,12 @@ public final class EdgeOnlineActivity extends Activity {
         addToolbarButton(toolbar,gauge,false);
         toolbarSpeedControl=gauge;
         ImageButton settings=toolbarIcon(R.drawable.ic_more_vertical,"Дополнительно",()->{
-            new SwipeDialogs.Builder(this).fromTop().setTitle("Дополнительно")
-                .setItems(new String[]{"Закладки","Настройки"},(d,n)->{
+            UiNavigationSheet.showActions(this,"Дополнительно",
+                new String[]{"Закладки","Настройки"},
+                new int[]{R.drawable.ic_bookmark,R.drawable.ic_settings},n->{
                     if(n==0)saveBookmark();
                     else startActivity(new Intent(this,SettingsActivity.class).putExtra("audio_tab",true));
-                }).show();
+                });
         });
         addToolbarButton(toolbar,settings,false);
         topBookName=label("",12);topBookName.setSingleLine(true);
@@ -541,8 +544,7 @@ public final class EdgeOnlineActivity extends Activity {
     private void sleepDialog(){
         int[] minutes={0,5,10,15,30,60};
         String[] choices={"Выключить","5 мин","10 мин","15 мин","30 мин","60 мин","Конец главы"};
-        new SwipeDialogs.Builder(this).fromTop().setTitle("Таймер сна")
-            .setItems(choices,(dialog,n)->{
+        UiNavigationSheet.showTopChoices(this,"Таймер сна",choices,-1,n->{
                 int duration=n==6?-1:minutes[n];
                 BookChapterIndex.Chapter chapter=chapters==null?null:chapters.atChar(wordChar(liveWord()));
                 int end=chapter==null?wordStarts.size():wordFromChar(chapter.endChar);
@@ -550,7 +552,7 @@ public final class EdgeOnlineActivity extends Activity {
                     .setAction(AudioPlaybackService.SLEEP).putExtra("minutes",duration).putExtra("end_word",end));}
                 else if(edge!=null){if(duration==-1)edge.setSleepChapterEnd(end);else edge.setSleepMinutes(duration);}
                 Toast.makeText(this,duration==0?"Таймер выключен":"Таймер установлен",Toast.LENGTH_SHORT).show();
-            }).setNegativeButton("Отмена",null).show();
+            });
     }
     /** Switch voice engines in place. No new Activity, layout or text reload. */
     private void switchTo(boolean toLocal){
@@ -621,16 +623,14 @@ public final class EdgeOnlineActivity extends Activity {
         finish();
     }
     private void chooseMethod(){
-        LinearLayout rows=new LinearLayout(this);rows.setOrientation(LinearLayout.VERTICAL);
-        android.app.AlertDialog dialog=new SwipeDialogs.Builder(this).fromTop().setTitle("Способ озвучивания")
-            .setView(rows).create();
-        addEngineChoice(rows,dialog,R.drawable.ic_android_tts,"Системный TTS",
-            "Установленные голоса Samsung, Google и других",true);
-        addEngineChoice(rows,dialog,R.drawable.ic_edge_tts,"Microsoft Edge TTS",
-            "Онлайн-озвучка · сохранение MP3",false);
-        dialog.show();
+        UiNavigationSheet.showTopCustom(this,"Способ озвучивания",(rows,dialog)->{
+            addEngineChoice(rows,dialog,R.drawable.ic_android_tts,"Системный TTS",
+                "Установленные голоса Samsung, Google и других",true);
+            addEngineChoice(rows,dialog,R.drawable.ic_edge_tts,"Microsoft Edge TTS",
+                "Онлайн-озвучка · сохранение MP3",false);
+        });
     }
-    private void addEngineChoice(LinearLayout parent,android.app.AlertDialog dialog,
+    private void addEngineChoice(LinearLayout parent,android.app.Dialog dialog,
                                  int icon,String title,String subtitle,boolean toLocal){
         LinearLayout item=new LinearLayout(this);item.setGravity(Gravity.CENTER_VERTICAL);
         item.setPadding(dp(18),dp(13),dp(18),dp(13));
@@ -652,12 +652,11 @@ public final class EdgeOnlineActivity extends Activity {
             String selected=getSharedPreferences("reader",0).getString("edge_voice","ru-RU-SvetlanaNeural");
             if(downloads!=null)selected=downloads.voice();
             int checked=selected.contains("Dmitry")?1:0;
-            new SwipeDialogs.Builder(this).fromTop().setTitle("Голос Microsoft Edge")
-                .setSingleChoiceItems(names,checked,(dialog,n)->{
-                    getSharedPreferences("reader",0).edit().putString("edge_voice",keys[n]).apply();
-                    if(downloads!=null)downloads.choose(keys[n],null);
-                    dialog.dismiss();refresh();
-                }).setNegativeButton("Отмена",null).show();
+            UiNavigationSheet.showTopChoices(this,"Голос Microsoft Edge",names,checked,n->{
+                getSharedPreferences("reader",0).edit().putString("edge_voice",keys[n]).apply();
+                if(downloads!=null)downloads.choose(keys[n],null);
+                refresh();
+            });
             return;
         }
         LocalVoiceCatalog.show(this,()->{

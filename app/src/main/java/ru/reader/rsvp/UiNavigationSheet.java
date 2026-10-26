@@ -13,6 +13,7 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -33,6 +34,7 @@ final class UiNavigationSheet {
         boolean fromTop;
         void show(){Window window=dialog.getWindow();if(window==null)return;
             window.setWindowAnimations(fromTop?R.style.ChitalkaSheetTop:R.style.ChitalkaSheetBottom);
+            if(content instanceof SheetDragLayout)((SheetDragLayout)content).attach(dialog,fromTop);
             dialog.show();
             window.setBackgroundDrawableResource(android.R.color.transparent);window.setGravity(fromTop?Gravity.TOP:Gravity.BOTTOM);
             window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -45,14 +47,23 @@ final class UiNavigationSheet {
         int bg=a.getSharedPreferences("reader",0).getInt("bg",0xfff3e7d5);
         int ink=a.getSharedPreferences("reader",0).getInt("fg",0xff30221e);
         Dialog dialog=new Dialog(a);
-        LinearLayout card=new LinearLayout(a);card.setOrientation(LinearLayout.VERTICAL);
+        SheetDragLayout card=new SheetDragLayout(a);
         card.setPadding(dp(a,17),dp(a,11),dp(a,17),dp(a,20));card.setBackground(shape(a,bg,27));
         LinearLayout.LayoutParams handleLp=new LinearLayout.LayoutParams(dp(a,44),dp(a,5));handleLp.gravity=Gravity.CENTER_HORIZONTAL;
         TextView handle=label(a,"",1,ink);handle.setBackground(shape(a,0xffc3bcb3,6));card.addView(handle,handleLp);
         // Start a drag only from the handle so scrollable chapter lists are never intercepted.
         handle.setOnTouchListener(new View.OnTouchListener(){float down;
-            @Override public boolean onTouch(View view,MotionEvent e){if(e.getActionMasked()==MotionEvent.ACTION_DOWN){down=e.getY();return true;}
-                if(e.getActionMasked()==MotionEvent.ACTION_UP){if(Math.abs(e.getY()-down)>dp(a,28))dialog.dismiss();return true;}return true;}});
+            @Override public boolean onTouch(View view,MotionEvent e){
+                if(e.getActionMasked()==MotionEvent.ACTION_DOWN){down=e.getRawY();return true;}
+                if(e.getActionMasked()==MotionEvent.ACTION_MOVE||e.getActionMasked()==MotionEvent.ACTION_UP){
+                    float dy=e.getRawY()-down;
+                    boolean fromTop=dialog.getWindow()!=null&&dialog.getWindow().getAttributes().gravity==Gravity.TOP;
+                    if((fromTop?-dy:dy)>dp(a,42))dialog.dismiss();
+                    return true;
+                }
+                return true;
+            }
+        });
         TextView header=label(a,heading,23,ink);header.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
         LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);hp.setMargins(0,dp(a,12),0,dp(a,12));card.addView(header,hp);
         dialog.setContentView(card);
@@ -82,6 +93,77 @@ final class UiNavigationSheet {
             if(i==current){TextView check=label(a,"✓",19,0xff388458);line.addView(check);}
             line.setOnClickListener(v->{sh.dialog.dismiss();choice.onSelect(option);});
         }
+        sh.show();
+    }
+    interface SheetContentBuilder { void build(LinearLayout content,Dialog dialog); }
+    /** The canonical top-sheet implementation, also used by reading-mode selection. */
+    static void showTopCustom(Activity a,String heading,SheetContentBuilder builder){
+        Sheet sh=sheet(a,heading);sh.fromTop=true;
+        builder.build(sh.content,sh.dialog);
+        sh.show();
+    }
+    static void showTopChoices(Activity a,String heading,String[] labels,int selected,IndexChoice choice){
+        Sheet sh=sheet(a,heading);sh.fromTop=true;
+        int ink=a.getSharedPreferences("reader",0).getInt("fg",0xff30221e);
+        int neutral=ReaderButtonColors.neutral(a,0xfffff9f0);
+        LinearLayout destination=sh.content;
+        if(labels.length>7){
+            ScrollView scrolling=new ScrollView(a);
+            scrolling.setFillViewport(false);
+            destination=new LinearLayout(a);destination.setOrientation(LinearLayout.VERTICAL);
+            scrolling.addView(destination);
+            int available=(int)(a.getResources().getDisplayMetrics().heightPixels*.58f);
+            sh.content.addView(scrolling,new LinearLayout.LayoutParams(-1,Math.min(dp(a,475),available)));
+        }
+        for(int i=0;i<labels.length;i++){
+            final int position=i;
+            LinearLayout row=new LinearLayout(a);row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(a,16),dp(a,8),dp(a,16),dp(a,8));
+            row.setBackground(shape(a,position==selected?0xffdae9df:neutral,14));
+            LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,dp(a,56));rp.bottomMargin=dp(a,7);
+            destination.addView(row,rp);
+            TextView label=label(a,labels[i],17,ink);
+            row.addView(label,new LinearLayout.LayoutParams(0,-2,1));
+            if(position==selected)row.addView(label(a,"✓",20,0xff388458));
+            row.setOnClickListener(v->{sh.dialog.dismiss();choice.onSelect(position);});
+        }
+        sh.show();
+    }
+    /** Icon actions share the exact same stable top sheet as the reading-mode picker. */
+    static void showActions(Activity a,String heading,String[] names,int[] icons,IndexChoice choice){
+        if(names.length!=icons.length)throw new IllegalArgumentException("Action icons mismatch");
+        Sheet sh=sheet(a,heading);sh.fromTop=true;
+        int ink=a.getSharedPreferences("reader",0).getInt("fg",0xff30221e);
+        int neutral=ReaderButtonColors.neutral(a,0xfffff9f0);
+        for(int i=0;i<names.length;i++){
+            int option=i;
+            LinearLayout row=new LinearLayout(a);row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(a,14),dp(a,10),dp(a,14),dp(a,10));
+            row.setBackground(shape(a,neutral,15));
+            LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,dp(a,61));rp.bottomMargin=dp(a,8);
+            sh.content.addView(row,rp);
+            ImageView image=new ImageView(a);image.setImageResource(icons[i]);image.setColorFilter(ink);
+            row.addView(image,new LinearLayout.LayoutParams(dp(a,25),dp(a,25)));
+            TextView text=label(a,names[i],18,ink);text.setPadding(dp(a,15),0,0,0);
+            row.addView(text);
+            row.setContentDescription(names[i]);
+            row.setOnClickListener(v->{sh.dialog.dismiss();choice.onSelect(option);});
+        }
+        sh.show();
+    }
+    /** Bottom control sheets use the same dialog, animation and swipe as Contents. */
+    static void showBottomForm(Activity a,String heading,View form,Runnable done){
+        Sheet sh=sheet(a,heading);
+        if(form.getParent() instanceof ViewGroup)((ViewGroup)form.getParent()).removeView(form);
+        LinearLayout.LayoutParams body=new LinearLayout.LayoutParams(-1,-2);
+        body.bottomMargin=dp(a,12);
+        sh.content.addView(form,body);
+        int bg=ReaderButtonColors.accent(a,0xff94583b);
+        int ink=ReaderButtonColors.contrastingText(bg);
+        TextView confirm=label(a,"Готово",17,ink);
+        confirm.setGravity(Gravity.CENTER);confirm.setBackground(shape(a,bg,14));
+        sh.content.addView(confirm,new LinearLayout.LayoutParams(-1,dp(a,50)));
+        confirm.setOnClickListener(v->{sh.dialog.dismiss();if(done!=null)done.run();});
         sh.show();
     }
     static void showAudiobookChapters(Activity owner,String[] chapters,int selected,IndexChoice choice){

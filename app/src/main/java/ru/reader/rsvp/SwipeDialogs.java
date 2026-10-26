@@ -19,10 +19,12 @@ public final class SwipeDialogs {
         private final Context context;
         private boolean top;
         private View swipeHandle;
+        private SheetDragLayout swipePanel;
         @Override public Builder setView(View view){
             if(view==null){super.setView((View)null);return this;}
             float density=context.getResources().getDisplayMetrics().density;
-            LinearLayout panel=new LinearLayout(context);panel.setOrientation(LinearLayout.VERTICAL);
+            SheetDragLayout panel=new SheetDragLayout(context);
+            swipePanel=panel;
             panel.setPadding(0,(int)(9*density),0,0);
             View handle=new View(context);
             GradientDrawable pill=new GradientDrawable();pill.setColor(0xffa8a29c);
@@ -40,10 +42,21 @@ public final class SwipeDialogs {
         @Override public AlertDialog create(){
             AlertDialog dialog=super.create();
             final boolean openFromTop=top;
-            if(swipeHandle!=null)swipeHandle.setOnTouchListener(new SwipeDismiss(dialog,openFromTop,false));
-            if(dialog.getWindow()!=null)dialog.getWindow().setWindowAnimations(
-                openFromTop?R.style.ChitalkaSheetTop:R.style.ChitalkaSheetBottom);
-            dialog.setOnShowListener(ignored->configure(dialog,context,openFromTop));
+            // Configure the gravity and transition before the first rendered frame.
+            // Changing them in OnShow caused the window to jump between center and edge.
+            configure(dialog,context,openFromTop);
+            if(swipePanel!=null)swipePanel.attach(dialog,openFromTop);
+            if(swipeHandle!=null)swipeHandle.setOnTouchListener(new SwipeDismiss(dialog,openFromTop,false,true));
+            dialog.setOnShowListener(ignored->{
+                Window w=dialog.getWindow();
+                if(w!=null)w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT);
+                installGestures(dialog,openFromTop);
+            });
+            return dialog;
+        }
+        @Override public AlertDialog show(){
+            AlertDialog dialog=create();
+            dialog.show();
             return dialog;
         }
     }
@@ -57,31 +70,40 @@ public final class SwipeDialogs {
         window.setWindowAnimations(top?R.style.ChitalkaSheetTop:R.style.ChitalkaSheetBottom);
         window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
         WindowManager.LayoutParams params=window.getAttributes();params.dimAmount=.35f;window.setAttributes(params);
-        window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT);
-        int id=context.getResources().getIdentifier("alertTitle","id","android");
+        // Size is applied after show without changing gravity or animations.
+    }
+    private static void installGestures(AlertDialog dialog,boolean top){
+        Window window=dialog.getWindow();if(window==null)return;
+        int id=window.getContext().getResources().getIdentifier("alertTitle","id","android");
         View title=id==0?null:window.getDecorView().findViewById(id);
-        if(title!=null)title.setOnTouchListener(new SwipeDismiss(dialog,top,false));
+        if(title!=null)title.setOnTouchListener(new SwipeDismiss(dialog,top,false,true));
         View message=window.getDecorView().findViewById(android.R.id.message);
-        if(message!=null)message.setOnTouchListener(new SwipeDismiss(dialog,top,false));
+        if(message!=null)message.setOnTouchListener(new SwipeDismiss(dialog,top,false,true));
         ListView list=dialog.getListView();
-        if(list!=null)list.setOnTouchListener(new SwipeDismiss(dialog,top,true));
+        if(list!=null)list.setOnTouchListener(new SwipeDismiss(dialog,top,true,false));
     }
     private static final class SwipeDismiss implements View.OnTouchListener {
-        private final AlertDialog dialog;private final boolean top,scrollable;
+        private final AlertDialog dialog;private final boolean top,scrollable,handle;
         private float downX,downY;private boolean dismissed;
-        SwipeDismiss(AlertDialog dialog,boolean top,boolean scrollable){this.dialog=dialog;this.top=top;this.scrollable=scrollable;}
+        SwipeDismiss(AlertDialog dialog,boolean top,boolean scrollable,boolean handle){
+            this.dialog=dialog;this.top=top;this.scrollable=scrollable;this.handle=handle;
+        }
         @Override public boolean onTouch(View view,MotionEvent event){
             switch(event.getActionMasked()){
-                case MotionEvent.ACTION_DOWN:downX=event.getX();downY=event.getY();dismissed=false;return false;
+                case MotionEvent.ACTION_DOWN:
+                    downX=event.getRawX();downY=event.getRawY();dismissed=false;
+                    // A non-clickable handle must consume DOWN to receive MOVE/UP.
+                    return handle;
                 case MotionEvent.ACTION_MOVE:
                 case MotionEvent.ACTION_UP:
-                    float dy=event.getY()-downY;
-                    boolean canDismiss=!scrollable||(top?!view.canScrollVertically(-1):!view.canScrollVertically(1));
-                    if(!dismissed && canDismiss && (top?-dy:dy)>view.getResources().getDisplayMetrics().density*65
-                        && Math.abs(dy)>Math.abs(event.getX()-downX)*1.25f){
+                    float dy=event.getRawY()-downY;
+                    boolean atBoundary=!scrollable||(top?!view.canScrollVertically(1):!view.canScrollVertically(-1));
+                    if(!dismissed&&atBoundary&&(top?-dy:dy)>view.getResources().getDisplayMetrics().density*52
+                        && Math.abs(dy)>Math.abs(event.getRawX()-downX)*1.2f){
                         dismissed=true;dialog.dismiss();return true;
                     }
-                    return false;
+                    return handle;
+                case MotionEvent.ACTION_CANCEL:return handle;
                 default:return false;
             }
         }

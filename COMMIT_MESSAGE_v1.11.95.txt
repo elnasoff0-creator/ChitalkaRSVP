@@ -1,0 +1,8 @@
+fix(ui): stabilize top/bottom sheets, gestures and toolbar groups (v1.11.95-beta)
+
+- Use stable reading mode sheet for all top toolbar selectors and overflow icons
+- Reuse Contents bottom sheet for WPM and audiobook repeat
+- Keep dialog gravity before animation, improve swipe-to-dismiss and scroll safety
+- Maintain flexible toolbar spacer in Reader and fixed-size Edge actions
+- Restore neutral TOC statistics and matching WPM icon/number colors
+- Add UI v1.11.95 regression checks, retain clean release documents

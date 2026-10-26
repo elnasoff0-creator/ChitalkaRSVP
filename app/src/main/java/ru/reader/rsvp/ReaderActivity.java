@@ -233,7 +233,7 @@ public class ReaderActivity extends Activity {
         toolbarBookName.setEllipsize(TextUtils.TruncateAt.END);
         toolbarBookName.setGravity(Gravity.CENTER_VERTICAL);
         toolbarBookName.setPadding(dp(8),0,0,0);
-        toolbarBookName.setVisibility(View.GONE);
+        toolbarBookName.setVisibility(View.INVISIBLE);
         toolbar.addView(toolbarBookName,new LinearLayout.LayoutParams(0,dp(44),1));
         toolbarModeAction=icon(modeDrawable(),v->modeDialog());
         toolbarModeAction.setContentDescription("Режим чтения: Чтение, Скорочтение, Курсор, Озвучка");
@@ -279,9 +279,10 @@ public class ReaderActivity extends Activity {
         // The numeric WPM control belongs to the lower floating overlay, not the packed toolbar.
         LinearLayout.LayoutParams settingsLp=new LinearLayout.LayoutParams(dp(44),dp(44));settingsLp.leftMargin=dp(5);
         toolbar.addView(icon(R.drawable.ic_more_vertical,v->{
-            String[] items={"Закладки","Настройки"};
-            new SwipeDialogs.Builder(this).fromTop().setTitle("Дополнительно")
-                .setItems(items,(dialog,which)->{if(which==0)bookmark();else settings();}).show();
+            UiNavigationSheet.showActions(this,"Дополнительно",
+                new String[]{"Закладки","Настройки"},
+                new int[]{R.drawable.ic_bookmark,R.drawable.ic_settings},
+                which->{if(which==0)bookmark();else settings();});
         }),settingsLp);
         if(words.length==0){applySystemBars(false);
             TextView intro=text("EPUB · FB2 · HTML\n\nОткройте книгу, чтобы начать чтение.",20);
@@ -536,11 +537,12 @@ public class ReaderActivity extends Activity {
         if(toolbarVoiceAction!=null)toolbarVoiceAction.setVisibility(mode==TTS?View.VISIBLE:View.GONE);
         if(toolbarSleepAction!=null)toolbarSleepAction.setVisibility(mode==TTS?View.VISIBLE:View.GONE);
         if(toolbarWpm!=null)toolbarWpm.setVisibility(mode==NORMAL?View.GONE:View.VISIBLE);
-        if(contentsAction!=null){contentsAction.setBackground(shape(accent(),19));
-            if(contentsIcon!=null)contentsIcon.setColorFilter(contrast(accent()));
-            if(progressView!=null)progressView.setTextColor(contrast(accent()));}
+        if(contentsAction!=null){contentsAction.setBackground(shape(buttonBg(),13));
+            if(contentsIcon!=null){contentsIcon.setBackground(shape(accent(),12));
+                contentsIcon.setColorFilter(contrast(accent()));}
+            if(progressView!=null)progressView.setTextColor(contrast(buttonBg()));}
         if(toolbarWpm!=null){toolbarWpm.setBackground(shape(buttonBg(),12));
-            if(speedView!=null)speedView.setTextColor(contrast(accent()));}
+            if(speedView!=null)speedView.setTextColor(contrast(buttonBg()));}
         if(toolbar!=null){
             // Every visible button remains square. Compact devices shrink them
             // together, rather than cutting off the right-hand Settings button.
@@ -575,7 +577,7 @@ public class ReaderActivity extends Activity {
     private void applyFullscreenUi(){
         if(root==null||words.length==0||readingFrame==null)return;
         if(toolbar!=null)toolbar.setVisibility(toolbarExpanded?View.VISIBLE:View.INVISIBLE);
-        if(toolbarBookName!=null)toolbarBookName.setVisibility(toolbarExpanded&&index>0?View.VISIBLE:View.GONE);
+        if(toolbarBookName!=null)toolbarBookName.setVisibility(toolbarExpanded&&index>0?View.VISIBLE:View.INVISIBLE);
         if(modeRow!=null)modeRow.setVisibility(View.GONE);
         if(controls!=null)controls.setVisibility(mode==NORMAL?View.GONE:View.VISIBLE);
         if(bottomBar!=null)bottomBar.setVisibility(View.VISIBLE);
@@ -806,7 +808,7 @@ public class ReaderActivity extends Activity {
     private void setToolbarExpanded(boolean show){
         if(toolbarExpanded==show)return;
         toolbarExpanded=show;
-        if(toolbarBookName!=null)toolbarBookName.setVisibility(show&&index>0?View.VISIBLE:View.GONE);
+        if(toolbarBookName!=null)toolbarBookName.setVisibility(show&&index>0?View.VISIBLE:View.INVISIBLE);
         if(toolbar!=null){
             toolbar.animate().cancel();
             toolbar.setVisibility(View.VISIBLE);
@@ -1020,9 +1022,7 @@ public class ReaderActivity extends Activity {
     }
     private void chooseTtsEngine(){
         if(mode!=TTS)return;
-        LinearLayout choices=new LinearLayout(this);choices.setOrientation(LinearLayout.VERTICAL);
-        android.app.AlertDialog dialog=new SwipeDialogs.Builder(this).fromTop()
-            .setTitle("Способ озвучивания").setView(choices).create();
+        UiNavigationSheet.showTopCustom(this,"Способ озвучивания",(choices,dialog)->{
         int[] icons={R.drawable.ic_android_tts,R.drawable.ic_edge_tts};
         String[] titles={"Google TTS — локальный","Microsoft Edge TTS — онлайн"};
         String[] details={"Работает без интернета с установленным системным движком",
@@ -1049,17 +1049,18 @@ public class ReaderActivity extends Activity {
             });
             choices.addView(row,new LinearLayout.LayoutParams(-1,dp(76)));
         }
-        dialog.show();
+        });
     }
     private void chooseTtsVoice(){
         if(mode!=TTS)return;
         if(ttsLocal){LocalVoiceCatalog.show(this,()->startService(new Intent(this,AudioPlaybackService.class)
             .setAction(AudioPlaybackService.ENGINE)));return;}
         String[] names={"Светлана","Дмитрий"};String[] keys={"ru-RU-SvetlanaNeural","ru-RU-DmitryNeural"};
-        new SwipeDialogs.Builder(this).fromTop().setTitle("Голос Microsoft Edge")
-            .setItems(names,(dialog,n)->{prefs.edit().putString("edge_voice",keys[n]).apply();
-                if(ttsStreamer!=null)ttsStreamer.choose(keys[n],null);
-            }).show();
+        int selected=prefs.getString("edge_voice",keys[0]).contains("Dmitry")?1:0;
+        UiNavigationSheet.showTopChoices(this,"Голос Microsoft Edge",names,selected,n->{
+            prefs.edit().putString("edge_voice",keys[n]).apply();
+            if(ttsStreamer!=null)ttsStreamer.choose(keys[n],null);
+        });
     }
     private int chapterEndWord(int startWord){
         if(chapters==null||chapters.size()==0||map.starts.length==0)return map.starts.length;
@@ -1069,7 +1070,7 @@ public class ReaderActivity extends Activity {
     private void chooseTtsSleep(){
         if(mode!=TTS)return;
         int[] values={0,5,10,15,30,60,-1};String[] names={"Выключить","5 мин","10 мин","15 мин","30 мин","60 мин","Конец главы"};
-        new SwipeDialogs.Builder(this).fromTop().setTitle("Таймер сна").setItems(names,(dialog,n)->{
+        UiNavigationSheet.showTopChoices(this,"Таймер сна",names,-1,n->{
             int end=chapterEndWord(index);
             if(ttsLocal)startService(new Intent(this,AudioPlaybackService.class)
                 .setAction(AudioPlaybackService.SLEEP).putExtra("minutes",values[n]).putExtra("end_word",end));
@@ -1077,7 +1078,7 @@ public class ReaderActivity extends Activity {
                 if(values[n]==-1)ttsPlayer.setSleepChapterEnd(end);
                 else ttsPlayer.setSleepMinutes(values[n]);
             }
-        }).show();
+        });
     }
     @Override protected void onResume(){super.onResume();
         chteicoResumed=true;chteicoTouch();handler.removeCallbacks(chteicoReadTick);handler.postDelayed(chteicoReadTick,10000);

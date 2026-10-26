@@ -78,14 +78,14 @@ public final class LocalVoiceCatalog {
         }catch(Exception e){advance.run();}
     }
     public static void show(android.app.Activity activity,Runnable afterSelect){
-        android.app.AlertDialog loading=new SwipeDialogs.Builder(activity).setTitle("Локальные голоса")
+        android.app.AlertDialog loading=new SwipeDialogs.Builder(activity).fromTop().setTitle("Локальные голоса")
             .setMessage("Поиск голосов Samsung, Google и других движков…").create();
         loading.show();
         discover(activity,voices->{
             if(activity.isFinishing()||activity.isDestroyed()||!loading.isShowing())return;
             loading.dismiss();
             if(voices.isEmpty()){
-                new SwipeDialogs.Builder(activity).setTitle("Локальные голоса")
+                new SwipeDialogs.Builder(activity).fromTop().setTitle("Локальные голоса")
                     .setMessage("Русские локальные голоса не обнаружены или движок ограничивает доступ для сторонних приложений.")
                     .setPositiveButton("ОК",null).show();return;
             }
@@ -98,12 +98,12 @@ public final class LocalVoiceCatalog {
                 labels[i]=brand+" · "+e.voice.getName();
                 if(e.engine.equals(selectedEngine)&&e.voice.getName().equals(selectedVoice))checked=i;
             }
-            new SwipeDialogs.Builder(activity).setTitle("Локальные голоса")
-                .setSingleChoiceItems(labels,checked,(dialog,index)->{
-                    Entry selected=voices.get(index);
-                    prefs.edit().putString("tts_engine",selected.engine).putString("tts_voice",selected.voice.getName()).apply();
-                    if(afterSelect!=null)afterSelect.run();dialog.dismiss();
-                }).show();
+            UiNavigationSheet.showTopChoices(activity,"Локальные голоса",labels,checked,index->{
+                Entry selected=voices.get(index);
+                prefs.edit().putString("tts_engine",selected.engine)
+                    .putString("tts_voice",selected.voice.getName()).apply();
+                if(afterSelect!=null)afterSelect.run();
+            });
         });
     }
 }

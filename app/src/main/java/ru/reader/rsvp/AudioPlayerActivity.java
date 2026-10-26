@@ -250,9 +250,8 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
                     toggle.setText("Повтор всей аудиокниги");
                     toggle.setPadding(dp(18),dp(16),dp(18),dp(16));
                     toggle.setChecked(getSharedPreferences("reader",0).getBoolean("audio_repeat_all",false));
-                    new SwipeDialogs.Builder(this).setTitle("Повтор воспроизведения")
-                        .setView(toggle).setPositiveButton("Готово",(dialog,which)->
-                        getSharedPreferences("reader",0).edit().putBoolean("audio_repeat_all",toggle.isChecked()).apply()).show();
+                    UiNavigationSheet.showBottomForm(this,"Повтор воспроизведения",toggle,()->
+                        getSharedPreferences("reader",0).edit().putBoolean("audio_repeat_all",toggle.isChecked()).apply());
                     return true;
                 });
             }
