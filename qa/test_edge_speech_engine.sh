@@ -10,7 +10,7 @@ JAVA
 cat > "$TMP/src/android/util/Log.java" <<'JAVA'
 package android.util;
 public class Log {public static int w(String a,String b){return 0;}public static int i(String a,String b){return 0;}
-public static int e(String a,String b,Throwable c){return 0;}}
+public static int e(String a,String b,Throwable c){return 0;}public static int d(String a,String b){return 0;}}
 JAVA
 cat > "$TMP/src/okhttp3/ConnectionPool.java" <<'JAVA'
 package okhttp3;import java.util.concurrent.TimeUnit;
@@ -64,11 +64,16 @@ public class OkHttpClient {
   new Thread(()->{try{
     if(Response.status==429){listener.onFailure(ws,new java.io.IOException("limited"),new Response());return;}
     listener.onOpen(ws,new Response());Thread.sleep(30);
-    byte[] header="Path:audio\r\nContent-Type:audio/mpeg".getBytes(StandardCharsets.US_ASCII);
+    byte[] header="Path: audio\r\nContent-Type: audio/mpeg".getBytes(StandardCharsets.US_ASCII);
     byte[] bytes=new byte[2+header.length+2700];bytes[0]=(byte)(header.length>>8);bytes[1]=(byte)header.length;
     System.arraycopy(header,0,bytes,2,header.length);
+    bytes[2+header.length]='I';bytes[3+header.length]='D';bytes[4+header.length]='3';
     listener.onMessage(ws,new okio.ByteString(bytes));Thread.sleep(80);
-    listener.onMessage(ws,"Path:turn.end\r\n\r\n");
+    byte[] terminator="Path:audio\r\n".getBytes(StandardCharsets.US_ASCII);
+    byte[] end=new byte[2+terminator.length];end[0]=(byte)(terminator.length>>8);end[1]=(byte)terminator.length;
+    System.arraycopy(terminator,0,end,2,terminator.length);
+    listener.onMessage(ws,new okio.ByteString(end));
+    listener.onMessage(ws,"Path: turn.end\r\n\r\n");
   }catch(Exception ex){throw new RuntimeException(ex);}}).start();
   return ws;
  }
@@ -98,14 +103,14 @@ class EdgeSpeechEngineSmoke {
    }
   });
   if(!finish.await(3,TimeUnit.SECONDS))throw new AssertionError("Never finished");
-  if(saved[0]==null||saved[0].length!=2700||errors[0]!=null)
+  if(saved[0]==null||saved[0].length!=2700||errors[0]!=null||EdgeAudioFormat.identify(saved[0],saved[0].length)==null)
       throw new AssertionError("MP3 incomplete: "+errors[0]);
   if(!WebSocket.sent.contains("rate='+28%'"))throw new AssertionError("SSML rate not applied");
   if(!OkHttpClient.target.startsWith("wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1?Ocp-Apim-Subscription-Key="))
       throw new AssertionError("Outdated Edge endpoint: "+OkHttpClient.target);
   if(OkHttpClient.calls!=1)throw new AssertionError("Unexpected network retries");
   c.cancel();
-  System.out.println("PASS: complete MP3, voice/rate, 2026 websocket endpoint, one handshake");
+  System.out.println("PASS: MP3 with spaced headers and terminal control packet, voice/rate, endpoint, one handshake");
  }
 }
 JAVA
@@ -134,6 +139,8 @@ JAVA
 javac -encoding UTF-8 -d "$TMP/classes" $(find "$TMP/src" -name '*.java') \
  "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeSpeechQueue.java" \
  "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeSpeechEngine.java" \
+ "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeWsFrames.java" \
+ "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeAudioFormat.java" \
  "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeTtsClient.java"
 java -cp "$TMP/classes" ru.reader.rsvp.EdgeSpeechEngineSmoke
 java -cp "$TMP/classes" ru.reader.rsvp.EdgeSpeech429Smoke

@@ -1,0 +1,8 @@
+chore(ui): replace 9 vector icons and prune obsolete release notes (v1.11.90-beta)
+
+- Replace nine Android VectorDrawable resources with the user-provided XML files.
+- Keep resource names and existing UI references intact.
+- Remove previous-version README/CHANGELOG/COMMIT_MESSAGE files from CLEAN root.
+- Keep only release metadata for v1.11.90-beta.
+- Bump versionCode/versionName to 11190 / 1.11.90-beta.
+- Leave Edge TTS engine unchanged from v1.11.89.

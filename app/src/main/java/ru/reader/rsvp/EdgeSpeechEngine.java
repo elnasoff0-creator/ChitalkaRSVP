@@ -146,30 +146,39 @@ final class EdgeSpeechEngine {
                 }
                 @Override public void onMessage(WebSocket ws,String message){
                     synchronized(EdgeSpeechEngine.this){if(finished)return;}
-                    int boundary=message.indexOf("\r\n\r\n");
-                    String header=boundary<0?message:message.substring(0,boundary);
-                    if(header.contains("Path:audio.metadata")&&boundary>=0){
-                        synchronized(EdgeSpeechEngine.this){if(!finished)
-                            EdgeWordTimings.parseMetadata(message.substring(boundary+4),words);}
-                    }else if(header.contains("Path:turn.end"))finish(null);
+                    String path=EdgeWsFrames.textPath(message);
+                    if("audio.metadata".equals(path)){
+                        String body=EdgeWsFrames.textBody(message);
+                        if(!body.isEmpty())synchronized(EdgeSpeechEngine.this){
+                            if(!finished)EdgeWordTimings.parseMetadata(body,words);
+                        }
+                    }else if("turn.end".equals(path))finish(null);
                 }
                 @Override public void onMessage(WebSocket ws,ByteString packet){
                     byte[] data=packet.toByteArray();
-                    if(data.length<2)return;
-                    int h=((data[0]&255)<<8)|(data[1]&255);
-                    if(h<=0||h+2>data.length){finish("Повреждённый пакет Edge");return;}
-                    String header=new String(data,2,h,StandardCharsets.US_ASCII);
-                    if(!header.contains("Path:audio"))return;
-                    if(!header.contains("Content-Type:audio/mpeg")){finish("Неизвестный аудиоформат");return;}
-                    int offset=h+2,length=data.length-offset;
-                    if(length<=0)return;
+                    EdgeWsFrames.Frame frame;
+                    try{frame=EdgeWsFrames.audio(data);}
+                    catch(java.io.IOException problem){
+                        Log.w("EdgeSpeech","Invalid Edge binary envelope: "+problem.getMessage());
+                        finish(problem.getMessage());return;
+                    }
+                    if(frame.terminal){
+                        // Normal Edge end-of-audio marker. Wait for Path:turn.end before commit.
+                        Log.d("EdgeSpeech","Received empty audio terminal frame");
+                        return;
+                    }
+                    boolean tooLarge;
                     synchronized(EdgeSpeechEngine.this){
                         if(finished)return;
-                        if(audio.size()+length>MAX_AUDIO){finish("MP3 превысил 12 МБ");return;}
-                        audio.write(data,offset,length);frames++;
-                        lastFrame=SystemClock.elapsedRealtime();
-                        if(firstAudio==0)firstAudio=lastFrame;
+                        tooLarge=audio.size()+frame.dataLength>MAX_AUDIO;
+                        if(!tooLarge){
+                            audio.write(data,frame.dataOffset,frame.dataLength);
+                            frames++;
+                            lastFrame=SystemClock.elapsedRealtime();
+                            if(firstAudio==0)firstAudio=lastFrame;
+                        }
                     }
+                    if(tooLarge){finish("MP3 превысил 12 МБ");return;}
                     if((frames&7)==0)callback.progress(frames,audio.size());
                 }
                 @Override public void onFailure(WebSocket ws,Throwable e,Response response){

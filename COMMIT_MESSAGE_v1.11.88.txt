@@ -1,8 +1,0 @@
-refactor(edge): replace streaming PCM pipeline with file-first Edge speech (v1.11.88-beta)
-
-- Delete EdgeRealtimeTransport, EdgeRequestGate, EdgePcmStream, EdgeLiveAudio.
-- Add paced, single-flight EdgeSpeechQueue and 2026-v2 EdgeSpeechEngine.
-- Group short sentences to <=600 chars to reduce Microsoft 429 incidents.
-- Persist complete MP3 before Media3 playback; keep cached word timing.
-- Keep foreground playback request alive during first-file synthesis.
-- Respect server 429 and Retry-After without bypassing limits.
