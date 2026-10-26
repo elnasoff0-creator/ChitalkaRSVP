@@ -93,7 +93,9 @@ public final class EdgeFullBookActivity extends Activity {
                             .putExtra(EdgeFullBookService.EXTRA_RATE,prefs.getString("edge_rate","+0%"))
                             .putExtra(EdgeFullBookService.EXTRA_CHARS,length);
                         try{if(Build.VERSION.SDK_INT>=26)startForegroundService(i);else startService(i);
-                            Toast.makeText(this,"Подготовка добавлена в очередь",Toast.LENGTH_SHORT).show();finish();
+                            startActivity(new Intent(this,EdgeChapterDownloadsActivity.class)
+                                .putExtra("book_uri",uri).putExtra("book_title",title));
+                            finish();
                         }catch(Exception e){Toast.makeText(this,"Не удалось запустить Edge: "+e.getMessage(),Toast.LENGTH_LONG).show();}
                     }).show();
             }).setNegativeButton("Отмена",null).show();

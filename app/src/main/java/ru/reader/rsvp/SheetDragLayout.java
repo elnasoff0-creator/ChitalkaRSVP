@@ -33,7 +33,7 @@ public final class SheetDragLayout extends LinearLayout {
                 float dx=event.getRawX()-startX;
                 if(dialog!=null&&((fromTop&&dy<0)||(!fromTop&&dy>0))
                         &&Math.abs(dy)>density*24&&Math.abs(dy)>Math.abs(dx)*1.35f
-                        &&!descendantCanScroll(this,fromTop?1:-1)){
+                        &&!scrollableUnderFinger(this,fromTop?1:-1,event.getRawX(),event.getRawY())){
                     intercepting=true;
                     return true;
                 }
@@ -56,13 +56,19 @@ public final class SheetDragLayout extends LinearLayout {
             default:return true;
         }
     }
-    private static boolean descendantCanScroll(View v,int direction){
-        if(v.canScrollVertically(direction))return true;
+    /** Only the scrollable child actually touched may block a swipe-to-dismiss.
+     * A chapter list must not disable swipes started on the header/drag handle. */
+    private static boolean scrollableUnderFinger(View v,int direction,float rawX,float rawY){
+        if(v.getVisibility()!=View.VISIBLE)return false;
+        int[] location=new int[2];
+        v.getLocationOnScreen(location);
+        if(rawX<location[0]||rawX>=location[0]+v.getWidth()
+                ||rawY<location[1]||rawY>=location[1]+v.getHeight())return false;
         if(v instanceof ViewGroup){
             ViewGroup group=(ViewGroup)v;
-            for(int i=0;i<group.getChildCount();i++)
-                if(descendantCanScroll(group.getChildAt(i),direction))return true;
+            for(int i=group.getChildCount()-1;i>=0;i--)
+                if(scrollableUnderFinger(group.getChildAt(i),direction,rawX,rawY))return true;
         }
-        return false;
+        return v.canScrollVertically(direction);
     }
 }

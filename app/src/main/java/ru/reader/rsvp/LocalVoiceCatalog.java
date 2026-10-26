@@ -16,6 +16,35 @@ public final class LocalVoiceCatalog {
         Entry(String pkg,String name,Voice v){engine=pkg;label=name;voice=v;}
     }
     public interface Callback {void complete(ArrayList<Entry> voices);}
+    private static final Handler MAIN=new Handler(Looper.getMainLooper());
+    private static ArrayList<Entry> cached;
+    private static long cachedAt;
+    private static boolean fetching;
+    private static final ArrayList<Callback> subscribers=new ArrayList<>();
+    /** Shared asynchronous discovery: cached voices open immediately on subsequent taps. */
+    public static void ready(Context context,Callback callback){
+        synchronized(LocalVoiceCatalog.class){
+            if(cached!=null&&android.os.SystemClock.uptimeMillis()-cachedAt<120000){
+                ArrayList<Entry> copy=new ArrayList<>(cached);
+                MAIN.post(()->callback.complete(copy));return;
+            }
+            subscribers.add(callback);
+            if(fetching)return;
+            fetching=true;
+        }
+        discover(context.getApplicationContext(),voices->{
+            ArrayList<Callback> waiting;
+            synchronized(LocalVoiceCatalog.class){
+                cached=new ArrayList<>(voices);
+                cachedAt=android.os.SystemClock.uptimeMillis();
+                fetching=false;
+                waiting=new ArrayList<>(subscribers);subscribers.clear();
+            }
+            for(Callback next:waiting)next.complete(new ArrayList<>(voices));
+        });
+    }
+    public static void prefetch(Context context){ready(context,voices->{});}
+
     public static void discover(Context context,Callback callback){
         TextToSpeech[] probe=new TextToSpeech[1];
         final boolean[] completed={false};
@@ -25,13 +54,18 @@ public final class LocalVoiceCatalog {
                 if(completed[0])return;
                 completed[0]=true;
                 TextToSpeech tts=probe[0];
-                ArrayList<TextToSpeech.EngineInfo> engines=new ArrayList<>();
-                if(tts!=null){
-                    if(status==TextToSpeech.SUCCESS)engines.addAll(tts.getEngines());
-                    tts.shutdown();
+                if(tts==null||status!=TextToSpeech.SUCCESS){
+                    if(tts!=null)tts.shutdown();callback.complete(new ArrayList<>());return;
                 }
-                if(engines.isEmpty()){callback.complete(new ArrayList<>());return;}
-                scan(context,engines,0,new ArrayList<>(),callback);
+                new Thread(()->{
+                    ArrayList<TextToSpeech.EngineInfo> engines=new ArrayList<>();
+                    try{engines.addAll(tts.getEngines());}catch(Exception ignored){}
+                    handler.post(()->{
+                        tts.shutdown();
+                        if(engines.isEmpty()){callback.complete(new ArrayList<>());return;}
+                        scan(context,engines,0,new ArrayList<>(),callback);
+                    });
+                },"tts-local-engines").start();
             },80);
         });
         handler.postDelayed(()->{
@@ -65,25 +99,30 @@ public final class LocalVoiceCatalog {
                     if(completed[0])return;
                     if(ref[0]==null){h.postDelayed(advance,200);return;}
                     if(status==TextToSpeech.SUCCESS){
-                        Set<Voice> voices=ref[0].getVoices();
-                        if(voices!=null)for(Voice v:voices){
-                            if(v.getLocale()!=null&&"ru".equals(v.getLocale().getLanguage())&&!v.isNetworkConnectionRequired())
-                                found.add(new Entry(info.name,info.label==null?info.name:info.label,v));
-                        }
-                    }
-                    advance.run();
+                        final TextToSpeech ready=ref[0];
+                        new Thread(()->{
+                            Set<Voice> voices=null;
+                            try{voices=ready.getVoices();}catch(Exception ignored){}
+                            final Set<Voice> discovered=voices;
+                            h.post(()->{
+                                if(completed[0])return;
+                                if(discovered!=null)for(Voice v:discovered){
+                                    if(v.getLocale()!=null&&"ru".equals(v.getLocale().getLanguage())&&!v.isNetworkConnectionRequired())
+                                        found.add(new Entry(info.name,info.label==null?info.name:info.label,v));
+                                }
+                                advance.run();
+                            });
+                        },"tts-local-voices").start();
+                    }else advance.run();
                 });
             },info.name);
             h.postDelayed(advance,4000);
         }catch(Exception e){advance.run();}
     }
     public static void show(android.app.Activity activity,Runnable afterSelect){
-        android.app.AlertDialog loading=new SwipeDialogs.Builder(activity).fromTop().setTitle("Локальные голоса")
-            .setMessage("Поиск голосов Samsung, Google и других движков…").create();
-        loading.show();
-        discover(activity,voices->{
-            if(activity.isFinishing()||activity.isDestroyed()||!loading.isShowing())return;
-            loading.dismiss();
+        // Discovery occurs without a placeholder sheet. Present the selector only when complete.
+        ready(activity.getApplicationContext(),voices->{
+            if(activity.isFinishing()||activity.isDestroyed())return;
             if(voices.isEmpty()){
                 new SwipeDialogs.Builder(activity).fromTop().setTitle("Локальные голоса")
                     .setMessage("Русские локальные голоса не обнаружены или движок ограничивает доступ для сторонних приложений.")

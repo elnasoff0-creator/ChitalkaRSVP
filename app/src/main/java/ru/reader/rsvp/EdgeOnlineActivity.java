@@ -57,8 +57,9 @@ public final class EdgeOnlineActivity extends Activity {
     private boolean boundDownload,boundPlayer;
     private int background,foreground,accent;
     private LinearLayout root;
+    private FrameLayout sceneRoot;
     private ScrollView scroller;
-    private LinearLayout topToolbar;
+    private LinearLayout topToolbar,topToolbarPanel;
     private LinearLayout bookHeaderTts;
     private TextView coverMetadata,topBookName;
     private boolean topToolbarVisible=true;
@@ -212,12 +213,21 @@ public final class EdgeOnlineActivity extends Activity {
     }
     private void createUi(){
         root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(background);
-        root.setPadding(dp(10),dp(8),dp(10),dp(8));setContentView(root);
+        root.setPadding(dp(10),dp(8),dp(10),dp(8));
+        sceneRoot=new FrameLayout(this);sceneRoot.setBackgroundColor(background);
+        sceneRoot.addView(root,new FrameLayout.LayoutParams(-1,-1));
+        setContentView(sceneRoot);
         SafeSystemBars.matchBackground(this,background);
         styledButtonColor=ReaderButtonColors.neutral(this,0xfffff9f0);
         styledAccentColor=ReaderButtonColors.accent(this,0xff915439);
+        topToolbarPanel=new LinearLayout(this);topToolbarPanel.setOrientation(LinearLayout.VERTICAL);
+        topToolbarPanel.setBackground(bg((background&0x00ffffff)|0x80000000,15));
+        topToolbarPanel.setPadding(dp(5),dp(5),dp(5),dp(6));
+        FrameLayout.LayoutParams topPanelLp=new FrameLayout.LayoutParams(-1,dp(78),Gravity.TOP);
+        topPanelLp.setMargins(dp(10),dp(8),dp(10),0);
+        sceneRoot.addView(topToolbarPanel,topPanelLp);
         LinearLayout toolbar=new LinearLayout(this);topToolbar=toolbar;toolbar.setGravity(Gravity.CENTER_VERTICAL);
-        root.addView(toolbar,new LinearLayout.LayoutParams(-1,dp(54)));
+        topToolbarPanel.addView(toolbar,new LinearLayout.LayoutParams(-1,dp(44)));
         ImageButton back=toolbarIcon(R.drawable.ic_back,"Назад",()->BackNavigation.back(this));
         addToolbarButton(toolbar,back,true);
         ImageButton readModes=toolbarIcon(R.drawable.ic_book,"Режим чтения",()->
@@ -227,8 +237,6 @@ public final class EdgeOnlineActivity extends Activity {
         modeButton=toolbarIcon(local?R.drawable.ic_android_tts:R.drawable.ic_edge_tts,
                 "Способ озвучивания",this::chooseMethod);
         addToolbarButton(toolbar,modeButton,false);
-        ImageButton voiceButton=toolbarIcon(R.drawable.ic_tts_engine,"Выбор голоса",this::chooseVoice);
-        addToolbarButton(toolbar,voiceButton,false);
         // Same icon-plus-remaining-time convention as the MP3 audiobook timer.
         LinearLayout sleep=new LinearLayout(this);
         sleep.setOrientation(LinearLayout.VERTICAL);sleep.setGravity(Gravity.CENTER);
@@ -260,18 +268,21 @@ public final class EdgeOnlineActivity extends Activity {
         toolbarSpeedControl=gauge;
         ImageButton settings=toolbarIcon(R.drawable.ic_more_vertical,"Дополнительно",()->{
             UiNavigationSheet.showActions(this,"Дополнительно",
-                new String[]{"Закладки","Настройки"},
-                new int[]{R.drawable.ic_bookmark,R.drawable.ic_settings},n->{
+                new String[]{"Закладки","Настройки","Голос озвучки","Загрузка озвучки"},
+                new int[]{R.drawable.ic_bookmark,R.drawable.ic_settings,R.drawable.ic_tts_engine,R.drawable.ic_downloads},n->{
                     if(n==0)saveBookmark();
-                    else startActivity(new Intent(this,SettingsActivity.class).putExtra("audio_tab",true));
+                    else if(n==1)startActivity(new Intent(this,SettingsActivity.class).putExtra("audio_tab",true));
+                    else if(n==2)chooseVoice();
+                    else startActivity(new Intent(this,EdgeChapterDownloadsActivity.class)
+                        .putExtra("book_uri",uri).putExtra("book_title",name));
                 });
         });
         addToolbarButton(toolbar,settings,false);
         topBookName=label("",12);topBookName.setSingleLine(true);
         topBookName.setEllipsize(android.text.TextUtils.TruncateAt.END);
         topBookName.setPadding(dp(8),0,0,0);
-        topBookName.setVisibility(View.GONE);
-        root.addView(topBookName,new LinearLayout.LayoutParams(-1,dp(20)));
+        topBookName.setText(name);
+        topToolbarPanel.addView(topBookName,new LinearLayout.LayoutParams(-1,dp(24)));
         // Header is shown at the beginning; a compact title appears with the revealed toolbar.
         bookTitle=label("",14);
         scroller=new ScrollView(this);scroller.setFillViewport(true);scroller.setBackground(bg(background,10));
@@ -354,7 +365,7 @@ public final class EdgeOnlineActivity extends Activity {
         playbackBar.addView(leftControls,pp);
         FrameLayout playArea=new FrameLayout(this);
         int playBackground=ReaderButtonColors.accent(this,0xff915439);
-        playArea.setBackground(bg(playBackground,19));
+        playArea.setBackground(bg(playBackground,12));
         playIcon=new ImageView(this);playIcon.setImageResource(R.drawable.ic_play);
         playIcon.setColorFilter(ReaderButtonColors.contrastingText(playBackground));
         playArea.addView(playIcon,new FrameLayout.LayoutParams(dp(24),dp(24),Gravity.CENTER));
@@ -379,9 +390,15 @@ public final class EdgeOnlineActivity extends Activity {
     private void setTopToolbarVisible(boolean visible){
         if(topToolbar==null||topToolbarVisible==visible)return;
         topToolbarVisible=visible;
-        if(topBookName!=null)topBookName.setVisibility(visible&&windowStart>0?View.VISIBLE:View.GONE);
-        // Hide optional WPM/TOC affordances, not the other navigation controls.
-        topToolbar.animate().cancel();topToolbar.setAlpha(1f);topToolbar.setVisibility(View.VISIBLE);
+        if(topToolbarPanel!=null){
+            topToolbarPanel.animate().cancel();
+            topToolbarPanel.setVisibility(View.VISIBLE);
+            topToolbarPanel.animate().translationY(visible?0:-dp(88)).alpha(visible?1f:0f)
+                .setDuration(180).withEndAction(()->{
+                    if(!topToolbarVisible&&topToolbarPanel!=null)topToolbarPanel.setVisibility(View.INVISIBLE);
+                }).start();
+            topToolbarPanel.setClickable(visible);
+        }
     }
     private void showWindow(int anchor,boolean center){
         if(full.isEmpty())return;
@@ -402,7 +419,6 @@ public final class EdgeOnlineActivity extends Activity {
         }
         windowStart=first;windowEnd=last;lastStart=lastEnd=-1;
         if(bookHeaderTts!=null)bookHeaderTts.setVisibility(first==0?View.VISIBLE:View.GONE);
-        if(topBookName!=null)topBookName.setVisibility(topToolbarVisible&&first>0?View.VISIBLE:View.GONE);
         lastSentenceStart=lastSentenceEnd=-1;
         displayedText=full.substring(first,last);
         reading.setText(new SpannableStringBuilder(displayedText),TextView.BufferType.SPANNABLE);
@@ -638,11 +654,12 @@ public final class EdgeOnlineActivity extends Activity {
         item.addView(picture,new LinearLayout.LayoutParams(dp(29),dp(29)));
         LinearLayout labels=new LinearLayout(this);labels.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.leftMargin=dp(12);item.addView(labels,lp);
-        TextView primary=label(title,17);labels.addView(primary);
-        TextView secondary=label(subtitle,12);labels.addView(secondary);
+        TextView primary=label(title,17);primary.setSingleLine(false);labels.addView(primary);
+        TextView secondary=label(subtitle,12);secondary.setSingleLine(false);secondary.setMaxLines(4);labels.addView(secondary);
         if(local==toLocal){ImageView tick=new ImageView(this);tick.setImageResource(android.R.drawable.checkbox_on_background);
             item.addView(tick,new LinearLayout.LayoutParams(dp(22),dp(22)));}
         item.setOnClickListener(v->{dialog.dismiss();switchTo(toLocal);});
+        item.setMinimumHeight(dp(82));
         parent.addView(item,new LinearLayout.LayoutParams(-1,-2));
     }
     private void chooseVoice(){
@@ -701,10 +718,9 @@ public final class EdgeOnlineActivity extends Activity {
             String problem=downloads.error();
             if(edge!=null&&edge.playbackError()!=null&&!edge.playbackError().isEmpty())
                 problem=edge.playbackError();
-            if(problem!=null&&!problem.isEmpty()&&!problem.equals(lastEdgeError)){
-                lastEdgeError=problem;
-                Toast.makeText(this,problem,Toast.LENGTH_LONG).show();
-            }else if(problem==null||problem.isEmpty())lastEdgeError="";
+            // Network errors remain in download status/logs; do not interrupt
+            // reading with repeated 429 or transient connection Toasts.
+            lastEdgeError=problem==null?"":problem;
         }
         if(full.isEmpty())return;
         boolean playing=local?(AudioPlaybackService.instance!=null&&AudioPlaybackService.instance.isTtsMode()&&!AudioPlaybackService.instance.isPaused()):edge!=null&&edge.isPlaying();
@@ -719,7 +735,11 @@ public final class EdgeOnlineActivity extends Activity {
         boolean waitingForSelectedSentence=false;
         if(pendingPositionWord>=0){
             SentenceChunks.Chunk target=SentenceChunks.forWord(sentences,pendingPositionWord);
-            if(playing&&target!=null&&actualWord>=target.fromWord&&actualWord<target.toWord){
+            EdgeStreamingService.Clip selectedClip=downloads==null?null:downloads.currentClip();
+            boolean selectedAudio=selectedClip!=null&&edge!=null&&
+                (selectedClip.key+":"+selectedClip.start).equals(edge.currentKey())&&
+                pendingPositionWord>=selectedClip.start&&pendingPositionWord<selectedClip.end;
+            if(playing&&selectedAudio&&target!=null&&actualWord>=target.fromWord&&actualWord<target.toWord){
                 pendingPositionWord=-1;word=actualWord;
             }else{
                 word=pendingPositionWord;
@@ -792,6 +812,7 @@ public final class EdgeOnlineActivity extends Activity {
     }
     @Override protected void onResume(){
         super.onResume();
+        if(local)LocalVoiceCatalog.prefetch(getApplicationContext());
         if(root!=null){
             int nextButton=ReaderButtonColors.neutral(this,0xfffff9f0);
             int nextAccent=ReaderButtonColors.accent(this,0xff915439);

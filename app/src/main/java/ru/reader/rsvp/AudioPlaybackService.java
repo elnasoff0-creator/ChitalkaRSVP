@@ -145,7 +145,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     @Override public void onCreate(){super.onCreate();instance=this;android.app.NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);if(Build.VERSION.SDK_INT>=26)nm.createNotificationChannel(new NotificationChannel(CHANNEL,"Аудиокниги",NotificationManager.IMPORTANCE_LOW));audioFocus=new PlaybackAudioFocus(this, () -> {
             interruptedByExternalAudio = true;
             if (active && !paused) pausePlayback();
-        });
+        },true); // Ignore duck-only notification focus changes, but pause for calls/media.
         setupMediaSession();
         IntentFilter noisyFilter=new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY);
         if(Build.VERSION.SDK_INT>=33)registerReceiver(noisyReceiver,noisyFilter,Context.RECEIVER_NOT_EXPORTED);

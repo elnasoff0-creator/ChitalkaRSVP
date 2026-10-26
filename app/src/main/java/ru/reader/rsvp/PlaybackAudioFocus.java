@@ -14,18 +14,31 @@ final class PlaybackAudioFocus {
     private final AudioManager.OnAudioFocusChangeListener listener;
     private AudioFocusRequest request;
     private boolean held;
+    private boolean registered;
+    private final boolean keepPlayingOnDuck;
 
     PlaybackAudioFocus(Context context, Runnable interrupted) {
+        this(context,interrupted,false);
+    }
+
+    PlaybackAudioFocus(Context context, Runnable interrupted, boolean keepPlayingOnDuck) {
+        this.keepPlayingOnDuck=keepPlayingOnDuck;
         this.manager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
         this.interrupted = interrupted;
         this.listener = change -> {
+            if (change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK && keepPlayingOnDuck) {
+                // Notification / navigation sound: retain focus and keep the audiobook playing.
+                // Some Android builds do not auto-duck speech, which is intentional here.
+                return;
+            }
             if (change == AudioManager.AUDIOFOCUS_LOSS ||
                 change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT ||
                 change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
                 held = false;
-                interrupted.run();
+                interrupted.run(); // Incoming call or another audio/video app: pause.
+            } else if(change == AudioManager.AUDIOFOCUS_GAIN && registered){
+                held = true; // Never auto-resume interrupted playback.
             }
-            // Do not auto-resume on AUDIOFOCUS_GAIN; require an explicit Play.
         };
     }
 
@@ -41,6 +54,7 @@ final class PlaybackAudioFocus {
                 request = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
                         .setAudioAttributes(attrs)
                         .setAcceptsDelayedFocusGain(false)
+                        .setWillPauseWhenDucked(!keepPlayingOnDuck)
                         .setOnAudioFocusChangeListener(listener).build();
             }
             result = manager.requestAudioFocus(request);
@@ -48,13 +62,15 @@ final class PlaybackAudioFocus {
             result = manager.requestAudioFocus(listener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
         }
         held = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+        if(held)registered=true;
         return held;
     }
 
     void release() {
         if (manager == null) return;
-        if (!held) return;
+        if (!registered) return;
         held = false;
+        registered = false;
         if (Build.VERSION.SDK_INT >= 26 && request != null) manager.abandonAudioFocusRequest(request);
         else manager.abandonAudioFocus(listener);
     }

@@ -35,12 +35,15 @@ final class UiNavigationSheet {
         void show(){Window window=dialog.getWindow();if(window==null)return;
             window.setWindowAnimations(fromTop?R.style.ChitalkaSheetTop:R.style.ChitalkaSheetBottom);
             if(content instanceof SheetDragLayout)((SheetDragLayout)content).attach(dialog,fromTop);
-            dialog.show();
-            window.setBackgroundDrawableResource(android.R.color.transparent);window.setGravity(fromTop?Gravity.TOP:Gravity.BOTTOM);
-            window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT);
+            window.setBackgroundDrawableResource(android.R.color.transparent);
             window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
-            WindowManager.LayoutParams p=window.getAttributes();p.dimAmount=.38f;window.setAttributes(p);
-            // The window animation handles entry; no second nested translation.
+            WindowManager.LayoutParams p=window.getAttributes();
+            p.gravity=fromTop?Gravity.TOP:Gravity.BOTTOM;
+            p.width=ViewGroup.LayoutParams.MATCH_PARENT;
+            p.height=ViewGroup.LayoutParams.WRAP_CONTENT;
+            p.dimAmount=.38f;
+            window.setAttributes(p);
+            dialog.show(); // Do not recenter or resize after the opening animation starts.
         }
     }
     private static Sheet sheet(Activity a,String heading){

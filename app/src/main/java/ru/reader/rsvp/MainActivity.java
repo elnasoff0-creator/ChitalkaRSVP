@@ -475,24 +475,39 @@ public class MainActivity extends Activity {
         }
         if(ChteicoStore.enabled(this) && prefs.getBoolean("mini_pet_on_home",true)){
             add(contentWrap,gap(14));
-            add(contentWrap,sectionHeader("Интерактивный питомец",""));
-            LinearLayout petRow=row();petRow.setGravity(Gravity.CENTER_VERTICAL);
-            petRow.setBackground(shape(panelColor(),22));pad(petRow,12);
+            // Transparent home companion: no header, helper text or surrounding card.
+            LinearLayout petArea=column();petArea.setGravity(Gravity.CENTER_HORIZONTAL);
+            ChteicoSpeechBubble bubble=new ChteicoSpeechBubble(this,bg,fg);
+            TextView reply=text("",15,false);
+            reply.setGravity(Gravity.CENTER);
+            reply.setMaxLines(5);
+            bubble.addView(reply,new android.widget.FrameLayout.LayoutParams(-1,-2));
+            LinearLayout.LayoutParams bubbleLp=new LinearLayout.LayoutParams(dp(260),-2);
+            bubbleLp.gravity=Gravity.CENTER_HORIZONTAL;
+            bubbleLp.bottomMargin=dp(3);
+            petArea.addView(bubble,bubbleLp);
+            bubble.setVisibility(View.GONE);
             ChteicoPetView pet=new ChteicoPetView(this);
-            petRow.addView(pet,new LinearLayout.LayoutParams(dp(90),dp(96)));
-            TextView reply=text("Нажмите на питомца",15,false);
-            reply.setTextColor(fg);
-            LinearLayout.LayoutParams replyLp=new LinearLayout.LayoutParams(0,-2,1);
-            replyLp.leftMargin=dp(12);petRow.addView(reply,replyLp);
-            petRow.setOnClickListener(v->{
+            LinearLayout.LayoutParams petLp=new LinearLayout.LayoutParams(dp(105),dp(112));
+            petLp.gravity=Gravity.CENTER_HORIZONTAL;
+            petArea.addView(pet,petLp);
+            final Runnable dismissReply=()->bubble.setVisibility(View.GONE);
+            pet.setOnClickListener(v->{
                 android.content.SharedPreferences game=ChteicoStore.prefs(this);
                 ChteicoPhrases.Reply r=ChteicoPhrases.next(ChteicoStore.stage(this),ChteicoStore.branch(this),false,false,
                     game.getString("bubble_seen",""),game.getInt("bubble_last_id",-1),new java.util.Random());
                 if(r!=null){reply.setText(r.text);game.edit().putString("bubble_seen",r.seen).putInt("bubble_last_id",r.id).apply();}
                 else reply.setText("Скоро я появлюсь!");
+                bubble.removeCallbacks(dismissReply);
+                bubble.setVisibility(View.VISIBLE);
+                bubble.setAlpha(0f);bubble.animate().cancel();bubble.animate().alpha(1f).setDuration(180).start();
+                bubble.postDelayed(dismissReply,4200);
             });
-            petRow.setOnLongClickListener(v->{startActivity(new Intent(this,ChteicoActivity.class));return true;});
-            add(contentWrap,petRow);
+            pet.setOnLongClickListener(v->{
+                bubble.removeCallbacks(dismissReply);
+                startActivity(new Intent(this,ChteicoActivity.class));return true;
+            });
+            add(contentWrap,petArea);
         }
         // Navigation moved to the accessible left drawer.
     }

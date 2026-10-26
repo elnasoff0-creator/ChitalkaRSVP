@@ -40,6 +40,7 @@ import java.util.concurrent.Executors;
 public final class EdgeStreamingService extends Service {
     public interface Observer {void onChanged();}
     public static final String ACTION_BEGIN="ru.reader.rsvp.edge.download.BEGIN";
+    public static final String ACTION_PREFETCH="ru.reader.rsvp.edge.download.PREFETCH";
     public static final String EXTRA_URI="book_uri";
     public static final String EXTRA_ANCHOR="anchor_word";
     private final Handler main=new Handler(Looper.getMainLooper());
@@ -68,6 +69,7 @@ public final class EdgeStreamingService extends Service {
         final File folder;
         final String fileId,bookId;
         volatile boolean networkDone;
+        boolean attached;
         EdgeTtsClient request;
         EdgeLiveBuffer buffer;
         volatile List<EdgeWordTimings.Word> timings=Collections.emptyList();
@@ -87,7 +89,7 @@ public final class EdgeStreamingService extends Service {
     private String bookUri="",title="",bookText="",error="";
     private BookChapterIndex chapters=BookChapterIndex.empty();
     private File directory;
-    private boolean bookReady,active,destroyed,playerBound;
+    private boolean bookReady,active,destroyed,playerBound,idlePrefetchRequested;
     private int anchorWord;
     private EdgePlaybackService player;
     private final Runnable refreshReady=new Runnable(){@Override public void run(){
@@ -160,9 +162,20 @@ public final class EdgeStreamingService extends Service {
     }
     @Override public int onStartCommand(Intent intent,int flags,int id){
         if(intent!=null && ACTION_BEGIN.equals(intent.getAction())){
+            idlePrefetchRequested=false;
             String uri=intent.getStringExtra(EXTRA_URI);
             if(uri!=null&&!uri.isEmpty())openBook(uri,intent.getIntExtra(EXTRA_ANCHOR,0));
-            active=true;pump();
+            active=true;
+            if(uri!=null&&!uri.isEmpty())DownloadsRepository.showEdge(this,uri);
+            pump();
+        }else if(intent!=null && ACTION_PREFETCH.equals(intent.getAction()) && !active){
+            String uri=intent.getStringExtra(EXTRA_URI);
+            if(uri!=null&&!uri.isEmpty()&&
+                getSharedPreferences("reader",0).getBoolean("edge_warm_reader",true)){
+                idlePrefetchRequested=true;
+                openBook(uri,intent.getIntExtra(EXTRA_ANCHOR,0));
+                warmCurrent();
+            }
         }
         return START_NOT_STICKY;
     }
@@ -174,7 +187,10 @@ public final class EdgeStreamingService extends Service {
     public String error(){return error;}
     public String bookUri(){return bookUri;}
     public String title(){return title==null||title.trim().isEmpty()?"Книга":title.trim();}
-    public int anchor(){return player!=null&&player.currentStartWord()>=0?player.currentStartWord():anchorWord;}
+    public int anchor(){
+        if(selectedSeekWord>=0)return selectedSeekWord;
+        return player!=null&&player.currentStartWord()>=0?player.currentStartWord():anchorWord;
+    }
     public int words(){return offsets.size();}
     public String fullText(){return bookText;}
     public BookChapterIndex chapterIndex(){return chapters;}
@@ -268,7 +284,7 @@ public final class EdgeStreamingService extends Service {
                 String name=book.title==null?"Книга":book.title;
                 BookChapterIndex parsedChapters=book.chapters;
                 ArrayList<Integer> positions=session.ttsWordPositions;
-                ArrayList<SentenceChunks.Chunk> newParts=EdgeSpeechSegments.split(raw);
+                ArrayList<SentenceChunks.Chunk> newParts=EdgeSpeechSegments.split(raw,parsedChapters);
                 File bookDir=EdgeBookStorage.bookFolder(this,requested,name);
                 File dir=new File(bookDir,"EdgeTTS");dir.mkdirs();
                 DownloadsRepository.storeEdgeMeta(bookDir,requested,name,positions.size());
@@ -291,11 +307,36 @@ public final class EdgeStreamingService extends Service {
                     }
                     if(!bookReady)error="Книга не содержит текста";
                     else {SentenceChunks.Chunk initial=SentenceChunks.forWord(sentenceParts,anchorWord);
-                        priorityStart=initial==null?-1:initial.fromWord;persist();}
+                        priorityStart=initial==null?-1:initial.fromWord;persist();
+                        // Start at the restored sentence, even if it falls midway
+                        // inside an older grouped MP3 without WordBoundary metadata.
+                        if(initial!=null&&initial.fromWord<anchorWord)setAnchor(anchorWord,true);
+                    }
+                    warmCurrent();
                     pump();
                 });
-            }catch(Exception ex){main.post(()->{if(requested.equals(bookUri)){error="Ошибка чтения книги: "+ex.getMessage();changed();}});}
+            }catch(Exception ex){main.post(()->{if(requested.equals(bookUri)){
+                error="Ошибка чтения книги: "+ex.getMessage();changed();
+                if(idlePrefetchRequested&&!active){idlePrefetchRequested=false;stopSelf();}
+            }});}
         });
+    }
+    /** One silent, low-priority current-block request. Never synthesize
+     * an already cached file and never run a speculative queue of chapters.
+     * A subsequent Play can attach to the very same buffered live MP3.
+     */
+    private void warmCurrent(){
+        if(!bookReady||directory==null)return;
+        if(!idlePrefetchRequested && !(active && player!=null&&!player.playRequested()))return;
+        if(active&&player!=null&&player.playRequested())return;
+        Clip target=clipAt(anchorWord);
+        if(target==null||target.ready()||EdgeSpeechQueue.remainingMs()>0||
+                !EdgeSpeechQueue.allowPrefetch()){
+            if(idlePrefetchRequested&&!active){idlePrefetchRequested=false;stopSelf();}
+            return;
+        }
+        if(liveFor(target)!=null)return;
+        startLive(target,true);
     }
     public void refreshSettings(){pump();}
     public void ensurePlaySelection(){
@@ -330,6 +371,7 @@ public final class EdgeStreamingService extends Service {
         // Leaving the TTS listener cancels network synthesis. Completed cache
         // commits are independent and continue on their own worker.
         cancelLiveExcept(null);
+        idlePrefetchRequested=false;
         changed();stopSelf();
     }
     private void cancelLiveExcept(Clip selected){
@@ -415,6 +457,11 @@ public final class EdgeStreamingService extends Service {
         Clip ahead=clipAt(current.end);
         if(player!=null){
             player.setAutoContinue(true);
+            LiveJob waiting=liveFor(current);
+            if(waiting!=null && waiting.buffer!=null && !waiting.attached && player.playRequested()){
+                waiting.attached=true;
+                player.appendLive(current.key+":"+current.start,current.start,current.end,waiting.buffer);
+            }
             if(current.ready()){
                 // Position is armed *before* appendReady can call Media3.play().
                 if(selectedSeekWord>=0){
@@ -462,12 +509,16 @@ public final class EdgeStreamingService extends Service {
     /** No growing audio source and no intermediate Android PCM pipeline.
      * The cached MP3 is published atomically before Media3 can play it.
      */
-    private void startLive(Clip clip){
+    private void startLive(Clip clip){startLive(clip,false);}
+    private void startLive(Clip clip,boolean warmup){
         if(clip==null||clip.ready()||directory==null||liveFor(clip)!=null)return;
         final LiveJob job=new LiveJob(clip,directory,bookUri);
-        final boolean foreground=(clip==clipAt(anchorWord));
-        if(foreground && player!=null){
+        final boolean foreground=!warmup&&(clip==clipAt(anchorWord));
+        if(foreground||warmup){
             job.buffer=new EdgeLiveBuffer();
+        }
+        if(foreground && player!=null){
+            job.attached=true;
             // Bind Media3 to streaming bytes BEFORE starting network synthesis.
             // The first MP3 frame can begin decoding without waiting for turn.end.
             player.appendLive(clip.key+":"+clip.start,clip.start,clip.end,job.buffer);
@@ -514,6 +565,7 @@ public final class EdgeStreamingService extends Service {
                             }
                             error="Edge TTS: "+problem;
                             persist();changed();
+                            if(idlePrefetchRequested&&!active){idlePrefetchRequested=false;stopSelf();}
                         });
                         return;
                     }
@@ -530,6 +582,9 @@ public final class EdgeStreamingService extends Service {
                                 getSharedPreferences("reader",0).edit().remove(
                                     "edge_v2_retry_after_epoch_ms").apply();
                                 clip.file=ready;clip.bytes=ready.length();clip.chunks=parts;
+                                SentenceChunks.Chunk basePart=SentenceChunks.forWord(sentenceParts,clip.start);
+                                if(basePart!=null&&(clip.start!=basePart.fromWord||clip.end!=basePart.toWord))
+                                    saveOverride(clip);
                                 clip.failures=0;clip.retryAt=0;clip.awaitingUserRetry=false;
                                 // Analyze trailing silence after the MP3 is already playable.
                                 if(getSharedPreferences("reader",0).getBoolean("edge_trim_sentence_pause",true))
@@ -542,10 +597,42 @@ public final class EdgeStreamingService extends Service {
                                 error="Ошибка сохранения MP3: "+cacheError;
                             }
                             persist();pump();
+                            if(idlePrefetchRequested&&!active){idlePrefetchRequested=false;stopSelf();}
                         });
                     });
                 }
             });
+    }
+    /** A selected sentence can have its own cache key. Preserve its coverage
+     * even after the base sentence catalogue is regenerated for another voice.
+     */
+    private void saveOverride(Clip part){
+        if(directory==null||part==null||!part.ready())return;
+        final File folder=directory;final int start=part.start,end=part.end;
+        final String key=part.key;
+        io.execute(()->{
+            try{
+                File index=new File(folder,"selected_clips.json");
+                JSONArray rows=new JSONArray();
+                if(index.isFile()&&index.length()<4*1024*1024){
+                    byte[] content=new byte[(int)index.length()];int pos=0;
+                    try(java.io.FileInputStream in=new java.io.FileInputStream(index)){
+                        int n;while(pos<content.length&&(n=in.read(content,pos,content.length-pos))>0)pos+=n;
+                    }
+                    rows=new JSONArray(new String(content,0,pos,StandardCharsets.UTF_8));
+                }
+                for(int i=0;i<rows.length();i++){
+                    JSONObject old=rows.optJSONObject(i);
+                    if(old!=null&&start==old.optInt("start",-1)&&end==old.optInt("end",-1)
+                        &&key.equals(old.optString("key")))return;
+                }
+                rows.put(new JSONObject().put("start",start).put("end",end).put("key",key));
+                android.util.AtomicFile atomic=new android.util.AtomicFile(index);
+                java.io.FileOutputStream out=null;
+                try{out=atomic.startWrite();out.write(rows.toString().getBytes(StandardCharsets.UTF_8));atomic.finishWrite(out);}
+                catch(Exception e){if(out!=null)atomic.failWrite(out);throw e;}
+            }catch(Exception ex){Log.w("EdgeSpeech","Cannot index selected MP3",ex);}
+        });
     }
     /** Word timings become available with the committed MP3 sidecar. */
     public List<EdgeWordTimings.Word> liveWords(Clip c){

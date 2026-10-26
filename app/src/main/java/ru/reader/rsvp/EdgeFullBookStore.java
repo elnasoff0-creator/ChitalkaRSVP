@@ -18,7 +18,7 @@ final class EdgeFullBookStore {
     static final String QUEUED="queued",RUNNING="running",PAUSED="paused",DONE="completed",FAILED="error";
     static final class Job {
         String uri="",title="",voice="",rate="+0%",status=QUEUED,error="";
-        int chars=1200,done,total;
+        int chars=600,done,total,chapter=-1;
         long modified;
         File directory;
         File mp3Folder(){return new File(directory,"EdgeTTS");}
@@ -36,7 +36,7 @@ final class EdgeFullBookStore {
         try{
             JSONObject o=new JSONObject();o.put("uri",j.uri).put("title",j.title)
                 .put("voice",j.voice).put("rate",j.rate).put("chars",j.chars)
-                .put("status",j.status).put("done",j.done).put("total",j.total)
+                .put("status",j.status).put("chapter",j.chapter).put("done",j.done).put("total",j.total)
                 .put("error",j.error).put("modified",System.currentTimeMillis());
             atomic(new File(j.directory,"full_job.json"),o.toString());
         }catch(Exception ignored){}
@@ -49,7 +49,7 @@ final class EdgeFullBookStore {
             if(j.uri.isEmpty())return null;
             j.title=o.optString("title","Книга");j.voice=o.optString("voice","ru-RU-SvetlanaNeural");
             j.rate=o.optString("rate","+0%");j.chars=o.optInt("chars",1200);
-            j.status=o.optString("status",PAUSED);j.done=o.optInt("done",0);j.total=o.optInt("total",0);
+            j.chapter=o.optInt("chapter",-1);j.status=o.optString("status",PAUSED);j.done=o.optInt("done",0);j.total=o.optInt("total",0);
             j.error=o.optString("error","");j.modified=o.optLong("modified",0);return j;
         }catch(Exception ignored){return null;}
     }
@@ -59,6 +59,11 @@ final class EdgeFullBookStore {
         File[] dirs=EdgeBookStorage.booksRoot(ctx).listFiles(File::isDirectory);
         if(dirs!=null)for(File f:dirs){Job j=read(f);if(j!=null)result.add(j);}
         result.sort((a,b)->Long.compare(b.modified,a.modified));return result;
+    }
+    static synchronized void chooseChapter(Job j,int chapter){
+        Job current=read(j.directory);if(current==null)return;
+        current.chapter=chapter;current.status=QUEUED;current.error="";
+        save(current);
     }
     static synchronized void status(Job j,String status){
         Job old=read(j.directory);if(old==null)return;

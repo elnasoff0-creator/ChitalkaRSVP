@@ -53,22 +53,22 @@ public class AudioPlayerActivity extends Activity {
         cell.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
         // Identical vertical slots for every button: no baseline-related vertical shift.
         FrameLayout buttonSlot=new FrameLayout(this);
-        cell.addView(buttonSlot,new LinearLayout.LayoutParams(-1,dp(64)));
+        cell.addView(buttonSlot,new LinearLayout.LayoutParams(-1,dp(60)));
         FrameLayout holder=new FrameLayout(this);
         GradientDrawable buttonBackground;
         if(primary){
             buttonBackground=new GradientDrawable();
             buttonBackground.setShape(GradientDrawable.RECTANGLE);
-            buttonBackground.setCornerRadius(dp(16));
+            buttonBackground.setCornerRadius(dp(12));
             buttonBackground.setColor(primaryColor());
         }else{
-            buttonBackground=bg(neutralColor(),13);
+            buttonBackground=bg(neutralColor(),12);
         }
         holder.setBackground(buttonBackground);
         holder.setClipToOutline(false);
         holder.setOnClickListener(action);
         holder.setContentDescription(primary?"Воспроизвести или поставить на паузу":hint);
-        int holderSize=dp(48);
+        int holderSize=dp(44);
         FrameLayout.LayoutParams hp=new FrameLayout.LayoutParams(holderSize,holderSize,Gravity.CENTER);
         buttonSlot.addView(holder,hp);
         ImageView icon=new ImageView(this);
@@ -213,6 +213,7 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         chapterDuration=label("-0:00:00",13);chapterDuration.setGravity(Gravity.RIGHT);times.addView(chapterDuration,new LinearLayout.LayoutParams(0,-2,1));
         elapsed=chapterElapsed;duration=chapterDuration;
         playRow=new LinearLayout(this);playRow.setGravity(Gravity.CENTER);
+        playRow.setClipChildren(false);playRow.setClipToPadding(false);
         LinearLayout.LayoutParams pl=new LinearLayout.LayoutParams(-1,dp(90));pl.topMargin=dp(10);root.addView(playRow,pl);
         buildPlaybackButtons(false);
         refresh();
@@ -255,7 +256,7 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
                     return true;
                 });
             }
-            playRow.addView(cell,new LinearLayout.LayoutParams(0,-1,n==center?1.32f:1f));
+            playRow.addView(cell,new LinearLayout.LayoutParams(0,-1,1f));
         }
     }
     void updateTtsLayout(boolean inTts){
@@ -428,11 +429,20 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         }
         final String[] labels={"0.5×","0.75×","1×","1.1×","1.25×","1.5×","1.75×","2×","2.5×","3×"};
         final float[] rates={.5f,.75f,1f,1.1f,1.25f,1.5f,1.75f,2f,2.5f,3f};
-        new SwipeDialogs.Builder(this).fromTop().setTitle("Скорость аудиокниги").setItems(labels,(d,n)->{
-            Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SPEED);i.putExtra("speed",rates[n]);startService(i);
-        }).setNegativeButton("Отмена",null).show();
+        UiNavigationSheet.showTopChoices(this,"Скорость аудиокниги",labels,-1,n->{
+            Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SPEED);
+            i.putExtra("speed",rates[n]);startService(i);
+        });
     }
-    void sleepMenu(){final int[] minutes={0,5,10,15,30,60};String[] labels={"Выключить","5 мин","10 мин","15 мин","30 мин","60 мин","Конец главы"};new SwipeDialogs.Builder(this).fromTop().setTitle("Таймер сна").setItems(labels,(d,n)->{Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SLEEP);i.putExtra("minutes",n==6?-1:minutes[n]);startService(i);Toast.makeText(this,"Таймер сохранён",Toast.LENGTH_SHORT).show();}).show();}
+    void sleepMenu(){
+        final int[] minutes={0,5,10,15,30,60};
+        String[] labels={"Выключить","5 мин","10 мин","15 мин","30 мин","60 мин","Конец главы"};
+        UiNavigationSheet.showTopChoices(this,"Таймер сна",labels,-1,n->{
+            Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SLEEP);
+            i.putExtra("minutes",n==6?-1:minutes[n]);startService(i);
+            Toast.makeText(this,"Таймер сохранён",Toast.LENGTH_SHORT).show();
+        });
+    }
     void voiceMenu(){startActivity(new Intent(this,TtsVoiceActivity.class));}
     void methodMenu(){
         if(bookUri==null||bookUri.isEmpty()){
@@ -449,14 +459,17 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         int start=Math.max(0,current-12),end=Math.min(count,start+25);
         String[] labels=new String[end-start];
         for(int i=start;i<end;i++)labels[i-start]="Фрагмент "+(i+1)+" из "+count;
-        new SwipeDialogs.Builder(this).setTitle("Выбор фрагмента")
-            .setSingleChoiceItems(labels,current-start,(d,index)->{
-                seekPosition(start+index);d.dismiss();
-            }).setNegativeButton("Отмена",null).show();
+        UiNavigationSheet.showTopChoices(this,"Выбор фрагмента",labels,current-start,
+            index->seekPosition(start+index));
     }
     void bookmark(){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null)return;String key="audio_marks:"+s.getTitle();Set<String> marks=new HashSet<>(getSharedPreferences("reader",0).getStringSet(key,new HashSet<>()));marks.add(String.valueOf(s.getPosition()));getSharedPreferences("reader",0).edit().putStringSet(key,marks).apply();Toast.makeText(this,"Аудиозакладка сохранена",Toast.LENGTH_SHORT).show();}
-    void options(){String[] choices={"Аудиозакладки","Скорость","Таймер сна","Остановить звук"};new SwipeDialogs.Builder(this).setItems(choices,(d,n)->{if(n==0)showMarks();if(n==1)speedMenu();if(n==2)sleepMenu();if(n==3)command(AudioPlaybackService.STOP);}).show();}
-    void showMarks(){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null)return;Set<String> ms=getSharedPreferences("reader",0).getStringSet("audio_marks:"+s.getTitle(),new HashSet<>());ArrayList<Integer> vals=new ArrayList<>();for(String v:ms)try{vals.add(Integer.parseInt(v));}catch(Exception ignored){}Collections.sort(vals);String[] names=new String[vals.size()];for(int j=0;j<vals.size();j++)names[j]=s.isTtsMode()?"Фрагмент "+vals.get(j):format(vals.get(j));new SwipeDialogs.Builder(this).setTitle("Аудиозакладки").setItems(names,(d,n)->{Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SEEK);i.putExtra("position",vals.get(n));startService(i);}).setPositiveButton("Закрыть",null).show();}
+    void options(){
+        String[] choices={"Аудиозакладки","Скорость","Таймер сна","Остановить звук"};
+        UiNavigationSheet.showTopChoices(this,"Дополнительно",choices,-1,n->{
+            if(n==0)showMarks();if(n==1)speedMenu();if(n==2)sleepMenu();if(n==3)command(AudioPlaybackService.STOP);
+        });
+    }
+    void showMarks(){AudioPlaybackService s=AudioPlaybackService.instance;if(s==null)return;Set<String> ms=getSharedPreferences("reader",0).getStringSet("audio_marks:"+s.getTitle(),new HashSet<>());ArrayList<Integer> vals=new ArrayList<>();for(String v:ms)try{vals.add(Integer.parseInt(v));}catch(Exception ignored){}Collections.sort(vals);String[] names=new String[vals.size()];for(int j=0;j<vals.size();j++)names[j]=s.isTtsMode()?"Фрагмент "+vals.get(j):format(vals.get(j));UiNavigationSheet.showTopChoices(this,"Аудиозакладки",names,-1,n->{Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SEEK);i.putExtra("position",vals.get(n));startService(i);});}
     String formatLong(long ms){long sec=Math.max(0,ms)/1000;return String.format(Locale.ROOT,"%d:%02d:%02d",sec/3600,(sec/60)%60,sec%60);}
     String format(int ms){long sec=ms/1000;return String.format(Locale.ROOT,"%02d:%02d:%02d",sec/3600,(sec/60)%60,sec%60);}
     private static void setTextIfDifferent(TextView view, String value) {

@@ -15,9 +15,16 @@ final class EdgeTextSegments {
         SentenceChunks.Chunk c=SentenceChunks.forWord(EdgeSpeechSegments.split(raw),start);
         return c==null?null:new Part(c.fromWord,c.toWord,c.text);
     }
+    /** Preserve live-cache compatibility: bulk and interactive playback MUST use
+     * identical word boundaries and hash keys; 'characters' is legacy metadata.
+     */
     static ArrayList<Part> all(String raw,int characters){
+        return all(raw,BookChapterIndex.empty(),characters);
+    }
+    static ArrayList<Part> all(String raw,BookChapterIndex chapters,int characters){
         ArrayList<Part> result=new ArrayList<>();
-        for(SentenceChunks.Chunk c:EdgeSpeechSegments.split(raw))result.add(new Part(c.fromWord,c.toWord,c.text));
+        for(SentenceChunks.Chunk c:EdgeSpeechSegments.split(raw,chapters))
+            result.add(new Part(c.fromWord,c.toWord,c.text));
         return result;
     }
 }

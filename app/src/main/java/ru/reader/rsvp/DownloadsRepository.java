@@ -25,7 +25,7 @@ final class DownloadsRepository {
     static final class Item {
         String type="",id="",title="",cover="",source="",bookUri="",status="",description="";
         String voice="";
-        int done,total;
+        int done,total,coveragePercent;
         long downloadedBytes,totalBytes;
         boolean ready,running,paused,failed,unknownTotal;
         File folder;
@@ -37,6 +37,9 @@ final class DownloadsRepository {
     static void storeEdgeMeta(File bookDir,String bookUri,String title,int words){
         try{
             if(bookDir==null||!bookDir.isDirectory())return;
+            JSONObject existing=readJson(new File(bookDir,"book.json"));
+            if(words<=0 && existing!=null && bookUri.equals(existing.optString("bookUri")))
+                words=existing.optInt("words",0);
             JSONObject data=new JSONObject();data.put("bookUri",bookUri);data.put("title",title);
             data.put("words",words);data.put("savedAt",System.currentTimeMillis());
             File tmp=new File(bookDir,"book.json.part");
@@ -85,39 +88,28 @@ final class DownloadsRepository {
     }
     private static Item fromEdge(File bookDir,String uri,String title,int totalWords,EdgeStreamingService live){
         File audio=new File(bookDir,"EdgeTTS");
-        JSONArray queue=readArray(new File(audio,"queue.json"));
         EdgeFullBookStore.Job full=EdgeFullBookStore.read(bookDir);
-        if(queue.length()==0 && full==null && (live==null||!uri.equals(live.bookUri())||live.snapshot().isEmpty()))return null;
+        ArrayList<EdgeOfflineIndex.Segment> saved=EdgeOfflineIndex.readySegments(audio);
+        if(saved.isEmpty()&&full==null&&(live==null||!uri.equals(live.bookUri())||live.snapshot().isEmpty()))return null;
         Item item=new Item();item.type=EDGE;item.bookUri=uri;item.id="edge:"+uri;
         item.title=title.isEmpty()?"Текстовая книга":title;item.cover=uri;item.folder=audio;
-        Set<String> keys=new HashSet<>();boolean allReady=true;int contiguous=0;
-        for(int i=0;i<queue.length();i++){
-            JSONObject clip=queue.optJSONObject(i);if(clip==null)continue;
-            String key=clip.optString("key");int start=clip.optInt("start",-1),end=clip.optInt("end",-1);
-            if(start<0||end<=start||!key.matches("[a-fA-F0-9]{64}")||!keys.add(key+":"+start))continue;
-            item.total++;
-            File file=new File(audio,key+".mp3");
-            boolean good=file.isFile()&&file.length()>1500;
-            if(good){item.done++;item.downloadedBytes+=file.length();}else allReady=false;
-            if(start==contiguous&&good)contiguous=end;
-        }
-        // If the new file is not yet persisted, display the in-memory queue as well.
+        EdgeOfflineIndex.Stats coverage=EdgeOfflineIndex.stats(saved,0,Math.max(0,totalWords));
+        item.done=coverage.files;
+        item.total=saved.size();
+        item.coveragePercent=coverage.percent();
+        item.downloadedBytes=coverage.bytes;
+        item.ready=coverage.complete();item.unknownTotal=totalWords<=0;
         if(live!=null&&uri.equals(live.bookUri())){
-            int ready=live.countReady();
-            if(ready>item.done)item.done=ready;
-            item.total=Math.max(item.total,live.snapshot().size());
             item.running=live.isActive();item.voice=live.voice();
-            if(item.done>0&&item.downloadedBytes==0)for(EdgeStreamingService.Clip c:live.snapshot())if(c.ready())item.downloadedBytes+=c.bytes;
+            if(totalWords<=0)item.total=Math.max(item.total,live.snapshot().size());
         }
-        item.ready=totalWords>0&&contiguous>=totalWords&&allReady&&item.total>0;
-        item.unknownTotal=!item.ready;
         if(full!=null){
             item.fullJob=full;item.voice=full.voice;
             // The service updates durable counts after each completed fragment.
             // Avoid hundreds of file stats and parsing a large manifest on every UI refresh.
             item.total=full.total;
             item.done=Math.min(item.total,Math.max(0,full.done));
-            item.ready=item.total>0&&item.done==item.total;
+            item.ready=coverage.complete();
             item.running=EdgeFullBookService.isServiceAlive()&&(
                 EdgeFullBookStore.RUNNING.equals(full.status)||EdgeFullBookStore.QUEUED.equals(full.status));
             item.paused=EdgeFullBookStore.PAUSED.equals(full.status)
@@ -129,13 +121,12 @@ final class DownloadsRepository {
             else if(item.paused)item.status="Приостановлено";
             else if(item.running)item.status="Готовится вся книга";
             else item.status="Частично подготовлено";
-            item.description="Подготовлено "+item.done+" из "+item.total+" фрагментов";
+            item.description="Сохранено "+coverage.percent()+"% текста · "+coverage.files+" MP3 · "+String.format(Locale.ROOT,"%.1f МБ",coverage.bytes/1048576.0)+" · подготовка "+item.done+"/"+item.total;
             if(item.failed&&!full.error.isEmpty())item.description+=" · "+full.error;
             return item;
         }
         item.status=item.ready?"Подготовлено":item.running?"Скачивается":item.done>0?"Частично подготовлено":"Ожидает";
-        item.description="Подготовлено "+item.done+" фрагментов";
-        if(item.total>item.done)item.description+=" · в очереди "+item.total;
+        item.description="Сохранено "+coverage.percent()+"% текста · "+coverage.files+" MP3 · "+String.format(Locale.ROOT,"%.1f МБ",coverage.bytes/1048576.0);
         if(item.voice.isEmpty())item.voice="";
         return item;
     }

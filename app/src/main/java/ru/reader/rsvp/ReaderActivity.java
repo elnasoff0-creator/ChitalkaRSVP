@@ -23,7 +23,8 @@ public class ReaderActivity extends Activity {
     private static final int NORMAL=0,RSVP=1,CURSOR=2,TTS=3,NO_COLOR=0;
     private final Handler handler=new Handler(Looper.getMainLooper());
     private SharedPreferences prefs;
-    private LinearLayout root,speedPanel,controls,toolbar,toolbarWpm,modeRow,readingFrame;
+    private LinearLayout root,speedPanel,controls,toolbar,toolbarStack,toolbarWpm,modeRow,readingFrame;
+    private View toolbarSpacer;
     private TextView toolbarBookName;
     private FrameLayout bottomBar;
     private LinearLayout contentsAction;
@@ -224,22 +225,22 @@ public class ReaderActivity extends Activity {
         if(androidContent!=null)androidContent.setPadding(0,0,0,0);
         SafeSystemBars.install(this);
         SafeSystemBars.matchBackground(this,bg);
+        toolbarStack=column();
+        int translucent=(bg&0x00ffffff)|0x80000000; // 50% of the reading background.
+        toolbarStack.setBackground(shape(translucent,15));
+        toolbarStack.setPadding(dp(5),dp(4),dp(5),dp(5));
+        FrameLayout.LayoutParams toolbarOverlay=new FrameLayout.LayoutParams(-1,-2,Gravity.TOP);
+        toolbarOverlay.setMargins(dp(8),dp(7),dp(8),0);sceneRoot.addView(toolbarStack,toolbarOverlay);
         toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);
-        FrameLayout.LayoutParams toolbarOverlay=new FrameLayout.LayoutParams(-1,dp(48),Gravity.TOP);
-        toolbarOverlay.setMargins(dp(8),dp(7),dp(8),0);sceneRoot.addView(toolbar,toolbarOverlay);
+        toolbarStack.addView(toolbar,new LinearLayout.LayoutParams(-1,dp(44)));
         toolbar.addView(icon(R.drawable.ic_back,v->BackNavigation.back(this)),new LinearLayout.LayoutParams(dp(44),dp(44)));
-        toolbarBookName=text("",12);
-        toolbarBookName.setSingleLine(true);
-        toolbarBookName.setEllipsize(TextUtils.TruncateAt.END);
-        toolbarBookName.setGravity(Gravity.CENTER_VERTICAL);
-        toolbarBookName.setPadding(dp(8),0,0,0);
-        toolbarBookName.setVisibility(View.INVISIBLE);
-        toolbar.addView(toolbarBookName,new LinearLayout.LayoutParams(0,dp(44),1));
         toolbarModeAction=icon(modeDrawable(),v->modeDialog());
         toolbarModeAction.setContentDescription("Режим чтения: Чтение, Скорочтение, Курсор, Озвучка");
         LinearLayout.LayoutParams toolbarModeLp=new LinearLayout.LayoutParams(dp(44),dp(44));
         toolbarModeLp.leftMargin=dp(5);toolbar.addView(toolbarModeAction,1,toolbarModeLp);
         toolbarModeAction.setBackground(shape(accent(),12));toolbarModeAction.setColorFilter(contrast(accent()));
+        toolbarSpacer=new View(this);
+        toolbar.addView(toolbarSpacer,new LinearLayout.LayoutParams(0,dp(1),1));
         LinearLayout.LayoutParams bookmarkLp=new LinearLayout.LayoutParams(dp(44),dp(44));bookmarkLp.leftMargin=dp(5);
         // Bookmarks moved to overflow menu.
         toolbarEngineAction=icon(ttsLocal?R.drawable.ic_android_tts:R.drawable.ic_edge_tts,v->chooseTtsEngine());
@@ -250,7 +251,7 @@ public class ReaderActivity extends Activity {
         toolbarVoiceAction=icon(R.drawable.ic_tts_engine,v->chooseTtsVoice());
         toolbarVoiceAction.setContentDescription("Голос озвучивания");
         LinearLayout.LayoutParams voiceLp=new LinearLayout.LayoutParams(dp(44),dp(44));voiceLp.leftMargin=dp(5);
-        toolbar.addView(toolbarVoiceAction,voiceLp);
+        // Voice selection lives in the overflow menu; retain its handler for compatibility.
         toolbarSleepAction=icon(R.drawable.ic_sleep_timer,v->chooseTtsSleep());
         toolbarSleepAction.setContentDescription("Таймер сна");
         LinearLayout.LayoutParams sleepLp=new LinearLayout.LayoutParams(dp(44),dp(44));sleepLp.leftMargin=dp(5);
@@ -280,10 +281,19 @@ public class ReaderActivity extends Activity {
         LinearLayout.LayoutParams settingsLp=new LinearLayout.LayoutParams(dp(44),dp(44));settingsLp.leftMargin=dp(5);
         toolbar.addView(icon(R.drawable.ic_more_vertical,v->{
             UiNavigationSheet.showActions(this,"Дополнительно",
-                new String[]{"Закладки","Настройки"},
-                new int[]{R.drawable.ic_bookmark,R.drawable.ic_settings},
-                which->{if(which==0)bookmark();else settings();});
+                mode==TTS?new String[]{"Закладки","Настройки","Голос озвучки","Загрузка озвучки"}:new String[]{"Закладки","Настройки","Загрузка озвучки"},
+                mode==TTS?new int[]{R.drawable.ic_bookmark,R.drawable.ic_settings,R.drawable.ic_tts_engine,R.drawable.ic_downloads}
+                    :new int[]{R.drawable.ic_bookmark,R.drawable.ic_settings,R.drawable.ic_downloads},
+                which->{if(which==0)bookmark();else if(which==1)settings();
+                    else if(mode==TTS&&which==2)chooseTtsVoice();
+                    else if(!docUri.isEmpty())startActivity(new Intent(this,EdgeChapterDownloadsActivity.class)
+                        .putExtra("book_uri",docUri).putExtra("book_title",title));});
         }),settingsLp);
+        toolbarBookName=text("",13);
+        toolbarBookName.setSingleLine(true);
+        toolbarBookName.setEllipsize(TextUtils.TruncateAt.END);
+        toolbarBookName.setPadding(dp(6),dp(4),dp(6),dp(3));
+        toolbarStack.addView(toolbarBookName,new LinearLayout.LayoutParams(-1,dp(25)));
         if(words.length==0){applySystemBars(false);
             TextView intro=text("EPUB · FB2 · HTML\n\nОткройте книгу, чтобы начать чтение.",20);
             intro.setPadding(dp(24),dp(24),dp(24),dp(24));add(root,intro);
@@ -353,8 +363,7 @@ public class ReaderActivity extends Activity {
             @Override public void onScrolled(RecyclerView rv,int dx,int dy){
                 if(userScrolling&&dy!=0)chteicoTouch();
                 if(userScrolling&&!restoringScroll&&Math.abs(dy)>dp(1)){
-                    // Keep Back, Modes and the other toolbar actions visible.
-                    // Only the table-of-contents group and WPM collapse on downward scroll.
+                    setToolbarExpanded(dy<0);
                     if(contentsAction!=null)contentsAction.setVisibility(dy<0?View.VISIBLE:View.INVISIBLE);
                     if(toolbarWpm!=null)toolbarWpm.setVisibility(dy<0&&mode!=NORMAL?View.VISIBLE:View.INVISIBLE);
 
@@ -381,7 +390,7 @@ public class ReaderActivity extends Activity {
         left.addView(progressView,new LinearLayout.LayoutParams(0,dp(52),1));
         controls=new LinearLayout(this);controls.setGravity(Gravity.CENTER);
         bottomBar.addView(controls,new FrameLayout.LayoutParams(dp(70),dp(70),Gravity.CENTER));
-        rsvpPlayFrame=new FrameLayout(this);rsvpPlayFrame.setBackground(shape(accent(),19));
+        rsvpPlayFrame=new FrameLayout(this);rsvpPlayFrame.setBackground(shape(accent(),12));
         playIcon=new ImageView(this);playIcon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);playIcon.setColorFilter(contrast(accent()));
         rsvpPlayFrame.addView(playIcon,new FrameLayout.LayoutParams(dp(24),dp(24),Gravity.CENTER));
         rsvpPlayFrame.setOnClickListener(v->togglePlayback());
@@ -549,14 +558,14 @@ public class ReaderActivity extends Activity {
             int buttons=0;
             for(int i=0;i<toolbar.getChildCount();i++){
                 View item=toolbar.getChildAt(i);
-                if(item!=toolbarBookName&&item.getVisibility()!=View.GONE)buttons++;
+                if(item!=toolbarSpacer&&item.getVisibility()!=View.GONE)buttons++;
             }
             int available=getResources().getDisplayMetrics().widthPixels-dp(16);
             int sizePx=Math.min(dp(44),Math.max(dp(32),
                     (available-dp(5)*Math.max(0,buttons-1))/Math.max(1,buttons)));
             for(int n=0;n<toolbar.getChildCount();n++){
                 View item=toolbar.getChildAt(n);
-                if(item==toolbarBookName)continue;
+                if(item==toolbarSpacer)continue;
                 android.view.ViewGroup.LayoutParams generic=item.getLayoutParams();
                 if(generic instanceof LinearLayout.LayoutParams){
                     LinearLayout.LayoutParams lp=(LinearLayout.LayoutParams)generic;
@@ -576,8 +585,7 @@ public class ReaderActivity extends Activity {
     /** The reader content never changes size when floating controls are shown/hidden. */
     private void applyFullscreenUi(){
         if(root==null||words.length==0||readingFrame==null)return;
-        if(toolbar!=null)toolbar.setVisibility(toolbarExpanded?View.VISIBLE:View.INVISIBLE);
-        if(toolbarBookName!=null)toolbarBookName.setVisibility(toolbarExpanded&&index>0?View.VISIBLE:View.INVISIBLE);
+        if(toolbarStack!=null)toolbarStack.setVisibility(toolbarExpanded?View.VISIBLE:View.INVISIBLE);
         if(modeRow!=null)modeRow.setVisibility(View.GONE);
         if(controls!=null)controls.setVisibility(mode==NORMAL?View.GONE:View.VISIBLE);
         if(bottomBar!=null)bottomBar.setVisibility(View.VISIBLE);
@@ -808,13 +816,14 @@ public class ReaderActivity extends Activity {
     private void setToolbarExpanded(boolean show){
         if(toolbarExpanded==show)return;
         toolbarExpanded=show;
-        if(toolbarBookName!=null)toolbarBookName.setVisibility(show&&index>0?View.VISIBLE:View.INVISIBLE);
-        if(toolbar!=null){
-            toolbar.animate().cancel();
-            toolbar.setVisibility(View.VISIBLE);
-            toolbar.animate().translationY(show?0:-dp(68)).alpha(show?1f:0f)
-                .setDuration(180).start();
-            toolbar.setClickable(show);
+        if(toolbarStack!=null){
+            toolbarStack.animate().cancel();
+            toolbarStack.setVisibility(View.VISIBLE);
+            toolbarStack.animate().translationY(show?0:-dp(87)).alpha(show?1f:0f)
+                .setDuration(180).withEndAction(()->{
+                    if(!toolbarExpanded&&toolbarStack!=null)toolbarStack.setVisibility(View.INVISIBLE);
+                }).start();
+            toolbarStack.setClickable(show);
         }
     }
     private void setMode(int next){if(next<0||next>TTS||next==mode)return;
@@ -822,6 +831,8 @@ public class ReaderActivity extends Activity {
         if(previousMode==TTS)releaseTts();
         pendingTtsWord=-1;
         mode=next;selecting=false;normalChromeVisible=false;toolbarExpanded=true;
+        if(toolbarStack!=null){toolbarStack.animate().cancel();toolbarStack.setVisibility(View.VISIBLE);
+            toolbarStack.setTranslationY(0f);toolbarStack.setAlpha(1f);}
         updateModeUI();refreshHighlight(old);ensureWordVisible(true);saveLight(true);
         if(mode==TTS)startTtsSession();
     }
@@ -898,7 +909,16 @@ public class ReaderActivity extends Activity {
                 if(reset)index=0;else index=map.clamp(index);
                 chteicoInitialIndex=index;chteicoLastWordIndex=index;chteicoReadingSeconds=0;chteicoTouch();
                 ChteicoStore.openBook(this,docUri,mode);
-                draw();saveLight(true);if(mode==TTS)startTtsSession();
+                draw();saveLight(true);
+                if(!ttsLocal && prefs.getBoolean("edge_warm_reader",true) && mode!=TTS){
+                    // Reader opened: prepare the selected block silently, never Play.
+                    // Prefetch service shares cache and network queue with the TTS player.
+                    startService(new Intent(this,EdgeStreamingService.class)
+                        .setAction(EdgeStreamingService.ACTION_PREFETCH)
+                        .putExtra(EdgeStreamingService.EXTRA_URI,docUri)
+                        .putExtra(EdgeStreamingService.EXTRA_ANCHOR,index));
+                }
+                if(mode==TTS)startTtsSession();
             });
         }catch(Exception ex){runOnUiThread(()->new SwipeDialogs.Builder(this).setMessage("Не удалось открыть книгу: "+ex.getMessage()).setPositiveButton("OK",null).show());}
     }).start();}
@@ -1035,8 +1055,8 @@ public class ReaderActivity extends Activity {
             row.addView(picture,new LinearLayout.LayoutParams(dp(28),dp(28)));
             LinearLayout labels=column();labels.setPadding(dp(13),0,dp(10),0);
             row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
-            labels.addView(text(titles[i],16));
-            TextView hint=text(details[i],12);hint.setAlpha(.72f);labels.addView(hint);
+            TextView primary=text(titles[i],16);primary.setSingleLine(false);labels.addView(primary);
+            TextView hint=text(details[i],12);hint.setSingleLine(false);hint.setMaxLines(4);hint.setAlpha(.72f);labels.addView(hint);
             if(ttsLocal==localChoice)row.addView(text("✓",20));
             row.setOnClickListener(v->{dialog.dismiss();
                 if(localChoice==ttsLocal)return;
@@ -1047,7 +1067,7 @@ public class ReaderActivity extends Activity {
                     localChoice?R.drawable.ic_android_tts:R.drawable.ic_edge_tts);
                 startTtsSession();
             });
-            choices.addView(row,new LinearLayout.LayoutParams(-1,dp(76)));
+            row.setMinimumHeight(dp(86));choices.addView(row,new LinearLayout.LayoutParams(-1,-2));
         }
         });
     }

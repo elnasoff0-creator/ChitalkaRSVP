@@ -47,11 +47,9 @@ public final class SwipeDialogs {
             configure(dialog,context,openFromTop);
             if(swipePanel!=null)swipePanel.attach(dialog,openFromTop);
             if(swipeHandle!=null)swipeHandle.setOnTouchListener(new SwipeDismiss(dialog,openFromTop,false,true));
-            dialog.setOnShowListener(ignored->{
-                Window w=dialog.getWindow();
-                if(w!=null)w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT);
-                installGestures(dialog,openFromTop);
-            });
+            // Never resize the already-visible window: Android would interpolate the
+            // entrance at the old centered size and snap to the new full-width sheet.
+            dialog.setOnShowListener(ignored->installGestures(dialog,openFromTop));
             return dialog;
         }
         @Override public AlertDialog show(){
@@ -69,8 +67,13 @@ public final class SwipeDialogs {
         window.setGravity(top?Gravity.TOP:Gravity.BOTTOM);
         window.setWindowAnimations(top?R.style.ChitalkaSheetTop:R.style.ChitalkaSheetBottom);
         window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
-        WindowManager.LayoutParams params=window.getAttributes();params.dimAmount=.35f;window.setAttributes(params);
-        // Size is applied after show without changing gravity or animations.
+        WindowManager.LayoutParams params=window.getAttributes();
+        params.dimAmount=.35f;
+        params.width=ViewGroup.LayoutParams.MATCH_PARENT;
+        params.height=ViewGroup.LayoutParams.WRAP_CONTENT;
+        params.gravity=top?Gravity.TOP:Gravity.BOTTOM;
+        window.setAttributes(params);
+        // Final size and gravity are established before Dialog.show(): no end-of-animation jump.
     }
     private static void installGestures(AlertDialog dialog,boolean top){
         Window window=dialog.getWindow();if(window==null)return;

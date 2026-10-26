@@ -301,9 +301,15 @@ public class SettingsActivity extends Activity {
         items.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinner.setAdapter(items);spinner.setSelection(current,false);
         spinner.setBackground(rounded(cardColor(),14));
-        spinner.setPadding(dp(14),0,dp(14),0);
+        spinner.setPadding(dp(14),0,dp(38),0);
+        android.widget.FrameLayout modeDropdown=new android.widget.FrameLayout(this);
+        modeDropdown.addView(spinner,new android.widget.FrameLayout.LayoutParams(-1,dp(52)));
+        TextView chevron=text("▾",22,true);
+        chevron.setGravity(Gravity.CENTER);chevron.setClickable(false);
+        android.widget.FrameLayout.LayoutParams chevronLp=new android.widget.FrameLayout.LayoutParams(dp(38),-1,Gravity.RIGHT|Gravity.CENTER_VERTICAL);
+        modeDropdown.addView(chevron,chevronLp);
         LinearLayout.LayoutParams spinnerLp=new LinearLayout.LayoutParams(0,dp(52),1);spinnerLp.leftMargin=dp(9);
-        selector.addView(spinner,spinnerLp);list.addView(selector);
+        selector.addView(modeDropdown,spinnerLp);list.addView(selector);
         spinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
             @Override public void onItemSelected(android.widget.AdapterView<?> parent,View view,int n,long id){
                 int chosen=Math.max(0,Math.min(3,prefs.getInt("reading_mode",prefs.getBoolean("rsvp",true)?1:0)));
@@ -314,8 +320,15 @@ public class SettingsActivity extends Activity {
         gap(10);
         drawHighlightSettings();
         if(current==3){
-            TextView hint=text("Режим «Озвучка» использует тот же текст и оглавление, что и остальные режимы. Параметры голосов и кэша доступны во вкладке «Аудио».",14,false);
-            list.addView(hint);list.addView(action("Настройки озвучивания",this::drawAudioSettings));return;
+            // The mode explanation lives in expandable help, not on the settings surface.
+            TextView helpTitle=text("ⓘ  Справка об озвучке   ▾",15,true);
+            helpTitle.setPadding(dp(7),dp(12),dp(7),dp(12));list.addView(helpTitle);
+            TextView helpText=text("Режим «Озвучка» использует тот же текст и оглавление, что и остальные режимы. Выбор движка и голоса доступен в плеере озвучки.",14,false);
+            helpText.setVisibility(View.GONE);helpText.setPadding(dp(10),0,dp(10),dp(10));list.addView(helpText);
+            helpTitle.setOnClickListener(v->{boolean expanded=helpText.getVisibility()!=View.VISIBLE;
+                helpText.setVisibility(expanded?View.VISIBLE:View.GONE);
+                helpTitle.setText(expanded?"ⓘ  Справка об озвучке   ▴":"ⓘ  Справка об озвучке   ▾");});
+            return;
         }
         if(current==NORMAL){drawNormalModeSettings();return;}
         addStartDelaySetting(current);
@@ -502,32 +515,6 @@ public class SettingsActivity extends Activity {
     }
     void drawAudioSettings(){
         header("TTS");
-        // Engine is a single-click toggle, using exactly the same icon resources as the old choice dialog.
-        LinearLayout choose=new LinearLayout(this);choose.setGravity(Gravity.CENTER_VERTICAL);
-        choose.setPadding(dp(6),dp(9),dp(6),dp(9)); // only engine icon buttons have cards
-        android.widget.ImageView wave=new android.widget.ImageView(this);
-        wave.setImageResource(R.drawable.ic_tts_waveform);wave.setColorFilter(contrast(bg));
-        choose.addView(wave,new LinearLayout.LayoutParams(dp(27),dp(27)));
-        LinearLayout descriptions=col();descriptions.setPadding(dp(13),0,dp(5),0);
-        descriptions.addView(text("Метод озвучки",15,true));
-        TextView info=text("Один плеер для системного TTS и Microsoft Edge",12,false);info.setAlpha(.75f);
-        descriptions.addView(info);choose.addView(descriptions,new LinearLayout.LayoutParams(0,-2,1));
-        boolean local=prefs.getBoolean("tts_last_local",true);
-        for(int i=0;i<2;i++){
-            final boolean system=i==0;
-            android.widget.ImageView icon=new android.widget.ImageView(this);
-            icon.setImageResource(system?R.drawable.ic_android_tts:R.drawable.ic_edge_tts);
-            icon.setColorFilter(contrast(bg));icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-            android.graphics.drawable.GradientDrawable shape=rounded(cardColor(),11);
-            if(local==system)shape.setStroke(dp(2),activeColor());
-            icon.setBackground(shape);icon.setPadding(dp(8),dp(8),dp(8),dp(8));
-            icon.setContentDescription(system?"Системный TTS":"Edge TTS онлайн");
-            LinearLayout.LayoutParams iconLp=new LinearLayout.LayoutParams(dp(43),dp(43));
-            if(i>0)iconLp.leftMargin=dp(5);choose.addView(icon,iconLp);
-            icon.setOnClickListener(v->{prefs.edit().putBoolean("tts_last_local",system).apply();draw();});
-        }
-        LinearLayout.LayoutParams chooseLp=new LinearLayout.LayoutParams(-1,-2);chooseLp.bottomMargin=dp(5);
-        list.addView(choose,chooseLp);
         audioLink(R.drawable.ic_tts_engine,"Локальный голос","Установленные русские голоса Samsung, Google и других движков","Выбрать",()->startActivity(new Intent(this,TtsVoiceActivity.class)));
         audioToggle(R.drawable.ic_tts_autoplay,"Автовоспроизведение при касании","Начинать озвучку сразу после выбора предложения","tts_tap_autoplay",false);
         audioToggle(R.drawable.ic_tts_pause_trim,"Сокращение пауз между предложениями MS Edge","Сокращается только конечная тишина; MP3 и WordBoundary не изменяются","edge_trim_sentence_pause",true);
