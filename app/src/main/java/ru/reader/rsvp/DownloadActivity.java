@@ -90,6 +90,8 @@ public final class DownloadActivity extends Activity {
             String[] names={"Все загрузки","В процессе","Аудиокниги","Edge TTS","По ссылке"};
             for(int i=0;i<names.length;i++){final int ix=i;menu.getMenu().add(names[i]).setOnMenuItemClickListener(item->{
                 filter=ix;filterSelect.setText(names[ix]+"  ▾");getSharedPreferences("reader",0).edit().putInt(FILTER_KEY,ix).apply();refresh();return true;});}
+            menu.getMenu().add(1,101,99,"Удалить скачанные файлы")
+                .setOnMenuItemClickListener(item->{confirmDeleteAllDownloads();return true;});
             menu.show();
         });
         summary=text("Загрузка данных…",13,false);summary.setTextColor(MUTED);summary.setGravity(Gravity.CENTER);
@@ -229,12 +231,67 @@ public final class DownloadActivity extends Activity {
         }}
         LinkDownloadStore.remove(this,item.link.id);refresh();
     }
+    /** Explicitly confirmed cleanup of completed download jobs, never original book sources. */
+    private void confirmDeleteAllDownloads(){
+        new SwipeDialogs.Builder(this).setTitle("Удалить скачанные файлы?")
+            .setMessage("Будут удалены загруженные файлы неактивных заданий. Задания, исходные книги и настройки сохраняются; активные загрузки пропускаются. Записи без файлов можно будет загрузить повторно.")
+            .setNegativeButton("Отмена",null)
+            .setPositiveButton("Удалить",(dialog,which)->deleteAllDownloads()).show();
+    }
+    private void deleteAllDownloads(){
+        final ArrayList<DownloadsRepository.Item> items=DownloadsRepository.load(this,edge);
+        final String playingBook=edge!=null&&edge.isActive()?edge.bookUri():"";
+        new Thread(()->{
+            int deleted=0,skipped=0;
+            for(DownloadsRepository.Item item:items){
+                if(item.running || (DownloadsRepository.EDGE.equals(item.type)&&item.bookUri.equals(playingBook))){skipped++;continue;}
+                try{
+                    if(DownloadsRepository.AUDIO.equals(item.type)&&item.job!=null){
+                        BookImportManager.Job job=item.job;
+                        for(int n=0;n<job.chapters.size();n++){
+                            java.io.File file=BookImportManager.trackFile(this,job,n);
+                            if(file.isFile()&&file.delete()&&n<job.states.size())job.states.set(n,0);
+                        }
+                        job.paused=true;job.status="paused";job.bytes=0;job.total=0;
+                        BookImportManager.put(this,job);
+                        deleted++;
+                    }else if(DownloadsRepository.EDGE.equals(item.type)){
+                        // Keep queue metadata, chapter index, source book and cover.
+                        java.io.File folder=item.folder;
+                        if(folder!=null&&folder.isDirectory()){
+                            java.io.File[] cached=folder.listFiles();
+                            if(cached!=null)for(java.io.File file:cached){
+                                String name=file.getName();
+                                if(file.isFile()&&(name.endsWith(".mp3")||name.endsWith(".mp3.words.json")
+                                    ||name.endsWith(".mp3.part")))file.delete();
+                            }
+                        }
+                        deleted++;
+                    }else if(DownloadsRepository.LINK.equals(item.type)&&item.link!=null){
+                        for(LinkDownloadStore.Entry entry:item.link.files){
+                            if(entry.savedUri.isEmpty())continue;
+                            androidx.documentfile.provider.DocumentFile doc=androidx.documentfile.provider.DocumentFile.fromSingleUri(this,android.net.Uri.parse(entry.savedUri));
+                            if(doc!=null&&doc.delete()){
+                                entry.savedUri="";entry.status="queued";entry.bytes=0;
+                            }
+                        }
+                        LinkDownloadStore.put(this,item.link);deleted++;
+                    }
+                }catch(Exception ignored){skipped++;}
+            }
+            final int ok=deleted,skip=skipped;
+            runOnUiThread(()->{
+                refresh();
+                Toast.makeText(this,"Обработано загрузок: "+ok+(skip>0?" · пропущено: "+skip:""),Toast.LENGTH_LONG).show();
+            });
+        },"download-bulk-cleanup").start();
+    }
     private void menu(View anchor,DownloadsRepository.Item item){
         if(DownloadsRepository.LINK.equals(item.type)){
             PopupMenu p=new PopupMenu(this,anchor);
             p.getMenu().add(0,1,0,"Список файлов");p.getMenu().add(0,2,1,"Добавить MP3 в библиотеку");
             if(!item.ready)p.getMenu().add(0,3,2,"Продолжить загрузку");
-            p.getMenu().add(0,4,3,"Убрать из списка");p.getMenu().add(0,5,4,"Удалить скачанные файлы");
+            p.getMenu().add(0,4,3,"Удалить из библиотеки/аудиотеки");p.getMenu().add(0,5,4,"Удалить скачанные файлы");
             p.setOnMenuItemClickListener(m->{switch(m.getItemId()){
                 case 1:open(item);break;
                 case 2:LinkDownloadStore.addToLibrary(this,item.link);Toast.makeText(this,"Добавлено в библиотеку",Toast.LENGTH_SHORT).show();break;
@@ -255,7 +312,7 @@ public final class DownloadActivity extends Activity {
         }
         popup.getMenu().add(0,3,2,"Открыть файлы");
         popup.getMenu().add(0,6,3,"Убрать из списка");
-        popup.getMenu().add(0,4,4,"Удалить вместе с MP3");
+        popup.getMenu().add(0,4,4,"Удалить скачанные файлы");
         popup.setOnMenuItemClickListener(m->{
             switch(m.getItemId()){
                 case 1:open(item);break;

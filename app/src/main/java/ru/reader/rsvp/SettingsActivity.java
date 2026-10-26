@@ -121,6 +121,13 @@ public class SettingsActivity extends Activity {
         enabled.setChecked(ChteicoStore.enabled(this));list.addView(enabled);
         enabled.setOnCheckedChangeListener((v,on)->{ChteicoStore.setEnabled(this,on);draw();});
         gap(12);
+        android.widget.Switch homePet=new android.widget.Switch(this);
+        homePet.setText("Интерактивный питомец в главном меню");
+        homePet.setTextColor(contrast(bg));homePet.setTextSize(15);
+        homePet.setPadding(dp(4),dp(10),dp(4),dp(10));
+        homePet.setChecked(getSharedPreferences("reader",0).getBoolean("mini_pet_on_home",true));
+        list.addView(homePet);
+        homePet.setOnCheckedChangeListener((button,on)->getSharedPreferences("reader",0).edit().putBoolean("mini_pet_on_home",on).apply());
         // Folded by default. No code symbols, countdowns or hidden evolutionary rules in user-facing help.
         LinearLayout helpBox=col();helpBox.setBackground(rounded(cardColor(),16));helpBox.setPadding(dp(14),dp(12),dp(14),dp(12));
         TextView helpHeader=text("ⓘ  Справка   ▾",17,true);helpBox.addView(helpHeader);
@@ -237,7 +244,11 @@ public class SettingsActivity extends Activity {
         list.addView(daysRow);
         chteicoSwitch("Уведомления о достижениях","achievements_notice");
         list.addView(action("Время напоминаний: "+game.getInt("reminder_hour",19)+":00",()->{
-            new android.app.TimePickerDialog(this,(v,h,m)->{game.edit().putInt("reminder_hour",h).apply();ChteicoNotifications.schedule(this);draw();},game.getInt("reminder_hour",19),0,true).show();
+            android.widget.TimePicker picker=new android.widget.TimePicker(this);
+            picker.setIs24HourView(true);picker.setHour(game.getInt("reminder_hour",19));picker.setMinute(0);
+            new SwipeDialogs.Builder(this).setTitle("Время напоминаний").setView(picker)
+                .setNegativeButton("Отмена",null)
+                .setPositiveButton("Сохранить",(d,w)->{game.edit().putInt("reminder_hour",picker.getHour()).apply();ChteicoNotifications.schedule(this);draw();}).show();
         }));
         gap(16);header("Сброс и тестирование");
         list.addView(action("Сбросить вариант развития",()->new SwipeDialogs.Builder(this)
@@ -301,6 +312,7 @@ public class SettingsActivity extends Activity {
             @Override public void onNothingSelected(android.widget.AdapterView<?> parent){}
         });
         gap(10);
+        drawHighlightSettings();
         if(current==3){
             TextView hint=text("Режим «Озвучка» использует тот же текст и оглавление, что и остальные режимы. Параметры голосов и кэша доступны во вкладке «Аудио».",14,false);
             list.addView(hint);list.addView(action("Настройки озвучивания",this::drawAudioSettings));return;
@@ -309,6 +321,14 @@ public class SettingsActivity extends Activity {
         addStartDelaySetting(current);
         if(current==CURSOR){drawCursorSettings();return;}
         drawSpeedReadingSettings();
+    }
+    /** One palette and opacity for the sentence background in both reader TTS screens. */
+    void drawHighlightSettings(){
+        header("Подсветка текста (Highlight)");
+        colorSection("Цвет подсветки предложения","sentence_highlight_color",0xffedca43,false);
+        percentSlider("Прозрачность фона предложения","sentence_highlight_opacity",0,100,50,5);
+        TextView note=text("0% — фон невидим, 100% — непрозрачная заливка. Применяется в озвучке и при выборе предложения.",12,false);
+        note.setPadding(0,0,0,dp(12));list.addView(note);
     }
     void addStartDelaySetting(int mode){
         final String suffix=mode==RSVP?"rsvp":"cursor";
@@ -440,11 +460,12 @@ public class SettingsActivity extends Activity {
     // Matching minimal, outlined 24dp icons with the supplied Audio screen mockup.
     private LinearLayout audioCard(int icon,String title,String subtitle,View accessory,Runnable action){
         LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(12),dp(9),dp(12),dp(9));row.setBackground(rounded(cardColor(),13));
+        row.setPadding(dp(6),dp(9),dp(6),dp(9)); // explanatory text stays on the common background
         android.widget.ImageView image=new android.widget.ImageView(this);
         image.setImageResource(icon);image.setColorFilter(contrast(bg));
         image.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        row.addView(image,new LinearLayout.LayoutParams(dp(27),dp(27)));
+        image.setBackground(rounded(cardColor(),10));image.setPadding(dp(6),dp(6),dp(6),dp(6));
+        row.addView(image,new LinearLayout.LayoutParams(dp(36),dp(36)));
         LinearLayout words=new LinearLayout(this);words.setOrientation(LinearLayout.VERTICAL);
         words.setPadding(dp(13),0,dp(4),0);
         TextView h=text(title,15,true);words.addView(h);
@@ -454,7 +475,7 @@ public class SettingsActivity extends Activity {
         }
         row.addView(words,new LinearLayout.LayoutParams(0,-2,1));
         if(accessory!=null)row.addView(accessory);
-        if(action!=null){row.setOnClickListener(v->action.run());}
+        if(action!=null){row.setOnClickListener(v->action.run());row.setContentDescription(title);}
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);
         lp.bottomMargin=dp(5);list.addView(row,lp);
         return row;
@@ -483,7 +504,7 @@ public class SettingsActivity extends Activity {
         header("TTS");
         // Engine is a single-click toggle, using exactly the same icon resources as the old choice dialog.
         LinearLayout choose=new LinearLayout(this);choose.setGravity(Gravity.CENTER_VERTICAL);
-        choose.setPadding(dp(12),dp(9),dp(12),dp(9));choose.setBackground(rounded(cardColor(),13));
+        choose.setPadding(dp(6),dp(9),dp(6),dp(9)); // only engine icon buttons have cards
         android.widget.ImageView wave=new android.widget.ImageView(this);
         wave.setImageResource(R.drawable.ic_tts_waveform);wave.setColorFilter(contrast(bg));
         choose.addView(wave,new LinearLayout.LayoutParams(dp(27),dp(27)));
@@ -508,17 +529,11 @@ public class SettingsActivity extends Activity {
         LinearLayout.LayoutParams chooseLp=new LinearLayout.LayoutParams(-1,-2);chooseLp.bottomMargin=dp(5);
         list.addView(choose,chooseLp);
         audioLink(R.drawable.ic_tts_engine,"Локальный голос","Установленные русские голоса Samsung, Google и других движков","Выбрать",()->startActivity(new Intent(this,TtsVoiceActivity.class)));
-        audioLink(R.drawable.ic_audio_speed,"Скорость WPM","Единый диалог спидометра: пресеты и ±10",TtsWpm.get(this)+"",()->TtsWpm.dialog(this,this::draw));
         audioToggle(R.drawable.ic_tts_autoplay,"Автовоспроизведение при касании","Начинать озвучку сразу после выбора предложения","tts_tap_autoplay",false);
-        audioCard(R.drawable.ic_tts_document,"До 600 символов на фрагмент","Предложения разделяются автоматически, по возможности без разрыва слов",settingValue("600"),null);
         audioToggle(R.drawable.ic_tts_pause_trim,"Сокращение пауз между предложениями MS Edge","Сокращается только конечная тишина; MP3 и WordBoundary не изменяются","edge_trim_sentence_pause",true);
-        audioCard(R.drawable.ic_downloads,"Edge MP3 офлайн","Синтезированные предложения сохраняются постоянно",settingValue("Всегда"),null);
-        audioCard(R.drawable.ic_tts_storage,"Кэш системного TTS","Временные записи могут удаляться Android автоматически",settingValue("Временный"),null);
         audioDivider();
         header("Аудиокниги MP3 / M4A");
         audioLink(R.drawable.ic_equalizer,"Эквалайзер","Настройка звучания аудиокниг",equalizerLabel(),this::equalizerDialog);
-        audioLink(R.drawable.ic_audio_speed,"Скорость воспроизведения","Отдельно от скорости WPM", "×",this::audioSpeedDialog);
-        audioLink(R.drawable.ic_sleep_timer,"Таймер сна","Автоматическая остановка аудиокниги","Выбрать",this::audioSleepDialog);
         audioLink(R.drawable.ic_audio_timer,"Автоотмотка после паузы","Вернуться к ранее прослушанному месту",autoRewindLabel(),this::autoRewindDialog);
         audioLink(R.drawable.ic_rewind_10s,"Перемотка секундами","Интервал шагов плеера",AudioPlaybackPrefs.seekSeconds(this)+" сек",()->seekStepDialog(false));
         audioLink(R.drawable.ic_rewind_1m,"Перемотка минутами","Интервал шагов плеера",AudioPlaybackPrefs.seekMinutes(this)+" мин",()->seekStepDialog(true));
@@ -667,8 +682,6 @@ public class SettingsActivity extends Activity {
         list.addView(action("Проверить версию в GitHub",R.drawable.ic_web_update,
                 ()->new UpdateManager(this).checkVersion()));
         gap(12);
-        TextView message=text("Параметры Microsoft Edge TTS теперь находятся во вкладке «Аудио» в разделе TTS.",14,false);
-        message.setPadding(dp(6),dp(8),dp(6),dp(12));list.addView(message);
     }
     void theme(LinearLayout row,String name,int background,int ink){TextView chip=text(name,13,false);chip.setTextColor(ink);chip.setGravity(Gravity.CENTER);chip.setBackground(outlined(background,14));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(56),1);lp.setMargins(dp(2),0,dp(2),0);row.addView(chip,lp);chip.setOnClickListener(v->{bg=background;fg=ink;put("bg",bg);put("fg",fg);draw();});}
     void palette(int[] colors,boolean background){

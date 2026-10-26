@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="ChitalkaSheetTop"><item name="android:windowEnterAnimation">@anim/sheet_down_in</item><item name="android:windowExitAnimation">@anim/sheet_up_out</item></style>
+    <style name="ChitalkaSheetBottom"><item name="android:windowEnterAnimation">@anim/sheet_up_in</item><item name="android:windowExitAnimation">@anim/sheet_down_out</item></style>
+</resources>

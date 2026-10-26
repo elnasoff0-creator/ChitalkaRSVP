@@ -66,6 +66,8 @@ public final class EdgeOnlineActivity extends Activity {
     private ImageButton modeButton,downloadsButton;
     private TextView sleepRemaining;
     private View sleepControl;
+    private View toolbarSpeedControl;
+    private View tocControl;
     private FrameLayout playbackBar;
     private boolean switchShouldPlay=false;
     private int switchedWord=-1;
@@ -219,6 +221,7 @@ public final class EdgeOnlineActivity extends Activity {
         ImageButton readModes=toolbarIcon(R.drawable.ic_book,"Режим чтения",()->
             UiNavigationSheet.showModes(this,3,chosen->openReadingMode(chosen)));
         addToolbarButton(toolbar,readModes,false);
+        toolbar.addView(new View(this),new LinearLayout.LayoutParams(0,dp(1),1));
         modeButton=toolbarIcon(local?R.drawable.ic_android_tts:R.drawable.ic_edge_tts,
                 "Способ озвучивания",this::chooseMethod);
         addToolbarButton(toolbar,modeButton,false);
@@ -252,8 +255,13 @@ public final class EdgeOnlineActivity extends Activity {
             refresh();
         }));
         addToolbarButton(toolbar,gauge,false);
-        ImageButton settings=toolbarIcon(R.drawable.ic_settings,"Настройки аудио",()->{
-            startActivity(new Intent(this,SettingsActivity.class).putExtra("audio_tab",true));
+        toolbarSpeedControl=gauge;
+        ImageButton settings=toolbarIcon(R.drawable.ic_more_vertical,"Дополнительно",()->{
+            new SwipeDialogs.Builder(this).fromTop().setTitle("Дополнительно")
+                .setItems(new String[]{"Закладки","Настройки"},(d,n)->{
+                    if(n==0)saveBookmark();
+                    else startActivity(new Intent(this,SettingsActivity.class).putExtra("audio_tab",true));
+                }).show();
         });
         addToolbarButton(toolbar,settings,false);
         topBookName=label("",12);topBookName.setSingleLine(true);
@@ -293,7 +301,11 @@ public final class EdgeOnlineActivity extends Activity {
             return false;
         });
         scroller.setOnScrollChangeListener((v,x,y,oldX,oldY)->{
-            if(!programmaticScroll&&Math.abs(y-oldY)>dp(2))setTopToolbarVisible(y<oldY);
+            if(!programmaticScroll&&Math.abs(y-oldY)>dp(2)){
+                setTopToolbarVisible(y<oldY);
+                if(toolbarSpeedControl!=null)toolbarSpeedControl.setVisibility(y<oldY?View.VISIBLE:View.INVISIBLE);
+                if(tocControl!=null)tocControl.setVisibility(y<oldY?View.VISIBLE:View.INVISIBLE);
+            }
             if(!programmaticScroll&&y!=oldY){
                 manualScrollSeen=true;manualScrollUntil=android.os.SystemClock.uptimeMillis()+3000;
             }
@@ -325,8 +337,13 @@ public final class EdgeOnlineActivity extends Activity {
             (getResources().getDisplayMetrics().widthPixels-dp(20)-dp(76))/2);
         LinearLayout leftControls=new LinearLayout(this);
         leftControls.setGravity(Gravity.CENTER_VERTICAL);
+        leftControls.setBackground(bg(styledButtonColor,13));
+        leftControls.setOnClickListener(v->openTextBlocks());
         ImageButton blocksButton=toolbarIcon(R.drawable.ic_list_audio,
             "Менеджер текстовых блоков",this::openTextBlocks);
+        blocksButton.setBackground(bg(styledAccentColor,12));
+        blocksButton.setColorFilter(ReaderButtonColors.contrastingText(styledAccentColor));
+        tocControl=leftControls;
         leftControls.addView(blocksButton,new LinearLayout.LayoutParams(dp(41),dp(44)));
         LinearLayout.LayoutParams textLp=new LinearLayout.LayoutParams(0,dp(62),1);
         textLp.leftMargin=dp(4);leftControls.addView(progress,textLp);
@@ -337,10 +354,10 @@ public final class EdgeOnlineActivity extends Activity {
         playArea.setBackground(bg(playBackground,19));
         playIcon=new ImageView(this);playIcon.setImageResource(R.drawable.ic_play);
         playIcon.setColorFilter(ReaderButtonColors.contrastingText(playBackground));
-        playArea.addView(playIcon,new FrameLayout.LayoutParams(dp(31),dp(31),Gravity.CENTER));
+        playArea.addView(playIcon,new FrameLayout.LayoutParams(dp(24),dp(24),Gravity.CENTER));
         playArea.setContentDescription("Воспроизведение / пауза");
         playArea.setOnClickListener(v->togglePlay());
-        playbackBar.addView(playArea,new FrameLayout.LayoutParams(dp(72),dp(63),Gravity.CENTER));
+        playbackBar.addView(playArea,new FrameLayout.LayoutParams(dp(44),dp(44),Gravity.CENTER));
         LinearLayout edgeStatus=new LinearLayout(this);edgeStatus.setGravity(Gravity.CENTER_VERTICAL|Gravity.END);
         FrameLayout.LayoutParams ep=new FrameLayout.LayoutParams(sideWidth,dp(63),Gravity.END|Gravity.CENTER_VERTICAL);
         playbackBar.addView(edgeStatus,ep);
@@ -360,14 +377,8 @@ public final class EdgeOnlineActivity extends Activity {
         if(topToolbar==null||topToolbarVisible==visible)return;
         topToolbarVisible=visible;
         if(topBookName!=null)topBookName.setVisibility(visible&&windowStart>0?View.VISIBLE:View.GONE);
-        if(visible){
-            topToolbar.setAlpha(0f);topToolbar.setVisibility(View.VISIBLE);
-            topToolbar.animate().alpha(1f).setDuration(170).start();
-        }else{
-            topToolbar.animate().alpha(0f).setDuration(150).withEndAction(()->{
-                if(!topToolbarVisible)topToolbar.setVisibility(View.GONE);
-            }).start();
-        }
+        // Hide optional WPM/TOC affordances, not the other navigation controls.
+        topToolbar.animate().cancel();topToolbar.setAlpha(1f);topToolbar.setVisibility(View.VISIBLE);
     }
     private void showWindow(int anchor,boolean center){
         if(full.isEmpty())return;
@@ -423,8 +434,10 @@ public final class EdgeOnlineActivity extends Activity {
         for(ForegroundColorSpan span:text.getSpans(0,text.length(),ForegroundColorSpan.class))text.removeSpan(span);
         int sf=Math.max(0,sentenceFrom-windowStart),st=Math.min(text.length(),sentenceTo-windowStart);
         if(sf<st){
-            // 50% translucent sentence background; remain highlighted during pauses.
-            int shade=Color.argb(128,Color.red(accent),Color.green(accent),Color.blue(accent));
+            android.content.SharedPreferences p=getSharedPreferences("reader",0);
+            int color=p.getInt("sentence_highlight_color",0xffedca43);
+            int opacity=Math.max(0,Math.min(100,p.getInt("sentence_highlight_opacity",50)));
+            int shade=(color&0x00ffffff)|(((opacity*255+50)/100)<<24);
             text.setSpan(new BackgroundColorSpan(shade),sf,st,Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
         int a=Math.max(0,from-windowStart),b=Math.min(text.length(),to-windowStart);
@@ -527,13 +540,16 @@ public final class EdgeOnlineActivity extends Activity {
     }
     private void sleepDialog(){
         int[] minutes={0,5,10,15,30,60};
-        String[] choices={"Выключить","5 мин","10 мин","15 мин","30 мин","60 мин"};
-        new SwipeDialogs.Builder(this).setTitle("Таймер сна")
+        String[] choices={"Выключить","5 мин","10 мин","15 мин","30 мин","60 мин","Конец главы"};
+        new SwipeDialogs.Builder(this).fromTop().setTitle("Таймер сна")
             .setItems(choices,(dialog,n)->{
+                int duration=n==6?-1:minutes[n];
+                BookChapterIndex.Chapter chapter=chapters==null?null:chapters.atChar(wordChar(liveWord()));
+                int end=chapter==null?wordStarts.size():wordFromChar(chapter.endChar);
                 if(local){startService(new Intent(this,AudioPlaybackService.class)
-                    .setAction(AudioPlaybackService.SLEEP).putExtra("minutes",minutes[n]));}
-                else if(edge!=null)edge.setSleepMinutes(minutes[n]);
-                Toast.makeText(this,minutes[n]==0?"Таймер выключен":"Таймер установлен",Toast.LENGTH_SHORT).show();
+                    .setAction(AudioPlaybackService.SLEEP).putExtra("minutes",duration).putExtra("end_word",end));}
+                else if(edge!=null){if(duration==-1)edge.setSleepChapterEnd(end);else edge.setSleepMinutes(duration);}
+                Toast.makeText(this,duration==0?"Таймер выключен":"Таймер установлен",Toast.LENGTH_SHORT).show();
             }).setNegativeButton("Отмена",null).show();
     }
     /** Switch voice engines in place. No new Activity, layout or text reload. */
@@ -580,6 +596,15 @@ public final class EdgeOnlineActivity extends Activity {
         }
         refresh();
     }
+    private void saveBookmark(){
+        if(wordStarts.isEmpty())return;
+        android.content.SharedPreferences preferences=getSharedPreferences("reader",0);
+        String key="bookmark:"+uri;
+        java.util.Set<String> saved=new java.util.HashSet<>(preferences.getStringSet(key,java.util.Collections.emptySet()));
+        saved.add(String.valueOf(liveWord()));
+        preferences.edit().putStringSet(key,saved).apply();
+        Toast.makeText(this,"Закладка добавлена",Toast.LENGTH_SHORT).show();
+    }
     private void openReadingMode(int selected){
         if(selected<0||selected>3||selected==3)return;
         int word=selectedWord>=0?selectedWord:liveWord();
@@ -597,7 +622,7 @@ public final class EdgeOnlineActivity extends Activity {
     }
     private void chooseMethod(){
         LinearLayout rows=new LinearLayout(this);rows.setOrientation(LinearLayout.VERTICAL);
-        android.app.AlertDialog dialog=new SwipeDialogs.Builder(this).setTitle("Способ озвучивания")
+        android.app.AlertDialog dialog=new SwipeDialogs.Builder(this).fromTop().setTitle("Способ озвучивания")
             .setView(rows).create();
         addEngineChoice(rows,dialog,R.drawable.ic_android_tts,"Системный TTS",
             "Установленные голоса Samsung, Google и других",true);
@@ -627,7 +652,7 @@ public final class EdgeOnlineActivity extends Activity {
             String selected=getSharedPreferences("reader",0).getString("edge_voice","ru-RU-SvetlanaNeural");
             if(downloads!=null)selected=downloads.voice();
             int checked=selected.contains("Dmitry")?1:0;
-            new SwipeDialogs.Builder(this).setTitle("Голос Microsoft Edge")
+            new SwipeDialogs.Builder(this).fromTop().setTitle("Голос Microsoft Edge")
                 .setSingleChoiceItems(names,checked,(dialog,n)->{
                     getSharedPreferences("reader",0).edit().putString("edge_voice",keys[n]).apply();
                     if(downloads!=null)downloads.choose(keys[n],null);

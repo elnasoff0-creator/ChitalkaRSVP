@@ -30,13 +30,15 @@ final class UiNavigationSheet {
         final Dialog dialog;
         final LinearLayout content;
         Sheet(Dialog dialog,LinearLayout content){this.dialog=dialog;this.content=content;}
-        void show(){dialog.show();Window window=dialog.getWindow();if(window==null)return;
-            window.setBackgroundDrawableResource(android.R.color.transparent);window.setGravity(Gravity.BOTTOM);
+        boolean fromTop;
+        void show(){Window window=dialog.getWindow();if(window==null)return;
+            window.setWindowAnimations(fromTop?R.style.ChitalkaSheetTop:R.style.ChitalkaSheetBottom);
+            dialog.show();
+            window.setBackgroundDrawableResource(android.R.color.transparent);window.setGravity(fromTop?Gravity.TOP:Gravity.BOTTOM);
             window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT);
             window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             WindowManager.LayoutParams p=window.getAttributes();p.dimAmount=.38f;window.setAttributes(p);
-            content.setTranslationY(content.getHeight()>0?content.getHeight():500);
-            content.post(()->content.animate().translationY(0).setDuration(240).start());
+            // The window animation handles entry; no second nested translation.
         }
     }
     private static Sheet sheet(Activity a,String heading){
@@ -50,7 +52,7 @@ final class UiNavigationSheet {
         // Start a drag only from the handle so scrollable chapter lists are never intercepted.
         handle.setOnTouchListener(new View.OnTouchListener(){float down;
             @Override public boolean onTouch(View view,MotionEvent e){if(e.getActionMasked()==MotionEvent.ACTION_DOWN){down=e.getY();return true;}
-                if(e.getActionMasked()==MotionEvent.ACTION_UP){if(e.getY()-down>dp(a,28))dialog.dismiss();return true;}return true;}});
+                if(e.getActionMasked()==MotionEvent.ACTION_UP){if(Math.abs(e.getY()-down)>dp(a,28))dialog.dismiss();return true;}return true;}});
         TextView header=label(a,heading,23,ink);header.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
         LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);hp.setMargins(0,dp(a,12),0,dp(a,12));card.addView(header,hp);
         dialog.setContentView(card);
@@ -58,7 +60,7 @@ final class UiNavigationSheet {
         return new Sheet(dialog,card);
     }
     static void showModes(Activity a,int current,IndexChoice choice){
-        Sheet sh=sheet(a,"Выбор режима чтения");
+        Sheet sh=sheet(a,"Выбор режима чтения");sh.fromTop=true;
         String[] names={"Чтение","Скорочтение","Курсор","Озвучка"};
         String[] captions={"Обычное чтение текста","Показ слов с заданной скоростью","Следование по тексту","Голосовое воспроизведение"};
         int[] icons={R.drawable.ic_book,R.drawable.ic_mode_speedreading,R.drawable.ic_mode_cursor,R.drawable.ic_microphone};
@@ -83,7 +85,7 @@ final class UiNavigationSheet {
         sh.show();
     }
     static void showAudiobookChapters(Activity owner,String[] chapters,int selected,IndexChoice choice){
-        Sheet sh=sheet(owner,"Аудиоглавы");
+        Sheet sh=sheet(owner,"Аудиоглавы");sh.fromTop=true;
         RecyclerView list=new RecyclerView(owner);list.setLayoutManager(new LinearLayoutManager(owner));
         int color=owner.getSharedPreferences("reader",0).getInt("fg",0xff30221e);
         list.setAdapter(new RecyclerView.Adapter<RecyclerView.ViewHolder>(){

@@ -91,6 +91,7 @@ public class ReaderActivity extends Activity {
     private int focusColor=0xffed3030,lineColor=0xff915439,linePosition=50;
     private int cursorBackground=0xff96583f,cursorText=NO_COLOR,cursorScale=100;
     private int normalSelectText=0xff915439,normalSelectScale=110,buttonColor=NO_COLOR,accentButtonColor=NO_COLOR;
+    private int sentenceHighlightColor=0xffedca43,sentenceHighlightOpacity=50;
     private int pausePunctuationPercent=60,pauseLongPercent=50,pauseSentencePercent=120,pauseParagraphPercent=150;
     private boolean focusPoint=true,focusLinesEnabled=true,playing=false,selecting=false,selectedWordActive=false;
     private boolean userScrolling=false,restoringScroll=false;
@@ -180,6 +181,8 @@ public class ReaderActivity extends Activity {
         linePosition=Math.max(0,Math.min(100,prefs.getInt("rsvp_line_position",50)));
         cursorBackground=prefs.getInt("cursor_background",0xff96583f);cursorText=prefs.getInt("cursor_text",NO_COLOR);
         cursorScale=Math.max(100,Math.min(180,prefs.getInt("cursor_scale",100)));
+        sentenceHighlightColor=prefs.getInt("sentence_highlight_color",0xffedca43);
+        sentenceHighlightOpacity=Math.max(0,Math.min(100,prefs.getInt("sentence_highlight_opacity",50)));
         normalSelectText=prefs.getInt("normal_select_text",0xff915439);
         normalSelectScale=Math.max(100,Math.min(180,prefs.getInt("normal_select_scale",110)));
         buttonColor=prefs.getInt("button_color",NO_COLOR);accentButtonColor=prefs.getInt("button_accent_color",NO_COLOR);
@@ -238,7 +241,7 @@ public class ReaderActivity extends Activity {
         toolbarModeLp.leftMargin=dp(5);toolbar.addView(toolbarModeAction,1,toolbarModeLp);
         toolbarModeAction.setBackground(shape(accent(),12));toolbarModeAction.setColorFilter(contrast(accent()));
         LinearLayout.LayoutParams bookmarkLp=new LinearLayout.LayoutParams(dp(44),dp(44));bookmarkLp.leftMargin=dp(5);
-        toolbar.addView(icon(R.drawable.ic_bookmark,v->bookmark()),bookmarkLp);
+        // Bookmarks moved to overflow menu.
         toolbarEngineAction=icon(ttsLocal?R.drawable.ic_android_tts:R.drawable.ic_edge_tts,v->chooseTtsEngine());
         toolbarEngineAction.setContentDescription("Метод озвучивания");
         LinearLayout.LayoutParams engineLp=new LinearLayout.LayoutParams(dp(44),dp(44));engineLp.leftMargin=dp(5);
@@ -275,7 +278,11 @@ public class ReaderActivity extends Activity {
         LinearLayout.LayoutParams gaugeLp=new LinearLayout.LayoutParams(dp(44),dp(44));gaugeLp.leftMargin=dp(5);
         // The numeric WPM control belongs to the lower floating overlay, not the packed toolbar.
         LinearLayout.LayoutParams settingsLp=new LinearLayout.LayoutParams(dp(44),dp(44));settingsLp.leftMargin=dp(5);
-        toolbar.addView(icon(R.drawable.ic_settings,v->settings()),settingsLp);
+        toolbar.addView(icon(R.drawable.ic_more_vertical,v->{
+            String[] items={"Закладки","Настройки"};
+            new SwipeDialogs.Builder(this).fromTop().setTitle("Дополнительно")
+                .setItems(items,(dialog,which)->{if(which==0)bookmark();else settings();}).show();
+        }),settingsLp);
         if(words.length==0){applySystemBars(false);
             TextView intro=text("EPUB · FB2 · HTML\n\nОткройте книгу, чтобы начать чтение.",20);
             intro.setPadding(dp(24),dp(24),dp(24),dp(24));add(root,intro);
@@ -345,7 +352,10 @@ public class ReaderActivity extends Activity {
             @Override public void onScrolled(RecyclerView rv,int dx,int dy){
                 if(userScrolling&&dy!=0)chteicoTouch();
                 if(userScrolling&&!restoringScroll&&Math.abs(dy)>dp(1)){
-                    setToolbarExpanded(dy<0);
+                    // Keep Back, Modes and the other toolbar actions visible.
+                    // Only the table-of-contents group and WPM collapse on downward scroll.
+                    if(contentsAction!=null)contentsAction.setVisibility(dy<0?View.VISIBLE:View.INVISIBLE);
+                    if(toolbarWpm!=null)toolbarWpm.setVisibility(dy<0&&mode!=NORMAL?View.VISIBLE:View.INVISIBLE);
 
                 }
                 if(!userScrolling||restoringScroll||words.length==0)return;
@@ -357,32 +367,32 @@ public class ReaderActivity extends Activity {
         FrameLayout.LayoutParams bottomLp=new FrameLayout.LayoutParams(-1,dp(74),Gravity.BOTTOM);
         bottomLp.setMargins(dp(8),0,dp(8),dp(8));sceneRoot.addView(bottomBar,bottomLp);
         LinearLayout left=new LinearLayout(this);left.setGravity(Gravity.CENTER_VERTICAL);
-        left.setBackground(shape(accent(),19));contentsAction=left;
+        left.setBackground(shape(buttonBg(),13));contentsAction=left;
         left.setOnClickListener(v->showToc());
         FrameLayout.LayoutParams leftLp=new FrameLayout.LayoutParams(Math.max(dp(105),
             (getResources().getDisplayMetrics().widthPixels/2)-dp(74)),dp(54),Gravity.LEFT|Gravity.CENTER_VERTICAL);
         bottomBar.addView(left,leftLp);
         contentsIcon=icon(R.drawable.ic_list_audio,v->showToc());contentsIcon.setContentDescription("Оглавление и прогресс");
-        contentsIcon.setBackgroundColor(Color.TRANSPARENT);contentsIcon.setColorFilter(contrast(accent()));
+        contentsIcon.setBackground(shape(accent(),12));contentsIcon.setColorFilter(contrast(accent()));
         left.addView(contentsIcon,new LinearLayout.LayoutParams(dp(42),dp(44)));
-        progressView=text("",10);progressView.setTextColor(contrast(accent()));
+        progressView=text("",10);progressView.setTextColor(contrast(buttonBg()));
         progressView.setGravity(Gravity.CENTER);progressView.setMaxLines(2);
         left.addView(progressView,new LinearLayout.LayoutParams(0,dp(52),1));
         controls=new LinearLayout(this);controls.setGravity(Gravity.CENTER);
         bottomBar.addView(controls,new FrameLayout.LayoutParams(dp(70),dp(70),Gravity.CENTER));
         rsvpPlayFrame=new FrameLayout(this);rsvpPlayFrame.setBackground(shape(accent(),19));
         playIcon=new ImageView(this);playIcon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);playIcon.setColorFilter(contrast(accent()));
-        rsvpPlayFrame.addView(playIcon,new FrameLayout.LayoutParams(dp(30),dp(30),Gravity.CENTER));
+        rsvpPlayFrame.addView(playIcon,new FrameLayout.LayoutParams(dp(24),dp(24),Gravity.CENTER));
         rsvpPlayFrame.setOnClickListener(v->togglePlayback());
-        controls.addView(rsvpPlayFrame,new LinearLayout.LayoutParams(dp(69),dp(69)));
+        controls.addView(rsvpPlayFrame,new LinearLayout.LayoutParams(dp(44),dp(44)));
         floatingPlayButton=null;floatingPlayIcon=null;
         // A shared floating WPM button on the right; Play/Pause stays geometrically centered.
-        FrameLayout.LayoutParams lowerWpm=new FrameLayout.LayoutParams(dp(65),dp(63),Gravity.RIGHT|Gravity.CENTER_VERTICAL);
+        FrameLayout.LayoutParams lowerWpm=new FrameLayout.LayoutParams(dp(44),dp(44),Gravity.RIGHT|Gravity.CENTER_VERTICAL);
         lowerWpm.rightMargin=dp(2);bottomBar.addView(toolbarWpm,lowerWpm);
-        toolbarWpm.setBackground(shape(accent(),17));
+        toolbarWpm.setBackground(shape(buttonBg(),12));
         for(int i=0;i<toolbarWpm.getChildCount();i++){View child=toolbarWpm.getChildAt(i);
-            if(child instanceof ImageView)((ImageView)child).setColorFilter(contrast(accent()));
-            if(child instanceof TextView)((TextView)child).setTextColor(contrast(accent()));}
+            if(child instanceof ImageView)((ImageView)child).setColorFilter(contrast(buttonBg()));
+            if(child instanceof TextView)((TextView)child).setTextColor(contrast(buttonBg()));}
         speedPanel=null;
         updateModeUI();updatePlayButton();
         // Jump to the indexed chunk, not to the pixel position of an enormous TextView.
@@ -415,7 +425,11 @@ public class ReaderActivity extends Activity {
                     if(sentence!=null){
                         int sentenceFrom=Math.max(0,sentence.fromChar-c.startChar);
                         int sentenceTo=Math.min(content.length(),sentence.toChar-c.startChar);
-                        if(sentenceTo>sentenceFrom)span(new BackgroundColorSpan(0x66edca43),sentenceFrom,sentenceTo);
+                        if(sentenceTo>sentenceFrom){
+                            int alpha=(sentenceHighlightOpacity*255+50)/100;
+                            int shade=(sentenceHighlightColor&0x00ffffff)|(alpha<<24);
+                            span(new BackgroundColorSpan(shade),sentenceFrom,sentenceTo);
+                        }
                     }
                     // The word is stronger than the sentence background, using
                     // exact TTS range start when the engine provides WordBoundary.
@@ -525,7 +539,7 @@ public class ReaderActivity extends Activity {
         if(contentsAction!=null){contentsAction.setBackground(shape(accent(),19));
             if(contentsIcon!=null)contentsIcon.setColorFilter(contrast(accent()));
             if(progressView!=null)progressView.setTextColor(contrast(accent()));}
-        if(toolbarWpm!=null){toolbarWpm.setBackground(shape(accent(),17));
+        if(toolbarWpm!=null){toolbarWpm.setBackground(shape(buttonBg(),12));
             if(speedView!=null)speedView.setTextColor(contrast(accent()));}
         if(toolbar!=null){
             // Every visible button remains square. Compact devices shrink them
@@ -1006,33 +1020,63 @@ public class ReaderActivity extends Activity {
     }
     private void chooseTtsEngine(){
         if(mode!=TTS)return;
-        new SwipeDialogs.Builder(this).setTitle("Способ озвучивания")
-            .setItems(new String[]{"Системный TTS","Microsoft Edge TTS"},(dialog,choice)->{
-                boolean toLocal=choice==0;if(toLocal==ttsLocal)return;
-                int pos=index;releaseTts();ttsLocal=toLocal;
-                prefs.edit().putBoolean("tts_last_local",ttsLocal).putInt("tts_word:"+docUri,pos).apply();
+        LinearLayout choices=new LinearLayout(this);choices.setOrientation(LinearLayout.VERTICAL);
+        android.app.AlertDialog dialog=new SwipeDialogs.Builder(this).fromTop()
+            .setTitle("Способ озвучивания").setView(choices).create();
+        int[] icons={R.drawable.ic_android_tts,R.drawable.ic_edge_tts};
+        String[] titles={"Google TTS — локальный","Microsoft Edge TTS — онлайн"};
+        String[] details={"Работает без интернета с установленным системным движком",
+            "Нейросетевые голоса, потоковое MP3 и кэширование"};
+        for(int i=0;i<2;i++){
+            final boolean localChoice=i==0;
+            LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(18),dp(13),dp(18),dp(13));
+            ImageView picture=new ImageView(this);picture.setImageResource(icons[i]);
+            row.addView(picture,new LinearLayout.LayoutParams(dp(28),dp(28)));
+            LinearLayout labels=column();labels.setPadding(dp(13),0,dp(10),0);
+            row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
+            labels.addView(text(titles[i],16));
+            TextView hint=text(details[i],12);hint.setAlpha(.72f);labels.addView(hint);
+            if(ttsLocal==localChoice)row.addView(text("✓",20));
+            row.setOnClickListener(v->{dialog.dismiss();
+                if(localChoice==ttsLocal)return;
+                int position=index;releaseTts();ttsLocal=localChoice;
+                prefs.edit().putBoolean("tts_last_local",localChoice)
+                    .putInt("tts_word:"+docUri,position).apply();
                 if(toolbarEngineAction!=null)toolbarEngineAction.setImageResource(
-                    ttsLocal?R.drawable.ic_android_tts:R.drawable.ic_edge_tts);
+                    localChoice?R.drawable.ic_android_tts:R.drawable.ic_edge_tts);
                 startTtsSession();
-            }).show();
+            });
+            choices.addView(row,new LinearLayout.LayoutParams(-1,dp(76)));
+        }
+        dialog.show();
     }
     private void chooseTtsVoice(){
         if(mode!=TTS)return;
         if(ttsLocal){LocalVoiceCatalog.show(this,()->startService(new Intent(this,AudioPlaybackService.class)
             .setAction(AudioPlaybackService.ENGINE)));return;}
         String[] names={"Светлана","Дмитрий"};String[] keys={"ru-RU-SvetlanaNeural","ru-RU-DmitryNeural"};
-        new SwipeDialogs.Builder(this).setTitle("Голос Microsoft Edge")
+        new SwipeDialogs.Builder(this).fromTop().setTitle("Голос Microsoft Edge")
             .setItems(names,(dialog,n)->{prefs.edit().putString("edge_voice",keys[n]).apply();
                 if(ttsStreamer!=null)ttsStreamer.choose(keys[n],null);
             }).show();
     }
+    private int chapterEndWord(int startWord){
+        if(chapters==null||chapters.size()==0||map.starts.length==0)return map.starts.length;
+        BookChapterIndex.Chapter chapter=chapters.atChar(map.starts[map.clamp(startWord)]);
+        return chapter==null?map.starts.length:map.atCharacter(chapter.endChar);
+    }
     private void chooseTtsSleep(){
         if(mode!=TTS)return;
-        int[] values={0,5,10,15,30,60};String[] names={"Выключить","5 мин","10 мин","15 мин","30 мин","60 мин"};
-        new SwipeDialogs.Builder(this).setTitle("Таймер сна").setItems(names,(dialog,n)->{
+        int[] values={0,5,10,15,30,60,-1};String[] names={"Выключить","5 мин","10 мин","15 мин","30 мин","60 мин","Конец главы"};
+        new SwipeDialogs.Builder(this).fromTop().setTitle("Таймер сна").setItems(names,(dialog,n)->{
+            int end=chapterEndWord(index);
             if(ttsLocal)startService(new Intent(this,AudioPlaybackService.class)
-                .setAction(AudioPlaybackService.SLEEP).putExtra("minutes",values[n]));
-            else if(ttsPlayer!=null)ttsPlayer.setSleepMinutes(values[n]);
+                .setAction(AudioPlaybackService.SLEEP).putExtra("minutes",values[n]).putExtra("end_word",end));
+            else if(ttsPlayer!=null){
+                if(values[n]==-1)ttsPlayer.setSleepChapterEnd(end);
+                else ttsPlayer.setSleepMinutes(values[n]);
+            }
         }).show();
     }
     @Override protected void onResume(){super.onResume();
@@ -1041,6 +1085,7 @@ public class ReaderActivity extends Activity {
         int oldBg=bg,oldFg=fg,oldSize=size,oldFont=font,oldMode=mode,oldPortion=portion;
         int oldCursorBg=cursorBackground,oldCursorText=cursorText,oldCursorScale=cursorScale;
         int oldNormalText=normalSelectText,oldNormalScale=normalSelectScale,oldButton=buttonColor,oldAccent=accentButtonColor;
+        int oldHighlightColor=sentenceHighlightColor,oldHighlightOpacity=sentenceHighlightOpacity;
         int oldFocus=focusColor,oldLineColor=lineColor,oldLinePos=linePosition;
         boolean oldPoint=focusPoint,oldLines=focusLinesEnabled;
 
@@ -1051,7 +1096,8 @@ public class ReaderActivity extends Activity {
         }
         if(root!=null&&words.length>0&&(oldBg!=bg||oldFg!=fg||oldSize!=size||oldFont!=font||oldMode!=mode||oldPortion!=portion
             ||oldCursorBg!=cursorBackground||oldCursorText!=cursorText||oldCursorScale!=cursorScale||oldNormalText!=normalSelectText
-            ||oldNormalScale!=normalSelectScale||oldButton!=buttonColor||oldAccent!=accentButtonColor||oldFocus!=focusColor||oldLineColor!=lineColor
+            ||oldNormalScale!=normalSelectScale||oldButton!=buttonColor||oldAccent!=accentButtonColor
+            ||oldHighlightColor!=sentenceHighlightColor||oldHighlightOpacity!=sentenceHighlightOpacity||oldFocus!=focusColor||oldLineColor!=lineColor
             ||oldLinePos!=linePosition||oldPoint!=focusPoint||oldLines!=focusLinesEnabled))draw();
 
     }}

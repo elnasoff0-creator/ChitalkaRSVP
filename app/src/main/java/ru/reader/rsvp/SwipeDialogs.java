@@ -1,49 +1,88 @@
 package ru.reader.rsvp;
+
 import android.app.AlertDialog;
 import android.content.Context;
+import android.graphics.drawable.GradientDrawable;
+import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowManager;
+import android.widget.LinearLayout;
 import android.widget.ListView;
-/** Swipe-down dismissal without adding persistent buttons or modifying dialog choices. */
+
+/** Unified animated, theme-aware top/bottom sheets for standard app choices. */
 public final class SwipeDialogs {
     private SwipeDialogs(){}
     public static final class Builder extends AlertDialog.Builder {
-        public Builder(Context c){super(c);}
-        public Builder(Context c,int theme){super(c,theme);}
+        private final Context context;
+        private boolean top;
+        private View swipeHandle;
+        @Override public Builder setView(View view){
+            if(view==null){super.setView((View)null);return this;}
+            float density=context.getResources().getDisplayMetrics().density;
+            LinearLayout panel=new LinearLayout(context);panel.setOrientation(LinearLayout.VERTICAL);
+            panel.setPadding(0,(int)(9*density),0,0);
+            View handle=new View(context);
+            GradientDrawable pill=new GradientDrawable();pill.setColor(0xffa8a29c);
+            pill.setCornerRadius(5*density);handle.setBackground(pill);
+            LinearLayout.LayoutParams handleParams=new LinearLayout.LayoutParams((int)(46*density),(int)(5*density));
+            handleParams.gravity=Gravity.CENTER_HORIZONTAL;handleParams.bottomMargin=(int)(10*density);
+            panel.addView(handle,handleParams);
+            panel.addView(view,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));
+            swipeHandle=handle;super.setView(panel);return this;
+        }
+        public Builder(Context context){super(context);this.context=context;}
+        public Builder(Context context,int theme){super(context,theme);this.context=context;}
+        /** Use for controls attached to the upper toolbar. Other sheets slide up from below. */
+        public Builder fromTop(){top=true;return this;}
         @Override public AlertDialog create(){
             AlertDialog dialog=super.create();
-            dialog.setOnShowListener(ignored->enable(dialog));
+            final boolean openFromTop=top;
+            if(swipeHandle!=null)swipeHandle.setOnTouchListener(new SwipeDismiss(dialog,openFromTop,false));
+            if(dialog.getWindow()!=null)dialog.getWindow().setWindowAnimations(
+                openFromTop?R.style.ChitalkaSheetTop:R.style.ChitalkaSheetBottom);
+            dialog.setOnShowListener(ignored->configure(dialog,context,openFromTop));
             return dialog;
         }
     }
-    private static void enable(AlertDialog dialog){
-        if(dialog.getWindow()==null)return;
-        View decor=dialog.getWindow().getDecorView();
-        int id=dialog.getContext().getResources().getIdentifier("alertTitle","id","android");
-        View title=id==0?null:decor.findViewById(id);
-        if(title!=null)title.setOnTouchListener(new SwipeDown(dialog,false));
-        View content=decor.findViewById(android.R.id.content);
-        if(content!=null)content.setOnTouchListener(new SwipeDown(dialog,false));
+    private static void configure(AlertDialog dialog,Context context,boolean top){
+        Window window=dialog.getWindow();if(window==null)return;
+        float density=context.getResources().getDisplayMetrics().density;
+        int bg=context.getSharedPreferences("reader",0).getInt("bg",0xfff3e7d5);
+        GradientDrawable shape=new GradientDrawable();shape.setColor(bg);shape.setCornerRadius(22f*density);
+        window.setBackgroundDrawable(shape);
+        window.setGravity(top?Gravity.TOP:Gravity.BOTTOM);
+        window.setWindowAnimations(top?R.style.ChitalkaSheetTop:R.style.ChitalkaSheetBottom);
+        window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+        WindowManager.LayoutParams params=window.getAttributes();params.dimAmount=.35f;window.setAttributes(params);
+        window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT);
+        int id=context.getResources().getIdentifier("alertTitle","id","android");
+        View title=id==0?null:window.getDecorView().findViewById(id);
+        if(title!=null)title.setOnTouchListener(new SwipeDismiss(dialog,top,false));
+        View message=window.getDecorView().findViewById(android.R.id.message);
+        if(message!=null)message.setOnTouchListener(new SwipeDismiss(dialog,top,false));
         ListView list=dialog.getListView();
-        if(list!=null)list.setOnTouchListener(new SwipeDown(dialog,true));
+        if(list!=null)list.setOnTouchListener(new SwipeDismiss(dialog,top,true));
     }
-    private static final class SwipeDown implements View.OnTouchListener {
-        private final AlertDialog dialog;private final boolean list;
-        private float downX,downY;private boolean armed;
-        SwipeDown(AlertDialog d,boolean list){dialog=d;this.list=list;}
+    private static final class SwipeDismiss implements View.OnTouchListener {
+        private final AlertDialog dialog;private final boolean top,scrollable;
+        private float downX,downY;private boolean dismissed;
+        SwipeDismiss(AlertDialog dialog,boolean top,boolean scrollable){this.dialog=dialog;this.top=top;this.scrollable=scrollable;}
         @Override public boolean onTouch(View view,MotionEvent event){
             switch(event.getActionMasked()){
-                case MotionEvent.ACTION_DOWN:
-                    downX=event.getX();downY=event.getY();armed=!list||!view.canScrollVertically(-1);
-                    return !list;
+                case MotionEvent.ACTION_DOWN:downX=event.getX();downY=event.getY();dismissed=false;return false;
                 case MotionEvent.ACTION_MOVE:
-                    if(armed&&event.getY()-downY>view.getResources().getDisplayMetrics().density*90
-                         &&Math.abs(event.getY()-downY)>Math.abs(event.getX()-downX)*1.4f){
-                        dialog.dismiss();armed=false;return true;
+                case MotionEvent.ACTION_UP:
+                    float dy=event.getY()-downY;
+                    boolean canDismiss=!scrollable||(top?!view.canScrollVertically(-1):!view.canScrollVertically(1));
+                    if(!dismissed && canDismiss && (top?-dy:dy)>view.getResources().getDisplayMetrics().density*65
+                        && Math.abs(dy)>Math.abs(event.getX()-downX)*1.25f){
+                        dismissed=true;dialog.dismiss();return true;
                     }
-                    return !list;
-                default:return !list;
+                    return false;
+                default:return false;
             }
         }
     }

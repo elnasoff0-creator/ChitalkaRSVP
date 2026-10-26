@@ -361,7 +361,7 @@ public class MainActivity extends Activity {
         TextView titleView = text("", 23, true);
         titleView.setTypeface(Typeface.SERIF, Typeface.BOLD);
         top.addView(titleView, new LinearLayout.LayoutParams(0, -2, 1));
-        View search = iconButton(R.drawable.ic_search, v -> showLibraryChooser());
+        View search = iconButton(R.drawable.ic_search, v -> showLibrarySearch());
         LinearLayout.LayoutParams searchLp=new LinearLayout.LayoutParams(dp(TOOLBAR_SIZE_DP),dp(TOOLBAR_SIZE_DP));
         searchLp.leftMargin=dp(TOOLBAR_GAP_DP);
         top.addView(search,searchLp);
@@ -472,6 +472,27 @@ public class MainActivity extends Activity {
                 add(contentWrap,gap(8));
                 add(contentWrap,audioList);
             }
+        }
+        if(ChteicoStore.enabled(this) && prefs.getBoolean("mini_pet_on_home",true)){
+            add(contentWrap,gap(14));
+            add(contentWrap,sectionHeader("Интерактивный питомец",""));
+            LinearLayout petRow=row();petRow.setGravity(Gravity.CENTER_VERTICAL);
+            petRow.setBackground(shape(panelColor(),22));pad(petRow,12);
+            ChteicoPetView pet=new ChteicoPetView(this);
+            petRow.addView(pet,new LinearLayout.LayoutParams(dp(90),dp(96)));
+            TextView reply=text("Нажмите на питомца",15,false);
+            reply.setTextColor(fg);
+            LinearLayout.LayoutParams replyLp=new LinearLayout.LayoutParams(0,-2,1);
+            replyLp.leftMargin=dp(12);petRow.addView(reply,replyLp);
+            petRow.setOnClickListener(v->{
+                android.content.SharedPreferences game=ChteicoStore.prefs(this);
+                ChteicoPhrases.Reply r=ChteicoPhrases.next(ChteicoStore.stage(this),ChteicoStore.branch(this),false,false,
+                    game.getString("bubble_seen",""),game.getInt("bubble_last_id",-1),new java.util.Random());
+                if(r!=null){reply.setText(r.text);game.edit().putString("bubble_seen",r.seen).putInt("bubble_last_id",r.id).apply();}
+                else reply.setText("Скоро я появлюсь!");
+            });
+            petRow.setOnLongClickListener(v->{startActivity(new Intent(this,ChteicoActivity.class));return true;});
+            add(contentWrap,petRow);
         }
         // Navigation moved to the accessible left drawer.
     }
@@ -1329,6 +1350,52 @@ public class MainActivity extends Activity {
                 .setNeutralButton("Удалить все", (d, w) -> prefs.edit().remove("bookmark:" + currentUri).apply())
                 .setPositiveButton("Закрыть", null)
                 .show();
+    }
+
+    /** Search both libraries as the user types; keyboard opens immediately. */
+    void showLibrarySearch() {
+        final android.widget.EditText query=new android.widget.EditText(this);
+        query.setSingleLine(true);
+        query.setHint("Название книги или аудиокниги");
+        query.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        final android.widget.LinearLayout container=new android.widget.LinearLayout(this);
+        container.setOrientation(android.widget.LinearLayout.VERTICAL);
+        container.setPadding(dp(14),dp(8),dp(14),dp(8));
+        container.addView(query);
+        final android.widget.ScrollView scroll=new android.widget.ScrollView(this);
+        final android.widget.LinearLayout results=new android.widget.LinearLayout(this);
+        results.setOrientation(android.widget.LinearLayout.VERTICAL);
+        scroll.addView(results);
+        container.addView(scroll,new android.widget.LinearLayout.LayoutParams(-1,dp(350)));
+        final android.app.AlertDialog dialog=new SwipeDialogs.Builder(this)
+            .setTitle("Поиск по библиотекам").setView(container).setNegativeButton("Закрыть",null).create();
+        final Runnable render=()->{
+            results.removeAllViews();
+            String needle=query.getText().toString().trim().toLowerCase(java.util.Locale.ROOT);
+            int matches=0;
+            for(BookMeta b:sortedLibraryBooks()){
+                if(!b.title.toLowerCase(java.util.Locale.ROOT).contains(needle))continue;
+                TextView item=buttonish("Книга · "+b.title,softPanel(),fg,false);
+                item.setOnClickListener(v->{dialog.dismiss();openBook(b.uri,false,true);});
+                results.addView(item);matches++;
+            }
+            for(AudioLibrary.Book b:sortedAudioBooks(AudioLibrary.load(this))){
+                if(!b.name.toLowerCase(java.util.Locale.ROOT).contains(needle))continue;
+                TextView item=buttonish("Аудиокнига · "+b.name,softPanel(),fg,false);
+                item.setOnClickListener(v->{dialog.dismiss();openAudioBook(b.id);});
+                results.addView(item);matches++;
+            }
+            if(matches==0)results.addView(text("Ничего не найдено",14,false));
+        };
+        query.addTextChangedListener(new android.text.TextWatcher(){
+            public void beforeTextChanged(CharSequence t,int start,int count,int after){}
+            public void onTextChanged(CharSequence t,int start,int before,int count){render.run();}
+            public void afterTextChanged(android.text.Editable e){}
+        });
+        render.run();dialog.setOnShowListener(d->{query.requestFocus();
+            dialog.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
+            ((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).showSoftInput(query,android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+        });dialog.show();
     }
 
     void showLibraryChooser() {

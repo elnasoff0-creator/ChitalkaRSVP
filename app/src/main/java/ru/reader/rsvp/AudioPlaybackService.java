@@ -123,6 +123,8 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     private final ArrayList<Integer> ttsChunkCharPositions=new ArrayList<>();
     private int ttsWordCount=0;
     private long sleepDeadline=0;
+    private boolean sleepAtChapterEnd=false;
+    private int ttsSleepEndWord=-1;
     private double pendingChapterFraction=0;
     // Keep the intended offset while MediaPlayer is preparing/seeking, so a background
     // shutdown can never overwrite saved progress with its temporary 00:00 position.
@@ -149,6 +151,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         if(Build.VERSION.SDK_INT>=33)registerReceiver(noisyReceiver,noisyFilter,Context.RECEIVER_NOT_EXPORTED);
         else registerReceiver(noisyReceiver,noisyFilter);
         sleepDeadline=getSharedPreferences("reader",0).getLong("audio_sleep_deadline",0);
+        sleepAtChapterEnd=getSharedPreferences("reader",0).getBoolean("audio_sleep_at_chapter_end",false);
         if(sleepDeadline<=System.currentTimeMillis())sleepDeadline=0;
         String preferred=getSharedPreferences("reader",0).getString("tts_engine","");
         tts=preferred.isEmpty()?new TextToSpeech(this,this):new TextToSpeech(this,this,preferred);
@@ -207,7 +210,12 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         }
         case RENAME: {String id=intent.getStringExtra("bookId"),newTitle=intent.getStringExtra("title");
             if(!ttsMode && id!=null && id.equals(bookId) && newTitle!=null && !newTitle.trim().isEmpty())title=newTitle.trim();break;}
-        case SLEEP: {int minutes=intent.getIntExtra("minutes",0);sleepDeadline=minutes<=0?0:System.currentTimeMillis()+minutes*60000L;getSharedPreferences("reader",0).edit().putLong("audio_sleep_deadline",sleepDeadline).apply();break;}
+        case SLEEP: {int minutes=intent.getIntExtra("minutes",0);
+            sleepAtChapterEnd=minutes==-1;
+            ttsSleepEndWord=ttsMode&&minutes==-1?intent.getIntExtra("end_word",-1):-1;
+            sleepDeadline=minutes<=0?0:System.currentTimeMillis()+minutes*60000L;
+            getSharedPreferences("reader",0).edit().putLong("audio_sleep_deadline",sleepDeadline)
+                .putBoolean("audio_sleep_at_chapter_end",sleepAtChapterEnd).apply();break;}
         case ENGINE: {boolean wasPlaying=active&&ttsMode&&!paused;
             if(tts!=null){tts.stop();tts.shutdown();}
             resetLocalSession();if(ttsMode)paused=true;
@@ -302,9 +310,14 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
                     mp.seekTo(target);
                 }else startAfterSeek.run();
             });
-            player.setOnCompletionListener(mp->{if(mp!=player)return;if(segment+1<playlist.size()){
+            player.setOnCompletionListener(mp->{if(mp!=player)return;if(sleepAtChapterEnd){sleepAtChapterEnd=false;
+                getSharedPreferences("reader",0).edit().putBoolean("audio_sleep_at_chapter_end",false).apply();
+                pausePlayback();return;}
+            if(segment+1<playlist.size()){
                 segment++;rewindOnNextPlay=false;prepareAudio(0,true);
-            }else {if(ChteicoStore.completeAudio(this,bookId))ChteicoNotifications.milestone(this,"Аудиокнига завершена!","Чтейцо радуется вашему достижению.");pausePlayback();}});
+            }else {if(getSharedPreferences("reader",0).getBoolean("audio_repeat_all",false)){
+                segment=0;prepareAudio(0,true);return;
+            }if(ChteicoStore.completeAudio(this,bookId))ChteicoNotifications.milestone(this,"Аудиокнига завершена!","Чтейцо радуется вашему достижению.");pausePlayback();}});
             player.prepareAsync();
         }catch(Exception e){paused=true;saveProgress();notifyState();}
     }
@@ -441,6 +454,11 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         speakChunk();notifyState();
     }
     private void speakChunk(){
+        if(ttsMode&&sleepAtChapterEnd&&ttsSleepEndWord>=0&&getTtsAnchorWord()>=ttsSleepEndWord){
+            sleepAtChapterEnd=false;ttsSleepEndWord=-1;
+            getSharedPreferences("reader",0).edit().putBoolean("audio_sleep_at_chapter_end",false).apply();
+            pausePlayback();return;
+        }
         if(paused||tts==null||ttsPosition>=chunks.size()){paused=true;notifyState();return;}
         playLocalFile(ttsPosition);saveProgress();
     }
