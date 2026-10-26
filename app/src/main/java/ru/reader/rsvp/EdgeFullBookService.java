@@ -145,8 +145,8 @@ public final class EdgeFullBookService extends Service {
                     String problem="Неизвестная ошибка синтеза";
                     for(int attempt=0;attempt<4&&!destroyed;attempt++){
                         if(!EdgeFullBookStore.running(job))return;
-                        if(EdgeRequestGate.remainingMs()>0){
-                            long seconds=(EdgeRequestGate.remainingMs()+999)/1000;
+                        if(EdgeSpeechQueue.remainingMs()>0){
+                            long seconds=(EdgeSpeechQueue.remainingMs()+999)/1000;
                             EdgeFullBookStore.progress(job,EdgeFullBookStore.readyCount(job),count,
                                 "Edge TTS временно ограничен: повтор доступен через "+seconds+" с");
                             EdgeFullBookStore.status(job,EdgeFullBookStore.PAUSED);
@@ -211,7 +211,7 @@ public final class EdgeFullBookService extends Service {
         Result result=new Result();CountDownLatch done=new CountDownLatch(1);
         synthesizingUri=job.uri;
         currentClient=EdgeTtsClient.synthesize(text,job.voice,job.rate,
-            EdgeRequestGate.BULK,new EdgeTtsClient.Callback(){
+            EdgeSpeechQueue.BULK,new EdgeTtsClient.Callback(){
             @Override public void progress(int chunks,long bytes){}
             @Override public void finished(byte[] mp3,int chunks,String error){result.data=mp3;result.error=error;done.countDown();}
             @Override public void finished(byte[] mp3,int chunks,String error,

@@ -2,29 +2,26 @@ package ru.reader.rsvp;
 
 import java.util.List;
 
-/** Compatibility facade. All networking and streaming live in EdgeRealtimeTransport.
- * Existing full-book and live-play consumers use the same transport implementation.
+/** Small compatibility facade for on-demand listening and offline book caching.
+ * Both consumers use the same serialized, complete-MP3 EdgeSpeechEngine.
  */
 final class EdgeTtsClient {
     interface Callback {
         void progress(int chunks,long bytes);
-        default boolean streamOnly(){return false;}
-        default void audio(byte[] bytes,int start,int count){}
-        default void words(List<EdgeWordTimings.Boundary> boundaries){}
         void finished(byte[] mp3,int chunks,String error);
         default void finished(byte[] mp3,int chunks,String error,List<EdgeWordTimings.Boundary> boundaries){
             finished(mp3,chunks,error);
         }
     }
-    private final EdgeRealtimeTransport transport;
-    private EdgeTtsClient(EdgeRealtimeTransport value){transport=value;}
-    static EdgeTtsClient synthesize(String text,String voice,String rate,Callback cb){
-        return synthesize(text,voice,rate,EdgeRequestGate.PLAY,cb);
+    private final EdgeSpeechEngine engine;
+    private EdgeTtsClient(EdgeSpeechEngine engine){this.engine=engine;}
+    static EdgeTtsClient synthesize(String text,String voice,String rate,Callback callback){
+        return synthesize(text,voice,rate,EdgeSpeechQueue.PLAY,callback);
     }
-    static EdgeTtsClient synthesize(String text,String voice,String rate,int priority,Callback cb){
-        EdgeRealtimeTransport transport=new EdgeRealtimeTransport(text,voice,rate,priority,cb);
-        EdgeTtsClient client=new EdgeTtsClient(transport);
-        transport.begin();return client;
+    static EdgeTtsClient synthesize(String text,String voice,String rate,int priority,Callback callback){
+        EdgeSpeechEngine engine=new EdgeSpeechEngine(text,voice,rate,priority,callback);
+        EdgeTtsClient result=new EdgeTtsClient(engine);
+        engine.start();return result;
     }
-    void cancel(){transport.cancel();}
+    void cancel(){engine.cancel();}
 }

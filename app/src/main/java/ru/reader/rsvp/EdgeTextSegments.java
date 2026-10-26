@@ -12,12 +12,12 @@ final class EdgeTextSegments {
     private EdgeTextSegments(){}
     static ArrayList<Integer> positions(String raw){return SentenceChunks.wordPositions(raw);}
     static Part at(String raw,ArrayList<Integer> positions,int start,int characters){
-        SentenceChunks.Chunk c=SentenceChunks.forWord(SentenceChunks.split(raw),start);
+        SentenceChunks.Chunk c=SentenceChunks.forWord(EdgeSpeechSegments.split(raw),start);
         return c==null?null:new Part(c.fromWord,c.toWord,c.text);
     }
     static ArrayList<Part> all(String raw,int characters){
         ArrayList<Part> result=new ArrayList<>();
-        for(SentenceChunks.Chunk c:SentenceChunks.split(raw))result.add(new Part(c.fromWord,c.toWord,c.text));
+        for(SentenceChunks.Chunk c:EdgeSpeechSegments.split(raw))result.add(new Part(c.fromWord,c.toWord,c.text));
         return result;
     }
 }
