@@ -38,13 +38,20 @@ JAVA
 cat > "$TMP/stubs/okio/ByteString.java" <<'JAVA'
 package okio;public class ByteString {public byte[] toByteArray(){return new byte[0];}}
 JAVA
+cat > "$TMP/stubs/okhttp3/ConnectionPool.java" <<'JAVA'
+package okhttp3;
+import java.util.concurrent.TimeUnit;
+public class ConnectionPool {public ConnectionPool(int n,long l,TimeUnit u){}}
+JAVA
 cat > "$TMP/stubs/okhttp3/OkHttpClient.java" <<'JAVA'
 package okhttp3;
 import java.util.concurrent.TimeUnit;
 public class OkHttpClient {
 public static volatile int calls;
 public static class Builder {public Builder connectTimeout(long l,TimeUnit u){return this;}
-public Builder readTimeout(long l,TimeUnit u){return this;}public OkHttpClient build(){return new OkHttpClient();}}
+public Builder readTimeout(long l,TimeUnit u){return this;}
+public Builder pingInterval(long l,TimeUnit u){return this;}public Builder connectionPool(ConnectionPool p){return this;}
+public OkHttpClient build(){return new OkHttpClient();}}
 public WebSocket newWebSocket(Request r,WebSocketListener listener){calls++;
 WebSocket socket=new WebSocket();new Thread(()->{try{Thread.sleep(70);}catch(Exception ignored){}
 listener.onFailure(socket,new java.io.IOException("Expected HTTP 101"),new Response());}).start();
@@ -57,7 +64,7 @@ class EdgeWordTimings {static class Boundary{}static void parseMetadata(String d
 JAVA
 cat > "$TMP/stubs/ru/reader/rsvp/EdgeToken.java" <<'JAVA'
 package ru.reader.rsvp;
-class EdgeToken {static String TOKEN="x",VERSION="v";static String gec(){return "token";}}
+class EdgeToken {static String TOKEN="x",VERSION="v";static String generate(long seconds){return "token";}}
 JAVA
 cat > "$TMP/stubs/ru/reader/rsvp/EdgeHandshakeSmoke.java" <<'JAVA'
 package ru.reader.rsvp;
@@ -105,6 +112,7 @@ JAVA
 mkdir -p "$TMP/classes"
 javac -d "$TMP/classes" $(find "$TMP/stubs" -name '*.java') \
  "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeRequestGate.java" \
- "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeTtsClient.java"
+ "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeTtsClient.java" \
+ "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeRealtimeTransport.java"
 java -cp "$TMP/classes" ru.reader.rsvp.EdgeHandshakeSmoke
 java -cp "$TMP/classes" ru.reader.rsvp.EdgeGatePrioritySmoke

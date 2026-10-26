@@ -1,0 +1,9 @@
+perf(edge-tts): replace WebSocket engine with streaming-first transport (v1.11.86-beta)
+
+- Introduce EdgeRealtimeTransport, keep the stable EdgeTtsClient consumer API
+- Remove fixed 2.2s gate from live Play; preserve 429 cooldown and playback priority
+- Send selected prosody rate to Edge SSML instead of a hard-coded default
+- Dispatch live MP3 and WordBoundary early, independent of offline cache commits
+- Share OkHttp connection pool and improve failure/timeout handling
+- Add streaming / rate / priority JVM regression tests
+- Bump versionCode to 11186; keep release documentation CLEAN
