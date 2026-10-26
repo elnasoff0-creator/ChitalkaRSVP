@@ -50,6 +50,8 @@ final class EdgeTtsClient {
         Thread t=new Thread(r,"EdgeTtsWatchdog");t.setDaemon(true);return t;
     });
     private ScheduledFuture<?> timeout;
+    private EdgeRequestGate.Ticket rateTicket;
+    private int priority=EdgeRequestGate.PLAY;
     private long lastPacketAt;
     private WebSocket socket;
     private boolean completed;
@@ -68,6 +70,12 @@ final class EdgeTtsClient {
         client.connect(text,voice,rate);
         return client;
     }
+    static EdgeTtsClient synthesize(String text,String voice,String rate,int priority,Callback cb){
+        EdgeTtsClient client=new EdgeTtsClient(cb);
+        client.priority=priority;
+        client.connect(text,voice,rate);
+        return client;
+    }
     private static String uuid(){return UUID.randomUUID().toString().replace("-","");}
     private static String date(){SimpleDateFormat df=new SimpleDateFormat("EEE MMM dd yyyy HH:mm:ss",Locale.US);
         df.setTimeZone(TimeZone.getTimeZone("UTC"));
@@ -79,8 +87,10 @@ final class EdgeTtsClient {
     private synchronized void finish(String error){
         if(completed)return;completed=true;
         if(timeout!=null)timeout.cancel(false);
+        EdgeRequestGate.release(rateTicket);rateTicket=null;
         byte[] bytes=callback.streamOnly()?null:received.toByteArray();
         if(error==null && (totalBytes<1500 || chunks==0))error="Сервис не вернул аудиоданные";
+        if(error==null)EdgeRequestGate.success();
         long finishedAt=SystemClock.elapsedRealtime();
         Log.i("EdgeTtsLatency","websocket="+(openedAt>0?openedAt-startedAt:-1)+
             "ms firstAudio="+(firstAudioAt>0?firstAudioAt-startedAt:-1)+
@@ -89,9 +99,18 @@ final class EdgeTtsClient {
         callback.finished(error==null?bytes:null,chunks,error,new ArrayList<>(boundaries));
         if(socket!=null)socket.close(1000,"completed");
     }
-    void cancel(){synchronized(this){completed=true;if(timeout!=null)timeout.cancel(false);}
+    void cancel(){synchronized(this){
+            completed=true;
+            if(timeout!=null)timeout.cancel(false);
+            EdgeRequestGate.release(rateTicket);rateTicket=null;
+        }
         if(socket!=null)socket.cancel();}
-    private void connect(String text,String voice,String rate){
+    private synchronized void connect(String text,String voice,String rate){
+        if(completed)return;
+        rateTicket=EdgeRequestGate.enqueue(priority,()->openConnection(text,voice,rate));
+    }
+    private synchronized void openConnection(String text,String voice,String rate){
+        if(completed)return;
         connectAttempts++;
         retryScheduled=false;
         if(connectAttempts==1)startedAt=SystemClock.elapsedRealtime();
@@ -130,7 +149,7 @@ final class EdgeTtsClient {
                         +"Path:speech.config\r\n\r\n"
                         +"{\"context\":{\"synthesis\":{\"audio\":{\"metadataoptions\":{\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"true\"},"
                         +"\"outputFormat\":\"audio-24khz-48kbitrate-mono-mp3\"}}}}";
-                    ws.send(config);
+                    ws.send(config+"\r\n");
                     String ssml="<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='ru-RU'>"
                         +"<voice name='"+xml(voice)+"'><prosody rate='+0%' pitch='+0Hz' volume='+0%'>"
                         +xml(text)+"</prosody></voice></speak>";
@@ -172,27 +191,37 @@ final class EdgeTtsClient {
                 }
                 @Override public void onFailure(WebSocket ws,Throwable error,Response response){
                     String suffix=response==null?"":" HTTP "+response.code();
-                    // A transient reset before any audio must not poison the live Media3 source.
+                    // A transient reset before first audio may be retried once, but 429 is final
+                    // for this attempt and is handled by the global cooldown.
                     // Retry once with fresh ConnectionId; keep the same callback/live buffer.
                     synchronized(EdgeTtsClient.this){
                         // Ignore the old WebSocket's late failure after a retry
                         // has already replaced it. Otherwise it can abort a
                         // healthy replacement connection before first audio.
                         if(ws!=socket)return;
-                        if(!completed && connectAttempts<2 && firstAudioAt==0 &&
-                                (response==null || response.code()==403 || response.code()>=500)){
+                        int status=response==null?0:response.code();
+                        if(status==429){
+                            // This is a rate limit, not a WebSocket/PCM fault. Never
+                            // immediately retry or switch endpoints to evade it.
+                            EdgeRequestGate.limited(response);
+                        }else if(!completed && connectAttempts<2 && firstAudioAt==0 &&
+                                (status==0 || status==403 || status>=500)){
                             retryScheduled=true;
+                            if(timeout!=null)timeout.cancel(false);
+                            EdgeRequestGate.release(rateTicket);rateTicket=null;
                             WATCHDOG.schedule(()->{
                                 synchronized(EdgeTtsClient.this){
                                     if(completed)return;
-                                    if(timeout!=null)timeout.cancel(false);
                                     connect(text,voice,rate);
                                 }
-                            },350,TimeUnit.MILLISECONDS);
+                            },1600,TimeUnit.MILLISECONDS);
                             return;
                         }
                     }
-                    finish("Соединение Edge TTS"+suffix+": "+(error==null?"неизвестная ошибка":error.getMessage()));
+                    if(response!=null && response.code()==429){
+                        long delay=(EdgeRequestGate.remainingMs()+999)/1000;
+                        finish("HTTP 429: Edge ограничил частоту запросов. Повтор через "+delay+" с");
+                    }else finish("Соединение Edge TTS"+suffix+": "+(error==null?"неизвестная ошибка":error.getMessage()));
                 }
                 @Override public void onClosed(WebSocket ws,int code,String reason){
                     synchronized(EdgeTtsClient.this){

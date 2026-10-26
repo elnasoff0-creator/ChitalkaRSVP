@@ -145,6 +145,13 @@ public final class EdgeFullBookService extends Service {
                     String problem="Неизвестная ошибка синтеза";
                     for(int attempt=0;attempt<4&&!destroyed;attempt++){
                         if(!EdgeFullBookStore.running(job))return;
+                        if(EdgeRequestGate.remainingMs()>0){
+                            long seconds=(EdgeRequestGate.remainingMs()+999)/1000;
+                            EdgeFullBookStore.progress(job,EdgeFullBookStore.readyCount(job),count,
+                                "Edge TTS временно ограничен: повтор доступен через "+seconds+" с");
+                            EdgeFullBookStore.status(job,EdgeFullBookStore.PAUSED);
+                            return;
+                        }
                         Result result=synthesize(o.getString("text"),job);
                         if(!EdgeFullBookStore.running(job))return;
                         if(result.data!=null&&(EdgeAudioFormat.identify(result.data,result.data.length)!=null && ".mp3".equals(EdgeAudioFormat.identify(result.data,result.data.length).extension))){
@@ -162,6 +169,13 @@ public final class EdgeFullBookService extends Service {
                             }catch(Exception e){problem=e.getMessage();}
                         }else problem=result.error==null?"Сервис вернул не MP3":result.error;
                         if(saved)break;
+                        if(problem!=null&&problem.contains("HTTP 429")){
+                            // Do not keep retrying a service that explicitly
+                            // asked us to reduce the request rate.
+                            EdgeFullBookStore.progress(job,EdgeFullBookStore.readyCount(job),count,problem);
+                            EdgeFullBookStore.status(job,EdgeFullBookStore.PAUSED);
+                            return;
+                        }
                         Thread.sleep(Math.min(12000L,1500L*(attempt+1)*(attempt+1)));
                     }
                     if(!saved){
@@ -196,7 +210,8 @@ public final class EdgeFullBookService extends Service {
     private Result synthesize(String text,EdgeFullBookStore.Job job) throws InterruptedException {
         Result result=new Result();CountDownLatch done=new CountDownLatch(1);
         synthesizingUri=job.uri;
-        currentClient=EdgeTtsClient.synthesize(text,job.voice,job.rate,new EdgeTtsClient.Callback(){
+        currentClient=EdgeTtsClient.synthesize(text,job.voice,job.rate,
+            EdgeRequestGate.BULK,new EdgeTtsClient.Callback(){
             @Override public void progress(int chunks,long bytes){}
             @Override public void finished(byte[] mp3,int chunks,String error){result.data=mp3;result.error=error;done.countDown();}
             @Override public void finished(byte[] mp3,int chunks,String error,
@@ -204,7 +219,9 @@ public final class EdgeFullBookService extends Service {
                 result.boundaries=boundaries;finished(mp3,chunks,error);
             }
         });
-        if(!done.await(47,TimeUnit.SECONDS)){
+        // A full-book request can wait behind live playback without being
+        // considered a failed network handshake before it gets a permit.
+        if(!done.await(600,TimeUnit.SECONDS)){
             EdgeTtsClient client=currentClient;if(client!=null)client.cancel();
             result.error="Тайм-аут синтеза Edge TTS";
         }

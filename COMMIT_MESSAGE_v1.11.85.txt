@@ -1,0 +1,7 @@
+fix(edge-tts): coordinate WebSocket requests and respect HTTP 429 (v1.11.85-beta)
+
+- Serialize Edge syntheses across live playback, prefetch and full-book downloads
+- Give interactive playback priority over queued bulk requests
+- Apply Retry-After/exponential cooldown and never fail over immediately on 429
+- Pause whole-book work when rate limited; keep MP3 cache and WordBoundary intact
+- Add deterministic Java test for 429 handshake and request priority

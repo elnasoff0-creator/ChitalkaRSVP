@@ -366,14 +366,17 @@ public final class EdgeStreamingService extends Service {
         }
         boolean wantsAudio=player!=null&&player.playRequested();
         if(!wantsAudio){changed();return;}
+        // When the service has sent HTTP 429, do not create a doomed live
+        // player/stream until the cooldown has actually elapsed.
+        if(EdgeRequestGate.remainingMs()>0){changed();return;}
         LiveJob currentLive=liveFor(current);
         int activeRequests=0;
         for(LiveJob j:liveJobs.values())if(!j.networkDone)activeRequests++;
         // Always reserve the first connection for the selected sentence.
         if(!current.ready()&&currentLive==null&&activeRequests==0
-                &&current.retryAt<=SystemClock.uptimeMillis())startLive(current);
+                &&current.retryAt<=SystemClock.elapsedRealtime())startLive(current);
         else if(ahead!=null&&!ahead.ready()&&liveFor(ahead)==null
-                &&activeRequests<2 && ahead.retryAt<=SystemClock.uptimeMillis()
+                &&activeRequests<2 && ahead.retryAt<=SystemClock.elapsedRealtime()
                 &&(current.ready()||(currentLive!=null&&(currentLive.firstAudio||currentLive.networkDone)))){
             // Exactly ONE lookahead request, never the entire book.
             startLive(ahead);
@@ -403,7 +406,9 @@ public final class EdgeStreamingService extends Service {
         addTrack(clip);
         changed();
         final String voice=voice(),rate=rate();
-        job.request=EdgeTtsClient.synthesize(clip.text,voice,rate,new EdgeTtsClient.Callback(){
+        job.request=EdgeTtsClient.synthesize(clip.text,voice,rate,
+            clip.start==anchorWord?EdgeRequestGate.PLAY:EdgeRequestGate.PREFETCH,
+            new EdgeTtsClient.Callback(){
             @Override public boolean streamOnly(){return true;}
             @Override public void progress(int count,long length){}
             @Override public void audio(byte[] bytes,int start,int count){
@@ -431,7 +436,11 @@ public final class EdgeStreamingService extends Service {
                         liveJobs.remove(job.fileId);
                         if(job.bookId.equals(bookUri)){
                             // Don't silently retry forever after a rejected WebSocket.
-                            clip.retryAt=Long.MAX_VALUE/2;
+                            if(problem.contains("HTTP 429")){
+                                // One global cooldown for manual play, prefetch and full-book download.
+                                // The existing refreshReady loop can retry after this time.
+                                clip.retryAt=EdgeRequestGate.nextRetryAt();
+                            }else clip.retryAt=Long.MAX_VALUE/2;
                             error="Edge TTS: "+problem;persist();changed();
                         }
                     });
