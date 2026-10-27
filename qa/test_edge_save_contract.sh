@@ -8,16 +8,17 @@ python3 - "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeStreamingService.java" "$T
 import re, sys
 from pathlib import Path
 source = Path(sys.argv[1]).read_text(encoding="utf-8")
-pattern = r'try\{saved=EdgeSpeechFiles\.save\(job\.folder,clip\.key,clip\.text,mp3,metadata\);.*?\}'
+pattern = r'try\{saved=EdgeSpeechFiles\.saveMapped\(job\.folder,clip\.key,clip\.text,mp3,metadata,job\.speech\.aligned\(metadata\)\);.*?\}'
 match = re.search(pattern, source)
 if not match:
-    raise SystemExit("FAIL: EdgeSpeechFiles.save completion handler not found")
+    raise SystemExit("FAIL: EdgeSpeechFiles.saveMapped completion handler not found")
 statement = match.group(0)
 code = '''package ru.reader.rsvp;
 import java.io.File;
 import java.util.List;
 class TestEdgeSaveContract {
-  static class Job { File folder; }
+  static class Speech { List<EdgeWordTimings.Word> aligned(List<EdgeWordTimings.Boundary> a){return java.util.Collections.emptyList();} }
+  static class Job { File folder; Speech speech=new Speech(); }
   static class Clip { String key, text; }
   static class EdgeAudioManager { static void invalidate(File folder) {} }
   static void save(Job job,Clip clip,byte[] mp3,List<EdgeWordTimings.Boundary> metadata){
@@ -36,7 +37,9 @@ import java.io.File;
 import java.util.List;
 class EdgeWordTimings {
  static class Boundary {}
+ static class Word {}
  static void store(File file,String text,List<Boundary> marks) {}
+ static void storeAligned(File file,String text,List<Word> words) {}
 }
 JAVA
 javac -encoding UTF-8 -d "$TMP/classes" \

@@ -33,9 +33,9 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/** Serial Edge speech coordinator: stream the selected clip to Media3.
- * Do not synthesize the following 800-character clip in the background.
- * Request it only after playback reports that the current clip has ended.
+/** Serial Edge speech coordinator: streaming Media3 + exactly one look-ahead.
+ * After the complete MP3 has been committed and the previous WebSocket released,
+ * one subsequent block may be synthesized while Media3 plays the cached audio.
  */
 public final class EdgeStreamingService extends Service {
     public interface Observer {void onChanged();}
@@ -60,12 +60,13 @@ public final class EdgeStreamingService extends Service {
     private final ArrayList<Clip> archive=new ArrayList<>();
     // The complete, sentence-indexed catalogue is independent of which MP3 has been cached.
     private final Map<Integer,Clip> byStart=new HashMap<>();
-    /** Only the selected clip can be synthesized during playback. No look-ahead. */
+    /** Only the playing clip and at most one next clip are eligible to synthesize. */
     private final LinkedHashMap<String,LiveJob> liveJobs=new LinkedHashMap<>();
     private static final class LiveJob {
         final Clip clip;
         final File folder;
         final String fileId,bookId;
+        EdgeSpeechTextTransform.Result speech;
         volatile boolean networkDone;
         boolean attached;
         EdgeTtsClient request;
@@ -238,7 +239,8 @@ public final class EdgeStreamingService extends Service {
             io.execute(()->{
                 int saved=0;
                 for(SentenceChunks.Chunk part:snapshot){
-                    String key=EdgeAudioManager.key(part.text,voice,rate);
+                    String key=EdgeSpeechTextTransform.Options.read(getSharedPreferences("reader",0))
+                        .apply(part.text).cacheKey(voice,rate);
                     File file=new File(folder,key+".mp3");
                     if(file.isFile()&&file.length()>1500)saved+=part.toWord-part.fromWord;
                 }
@@ -372,7 +374,8 @@ public final class EdgeStreamingService extends Service {
         if(group==null || begin>=group.toChar)return;
         String remaining=bookText.substring(begin,group.toChar);
         Clip start=new Clip(anchorWord,group.toWord,remaining,
-                EdgeAudioManager.key(remaining,voice(),rate()));
+                EdgeSpeechTextTransform.Options.read(getSharedPreferences("reader",0))
+                    .apply(remaining).cacheKey(voice(),rate()));
         selectedOverrides.add(start);
     }
 
@@ -396,7 +399,17 @@ public final class EdgeStreamingService extends Service {
         if(liveFor(target)!=null)return;
         startLive(target,true);
     }
-    public void refreshSettings(){pump();}
+    public void refreshSettings(){
+        // A different pronunciation rule changes both the transmitted text
+        // and the MP3 identity. Rebuild the catalogue without deleting old files.
+        if(bookReady){
+            Clip current=baseClipAt(anchorWord);
+            String next=current==null?"":EdgeSpeechTextTransform.Options.read(
+                getSharedPreferences("reader",0)).apply(current.text).cacheKey(voice(),rate());
+            if(current!=null&&!next.equals(current.key))choose(null,null);
+        }
+        pump();
+    }
     public void ensurePlaySelection(){
         if(bookReady){Clip current=clipAt(anchorWord);
             if(current!=null&&player!=null&&player.playRequested()){
@@ -470,7 +483,8 @@ public final class EdgeStreamingService extends Service {
             if(grouped!=null){
                 for(SentenceChunks.Chunk piece:EdgeSpeechSegments.priorityPieces(
                         bookText,offsets,requested,grouped.toWord,grouped.toChar)){
-                    String key=EdgeAudioManager.key(piece.text,voice(),rate());
+                    String key=EdgeSpeechTextTransform.Options.read(getSharedPreferences("reader",0))
+                        .apply(piece.text).cacheKey(voice(),rate());
                     Clip clip=new Clip(piece.fromWord,piece.toWord,piece.text,key);
                     selectedOverrides.add(clip);
                 }
@@ -553,8 +567,13 @@ public final class EdgeStreamingService extends Service {
         for(LiveJob j:liveJobs.values())if(!j.networkDone)busy=true;
         if(!busy&&!current.ready()&&liveFor(current)==null&&
                 !current.awaitingUserRetry && current.retryAt<=SystemClock.elapsedRealtime())startLive(current);
-        // Intentionally no speculative synthesis for `ahead`. Only onTrackFinished
-        // can move anchorWord to the next uncached 800-character block.
+        // One-ahead only: network starts only when the current MP3 is fully
+        // committed to disk; a pending live/failed next block is not restarted.
+        // Queue priority PLAY is necessary while interactive playback is active.
+        if(!busy&&current.ready()&&ahead!=null&&!ahead.ready()&&liveFor(ahead)==null&&
+                !ahead.awaitingUserRetry&&ahead.retryAt<=SystemClock.elapsedRealtime()&&
+                (player.currentStartWord()==current.start||
+                 player.currentStartWord()<0))startLive(ahead,false,true);
         changed();
     }
     private void addTrack(Clip clip){
@@ -565,16 +584,19 @@ public final class EdgeStreamingService extends Service {
         if(clip==null||directory==null)return null;
         return liveJobs.get(new File(directory,clip.key+".mp3").getAbsolutePath());
     }
-    /** Play from a growing encoded MP3 buffer; cache a validated complete file
-     * independently after turn.end. The next clip is not synthesized in advance.
+    /** Current MP3 streams live; a single ahead MP3 accumulates independently.
+     * The live DataSource can attach to the ahead buffer if playback catches up.
      */
-    private void startLive(Clip clip){startLive(clip,false);}
-    private void startLive(Clip clip,boolean warmup){
+    private void startLive(Clip clip){startLive(clip,false,false);}
+    private void startLive(Clip clip,boolean warmup){startLive(clip,warmup,false);}
+    private void startLive(Clip clip,boolean warmup,boolean ahead){
         if(clip==null||clip.ready()||directory==null||liveFor(clip)!=null)return;
         lastHttp429=false; // a new explicit synthesis may report other real errors
         final LiveJob job=new LiveJob(clip,directory,bookUri);
-        final boolean foreground=!warmup&&(clip==clipAt(anchorWord));
-        if(foreground||warmup){
+        job.speech=EdgeSpeechTextTransform.Options.read(getSharedPreferences("reader",0)).apply(clip.text);
+        if(!job.speech.cacheKey(voice(),rate()).equals(clip.key))return;
+        final boolean foreground=!warmup&&!ahead&&(clip==clipAt(anchorWord));
+        if(foreground||warmup||ahead){
             job.buffer=new EdgeLiveBuffer();
         }
         if(foreground && player!=null){
@@ -590,8 +612,8 @@ public final class EdgeStreamingService extends Service {
         final String diagnosticKey=clip.key+":"+clip.start;
         EdgeTtsDiagnostics.requested(diagnosticKey,clip.text.length(),warmup);
         error="";changed();
-        job.request=EdgeTtsClient.synthesize(clip.text,voice(),rate(),
-            foreground?EdgeSpeechQueue.PLAY:EdgeSpeechQueue.PREFETCH,
+        job.request=EdgeTtsClient.synthesize(job.speech.spoken,voice(),rate(),
+            (foreground||ahead)?EdgeSpeechQueue.PLAY:EdgeSpeechQueue.PREFETCH,
             new EdgeTtsClient.Callback(){
                 @Override public void progress(int count,long bytes){}
                 @Override public void connected(){EdgeTtsDiagnostics.connected(diagnosticKey);}
@@ -601,7 +623,7 @@ public final class EdgeStreamingService extends Service {
                     catch(java.io.IOException e){Log.w("EdgeSpeech","Live buffer rejected MP3",e);}
                 }
                 @Override public void metadata(List<EdgeWordTimings.Boundary> marks){
-                    job.timings=EdgeWordTimings.align(clip.text,marks);
+                    job.timings=job.speech.aligned(marks);
                 }
                 @Override public void finished(byte[] mp3,int parts,String problem){
                     finished(mp3,parts,problem,Collections.emptyList());
@@ -647,7 +669,7 @@ public final class EdgeStreamingService extends Service {
                     if(job.buffer!=null)job.buffer.complete();
                     io.execute(()->{
                         File saved=null;String failed=null;
-                        try{saved=EdgeSpeechFiles.save(job.folder,clip.key,clip.text,mp3,metadata);if(saved!=null)EdgeAudioManager.invalidate(job.folder);}
+                        try{saved=EdgeSpeechFiles.saveMapped(job.folder,clip.key,clip.text,mp3,metadata,job.speech.aligned(metadata));if(saved!=null)EdgeAudioManager.invalidate(job.folder);}
                         catch(Exception e){failed=e.getMessage();}
                         final File ready=saved;final String cacheError=failed;
                         main.post(()->{
@@ -779,7 +801,8 @@ public final class EdgeStreamingService extends Service {
         }catch(Exception ex){Log.w("EdgeSentences","Cannot restore older index",ex);}
         String selectedVoice=voice(),selectedRate=rate();
         for(SentenceChunks.Chunk part:sentenceParts){
-            String key=EdgeAudioManager.key(part.text,selectedVoice,selectedRate);
+            String key=EdgeSpeechTextTransform.Options.read(getSharedPreferences("reader",0))
+                .apply(part.text).cacheKey(selectedVoice,selectedRate);
             Clip c=new Clip(part.fromWord,part.toWord,part.text,key);
             File audio=new File(directory,key+".mp3");
             if(audio.isFile()&&audio.length()>1500){c.file=audio;c.bytes=audio.length();}

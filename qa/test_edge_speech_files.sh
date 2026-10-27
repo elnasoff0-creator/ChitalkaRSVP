@@ -5,7 +5,7 @@ TMP="$(mktemp -d)";trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/src/ru/reader/rsvp" "$TMP/classes" "$TMP/cache"
 cat > "$TMP/src/ru/reader/rsvp/EdgeWordTimings.java" <<'JAVA'
 package ru.reader.rsvp;import java.io.File;import java.util.List;
-class EdgeWordTimings {static class Boundary{}static void store(File file,String t,List<Boundary> b){}}
+class EdgeWordTimings {static class Boundary{}static class Word{}static void store(File file,String t,List<Boundary> b){} static void storeAligned(File file,String t,List<Word> w){}}
 JAVA
 cat > "$TMP/src/ru/reader/rsvp/TestMp3Cache.java" <<'JAVA'
 package ru.reader.rsvp;

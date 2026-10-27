@@ -42,8 +42,8 @@ assert 'notifyDataSetChanged()' not in files['DownloadActivity.java']
 assert 'DownloadsRepository.load(this,edge)' not in files['DownloadActivity.java']
 has('EdgeChapterDownloadsActivity.java','sameChapters(result)','sameStats(displayed.get(i),entry)')
 has('EdgeAudioManager.java','readySegments(folder)','snapshots.put','static String key','static void invalidate')
-has('EdgeStreamingService.java','EdgeAudioManager.key','EdgeAudioManager.invalidate')
-has('EdgeFullBookService.java','EdgeAudioManager.key','EdgeAudioManager.invalidate')
+has('EdgeStreamingService.java','EdgeSpeechTextTransform.Options.read','EdgeAudioManager.invalidate')
+has('EdgeFullBookService.java','speechOptions.apply','EdgeAudioManager.invalidate')
 has('ReaderActivity.java','ReaderTtsController.begin','ReaderTtsController.localPauseOrResume','ReaderSheets.overflow','ReaderToolbarController.measure','ReaderToolbarController.reveal')
 has('MainActivity.java','FrameLayout petArea','FrameLayout.LayoutParams bubbleLp','bubble.setElevation(dp(8))','areaLp')
 print('PASS: v1.11.99 no UI scan, cached Edge index, four-mode Reader, stable mini-pet')

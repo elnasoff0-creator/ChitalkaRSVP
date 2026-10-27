@@ -97,8 +97,10 @@ final class EdgeWordTimings {
         }catch(Exception e){return Integer.toHexString(text.hashCode());}
     }
     static void store(File audio,String text,List<Boundary> boundaries) {
-        List<Word> aligned=align(text,boundaries);
-        if(aligned.isEmpty())return;
+        storeAligned(audio,text,align(text,boundaries));
+    }
+    static void storeAligned(File audio,String text,List<Word> aligned) {
+        if(aligned==null||aligned.isEmpty())return;
         File file=sidecar(audio);File tmp=new File(file.getAbsolutePath()+".part");
         try{
             JSONObject obj=new JSONObject();obj.put("version",1);obj.put("sha256",hash(text));

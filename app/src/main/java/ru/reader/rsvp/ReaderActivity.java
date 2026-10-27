@@ -1083,6 +1083,9 @@ public class ReaderActivity extends Activity {
         boolean oldPoint=focusPoint,oldLines=focusLinesEnabled;
 
         readPreferences();
+        // Speech-only punctuation/dictionary settings can change while the
+        // settings screen is open; refresh the Edge cache identity on return.
+        if(ttsStreamer!=null)ttsStreamer.refreshSettings();
         int wantedMode=mode;
         if(root!=null&&words.length>0&&wantedMode!=oldMode){
             mode=oldMode;setMode(wantedMode);

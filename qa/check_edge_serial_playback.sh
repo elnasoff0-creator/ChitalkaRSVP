@@ -8,7 +8,7 @@ service=(root/'EdgeStreamingService.java').read_text()
 player=(root/'EdgePlaybackService.java').read_text()
 engine=(root/'EdgeSpeechEngine.java').read_text()
 queue=(root/'EdgeSpeechQueue.java').read_text()
-assert 'startLive(ahead)' not in service, 'following MP3 is still being synthesized speculatively'
+assert 'startLive(ahead,false,true)' in service, 'one-ahead synthesis after completed MP3 is missing'
 assert 'nearEndOfCurrentAudio' not in service, 'old speculative lookahead threshold remains'
 assert 'onTrackFinished(int start,int end,String key)' in service
 assert 'anchorWord=end;' in service[service.index('onTrackFinished('):service.index('onPlaybackStateChanged()')]
@@ -18,5 +18,5 @@ assert 'else if (insertion==oldCount && player.getPlaybackState()==Player.STATE_
 assert 'socketTerminated(ws)' in engine and 'endSocket(old,false)' in engine
 assert 'setInteractivePlayback' in queue and 'filter(t->!interactivePlayback||t.priority==PLAY)' in queue
 assert 'FIRST_TARGET=800' in (root/'EdgeSpeechSegments.java').read_text()
-print('PASS: no future-block synthesis, end-of-track continuation, close-ack queue, 800-char groups')
+print('PASS: one-ahead after saved MP3, end-of-track continuation, close-ack queue, 800-char groups')
 PY

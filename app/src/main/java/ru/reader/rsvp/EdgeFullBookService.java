@@ -128,10 +128,12 @@ public final class EdgeFullBookService extends Service {
             // offered a different configurable chunk size.
             ArrayList<EdgeTextSegments.Part> parts=EdgeTextSegments.all(raw,book.chapters,job.chars);
             if(parts.isEmpty())throw new Exception("Не удалось разбить текст на фрагменты");
+            final EdgeSpeechTextTransform.Options speechOptions=
+                EdgeSpeechTextTransform.Options.read(getSharedPreferences("reader",0));
             JSONArray index=new JSONArray();
             for(EdgeTextSegments.Part part:parts){
                 JSONObject o=new JSONObject();
-                String key=EdgeAudioManager.key(part.text,job.voice,job.rate);
+                String key=speechOptions.apply(part.text).cacheKey(job.voice,job.rate);
                 o.put("start",part.start).put("end",part.end).put("text",part.text).put("key",key);
                 index.put(o);
             }
@@ -170,7 +172,7 @@ public final class EdgeFullBookService extends Service {
                             EdgeFullBookStore.status(job,EdgeFullBookStore.PAUSED);
                             return;
                         }
-                        Result result=synthesize(o.getString("text"),job);
+                        Result result=synthesize(o.getString("text"),job,speechOptions);
                         if(!EdgeFullBookStore.running(job))return;
                         if(result.data!=null&&(EdgeAudioFormat.identify(result.data,result.data.length)!=null && ".mp3".equals(EdgeAudioFormat.identify(result.data,result.data.length).extension))){
                             try{
@@ -182,7 +184,9 @@ public final class EdgeFullBookService extends Service {
                                     throw new Exception("Не удалось заменить повреждённый MP3");
                                 if(!target.exists()&&!tmp.renameTo(target))throw new Exception("Не удалось сохранить MP3");
                                 saved=EdgeFullBookStore.ready(target);
-                                if(saved){EdgeWordTimings.store(target,o.getString("text"),result.boundaries);EdgeAudioManager.invalidate(job.mp3Folder());}
+                                if(saved){EdgeWordTimings.storeAligned(target,o.getString("text"),
+                                    result.transformation.aligned(result.boundaries));
+                                    EdgeAudioManager.invalidate(job.mp3Folder());}
                                 tmp.delete();
                             }catch(Exception e){problem=e.getMessage();}
                         }else problem=result.error==null?"Сервис вернул не MP3":result.error;
@@ -234,11 +238,14 @@ public final class EdgeFullBookService extends Service {
         }finally{synthesizingUri="";currentClient=null;}
     }
     private static final class Result{volatile byte[] data;volatile String error;
+        EdgeSpeechTextTransform.Result transformation;
         volatile java.util.List<EdgeWordTimings.Boundary> boundaries=java.util.Collections.emptyList();}
-    private Result synthesize(String text,EdgeFullBookStore.Job job) throws InterruptedException {
+    private Result synthesize(String text,EdgeFullBookStore.Job job,
+                              EdgeSpeechTextTransform.Options speechOptions) throws InterruptedException {
         Result result=new Result();CountDownLatch done=new CountDownLatch(1);
+        result.transformation=speechOptions.apply(text);
         synthesizingUri=job.uri;
-        currentClient=EdgeTtsClient.synthesize(text,job.voice,job.rate,
+        currentClient=EdgeTtsClient.synthesize(result.transformation.spoken,job.voice,job.rate,
             EdgeSpeechQueue.BULK,new EdgeTtsClient.Callback(){
             @Override public void progress(int chunks,long bytes){}
             @Override public void finished(byte[] mp3,int chunks,String error){result.data=mp3;result.error=error;done.countDown();}

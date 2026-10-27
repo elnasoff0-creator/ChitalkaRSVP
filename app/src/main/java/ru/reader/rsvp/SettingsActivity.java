@@ -520,6 +520,10 @@ public class SettingsActivity extends Activity {
         audioLink(R.drawable.ic_tts_engine,"Локальный голос","Установленные русские голоса Samsung, Google и других движков","Выбрать",()->startActivity(new Intent(this,TtsVoiceActivity.class)));
         audioToggle(R.drawable.ic_tts_autoplay,"Автовоспроизведение при касании","Начинать озвучку сразу после выбора предложения","tts_tap_autoplay",false);
         audioToggle(R.drawable.ic_tts_pause_trim,"Сокращение пауз между предложениями MS Edge","Сокращается только конечная тишина; MP3 и WordBoundary не изменяются","edge_trim_sentence_pause",true);
+        edgePunctuationSpinners();
+        audioLink(R.drawable.ic_tts_engine,"Словарь произношения · Edge TTS",
+            "Каждая строка: исходное слово=произношение. Только для отправки на синтез",
+            "Редактировать",this::edgeDictionaryDialog);
         audioDivider();
         header("Аудиокниги MP3 / M4A");
         audioLink(R.drawable.ic_equalizer,"Эквалайзер","Настройка звучания аудиокниг",equalizerLabel(),this::equalizerDialog);
@@ -527,6 +531,77 @@ public class SettingsActivity extends Activity {
         audioLink(R.drawable.ic_rewind_10s,"Перемотка секундами","Интервал шагов плеера",AudioPlaybackPrefs.seekSeconds(this)+" сек",()->seekStepDialog(false));
         audioLink(R.drawable.ic_rewind_1m,"Перемотка минутами","Интервал шагов плеера",AudioPlaybackPrefs.seekMinutes(this)+" мин",()->seekStepDialog(true));
         gap(18);
+    }
+    /** Two native dropdowns only; the appearance of the reference site is not copied. */
+    private void edgePunctuationSpinners(){
+        TextView title=text("Замена точки · Edge TTS",15,true);list.addView(title);
+        TextView info=text("Меняется только запрос озвучки. Текст книги и закладки сохраняются.",12,false);
+        info.setAlpha(.75f);list.addView(info);
+        LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);
+        android.widget.Spinner replacement=new android.widget.Spinner(this);
+        final String[] values={"Не заменять точки","Заменять точки на ,",
+            "Заменять точки на ;","Заменять точки на :","Заменять точки на -",
+            "Заменять на три переноса строки"};
+        android.widget.ArrayAdapter<String> valuesAdapter=new android.widget.ArrayAdapter<>(
+            this,android.R.layout.simple_spinner_item,values);
+        valuesAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        replacement.setAdapter(valuesAdapter);
+        String mode=prefs.getString(EdgeSpeechTextTransform.MODE,"off");
+        String symbol=prefs.getString(EdgeSpeechTextTransform.REPLACEMENT,",");
+        int symbolIndex=0;
+        if(!"off".equals(mode))for(int i=0;i<EdgeSpeechTextTransform.SYMBOLS.length;i++)
+            if(EdgeSpeechTextTransform.SYMBOLS[i].equals(symbol)){symbolIndex=i+1;break;}
+        replacement.setSelection(symbolIndex);
+        line.addView(replacement,new LinearLayout.LayoutParams(0,dp(54),1));
+        android.widget.Spinner modeSelector=new android.widget.Spinner(this);
+        final String[] modes={"V1","V2","V3"};
+        android.widget.ArrayAdapter<String> modesAdapter=new android.widget.ArrayAdapter<>(
+            this,android.R.layout.simple_spinner_item,modes);
+        modesAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        modeSelector.setAdapter(modesAdapter);
+        int modeIndex="v2".equals(mode)?1:"v3".equals(mode)?2:0;
+        modeSelector.setSelection(modeIndex);
+        modeSelector.setEnabled(symbolIndex!=0);
+        line.addView(modeSelector,new LinearLayout.LayoutParams(dp(78),dp(54)));
+        list.addView(line);
+        replacement.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
+            @Override public void onItemSelected(android.widget.AdapterView<?> parent,View view,int position,long id){
+                String selectedSymbol=position==0?",":EdgeSpeechTextTransform.SYMBOLS[position-1];
+                String desiredMode=position==0?"off":
+                    ("off".equals(prefs.getString(EdgeSpeechTextTransform.MODE,"off"))?"v1":
+                     prefs.getString(EdgeSpeechTextTransform.MODE,"v1"));
+                modeSelector.setEnabled(position!=0);
+                if(!desiredMode.equals(prefs.getString(EdgeSpeechTextTransform.MODE,"off"))||
+                        !selectedSymbol.equals(prefs.getString(EdgeSpeechTextTransform.REPLACEMENT,",")))
+                    prefs.edit().putString(EdgeSpeechTextTransform.MODE,desiredMode)
+                        .putString(EdgeSpeechTextTransform.REPLACEMENT,selectedSymbol).apply();
+            }
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parent){}
+        });
+        modeSelector.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
+            @Override public void onItemSelected(android.widget.AdapterView<?> parent,View view,int position,long id){
+                if(replacement.getSelectedItemPosition()==0)return;
+                String next=EdgeSpeechTextTransform.MODES[position+1];
+                if(!next.equals(prefs.getString(EdgeSpeechTextTransform.MODE,"off")))
+                    prefs.edit().putString(EdgeSpeechTextTransform.MODE,next).apply();
+            }
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parent){}
+        });
+    }
+    private void edgeDictionaryDialog(){
+        EditText edit=new EditText(this);
+        edit.setSingleLine(false);edit.setMinLines(6);edit.setMaxLines(12);
+        edit.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        edit.setHint("Пример:\nёлка=йолка\n... (до 100 строк)");
+        edit.setText(prefs.getString(EdgeSpeechTextTransform.DICTIONARY,""));
+        edit.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(8192)});
+        LinearLayout panel=col();panel.setPadding(dp(15),0,dp(15),0);panel.addView(edit);
+        new SwipeDialogs.Builder(this).setTitle("Словарь Edge TTS")
+            .setView(panel).setNegativeButton("Отмена",null)
+            .setPositiveButton("Сохранить",(d,w)->{
+                prefs.edit().putString(EdgeSpeechTextTransform.DICTIONARY,
+                    edit.getText().toString()).apply();draw();
+            }).show();
     }
     private void audioSpeedDialog(){
         final float[] rates={.5f,.75f,1f,1.1f,1.25f,1.5f,1.75f,2f,2.5f,3f};

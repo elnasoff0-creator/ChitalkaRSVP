@@ -13,6 +13,11 @@ final class EdgeSpeechFiles {
     private EdgeSpeechFiles(){}
     static File save(File directory,String key,String text,byte[] data,
                      List<EdgeWordTimings.Boundary> metadata)throws IOException {
+        return saveMapped(directory,key,text,data,metadata,null);
+    }
+    static File saveMapped(File directory,String key,String text,byte[] data,
+                     List<EdgeWordTimings.Boundary> metadata,
+                     List<EdgeWordTimings.Word> aligned)throws IOException {
         EdgeAudioFormat format=data==null?null:EdgeAudioFormat.identify(data,data.length);
         if(data==null||data.length<1500||format==null||!".mp3".equals(format.extension))
             throw new IOException("Incomplete or invalid MP3 response");
@@ -28,7 +33,8 @@ final class EdgeSpeechFiles {
             if(file.exists()&&!file.delete())throw new IOException("Cannot replace incomplete MP3");
             if(!part.renameTo(file))throw new IOException("Cannot finalize MP3");
             // WordBoundary remains compatible with ReaderActivity highlighting.
-            EdgeWordTimings.store(file,text,metadata);
+            if(aligned==null)EdgeWordTimings.store(file,text,metadata);
+            else EdgeWordTimings.storeAligned(file,text,aligned);
             return file;
         }finally{part.delete();}
     }
