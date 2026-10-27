@@ -166,7 +166,7 @@ public final class EdgeFullBookService extends Service {
                         if(EdgeSpeechQueue.remainingMs()>0){
                             long seconds=(EdgeSpeechQueue.remainingMs()+999)/1000;
                             EdgeFullBookStore.progress(job,EdgeFullBookStore.readyCount(job),count,
-                                "Edge TTS временно ограничен: повтор доступен через "+seconds+" с");
+                                "Подготовка приостановлена");
                             EdgeFullBookStore.status(job,EdgeFullBookStore.PAUSED);
                             return;
                         }
@@ -197,7 +197,10 @@ public final class EdgeFullBookService extends Service {
                                 System.currentTimeMillis()+EdgeSpeechQueue.remainingMs()).apply();
                             // Do not keep retrying a service that explicitly
                             // asked us to reduce the request rate.
-                            EdgeFullBookStore.progress(job,EdgeFullBookStore.readyCount(job),count,problem);
+                            Log.w("EdgeFullBook","HTTP 429; Retry-After="+
+                                EdgeSpeechQueue.remainingMs()+"ms");
+                            EdgeFullBookStore.progress(job,EdgeFullBookStore.readyCount(job),count,
+                                "Подготовка приостановлена");
                             EdgeFullBookStore.status(job,EdgeFullBookStore.PAUSED);
                             return;
                         }

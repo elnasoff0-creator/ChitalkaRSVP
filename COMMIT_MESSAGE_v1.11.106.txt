@@ -1,8 +1,0 @@
-perf(edge): 800/500 chunks, WordBoundary safety and Media3 latency tracing (v1.11.106-beta)
-
-- Use 800-character Edge/sentence groups and 500-character manual priority pieces.
-- Avoid stuck highlighting on WordBoundary events with unknown duration.
-- Reduce Media3 startup/rebuffer thresholds without increasing WebSocket concurrency.
-- Log socket-to-MP3-to-decoder-to-player stages, aligned word counts and serial gaps.
-- Preserve one-at-a-time Edge WebSocket synthesis, 403/429 policy and UI.
-- Add JVM regression tests for word timing and anonymous latency diagnostics.

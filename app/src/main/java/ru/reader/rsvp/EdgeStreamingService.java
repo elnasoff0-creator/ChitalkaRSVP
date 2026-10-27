@@ -85,6 +85,9 @@ public final class EdgeStreamingService extends Service {
 
     private final ArrayList<Observer> observers=new ArrayList<>();
     private String bookUri="",title="",bookText="",error="";
+    // Set before failing a live buffer so Media3's generic I/O error cannot
+    // accidentally surface the same HTTP 429 as a user-visible Toast.
+    private volatile boolean lastHttp429;
     private BookChapterIndex chapters=BookChapterIndex.empty();
     private File directory;
     private boolean bookReady,active,destroyed,playerBound,idlePrefetchRequested;
@@ -211,6 +214,7 @@ public final class EdgeStreamingService extends Service {
     public boolean isReady(){return bookReady;}
     public boolean isActive(){return active;}
     public String error(){return error;}
+    public boolean lastRateLimit(){return lastHttp429;}
     public String bookUri(){return bookUri;}
     public String title(){return title==null||title.trim().isEmpty()?"Книга":title.trim();}
     public int anchor(){
@@ -413,8 +417,9 @@ public final class EdgeStreamingService extends Service {
                     current.failures=0;
                     error="";
                 }else{
-                    long seconds=(EdgeSpeechQueue.remainingMs()+999)/1000;
-                    error="Edge TTS ограничил запросы. Повтор не раньше чем через "+seconds+" с";
+                    // Do not display HTTP 429 as a user-visible error.
+                    // EdgeSpeechQueue still blocks the actual request until cooldown ends.
+                    error="";
                 }
                 pump();
             }
@@ -566,6 +571,7 @@ public final class EdgeStreamingService extends Service {
     private void startLive(Clip clip){startLive(clip,false);}
     private void startLive(Clip clip,boolean warmup){
         if(clip==null||clip.ready()||directory==null||liveFor(clip)!=null)return;
+        lastHttp429=false; // a new explicit synthesis may report other real errors
         final LiveJob job=new LiveJob(clip,directory,bookUri);
         final boolean foreground=!warmup&&(clip==clipAt(anchorWord));
         if(foreground||warmup){
@@ -606,6 +612,7 @@ public final class EdgeStreamingService extends Service {
                     EdgeTtsDiagnostics.finished(diagnosticKey,problem,
                         job.timings==null?0:job.timings.size());
                     if(problem!=null){
+                        if(problem.contains("HTTP 429"))lastHttp429=true;
                         if(job.buffer!=null)job.buffer.fail(new java.io.IOException(problem));
                         main.post(()->{
                             liveJobs.remove(job.fileId);
@@ -626,7 +633,12 @@ public final class EdgeStreamingService extends Service {
                                 // No background retry loop: new tap/Play can retry now.
                                 clip.retryAt=0;
                             }
-                            error="Edge TTS: "+problem;
+                            // HTTP 429 remains diagnostic-only (Logcat), not a UI popup.
+                            if(problem.contains("HTTP 429")){
+                                Log.w("EdgeSpeech", "Edge TTS HTTP 429; remaining cooldown="+
+                                    EdgeSpeechQueue.remainingMs()+"ms");
+                                error="";
+                            }else error="Edge TTS: "+problem;
                             persist();changed();
                             if(idlePrefetchRequested&&!active){idlePrefetchRequested=false;stopSelf();}
                         });

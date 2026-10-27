@@ -40,9 +40,10 @@ final class EdgeSpeechQueue {
         interactivePlayback=playing;
         schedule();
     }
+    // Local 429 fallback is one second. Explicit server Retry-After is authoritative.
     // Only background jobs are gently paced. A new tap/Play is never paced.
     private static final long BACKGROUND_GAP_MS=850L;
-    private static final long DEFAULT_429_DEBOUNCE_MS=3000L;
+    private static final long DEFAULT_429_DEBOUNCE_MS=1000L;
     private EdgeSpeechQueue(){}
     static Ticket submit(int priority,Runnable run){return submit(priority,run,null);}
     static Ticket submit(int priority,Runnable run,Runnable onPreempt){
@@ -82,9 +83,9 @@ final class EdgeSpeechQueue {
     }
     static synchronized long remainingMs(){return Math.max(0,blockedUntil-SystemClock.elapsedRealtime());}
     static synchronized boolean allowPrefetch(){
-        // No arbitrary 15-minute penalty. Briefly suppress only speculative traffic
-        // after server overload while foreground PLAY remains available after Retry-After.
-        return lastLimitedAt==0 || SystemClock.elapsedRealtime()-lastLimitedAt>=10000L;
+        // Keep local speculative-traffic suppression at most one second,
+        // but the shared queue must still honor a longer server Retry-After.
+        return lastLimitedAt==0 || SystemClock.elapsedRealtime()-lastLimitedAt>=1000L;
     }
     static synchronized void success(){lastLimitedAt=0;}
     static synchronized void limited(Response response){

@@ -962,6 +962,11 @@ public class ReaderActivity extends Activity {
             String problem=ttsStreamer.error();
             if(ttsPlayer!=null&&ttsPlayer.playbackError()!=null&&!ttsPlayer.playbackError().isEmpty())
                 problem=ttsPlayer.playbackError();
+            // A 429 is recorded in Logcat rather than surfaced as a Toast.
+            // Media3 may report the stream failure separately from EdgeStreamingService.
+            if(ttsStreamer.lastRateLimit() || (problem!=null &&
+                    (problem.contains("HTTP 429") ||
+                     problem.contains("Edge TTS ограничил запросы"))))problem="";
             if(problem!=null&&!problem.isEmpty()&&!problem.equals(lastTtsError)){
                 lastTtsError=problem;Toast.makeText(this,problem,Toast.LENGTH_LONG).show();
             }else if(problem==null||problem.isEmpty())lastTtsError="";
