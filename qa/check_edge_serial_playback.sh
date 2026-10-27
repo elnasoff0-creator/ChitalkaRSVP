@@ -17,6 +17,6 @@ assert 'state == Player.STATE_ENDED' in player
 assert 'else if (insertion==oldCount && player.getPlaybackState()==Player.STATE_ENDED && requestedPlay)' in player
 assert 'socketTerminated(ws)' in engine and 'endSocket(old,false)' in engine
 assert 'setInteractivePlayback' in queue and 'filter(t->!interactivePlayback||t.priority==PLAY)' in queue
-assert 'FIRST_TARGET=900' in (root/'EdgeSpeechSegments.java').read_text()
-print('PASS: no future-block synthesis, end-of-track continuation, close-ack queue, 900-char groups')
+assert 'FIRST_TARGET=800' in (root/'EdgeSpeechSegments.java').read_text()
+print('PASS: no future-block synthesis, end-of-track continuation, close-ack queue, 800-char groups')
 PY

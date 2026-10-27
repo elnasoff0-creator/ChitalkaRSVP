@@ -137,6 +137,10 @@ final class EdgeWordTimings {
             return words;
         }catch(Exception ignored){return Collections.emptyList();}
     }
+    /** Resolve a word only within its spoken duration, without an artificial
+     * time offset. A zero-duration boundary is capped, never held indefinitely.
+     * Position comes from Media3's MP3 source clock, not wall-clock time.
+     */
     static int at(List<Word> words,long sourcePositionMs){
         if(words==null||words.isEmpty())return -1;
         int lo=0,hi=words.size()-1,found=-1;
@@ -146,8 +150,12 @@ final class EdgeWordTimings {
         }
         if(found<0)return -1;
         Word w=words.get(found);
-        // Do not highlight a word during long silence: allow 90ms decoding tolerance.
-        if(w.durationMs>0&&sourcePositionMs>w.startMs+w.durationMs+90)return -1;
+        // A small tail tolerance compensates extractor rounding, not network
+        // latency. Never highlight a word throughout an unvoiced pause.
+        long span=w.durationMs>0?w.durationMs:500L;
+        long end=w.startMs+span+90L;
+        if(found+1<words.size())end=Math.min(end,words.get(found+1).startMs);
+        if(sourcePositionMs>end)return -1;
         return found;
     }
 }

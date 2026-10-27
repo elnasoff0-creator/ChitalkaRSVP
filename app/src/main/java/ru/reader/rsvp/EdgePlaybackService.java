@@ -136,7 +136,7 @@ public final class EdgePlaybackService extends Service {
         playbackSpeed=Math.max(0.5f,Math.min(3f,playbackSpeed));
         player = new ExoPlayer.Builder(this)
             .setLoadControl(new DefaultLoadControl.Builder()
-                .setBufferDurationsMs(500,15000,250,500).build()).build();
+                .setBufferDurationsMs(450,15000,160,350).build()).build();
         player.setPlaybackParameters(new PlaybackParameters(playbackSpeed));
         player.setAudioAttributes(new androidx.media3.common.AudioAttributes.Builder()
                 .setUsage(androidx.media3.common.C.USAGE_MEDIA)
@@ -164,7 +164,7 @@ public final class EdgePlaybackService extends Service {
             @Override public void onPlaybackStateChanged(int state) {
                 if (state == Player.STATE_ENDED) {
                     // No next MediaItem exists: notify the coordinator once so it
-                    // can select the next 900-character group, without look-ahead.
+                    // can select the next 800-character group, without look-ahead.
                     int index=trackIndex();
                     if(autoContinue && requestedPlay && index>=0 && index<tracks.size()){
                         Track completed=tracks.get(index);
@@ -181,6 +181,7 @@ public final class EdgePlaybackService extends Service {
             }
             @Override public void onIsPlayingChanged(boolean isPlaying) {
                 if(isPlaying){
+                    EdgeTtsDiagnostics.firstSound(currentKey());
                     long now=android.os.SystemClock.elapsedRealtime();
                     if(requestedPlayAtMs>0){
                         android.util.Log.i("EdgeTtsLatency","first sound after Play="+
@@ -405,7 +406,7 @@ public final class EdgePlaybackService extends Service {
         MediaItem item=new MediaItem.Builder().setMediaId(key)
             .setUri("edge-live://speech/"+start).setMimeType("audio/mpeg").build();
         ProgressiveMediaSource source=new ProgressiveMediaSource.Factory(
-            new EdgeLiveDataSource.Factory(stream)).createMediaSource(item);
+            new EdgeLiveDataSource.Factory(stream,key)).createMediaSource(item);
         player.addMediaSource(insertion,source);
         applyArmedPosition();
         if(oldCount==0)player.prepare();

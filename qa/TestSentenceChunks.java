@@ -20,6 +20,6 @@ public final class TestSentenceChunks {
         verify("одно".repeat(160)+" готово.");
         verify("\n\n     ");
         verify("смешанные-слова, пунктуация! 123. Ещё абзац.");
-        System.out.println("PASS SentenceChunks max=900; word indexes, source offsets and long sentences");
+        System.out.println("PASS SentenceChunks max=800; word indexes, source offsets and long sentences");
     }
 }

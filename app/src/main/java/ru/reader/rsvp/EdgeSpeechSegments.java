@@ -2,13 +2,13 @@ package ru.reader.rsvp;
 
 import java.util.ArrayList;
 
-/** Groups adjacent sentences into meaningful requests of no more than 900 chars.
+/** Groups adjacent sentences into meaningful requests of no more than 800 chars.
  * All word and character offsets remain tied to the original book text.
  * Normal first and subsequent groups use the same target. Paragraphs stay intact.
  * This dramatically reduces socket handshakes for dialogue-heavy books.
  */
 final class EdgeSpeechSegments {
-    static final int MAX=900,FIRST_TARGET=900,FIRST_TARGET_PRIORITY=600;
+    static final int MAX=800,FIRST_TARGET=800,FIRST_TARGET_PRIORITY=500;
     private EdgeSpeechSegments(){}
     static ArrayList<SentenceChunks.Chunk> split(String raw){return split(raw,BookChapterIndex.empty());}
     static ArrayList<SentenceChunks.Chunk> split(String raw,BookChapterIndex chapters){
@@ -37,8 +37,8 @@ final class EdgeSpeechSegments {
         return grouped;
     }
     /** An uncached manual jump starts at the selected word. Cover the rest of
-     * its normal group with contiguous priority pieces (first <=600 chars),
-     * then return to normal 900-character groups. Keep absolute book offsets.
+     * its normal group with contiguous priority pieces (first <=500 chars),
+     * then return to normal 800-character groups. Keep absolute book offsets.
      */
     static ArrayList<SentenceChunks.Chunk> priorityPieces(String raw,
             ArrayList<Integer> positions,int fromWord,int toWord,int groupEndChar){
@@ -55,7 +55,7 @@ final class EdgeSpeechSegments {
                 int wordEnd=wordStart;
                 while(wordEnd<raw.length()&&!Character.isWhitespace(raw.charAt(wordEnd)))wordEnd++;
                 if(wordEnd>limit&&next>word)break;
-                // A single pathological unbroken word may exceed 600 chars;
+                // A single pathological unbroken word may exceed 500 chars;
                 // preserve that word rather than corrupting word offsets.
                 next++;
                 if(wordEnd>limit)break;

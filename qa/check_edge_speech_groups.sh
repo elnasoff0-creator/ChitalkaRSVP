@@ -15,12 +15,12 @@ public class CheckEdgeGroups {
     if(grouped.size()>=old.size()/2)throw new AssertionError("Not enough handshake reduction");
     int last=0;
     for(SentenceChunks.Chunk c:grouped){
-      if(c.text.length()>900||!c.text.equals(raw.substring(c.fromChar,c.toChar))||c.fromWord!=last)
+      if(c.text.length()>800||!c.text.equals(raw.substring(c.fromChar,c.toChar))||c.fromWord!=last)
         throw new AssertionError("Broken groups / offsets: "+c.text);
       last=c.toWord;
     }
     if(last!=SentenceChunks.wordPositions(raw).size())throw new AssertionError("Missing words");
-    int chapterBoundary=raw.indexOf("Это предложение",600);
+    int chapterBoundary=raw.indexOf("Это предложение",500);
     BookChapterIndex toc=BookChapterIndex.build(java.util.Arrays.asList(
         new BookChapterIndex.Chapter("Начало",0,0,1),
         new BookChapterIndex.Chapter("Продолжение",chapterBoundary,0,1)),raw.length());
@@ -28,8 +28,8 @@ public class CheckEdgeGroups {
         if(c.fromChar<chapterBoundary&&c.toChar>chapterBoundary)
           throw new AssertionError("One MP3 crosses two chapters");
     }
-    if(grouped.get(0).text.length()>900)throw new AssertionError("Slow first group");
-    System.out.println("PASS: "+old.size()+" sentences -> "+grouped.size()+" requests, <=900 characters, stable word offsets");
+    if(grouped.get(0).text.length()>800)throw new AssertionError("Slow first group");
+    System.out.println("PASS: "+old.size()+" sentences -> "+grouped.size()+" requests, <=800 characters, stable word offsets");
   }
 }
 JAVA

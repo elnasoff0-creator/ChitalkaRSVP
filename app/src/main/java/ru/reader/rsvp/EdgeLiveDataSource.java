@@ -14,10 +14,13 @@ import java.io.IOException;
 @UnstableApi
 final class EdgeLiveDataSource extends BaseDataSource {
     private final EdgeLiveBuffer buffer;
+    private final String traceKey;
     private Uri uri;
     private long position;
     private boolean opened;
-    EdgeLiveDataSource(EdgeLiveBuffer buffer){super(false);this.buffer=buffer;}
+    EdgeLiveDataSource(EdgeLiveBuffer buffer,String key){
+        super(false);this.buffer=buffer;this.traceKey=key;
+    }
     @Override public long open(DataSpec spec) throws IOException {
         uri=spec.uri;
         position=spec.position;
@@ -31,6 +34,7 @@ final class EdgeLiveDataSource extends BaseDataSource {
         int n=buffer.read(position,dest,offset,length);
         if(n<0)return C.RESULT_END_OF_INPUT;
         position+=n;
+        if(n>0)EdgeTtsDiagnostics.decoderRead(traceKey,n);
         bytesTransferred(n);
         return n;
     }
@@ -41,7 +45,8 @@ final class EdgeLiveDataSource extends BaseDataSource {
     }
     static final class Factory implements DataSource.Factory {
         private final EdgeLiveBuffer buffer;
-        Factory(EdgeLiveBuffer buffer){this.buffer=buffer;}
-        @Override public DataSource createDataSource(){return new EdgeLiveDataSource(buffer);}
+        private final String traceKey;
+        Factory(EdgeLiveBuffer buffer,String key){this.buffer=buffer;this.traceKey=key;}
+        @Override public DataSource createDataSource(){return new EdgeLiveDataSource(buffer,traceKey);}
     }
 }

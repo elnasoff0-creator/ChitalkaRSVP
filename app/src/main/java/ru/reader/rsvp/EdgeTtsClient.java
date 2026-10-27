@@ -8,6 +8,7 @@ import java.util.List;
 final class EdgeTtsClient {
     interface Callback {
         void progress(int chunks,long bytes);
+        default void connected() {}
         default void audio(byte[] bytes,int offset,int length) {}
         default void metadata(List<EdgeWordTimings.Boundary> marks) {}
         void finished(byte[] mp3,int chunks,String error);

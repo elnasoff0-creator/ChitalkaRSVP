@@ -7,7 +7,7 @@ import java.util.regex.Pattern;
 
 /** Shared sentence-first segmentation for Android and Edge TTS. Source offsets stay stable. */
 final class SentenceChunks {
-    static final int LIMIT = 900;
+    static final int LIMIT = 800;
     static final class Chunk {
         final int fromChar, toChar, fromWord, toWord;
         final String text;

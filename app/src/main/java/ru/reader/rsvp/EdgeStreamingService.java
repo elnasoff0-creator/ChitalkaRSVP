@@ -34,7 +34,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /** Serial Edge speech coordinator: stream the selected clip to Media3.
- * Do not synthesize the following 900-character clip in the background.
+ * Do not synthesize the following 800-character clip in the background.
  * Request it only after playback reports that the current clip has ended.
  */
 public final class EdgeStreamingService extends Service {
@@ -137,6 +137,7 @@ public final class EdgeStreamingService extends Service {
                 Clip ended=clipAt(start);
                 if(ended==null||ended.end!=end)return;
                 ended.played=true;
+                EdgeTtsDiagnostics.trackEnded(key);
                 selectedOverrides.removeIf(c->end>=c.end);
                 selectedSeekWord=-1;
                 anchorWord=end;
@@ -333,7 +334,7 @@ public final class EdgeStreamingService extends Service {
                     if(!bookReady)error="Книга не содержит текста";
                     else {
                         // Startup restoration is not a tap: do not clear an active
-                        // prefetch or request 600-char priority pieces automatically.
+                        // prefetch or request 500-char priority pieces automatically.
                         restoreStartPosition();
                         persist();
                     }
@@ -348,7 +349,7 @@ public final class EdgeStreamingService extends Service {
     }
     /** Restore an arbitrary word without calling the manual-seek path.
      * A cached group with WordBoundary can seek locally. Otherwise synthesize
-     * just the remainder of the normal <=900-char group, as ONE request.
+     * just the remainder of the normal <=800-char group, as ONE request.
      * On Play the same warm buffer is reused instead of a second handshake.
      */
     private void restoreStartPosition(){
@@ -434,6 +435,7 @@ public final class EdgeStreamingService extends Service {
             if(job.networkDone)continue; // complete cache must be committed
             if(selected!=null && job.clip==selected)continue;
             liveJobs.remove(job.fileId);
+            EdgeTtsDiagnostics.abandon(job.clip.key+":"+job.clip.start);
             if(job.buffer!=null)job.buffer.fail(new java.io.IOException("Navigation canceled Edge stream"));
             if(job.request!=null)job.request.cancel();
             // No partial MP3 is ever stored by the new engine.
@@ -455,8 +457,8 @@ public final class EdgeStreamingService extends Service {
             EdgeSentenceSeek.at(relative,EdgeWordTimings.read(base.file,base.text)):-1L;
         boolean exactLive=requested==base.start&&liveFor(base)!=null;
         if(position<0&&!exactLive){
-            // When jumping to an uncached position, start with up to 600
-            // characters instead of waiting for the normal 900-char group.
+            // When jumping to an uncached position, start with up to 500
+            // characters instead of waiting for the normal 800-char group.
             // Additional pieces cover the rest of the same normal group;
             // this prevents replaying or skipping text on the next track.
             SentenceChunks.Chunk grouped=SentenceChunks.forWord(sentenceParts,requested);
@@ -479,7 +481,7 @@ public final class EdgeStreamingService extends Service {
         pendingStarts.clear();priorityStart=-1;
         persist();pump();
     }
-    /** The normal 900-character group, without temporary priority overrides. */
+    /** The normal 800-character group, without temporary priority overrides. */
     private Clip baseClipAt(int word){
         if(word<0||word>=offsets.size()||sentenceParts.isEmpty())return null;
         SentenceChunks.Chunk part=SentenceChunks.forWord(sentenceParts,word);
@@ -547,7 +549,7 @@ public final class EdgeStreamingService extends Service {
         if(!busy&&!current.ready()&&liveFor(current)==null&&
                 !current.awaitingUserRetry && current.retryAt<=SystemClock.elapsedRealtime())startLive(current);
         // Intentionally no speculative synthesis for `ahead`. Only onTrackFinished
-        // can move anchorWord to the next uncached 900-character block.
+        // can move anchorWord to the next uncached 800-character block.
         changed();
     }
     private void addTrack(Clip clip){
@@ -558,8 +560,8 @@ public final class EdgeStreamingService extends Service {
         if(clip==null||directory==null)return null;
         return liveJobs.get(new File(directory,clip.key+".mp3").getAbsolutePath());
     }
-    /** No growing audio source and no intermediate Android PCM pipeline.
-     * The cached MP3 is published atomically before Media3 can play it.
+    /** Play from a growing encoded MP3 buffer; cache a validated complete file
+     * independently after turn.end. The next clip is not synthesized in advance.
      */
     private void startLive(Clip clip){startLive(clip,false);}
     private void startLive(Clip clip,boolean warmup){
@@ -579,12 +581,16 @@ public final class EdgeStreamingService extends Service {
             player.appendLive(clip.key+":"+clip.start,clip.start,clip.end,job.buffer);
         }
         liveJobs.put(job.fileId,job);
+        final String diagnosticKey=clip.key+":"+clip.start;
+        EdgeTtsDiagnostics.requested(diagnosticKey,clip.text.length(),warmup);
         error="";changed();
         job.request=EdgeTtsClient.synthesize(clip.text,voice(),rate(),
             foreground?EdgeSpeechQueue.PLAY:EdgeSpeechQueue.PREFETCH,
             new EdgeTtsClient.Callback(){
                 @Override public void progress(int count,long bytes){}
+                @Override public void connected(){EdgeTtsDiagnostics.connected(diagnosticKey);}
                 @Override public void audio(byte[] packet,int start,int length){
+                    EdgeTtsDiagnostics.firstMp3(diagnosticKey,length);
                     if(job.buffer!=null)try{job.buffer.append(packet,start,length);}
                     catch(java.io.IOException e){Log.w("EdgeSpeech","Live buffer rejected MP3",e);}
                 }
@@ -597,6 +603,8 @@ public final class EdgeStreamingService extends Service {
                 @Override public void finished(byte[] mp3,int parts,String problem,
                         List<EdgeWordTimings.Boundary> metadata){
                     job.networkDone=true;
+                    EdgeTtsDiagnostics.finished(diagnosticKey,problem,
+                        job.timings==null?0:job.timings.size());
                     if(problem!=null){
                         if(job.buffer!=null)job.buffer.fail(new java.io.IOException(problem));
                         main.post(()->{

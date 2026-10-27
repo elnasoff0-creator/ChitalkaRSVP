@@ -23,11 +23,9 @@ import okhttp3.WebSocket;
 import okhttp3.WebSocketListener;
 import okio.ByteString;
 
-/** Complete-file Edge speech engine. No live audio decoder, growing Media3 source,
- * per-sentence streaming playlist or intermediate PCM buffer. Playback begins when
- * a verified MP3 has been atomically committed to the cache.
- * Edge's free Read Aloud service is unofficial: HTTP 429 can still be enforced
- * remotely and cannot be fixed by changing the client implementation.
+/** Live MP3 bytes are delivered to the Media3 buffer as WebSocket frames arrive.
+ * A complete validated MP3 is also committed to disk after turn.end.
+ * Edge Read Aloud is unofficial: HTTP 429 can still be enforced remotely.
  */
 final class EdgeSpeechEngine {
     private static final String URL="wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1";
@@ -200,6 +198,7 @@ final class EdgeSpeechEngine {
                     synchronized(EdgeSpeechEngine.this){
                         if(finished||currentAttempt!=connectionAttempt){ws.cancel();return;}
                     }
+                    callback.connected();
                     String config="X-Timestamp:"+timestamp()+"\r\nContent-Type:application/json; charset=utf-8\r\n"
                         +"Path:speech.config\r\n\r\n{\"context\":{\"synthesis\":{\"audio\":{\"metadataoptions\":{"
                         +"\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"true\"},"

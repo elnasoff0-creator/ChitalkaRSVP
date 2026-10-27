@@ -16,7 +16,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import java.util.ArrayList;
 
 /** UI navigation uses the same prepared BookChunkIndex blocks as ReaderActivity.
- * Audio SentenceChunks remain independent and keep their 900-character limit. */
+ * Audio SentenceChunks remain independent and keep their 800-character limit. */
 final class TtsTextBlockManager {
     interface Choose {void onChoose(BookChunkIndex.Chunk chunk);}
     interface ChooseChapter {void onChoose(int startChar);}
