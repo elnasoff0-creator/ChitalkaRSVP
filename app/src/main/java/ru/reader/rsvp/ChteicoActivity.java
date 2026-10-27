@@ -38,6 +38,7 @@ public final class ChteicoActivity extends Activity {
     private TextView speechBubble;
     private SpeechBubbleLayout speechContainer;
     private Runnable pendingSpeechHide;
+    private Runnable sleepAnimation;
     private final Random phraseRandom=new Random();
     private final Handler ui=new Handler(Looper.getMainLooper());
     private int dp(int n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}    
@@ -168,6 +169,11 @@ public final class ChteicoActivity extends Activity {
         if(message==null||speechBubble==null||speechContainer==null)return;
         if(pendingSpeechHide!=null)ui.removeCallbacks(pendingSpeechHide);
         speechBubble.setText(message);
+        if(speechContainer.getLayoutParams() instanceof FrameLayout.LayoutParams){
+            FrameLayout.LayoutParams lp=(FrameLayout.LayoutParams)speechContainer.getLayoutParams();
+            lp.width=message.matches("\\([^)]{1,12}\\)")?dp(132):dp(235);
+            speechContainer.setLayoutParams(lp);
+        }
         speechContainer.setVisibility(View.VISIBLE);
         speechContainer.setAlpha(0f);
         speechContainer.animate().cancel();speechContainer.animate().alpha(1f).setDuration(180).start();
@@ -178,7 +184,7 @@ public final class ChteicoActivity extends Activity {
         };
         ui.postDelayed(pendingSpeechHide,durationMs);
     }
-    @Override protected void onDestroy(){if(pendingSpeechHide!=null)ui.removeCallbacks(pendingSpeechHide);super.onDestroy();}
+    @Override protected void onDestroy(){if(pendingSpeechHide!=null)ui.removeCallbacks(pendingSpeechHide);if(sleepAnimation!=null)ui.removeCallbacks(sleepAnimation);super.onDestroy();}
     private String progressText(int stage){
         if(stage==ChteicoStore.ADULT)return "С вами настоящий книжный друг";
         return "До следующей эволюции: "+ChteicoStore.progress(this)+"%";
@@ -273,7 +279,9 @@ public final class ChteicoActivity extends Activity {
         TapWaves waves=new TapWaves();petFrame.addView(waves,new FrameLayout.LayoutParams(-1,-1));
         View petTapTarget=new View(this);
         petFrame.addView(petTapTarget,new FrameLayout.LayoutParams(dp(248),dp(247),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL));
-        petTapTarget.setOnClickListener(v->{
+        Runnable normalTap=()->{
+            ChteicoEmotions.wake();pet.setSleeping(false);
+            if(sleepAnimation!=null)ui.removeCallbacks(sleepAnimation);
             waves.burst();
             if(ChteicoStore.stage(this)==ChteicoStore.EGG){
                 boolean hatched=ChteicoStore.petTapped(this);
@@ -284,7 +292,12 @@ public final class ChteicoActivity extends Activity {
             }else{
                 showSpeech(nextPetReply(),4200);
             }
-        });
+        };
+        ChteicoEmotions.attach(petTapTarget,normalTap,null,()->{
+            if(sleepAnimation!=null)ui.removeCallbacks(sleepAnimation);
+            pet.setSleeping(false);
+            showSpeech(ChteicoEmotions.stroke(),2750);
+        },null);
         if(stage!=ChteicoStore.EGG){
             speechContainer=new SpeechBubbleLayout();
             speechBubble=text("",13,false);speechBubble.setGravity(Gravity.CENTER);speechBubble.setMaxLines(4);
@@ -294,9 +307,18 @@ public final class ChteicoActivity extends Activity {
             petFrame.addView(speechContainer,bubbleLayout);
             speechContainer.setVisibility(View.INVISIBLE);
             String intro=ChteicoStore.consumeIntroduction(this);
-            if(intro!=null){
-                showSpeech(intro,7000);
-            }
+            if(ChteicoEmotions.isSleeping()){
+                pet.setSleeping(true);
+                sleepAnimation=new Runnable(){int phase;
+                    @Override public void run(){
+                        if(!ChteicoEmotions.isSleeping()||speechBubble==null)return;
+                        speechBubble.setText(ChteicoEmotions.sleep(phase++));
+                        speechContainer.setVisibility(View.VISIBLE);
+                        ui.postDelayed(this,850);
+                    }
+                };
+                ui.post(sleepAnimation);
+            }else if(intro!=null)showSpeech(intro,7000);
         }
         gap(hero,12);
         progressBar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progressBar.setMax(100);progressBar.setProgress(ChteicoStore.progress(this));

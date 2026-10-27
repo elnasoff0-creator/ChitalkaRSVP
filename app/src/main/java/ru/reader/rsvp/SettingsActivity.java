@@ -108,6 +108,8 @@ public class SettingsActivity extends Activity {
         theme(themes,"Светлая",0xffffffff,0xff202020);theme(themes,"Сепия",0xfff3e7d5,0xff30221e);theme(themes,"Ночная",0xff1e2025,0xffe8e5db);theme(themes,"Мягкая",0xffdfe9d9,0xff223a29);list.addView(themes);
         header("Цвет фона");palette(backgrounds,true);
         header("Цвет текста");palette(textColors,false);
+        header("Цвет фоновых подложек");
+        list.addView(action("Изменить цвет подложек",()->panelColorDialog()));
         header("Цвет обычных кнопок");buttonPalette(false);
         header("Цвет акцентных кнопок · Play, режимы");buttonPalette(true);
         gap(18);
@@ -741,6 +743,31 @@ public class SettingsActivity extends Activity {
         new SwipeDialogs.Builder(this).setTitle("Выбор RGB").setView(wrapper)
             .setPositiveButton("Применить",(d,w)->{int color=Color.rgb(bars[0].getProgress(),bars[1].getProgress(),bars[2].getProgress());if(background){bg=color;put("bg",bg);}else{fg=color;put("fg",fg);}draw();})
             .setNegativeButton("Отмена",null).show();
+    }
+    void panelColorDialog(){
+        int selected=prefs.getInt("panel_color",cardColor());
+        LinearLayout wrapper=col();wrapper.setPadding(dp(20),0,dp(20),0);
+        View sample=new View(this);sample.setBackground(rounded(selected,12));
+        LinearLayout.LayoutParams sampleLp=new LinearLayout.LayoutParams(dp(58),dp(58));sampleLp.gravity=Gravity.CENTER_HORIZONTAL;
+        wrapper.addView(sample,sampleLp);
+        SeekBar[] bars=new SeekBar[3];int[] rgb={Color.red(selected),Color.green(selected),Color.blue(selected)};
+        String[] names={"Красный","Зелёный","Синий"};
+        for(int i=0;i<3;i++){
+            wrapper.addView(text(names[i],14,false));SeekBar bar=new SeekBar(this);
+            bar.setMax(255);bar.setProgress(rgb[i]);bars[i]=bar;wrapper.addView(bar);
+        }
+        for(SeekBar bar:bars)bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            public void onProgressChanged(SeekBar b,int progress,boolean fromUser){
+                sample.setBackground(rounded(Color.rgb(bars[0].getProgress(),bars[1].getProgress(),bars[2].getProgress()),12));
+            }
+            public void onStartTrackingTouch(SeekBar b){}
+            public void onStopTrackingTouch(SeekBar b){}
+        });
+        new SwipeDialogs.Builder(this).setTitle("Цвет фоновых подложек").setView(wrapper)
+            .setNeutralButton("Стандартный",(d,w)->{prefs.edit().remove("panel_color").apply();draw();})
+            .setPositiveButton("Применить",(d,w)->{
+                put("panel_color",Color.rgb(bars[0].getProgress(),bars[1].getProgress(),bars[2].getProgress()));draw();
+            }).setNegativeButton("Отмена",null).show();
     }
     void buttonColorDialog(boolean primary){
         int selected=primary?accentButtonColor:buttonColor;

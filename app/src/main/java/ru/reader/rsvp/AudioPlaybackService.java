@@ -124,6 +124,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     private int ttsWordCount=0;
     private long sleepDeadline=0;
     private boolean sleepAtChapterEnd=false;
+    private int sleepChaptersRemaining=1;
     private int ttsSleepEndWord=-1;
     private double pendingChapterFraction=0;
     // Keep the intended offset while MediaPlayer is preparing/seeking, so a background
@@ -152,6 +153,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         else registerReceiver(noisyReceiver,noisyFilter);
         sleepDeadline=getSharedPreferences("reader",0).getLong("audio_sleep_deadline",0);
         sleepAtChapterEnd=getSharedPreferences("reader",0).getBoolean("audio_sleep_at_chapter_end",false);
+        sleepChaptersRemaining=getSharedPreferences("reader",0).getInt("audio_sleep_chapter_count",1);
         if(sleepDeadline<=System.currentTimeMillis())sleepDeadline=0;
         String preferred=getSharedPreferences("reader",0).getString("tts_engine","");
         tts=preferred.isEmpty()?new TextToSpeech(this,this):new TextToSpeech(this,this,preferred);
@@ -211,11 +213,13 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         case RENAME: {String id=intent.getStringExtra("bookId"),newTitle=intent.getStringExtra("title");
             if(!ttsMode && id!=null && id.equals(bookId) && newTitle!=null && !newTitle.trim().isEmpty())title=newTitle.trim();break;}
         case SLEEP: {int minutes=intent.getIntExtra("minutes",0);
-            sleepAtChapterEnd=minutes==-1;
-            ttsSleepEndWord=ttsMode&&minutes==-1?intent.getIntExtra("end_word",-1):-1;
+            sleepAtChapterEnd=minutes<0;
+            sleepChaptersRemaining=minutes<0?Math.abs(minutes):1;
+            ttsSleepEndWord=ttsMode&&minutes<0?intent.getIntExtra("end_word",-1):-1;
             sleepDeadline=minutes<=0?0:System.currentTimeMillis()+minutes*60000L;
             getSharedPreferences("reader",0).edit().putLong("audio_sleep_deadline",sleepDeadline)
-                .putBoolean("audio_sleep_at_chapter_end",sleepAtChapterEnd).apply();break;}
+                .putBoolean("audio_sleep_at_chapter_end",sleepAtChapterEnd)
+                .putInt("audio_sleep_chapter_count",sleepChaptersRemaining).apply();break;}
         case ENGINE: {boolean wasPlaying=active&&ttsMode&&!paused;
             if(tts!=null){tts.stop();tts.shutdown();}
             resetLocalSession();if(ttsMode)paused=true;
@@ -251,6 +255,15 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         },"audiobook-duration-scan").start();
     }
     public long getTotalDuration(){long sum=0;for(Long ms:chapterDurations){if(ms==null||ms<=0)return 0;sum+=ms;}return sum;}
+    public long getChapterSleepRemainingMillis(int chapterCount){
+        if(ttsMode||playlist.isEmpty())return -1;
+        long sum=Math.max(0,getDuration()-getPosition());
+        for(int n=segment+1;n<Math.min(playlist.size(),segment+Math.max(1,chapterCount));n++){
+            long length=n<chapterDurations.size()?chapterDurations.get(n):0;
+            if(length<=0)return -1;sum+=length;
+        }
+        return sum;
+    }
     public long getTotalPosition(){long position=Math.max(0,getPosition());for(int n=0;n<Math.min(segment,chapterDurations.size());n++)position+=chapterDurations.get(n);return position;}
     public void seekTotal(long target){
         if(ttsMode)return;
@@ -310,9 +323,13 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
                     mp.seekTo(target);
                 }else startAfterSeek.run();
             });
-            player.setOnCompletionListener(mp->{if(mp!=player)return;if(sleepAtChapterEnd){sleepAtChapterEnd=false;
-                getSharedPreferences("reader",0).edit().putBoolean("audio_sleep_at_chapter_end",false).apply();
-                pausePlayback();return;}
+            player.setOnCompletionListener(mp->{if(mp!=player)return;
+                if(sleepAtChapterEnd&&--sleepChaptersRemaining<=0){sleepAtChapterEnd=false;
+                    getSharedPreferences("reader",0).edit().putBoolean("audio_sleep_at_chapter_end",false)
+                        .putInt("audio_sleep_chapter_count",1).apply();
+                    pausePlayback();return;}
+                if(sleepAtChapterEnd)getSharedPreferences("reader",0).edit()
+                    .putInt("audio_sleep_chapter_count",sleepChaptersRemaining).apply();
             if(segment+1<playlist.size()){
                 segment++;rewindOnNextPlay=false;prepareAudio(0,true);
             }else {if(getSharedPreferences("reader",0).getBoolean("audio_repeat_all",false)){

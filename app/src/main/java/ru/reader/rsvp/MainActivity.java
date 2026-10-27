@@ -285,7 +285,7 @@ public class MainActivity extends Activity {
     int dp(int n) { return (int) (getResources().getDisplayMetrics().density * n + .5f); }
     Typeface type() { return font == 1 ? Typeface.SERIF : font == 2 ? Typeface.MONOSPACE : Typeface.SANS_SERIF; }
     int accent() { return ReaderButtonColors.accent(this, 0xff9A5E40); }
-    int panelColor() { return bg == 0xff1e2025 ? 0xff2a2d33 : 0xfffff9f1; }
+    int panelColor() { return prefs.getInt("panel_color", bg == 0xff1e2025 ? 0xff2a2d33 : 0xfffff9f1); }
     int softPanel() { return bg == 0xff1e2025 ? 0xff333842 : 0xfff5ede2; }
     int faintText() { return bg == 0xff1e2025 ? 0xffcbc6bb : 0xff6d635a; }
 
@@ -376,10 +376,8 @@ public class MainActivity extends Activity {
         root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
 
         add(contentWrap, gap(10));
+        final int readingStart=contentWrap.getChildCount();
 
-        LinearLayout head1 = sectionHeader("Продолжить чтение", currentUri.isEmpty() ? "" : "");
-        add(contentWrap, head1);
-        add(contentWrap, gap(8));
         if (!currentUri.isEmpty() && meta(currentUri) != null) add(contentWrap, continueCard(meta(currentUri)));
         else {
             TextView empty = text("У тебя пока нет открытой книги. Нажми «+» вверху для добавления EPUB, FB2 или HTML.", 15, false);
@@ -416,8 +414,7 @@ public class MainActivity extends Activity {
         }
         // Keep one consistent separation between the text and audio groups.
         // Previously 12 + 16 + 12 dp were stacked here.
-        add(contentWrap, gap(20));
-
+        final int audioStart=contentWrap.getChildCount();
         java.util.ArrayList<AudioLibrary.Book> audioBooks=AudioLibrary.load(this);
         audioBooks = sortedAudioBooks(audioBooks);
         if(!audioBooks.isEmpty()){
@@ -426,8 +423,7 @@ public class MainActivity extends Activity {
             for(AudioLibrary.Book item:audioBooks)if(item.id.equals(lastId)){recent=item;break;}
             if(recent==null)recent=audioBooks.get(0);
             final AudioLibrary.Book lastBook=recent;
-            add(contentWrap,sectionHeader("Продолжить аудиокнигу",""));
-            add(contentWrap,gap(8));
+            
             LinearLayout recentCard=column();recentCard.setBackground(shape(panelColor(),22));pad(recentCard,14);
             LinearLayout recentBody=row();recentBody.setGravity(Gravity.CENTER_VERTICAL);recentCard.addView(recentBody);
             recentBody.addView(audioCover(lastBook,88),new LinearLayout.LayoutParams(dp(88),dp(88)));
@@ -473,27 +469,31 @@ public class MainActivity extends Activity {
                 add(contentWrap,audioList);
             }
         }
+        final int petStart=contentWrap.getChildCount();
         if(ChteicoStore.enabled(this) && prefs.getBoolean("mini_pet_on_home",true)){
-            add(contentWrap,gap(14));
-            // Transparent home companion: no header, helper text or surrounding card.
-            // Fixed-size overlay: the speech bubble is drawn above the pet.
+            // Same surface as the Continue cards; bubble overlays without changing layout.
             // Showing a reply changes visibility only, never parent measurements.
             FrameLayout petArea=new FrameLayout(this);
-            LinearLayout.LayoutParams areaLp=new LinearLayout.LayoutParams(-1,dp(168));
+            LinearLayout.LayoutParams areaLp=new LinearLayout.LayoutParams(-1,dp(130));
+            petArea.setBackground(shape(panelColor(),22));
             areaLp.gravity=Gravity.CENTER_HORIZONTAL;
             ChteicoPetView pet=new ChteicoPetView(this);
-            FrameLayout.LayoutParams petLp=new FrameLayout.LayoutParams(dp(105),dp(112),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);
+            FrameLayout.LayoutParams petLp=new FrameLayout.LayoutParams(dp(92),dp(93),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);
             petArea.addView(pet,petLp);
             ChteicoSpeechBubble bubble=new ChteicoSpeechBubble(this,bg,fg);
             TextView reply=text("",15,false);
             reply.setGravity(Gravity.CENTER);reply.setMaxLines(4);
             bubble.addView(reply,new FrameLayout.LayoutParams(-1,-2));
-            FrameLayout.LayoutParams bubbleLp=new FrameLayout.LayoutParams(dp(260),-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL);
+            FrameLayout.LayoutParams bubbleLp=new FrameLayout.LayoutParams(-1,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL);
+            bubbleLp.leftMargin=dp(20);bubbleLp.rightMargin=dp(20);
             petArea.addView(bubble,bubbleLp);
             bubble.setElevation(dp(8));
             bubble.setVisibility(View.GONE);
             final Runnable dismissReply=()->bubble.setVisibility(View.GONE);
-            pet.setOnClickListener(v->{
+            Runnable normalPetTap=()->{
+                FrameLayout.LayoutParams lp=(FrameLayout.LayoutParams)bubble.getLayoutParams();
+                lp.width=-1;bubble.setLayoutParams(lp);
+                pet.setSleeping(false);ChteicoEmotions.wake();
                 android.content.SharedPreferences game=ChteicoStore.prefs(this);
                 ChteicoPhrases.Reply r=ChteicoPhrases.next(ChteicoStore.stage(this),ChteicoStore.branch(this),false,false,
                     game.getString("bubble_seen",""),game.getInt("bubble_last_id",-1),new java.util.Random());
@@ -503,13 +503,34 @@ public class MainActivity extends Activity {
                 bubble.setVisibility(View.VISIBLE);
                 bubble.setAlpha(0f);bubble.animate().cancel();bubble.animate().alpha(1f).setDuration(180).start();
                 bubble.postDelayed(dismissReply,4200);
-            });
-            pet.setOnLongClickListener(v->{
-                bubble.removeCallbacks(dismissReply);
-                startActivity(new Intent(this,ChteicoActivity.class));return true;
-            });
+            };
+            final Runnable[] sleepAnimation=new Runnable[1];
+            sleepAnimation[0]=new Runnable(){int phase;
+                @Override public void run(){
+                    if(!pet.isAttachedToWindow())return;
+                    if(!ChteicoEmotions.isSleeping())return;
+                    pet.setSleeping(true);
+                    FrameLayout.LayoutParams lp=(FrameLayout.LayoutParams)bubble.getLayoutParams();
+                    lp.width=dp(205);bubble.setLayoutParams(lp);
+                    reply.setText(ChteicoEmotions.sleep(phase++));
+                    bubble.setVisibility(View.VISIBLE);
+                    pet.postDelayed(this,850);
+                }
+            };
+            pet.post(sleepAnimation[0]);
+            ChteicoEmotions.attach(pet,normalPetTap,
+                ()->{bubble.removeCallbacks(dismissReply);startActivity(new Intent(this,ChteicoActivity.class));},
+                ()->{
+                    pet.setSleeping(false);bubble.removeCallbacks(dismissReply);
+                    FrameLayout.LayoutParams lp=(FrameLayout.LayoutParams)bubble.getLayoutParams();
+                    lp.width=dp(125);lp.gravity=Gravity.TOP|Gravity.CENTER_HORIZONTAL;
+                    bubble.setLayoutParams(lp);
+                    reply.setText(ChteicoEmotions.stroke());bubble.setVisibility(View.VISIBLE);
+                    bubble.postDelayed(dismissReply,2700);
+                },HomeSectionOrder::startPetDrag);
             contentWrap.addView(petArea,areaLp);
         }
+        HomeSectionOrder.apply(this,contentWrap,readingStart,audioStart,petStart,prefs);
         // Navigation moved to the accessible left drawer.
     }
 
@@ -1116,7 +1137,7 @@ public class MainActivity extends Activity {
         LinearLayout panel=column();panel.setPadding(dp(18),dp(23),dp(18),dp(18));scroll.addView(panel);
         LinearLayout branding=row();branding.setGravity(Gravity.CENTER_VERTICAL);
         ImageView logo=new ImageView(this);
-        logo.setImageResource(R.drawable.ic_reader);
+        logo.setImageResource(R.drawable.ic_launcher_foreground);
         logo.setBackground(shape(softPanel(),14));
         logo.setClipToOutline(true);
         branding.addView(logo,new LinearLayout.LayoutParams(dp(43),dp(43)));
@@ -1391,13 +1412,15 @@ public class MainActivity extends Activity {
             int matches=0;
             for(BookMeta b:sortedLibraryBooks()){
                 if(!b.title.toLowerCase(java.util.Locale.ROOT).contains(needle))continue;
-                TextView item=buttonish("Книга · "+b.title,softPanel(),fg,false);
+                TextView item=text("Книга · "+b.title,16,false);
+                item.setPadding(dp(10),dp(12),dp(10),dp(12));
                 item.setOnClickListener(v->{dialog.dismiss();openBook(b.uri,false,true);});
                 results.addView(item);matches++;
             }
             for(AudioLibrary.Book b:sortedAudioBooks(AudioLibrary.load(this))){
                 if(!b.name.toLowerCase(java.util.Locale.ROOT).contains(needle))continue;
-                TextView item=buttonish("Аудиокнига · "+b.name,softPanel(),fg,false);
+                TextView item=text("Аудиокнига · "+b.name,16,false);
+                item.setPadding(dp(10),dp(12),dp(10),dp(12));
                 item.setOnClickListener(v->{dialog.dismiss();openAudioBook(b.id);});
                 results.addView(item);matches++;
             }

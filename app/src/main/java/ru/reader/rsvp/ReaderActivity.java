@@ -226,8 +226,11 @@ public class ReaderActivity extends Activity {
         SafeSystemBars.install(this);
         SafeSystemBars.matchBackground(this,bg);
         toolbarStack=column();
-        int translucent=(bg&0x00ffffff)|0x80000000; // 50% of the reading background.
-        toolbarStack.setBackground(shape(translucent,15));
+        int opaque=bg|0xff000000;
+        android.graphics.drawable.GradientDrawable toolbarFade=new android.graphics.drawable.GradientDrawable(
+            android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+            new int[]{opaque,(bg&0x00ffffff)|0xb0000000,(bg&0x00ffffff)});
+        toolbarStack.setBackground(toolbarFade);
         toolbarStack.setPadding(dp(5),dp(4),dp(5),dp(5));
         FrameLayout.LayoutParams toolbarOverlay=new FrameLayout.LayoutParams(-1,-2,Gravity.TOP);
         toolbarOverlay.setMargins(dp(8),dp(7),dp(8),0);sceneRoot.addView(toolbarStack,toolbarOverlay);
@@ -352,7 +355,7 @@ public class ReaderActivity extends Activity {
                 }
                 if(state==RecyclerView.SCROLL_STATE_IDLE){
                     userScrolling=false;
-                    if(mode==RSVP){scrollWordAccumulator=0;setRsvpContextVisible(!playing);if(!playing)ensureWordVisible(false);}
+                    if(mode==RSVP){scrollWordAccumulator=0;setRsvpContextVisible(!playing);}
                     saveLight(true);
                 }
             }
@@ -604,7 +607,8 @@ public class ReaderActivity extends Activity {
         if(textList==null||mode!=RSVP)return;
         if(textList.getVisibility()==(visible?View.VISIBLE:View.GONE))return;
         textList.setVisibility(visible?View.VISIBLE:View.GONE);
-        if(visible)textList.post(()->ensureWordVisible(true));
+        // RSVP never scrolls while playing; stopping or returning to it positions once.
+        if(visible&&!playing)textList.post(()->ensureWordVisible(true));
     }
     private void stepRsvpByScroll(int dy){
         if(words.length==0||dy==0)return;
@@ -737,6 +741,7 @@ public class ReaderActivity extends Activity {
         if(focusLines!=null)focusLines.invalidate();updateProgress();
     }
     private void ensureWordVisible(boolean force){
+        if(mode==RSVP&&playing)return;
         if(textList==null||textList.getVisibility()!=View.VISIBLE||layoutManager==null||chunks==null||words.length==0)return;
         int chunk=chunks.chunkForWord(index);
         int start=layoutManager.findFirstVisibleItemPosition()-1,end=layoutManager.findLastVisibleItemPosition()-1;
@@ -1038,16 +1043,31 @@ public class ReaderActivity extends Activity {
         BookChapterIndex.Chapter chapter=chapters.atChar(map.starts[map.clamp(startWord)]);
         return chapter==null?map.starts.length:map.atCharacter(chapter.endChar);
     }
+    private int chapterEndAfter(int fromWord,int count){
+        if(chapters==null||chapters.size()==0)return map.starts.length;
+        int startChar=map.starts.length>0?map.starts[map.clamp(fromWord)]:0;
+        int current=0;
+        for(int i=0;i<chapters.size();i++)if(chapters.get(i).startChar<=startChar)current=i;
+        int endIdx=Math.min(chapters.size()-1,current+Math.max(1,count)-1);
+        return map.atCharacter(chapters.get(endIdx).endChar);
+    }
     private void chooseTtsSleep(){
         if(mode!=TTS)return;
-        int[] values={0,5,10,15,30,60,-1};String[] names={"Выключить","5 мин","10 мин","15 мин","30 мин","60 мин","Конец главы"};
-        UiNavigationSheet.showTopChoices(this,"Таймер сна",names,-1,n->{
-            int end=chapterEndWord(index);
-            if(ttsLocal)startService(new Intent(this,AudioPlaybackService.class)
-                .setAction(AudioPlaybackService.SLEEP).putExtra("minutes",values[n]).putExtra("end_word",end));
-            else if(ttsPlayer!=null){
-                if(values[n]==-1)ttsPlayer.setSleepChapterEnd(end);
-                else ttsPlayer.setSleepMinutes(values[n]);
+        SleepTimerSheet.open(this,new SleepTimerSheet.Listener(){
+            @Override public void minutes(int minutes){
+                if(ttsLocal)startService(new Intent(ReaderActivity.this,AudioPlaybackService.class)
+                    .setAction(AudioPlaybackService.SLEEP).putExtra("minutes",minutes));
+                else if(ttsPlayer!=null)ttsPlayer.setSleepMinutes(minutes);
+            }
+            @Override public void chapters(int count){
+                int end=chapterEndAfter(index,count);
+                if(ttsLocal)startService(new Intent(ReaderActivity.this,AudioPlaybackService.class)
+                    .setAction(AudioPlaybackService.SLEEP).putExtra("minutes",-count).putExtra("end_word",end));
+                else if(ttsPlayer!=null)ttsPlayer.setSleepChapterEnd(end);
+            }
+            @Override public long remainingMillis(int count){
+                int end=chapterEndAfter(index,count);
+                return Math.max(0,end-index)*60000L/Math.max(1,TtsWpm.get(ReaderActivity.this));
             }
         });
     }

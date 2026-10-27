@@ -33,7 +33,7 @@ public final class SheetDragLayout extends LinearLayout {
                 float dx=event.getRawX()-startX;
                 if(dialog!=null&&((fromTop&&dy<0)||(!fromTop&&dy>0))
                         &&Math.abs(dy)>density*24&&Math.abs(dy)>Math.abs(dx)*1.35f
-                        &&!scrollableUnderFinger(this,fromTop?1:-1,event.getRawX(),event.getRawY())){
+                        &&!scrollableUnderFinger(this,fromTop?1:-1,startX,startY)){
                     intercepting=true;
                     return true;
                 }

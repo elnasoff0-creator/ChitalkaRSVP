@@ -1,0 +1,8 @@
+feat(ui): add chapter sleep timer, draggable home sections and pet emotions (v1.11.101-beta)
+
+- shared sleep timer with multi-chapter count, custom minutes and remaining time
+- retain RSVP scroll; fade reader toolbar vertically
+- reorder main sections and configure panel colors
+- overlay pet speech on fixed card; add stroke emotions and stationary sleep
+- use launcher foreground art only inside the main drawer
+- simplify search rows; preserve existing MP3 cache and services

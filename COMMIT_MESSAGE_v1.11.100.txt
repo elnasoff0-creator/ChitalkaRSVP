@@ -1,6 +1,0 @@
-fix(build): correct EdgeSpeechFiles.save File result check (v1.11.100-beta)
-
-- Fix invalid File-as-boolean condition in EdgeStreamingService Java compilation
-- Preserve EdgeAudioManager cache invalidation after successful save
-- Add regression QA test for File return contract
-- Bump version and keep only current release documents

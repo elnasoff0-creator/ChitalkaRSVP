@@ -435,12 +435,19 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         });
     }
     void sleepMenu(){
-        final int[] minutes={0,5,10,15,30,60};
-        String[] labels={"Выключить","5 мин","10 мин","15 мин","30 мин","60 мин","Конец главы"};
-        UiNavigationSheet.showTopChoices(this,"Таймер сна",labels,-1,n->{
-            Intent i=new Intent(this,AudioPlaybackService.class).setAction(AudioPlaybackService.SLEEP);
-            i.putExtra("minutes",n==6?-1:minutes[n]);startService(i);
-            Toast.makeText(this,"Таймер сохранён",Toast.LENGTH_SHORT).show();
+        SleepTimerSheet.open(this,new SleepTimerSheet.Listener(){
+            @Override public void minutes(int minutes){
+                startService(new Intent(AudioPlayerActivity.this,AudioPlaybackService.class)
+                    .setAction(AudioPlaybackService.SLEEP).putExtra("minutes",minutes));
+            }
+            @Override public void chapters(int count){
+                startService(new Intent(AudioPlayerActivity.this,AudioPlaybackService.class)
+                    .setAction(AudioPlaybackService.SLEEP).putExtra("minutes",-count));
+            }
+            @Override public long remainingMillis(int chapters){
+                AudioPlaybackService service=AudioPlaybackService.instance;
+                return service==null?-1:service.getChapterSleepRemainingMillis(chapters);
+            }
         });
     }
     void voiceMenu(){startActivity(new Intent(this,TtsVoiceActivity.class));}

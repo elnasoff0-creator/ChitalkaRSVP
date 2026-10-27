@@ -16,6 +16,7 @@ public final class ChteicoPetView extends ImageView {
     private final Handler handler=new Handler(Looper.getMainLooper());
     private boolean attached;
     private boolean frameDown;
+    private boolean sleeping;
     private int shownStage=-1, shownBranch=-1, shownEggUnits=-1;
 
     // Stage order: Chick, Reader, Adult. Branch order: classic, speed, audio.
@@ -38,7 +39,7 @@ public final class ChteicoPetView extends ImageView {
     };
 
     private final Runnable cycle=new Runnable(){@Override public void run(){
-        if(!attached)return;
+        if(!attached||sleeping)return;
         int stage=ChteicoStore.stage(getContext());
         int branch=ChteicoStore.branch(getContext());
         int units=ChteicoStore.eggUnits(getContext());
@@ -83,13 +84,20 @@ public final class ChteicoPetView extends ImageView {
             .setDuration(FRAME_MS-80L).start();
     }
 
+    public void setSleeping(boolean value){
+        if(sleeping==value)return;
+        sleeping=value;handler.removeCallbacks(cycle);
+        animate().cancel();setScaleX(1f);setScaleY(1f);
+        frameDown=value;showFrame();
+        if(attached&&!sleeping)handler.postDelayed(cycle,FRAME_MS);
+    }
     public void refresh(){
         handler.removeCallbacks(cycle);
-        frameDown=false;
+        frameDown=sleeping;
         shownStage=-1;shownBranch=-1;shownEggUnits=-1;
         animate().cancel();setScaleX(1f);setScaleY(1f);setRotation(0f);setTranslationY(0f);
         showFrame();
-        if(attached)handler.postDelayed(cycle,FRAME_MS);
+        if(attached&&!sleeping)handler.postDelayed(cycle,FRAME_MS);
     }
 
     @Override protected void onAttachedToWindow(){
