@@ -19,7 +19,15 @@ JAVA
 cat > "$TMP/src/okhttp3/Response.java" <<'JAVA'
 package okhttp3;
 public class Response {public static volatile int status=101;
-public int code(){return status;}public String header(String s){return "Retry-After".equals(s)?"47":null;}}
+public static volatile boolean badDate,shortSkew;
+public int code(){return status;}
+public String header(String s){
+ if("Retry-After".equals(s))return "47";
+ if(!"Date".equals(s)||badDate)return badDate?"bad-date":null;
+ java.text.SimpleDateFormat fmt=new java.text.SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss 'GMT'",java.util.Locale.US);
+ fmt.setTimeZone(java.util.TimeZone.getTimeZone("GMT"));
+ return fmt.format(new java.util.Date(System.currentTimeMillis()+(shortSkew?0:600000L)));
+}}
 JAVA
 cat > "$TMP/src/okhttp3/Request.java" <<'JAVA'
 package okhttp3;
@@ -51,7 +59,8 @@ cat > "$TMP/src/okhttp3/OkHttpClient.java" <<'JAVA'
 package okhttp3;
 import java.util.concurrent.TimeUnit;import java.nio.charset.StandardCharsets;
 public class OkHttpClient {
- public static volatile String target=""; public static volatile int calls;
+ public static volatile String target="",firstTarget="";
+ public static volatile int calls; public static volatile boolean always403;
  public static class Builder {
   public Builder connectionPool(ConnectionPool p){return this;}
   public Builder connectTimeout(long n,TimeUnit t){return this;}
@@ -59,10 +68,13 @@ public class OkHttpClient {
   public Builder pingInterval(long n,TimeUnit t){return this;}
   public OkHttpClient build(){return new OkHttpClient();}}
  public WebSocket newWebSocket(Request request,WebSocketListener listener){
-  target=request.url;calls++;
+  target=request.url;calls++;if(calls==1)firstTarget=target;
   WebSocket ws=new WebSocket();
   new Thread(()->{try{
     if(Response.status==429){listener.onFailure(ws,new java.io.IOException("limited"),new Response());return;}
+    if(Response.status==403&&(always403||calls==1)){
+        listener.onFailure(ws,new java.io.IOException("forbidden"),new Response());return;
+    }
     listener.onOpen(ws,new Response());Thread.sleep(30);
     byte[] header="Path: audio\r\nContent-Type: audio/mpeg".getBytes(StandardCharsets.US_ASCII);
     byte[] bytes=new byte[2+header.length+2700];bytes[0]=(byte)(header.length>>8);bytes[1]=(byte)header.length;
@@ -82,11 +94,6 @@ JAVA
 cat > "$TMP/src/ru/reader/rsvp/EdgeWordTimings.java" <<'JAVA'
 package ru.reader.rsvp;import java.util.List;
 class EdgeWordTimings {static class Boundary{}static void parseMetadata(String s,List<Boundary> out){}}
-JAVA
-cat > "$TMP/src/ru/reader/rsvp/EdgeToken.java" <<'JAVA'
-package ru.reader.rsvp;
-class EdgeToken {static final String TOKEN="key",VERSION="2-155.0.4283.45";
-static String generate(long sec){return "TEST";}}
 JAVA
 cat > "$TMP/src/ru/reader/rsvp/EdgeSpeechEngineSmoke.java" <<'JAVA'
 package ru.reader.rsvp;
@@ -143,11 +150,47 @@ class EdgeSpeech429Smoke {
  }
 }
 JAVA
+cat > "$TMP/src/ru/reader/rsvp/EdgeSpeech403Smoke.java" <<'JAVA'
+package ru.reader.rsvp;
+import java.util.concurrent.CountDownLatch;import java.util.concurrent.TimeUnit;
+import okhttp3.OkHttpClient;import okhttp3.Response;
+class EdgeSpeech403Smoke {
+ public static void main(String[] args)throws Exception{
+  String scenario=args[0];
+  Response.status=403;
+  Response.badDate="bad-date".equals(scenario);
+  Response.shortSkew="same-window".equals(scenario);
+  OkHttpClient.always403="repeat-403".equals(scenario);
+  CountDownLatch complete=new CountDownLatch(1);
+  final String[] error={null};final byte[][] audio={null};
+  EdgeTtsClient synth=EdgeTtsClient.synthesize("Проверка коррекции времени", "ru-RU-SvetlanaNeural", "+0%",
+   new EdgeTtsClient.Callback(){
+    public void progress(int frames,long size){}
+    public void finished(byte[] bytes,int frames,String problem){audio[0]=bytes;error[0]=problem;complete.countDown();}
+   });
+  if(!complete.await(4,TimeUnit.SECONDS))throw new AssertionError("403 handshake hung");
+  int expectedCalls=("bad-date".equals(scenario)||"same-window".equals(scenario))?1:2;
+  if(OkHttpClient.calls!=expectedCalls)throw new AssertionError("Expected "+expectedCalls+" handshakes got "+OkHttpClient.calls);
+  if("recover".equals(scenario)){
+   if(error[0]!=null||audio[0]==null||audio[0].length<2000)throw new AssertionError("403 recovery failed: "+error[0]);
+   if(OkHttpClient.firstTarget.equals(OkHttpClient.target))throw new AssertionError("Retry did not regenerate Sec-MS-GEC");
+  } else if(error[0]==null||!error[0].contains("403"))throw new AssertionError("Should fail once with 403: "+error[0]);
+  synth.cancel();
+  System.out.println("PASS: HTTP 403 scenario: "+scenario+", calls="+OkHttpClient.calls);
+ }
+}
+JAVA
 javac -encoding UTF-8 -d "$TMP/classes" $(find "$TMP/src" -name '*.java') \
  "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeSpeechQueue.java" \
  "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeSpeechEngine.java" \
+ "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeServerClock.java" \
+ "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeToken.java" \
  "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeWsFrames.java" \
  "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeAudioFormat.java" \
  "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeTtsClient.java"
 java -cp "$TMP/classes" ru.reader.rsvp.EdgeSpeechEngineSmoke
 java -cp "$TMP/classes" ru.reader.rsvp.EdgeSpeech429Smoke
+java -cp "$TMP/classes" ru.reader.rsvp.EdgeSpeech403Smoke recover
+java -cp "$TMP/classes" ru.reader.rsvp.EdgeSpeech403Smoke repeat-403
+java -cp "$TMP/classes" ru.reader.rsvp.EdgeSpeech403Smoke bad-date
+java -cp "$TMP/classes" ru.reader.rsvp.EdgeSpeech403Smoke same-window

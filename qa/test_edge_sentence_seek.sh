@@ -53,7 +53,7 @@ a=(base/'ReaderActivity.java').read_text()
 assert s.index('player.armSelectedPosition(current.key') < s.index('addTrack(current);')
 assert p.index('applyArmedPosition();\n        if (oldCount==0)') < p.index('player.prepare();',p.index('player.addMediaItem(insertion'))
 assert 'if(ahead!=null)addTrack(ahead);' in s[s.index('private void pump()'):s.index('private void addTrack(')]
-assert 'selectedOverride=target' in s
+assert 'selectedOverrides.add(clip)' in s and 'EdgeSpeechSegments.priorityPieces(' in s
 assert 'pendingTtsWord' in a and 'EdgeOnlineActivity' not in a
 assert 'clip.awaitingUserRetry=true' in s
 assert 'job.buffer=new EdgeLiveBuffer()' in s

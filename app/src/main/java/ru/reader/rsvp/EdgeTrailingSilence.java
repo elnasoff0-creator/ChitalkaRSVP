@@ -55,7 +55,7 @@ final class EdgeTrailingSilence {
             if(out.exists())out.delete();part.renameTo(out);
         }catch(Exception ignored){part.delete();}
     }
-    /** Full PCM decode is short for 600-character sentences. The last loud audio bin
+    /** Full PCM decode is bounded for 900-character groups. The last loud audio bin
      *  is located with an absolute + relative RMS threshold; do not cut the tail of a word.
      */
     private static long detect(File mp3,String text) throws Exception {

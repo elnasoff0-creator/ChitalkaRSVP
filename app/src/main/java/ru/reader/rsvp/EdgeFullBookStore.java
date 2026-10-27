@@ -18,7 +18,7 @@ final class EdgeFullBookStore {
     static final String QUEUED="queued",RUNNING="running",PAUSED="paused",DONE="completed",FAILED="error";
     static final class Job {
         String uri="",title="",voice="",rate="+0%",status=QUEUED,error="";
-        int chars=600,done,total,chapter=-1;
+        int chars=EdgeSpeechSegments.MAX,done,total,chapter=-1;
         long modified;
         File directory;
         File mp3Folder(){return new File(directory,"EdgeTTS");}
@@ -48,7 +48,7 @@ final class EdgeFullBookStore {
             Job j=new Job();j.directory=bookFolder;j.uri=o.optString("uri","");
             if(j.uri.isEmpty())return null;
             j.title=o.optString("title","Книга");j.voice=o.optString("voice","ru-RU-SvetlanaNeural");
-            j.rate=o.optString("rate","+0%");j.chars=o.optInt("chars",1200);
+            j.rate=o.optString("rate","+0%");j.chars=o.optInt("chars",EdgeSpeechSegments.MAX);
             j.chapter=o.optInt("chapter",-1);j.status=o.optString("status",PAUSED);j.done=o.optInt("done",0);j.total=o.optInt("total",0);
             j.error=o.optString("error","");j.modified=o.optLong("modified",0);return j;
         }catch(Exception ignored){return null;}

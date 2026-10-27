@@ -50,9 +50,9 @@ final class EdgeSpeechEngine {
     private EdgeSpeechQueue.Ticket ticket;
     private ScheduledFuture<?> watchdog;
     private WebSocket socket;
-    private boolean finished,canceled;
-    private long started,firstAudio,lastFrame;
-    private int frames;
+    private boolean finished,canceled,retriedAfter403;
+    private long started,handshakeStarted,firstAudio,lastFrame;
+    private int frames,connectionAttempt;
     EdgeSpeechEngine(String value,String voice,String rate,int priority,EdgeTtsClient.Callback callback){
         this.text=value==null?"":value;
         this.voice=voice==null?"ru-RU-SvetlanaNeural":voice;
@@ -109,21 +109,12 @@ final class EdgeSpeechEngine {
     private void open(){
         synchronized(this){
             if(finished)return;
-            started=SystemClock.elapsedRealtime();lastFrame=started;
+            started=SystemClock.elapsedRealtime();handshakeStarted=started;lastFrame=started;
         }
         if(text.trim().isEmpty()){finish("Пустой фрагмент");return;}
         if(text.getBytes(StandardCharsets.UTF_8).length>MAX_INPUT_UTF8){
             finish("Текст превышает 4096 UTF-8 байт");return;
         }
-        // One request per selected/prefetched 600-char paragraph; never retry a
-        // rejected handshake with another endpoint or a different client token.
-        String query="?Ocp-Apim-Subscription-Key="+EdgeToken.TOKEN+
-            "&Sec-MS-GEC="+EdgeToken.generate(System.currentTimeMillis()/1000L)+
-            "&Sec-MS-GEC-Version="+EdgeToken.VERSION+"&ConnectionId="+id();
-        Request request=new Request.Builder().url(URL+query).header("Origin",ORIGIN)
-            .header("User-Agent",USER_AGENT).header("Pragma","no-cache")
-            .header("Cache-Control","no-cache").header("Accept-Language","en-US,en;q=0.9")
-            .header("Cookie","MUID="+id().toUpperCase(Locale.ROOT)).build();
         synchronized(this){
             if(finished)return;
             watchdog=TIMER.scheduleAtFixedRate(()->{
@@ -131,17 +122,37 @@ final class EdgeSpeechEngine {
                 synchronized(EdgeSpeechEngine.this){
                     if(finished)return;
                     long now=SystemClock.elapsedRealtime();
-                    if(firstAudio==0&&now-started>18000)issue="Тайм-аут первого аудиопакета (18 с)";
+                    if(firstAudio==0&&now-handshakeStarted>18000)issue="Тайм-аут первого аудиопакета (18 с)";
                     else if(firstAudio>0&&now-lastFrame>25000)issue="Тайм-аут передачи MP3 (25 с)";
                 }
                 if(issue!=null){WebSocket ws; synchronized(EdgeSpeechEngine.this){ws=socket;}
                     finish(issue);if(ws!=null)ws.cancel();}
             },2,2,TimeUnit.SECONDS);
         }
+        connect();
+    }
+    /** Retry at most one failed 403 handshake, using a server-date-corrected GEC. */
+    private void connect(){
+        final int currentAttempt;
+        synchronized(this){
+            if(finished||canceled)return;
+            currentAttempt=++connectionAttempt;
+            handshakeStarted=SystemClock.elapsedRealtime();
+        }
+        final String attemptGec=EdgeToken.generate(EdgeServerClock.adjustedEpochSeconds());
+        String query="?Ocp-Apim-Subscription-Key="+EdgeToken.TOKEN+
+            "&Sec-MS-GEC="+attemptGec+
+            "&Sec-MS-GEC-Version="+EdgeToken.VERSION+"&ConnectionId="+id();
+        Request request=new Request.Builder().url(URL+query).header("Origin",ORIGIN)
+            .header("User-Agent",USER_AGENT).header("Pragma","no-cache")
+            .header("Cache-Control","no-cache").header("Accept-Language","en-US,en;q=0.9")
+            .header("Cookie","MUID="+id().toUpperCase(Locale.ROOT)).build();
         try{
             WebSocket connected=CLIENT.newWebSocket(request,new WebSocketListener(){
                 @Override public void onOpen(WebSocket ws,Response response){
-                    synchronized(EdgeSpeechEngine.this){if(finished){ws.cancel();return;}}
+                    synchronized(EdgeSpeechEngine.this){
+                        if(finished||currentAttempt!=connectionAttempt){ws.cancel();return;}
+                    }
                     String config="X-Timestamp:"+timestamp()+"\r\nContent-Type:application/json; charset=utf-8\r\n"
                         +"Path:speech.config\r\n\r\n{\"context\":{\"synthesis\":{\"audio\":{\"metadataoptions\":{"
                         +"\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"true\"},"
@@ -198,8 +209,28 @@ final class EdgeSpeechEngine {
                     if((frames&7)==0)callback.progress(frames,audio.size());
                 }
                 @Override public void onFailure(WebSocket ws,Throwable e,Response response){
-                    synchronized(EdgeSpeechEngine.this){if(finished)return;}
+                    synchronized(EdgeSpeechEngine.this){
+                        if(finished||currentAttempt!=connectionAttempt)return;
+                    }
                     int status=response==null?0:response.code();
+                    if(status==403&&response!=null){
+                        boolean retry=false;
+                        synchronized(EdgeSpeechEngine.this){
+                            if(!finished&&!canceled&&!retriedAfter403&&currentAttempt==connectionAttempt){
+                                String serverDate=response.header("Date");
+                                if(EdgeServerClock.correctFor403(serverDate,attemptGec,System.currentTimeMillis())){
+                                    retriedAfter403=true;
+                                    socket=null;
+                                    retry=true;
+                                }
+                            }
+                        }
+                        if(retry){
+                            Log.i("EdgeSpeech","HTTP 403: clock corrected, retrying handshake once");
+                            connect();
+                            return;
+                        }
+                    }
                     if(status==429){EdgeSpeechQueue.limited(response);finish("HTTP 429: Edge временно ограничил запросы");}
                     else finish(status>0?"Edge HTTP "+status+": отказ сервера":"Ошибка соединения Edge: "+e);
                 }
@@ -207,7 +238,10 @@ final class EdgeSpeechEngine {
                     finish("Edge закрыл соединение до завершения: "+code);
                 }
             });
-            synchronized(this){if(finished)connected.cancel();else socket=connected;}
+            synchronized(this){
+                if(finished||currentAttempt!=connectionAttempt)connected.cancel();
+                else socket=connected;
+            }
         }catch(Exception e){finish("Ошибка подключения Edge: "+e);}
     }
 }

@@ -5,7 +5,7 @@ public final class TestSentenceChunks {
         java.util.ArrayList<SentenceChunks.Chunk> parts=SentenceChunks.split(text);
         int total=0,previous=0;
         for(SentenceChunks.Chunk chunk:parts){
-            if(chunk.text.length()>SentenceChunks.LIMIT)throw new AssertionError("more than 600 chars");
+            if(chunk.text.length()>SentenceChunks.LIMIT)throw new AssertionError("exceeds limit");
             if(chunk.fromChar<previous||chunk.toChar>text.length())throw new AssertionError("offset out of order");
             if(!chunk.text.equals(text.substring(chunk.fromChar,chunk.toChar)))throw new AssertionError("source mismatch");
             if(chunk.fromWord>=chunk.toWord||SentenceChunks.forWord(parts,chunk.fromWord)!=chunk)throw new AssertionError("word index");
@@ -20,6 +20,6 @@ public final class TestSentenceChunks {
         verify("одно".repeat(160)+" готово.");
         verify("\n\n     ");
         verify("смешанные-слова, пунктуация! 123. Ещё абзац.");
-        System.out.println("PASS SentenceChunks max=600; word indexes, source offsets and long sentences");
+        System.out.println("PASS SentenceChunks max=900; word indexes, source offsets and long sentences");
     }
 }

@@ -1,7 +1,7 @@
 package ru.reader.rsvp;
 import android.content.SharedPreferences;
 
-/** Sentence-first segmentation is fixed at 600 chars for both synthesis paths. */
+/** Sentence-first segmentation is fixed at 900 chars for both synthesis paths. */
 public final class EdgeSegmentSettings {
     public static final String KEY="edge_segment_characters";
     public static final int DEFAULT=SentenceChunks.LIMIT;

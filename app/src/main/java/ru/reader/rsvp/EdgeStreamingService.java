@@ -83,7 +83,7 @@ public final class EdgeStreamingService extends Service {
     private final LinkedHashSet<Integer> pendingStarts=new LinkedHashSet<>();
     private int priorityStart=-1;
     private int selectedSeekWord=-1;
-    private Clip selectedOverride;
+    private final ArrayList<Clip> selectedOverrides=new ArrayList<>();
 
     private final ArrayList<Observer> observers=new ArrayList<>();
     private String bookUri="",title="",bookText="",error="";
@@ -126,7 +126,7 @@ public final class EdgeStreamingService extends Service {
                 if(selectedSeekWord>=0 && clipAt(selectedSeekWord)!=null &&
                         start!=clipAt(selectedSeekWord).start)return;
                 if(completedPrevious)for(Clip c:archive)if(c.end==start)c.played=true;
-                if(selectedOverride!=null&&start>=selectedOverride.end)selectedOverride=null;
+                selectedOverrides.removeIf(c->start>=c.end);
                 anchorWord=start;persist();pump();
             });
         }
@@ -241,8 +241,8 @@ public final class EdgeStreamingService extends Service {
     public ArrayList<Clip> snapshot(){ArrayList<Clip> list=new ArrayList<>();for(Clip c:archive)list.add(c.copy());return list;}
     public Clip currentClip(){
         String playing=player==null?"":player.currentKey();
-        if(selectedOverride!=null && (selectedOverride.key+":"+selectedOverride.start).equals(playing))
-            return selectedOverride.copy();
+        for(Clip override:selectedOverrides)
+            if((override.key+":"+override.start).equals(playing))return override.copy();
         if(!playing.isEmpty())for(Clip c:archive)
             if((c.key+":"+c.start).equals(playing))return c.copy();
         // Never report an unrelated previously played MP3 as the selected sentence.
@@ -256,7 +256,7 @@ public final class EdgeStreamingService extends Service {
         if(voice!=null)edit.putString("edge_voice",voice);
         if(rate!=null)edit.putString("edge_rate",rate);
         edit.apply();cancelLiveExcept(null);liveJobs.clear();
-        selectedOverride=null;selectedSeekWord=-1;
+        selectedOverrides.clear();selectedSeekWord=-1;
         if(player!=null)player.clearQueue();
         // Every voice has separate MP3 keys; rebuild the index without deleting older audio.
         if(bookReady){restore();priorityStart=SentenceChunks.forWord(sentenceParts,anchorWord)==null?-1:
@@ -271,7 +271,7 @@ public final class EdgeStreamingService extends Service {
         cancelLiveExcept(null);liveJobs.clear();bookUri=uri;bookReady=false;anchorWord=Math.max(0,initialWord);
         cachedSavedPercent=0;lastCoverageCheck=0;
         archive.clear();byStart.clear();pendingStarts.clear();priorityStart=-1;
-        selectedOverride=null;selectedSeekWord=-1;
+        selectedOverrides.clear();selectedSeekWord=-1;
         offsets.clear();sentenceParts.clear();bookText="";chapters=BookChapterIndex.empty();directory=null;error="";
         if(player!=null)player.prepareBook("edge:"+uri);
         changed();
@@ -392,24 +392,27 @@ public final class EdgeStreamingService extends Service {
         if(base==null)return;
         // Reset the playlist first, before any new file can begin playing.
         if(player!=null)player.clearTracksForSelection();
-        selectedOverride=null;
+        selectedOverrides.clear();
         selectedSeekWord=requested;
         Clip target=base;
-        if(requested>base.start){
-            int relative=charForWord(requested)-charForWord(base.start);
-            long position=base.ready()?
-                EdgeSentenceSeek.at(relative,EdgeWordTimings.read(base.file,base.text)):-1L;
-            if(position<0){
-                // No trusted word timing: generate ONLY the remainder beginning
-                // at the tapped sentence, never replay an earlier one.
-                SentenceChunks.Chunk grouped=SentenceChunks.forWord(sentenceParts,requested);
-                int from=charForWord(requested);
-                if(grouped!=null&&from<grouped.toChar){
-                    String remainder=bookText.substring(from,grouped.toChar);
-                    String key=EdgeAudioManager.key(remainder,voice(),rate());
-                    target=new Clip(requested,base.end,remainder,key);
-                    selectedOverride=target;
+        int relative=charForWord(requested)-charForWord(base.start);
+        long position=base.ready()?
+            EdgeSentenceSeek.at(relative,EdgeWordTimings.read(base.file,base.text)):-1L;
+        boolean exactLive=requested==base.start&&liveFor(base)!=null;
+        if(position<0&&!exactLive){
+            // When jumping to an uncached position, start with up to 600
+            // characters instead of waiting for the normal 900-char group.
+            // Additional pieces cover the rest of the same normal group;
+            // this prevents replaying or skipping text on the next track.
+            SentenceChunks.Chunk grouped=SentenceChunks.forWord(sentenceParts,requested);
+            if(grouped!=null){
+                for(SentenceChunks.Chunk piece:EdgeSpeechSegments.priorityPieces(
+                        bookText,offsets,requested,grouped.toWord,grouped.toChar)){
+                    String key=EdgeAudioManager.key(piece.text,voice(),rate());
+                    Clip clip=new Clip(piece.fromWord,piece.toWord,piece.text,key);
+                    selectedOverrides.add(clip);
                 }
+                if(!selectedOverrides.isEmpty())target=selectedOverrides.get(0);
             }
         }
         // Keep an already-running synthesis only if it produces the exact
@@ -421,7 +424,7 @@ public final class EdgeStreamingService extends Service {
         pendingStarts.clear();priorityStart=-1;
         persist();pump();
     }
-    /** The normal 600-character group, without a temporary sentence override. */
+    /** The normal 900-character group, without temporary priority overrides. */
     private Clip baseClipAt(int word){
         if(word<0||word>=offsets.size()||sentenceParts.isEmpty())return null;
         SentenceChunks.Chunk part=SentenceChunks.forWord(sentenceParts,word);
@@ -436,14 +439,14 @@ public final class EdgeStreamingService extends Service {
         }
         return clip;
     }
-    /** A manual sentence override is valid only until its group's end. */
+    /** Manual priority pieces cover the remainder of the selected normal group. */
     private Clip clipAt(int word){
-        if(selectedOverride!=null && word>=selectedOverride.start && word<selectedOverride.end){
-            if(!selectedOverride.ready()&&directory!=null){
-                File cached=new File(directory,selectedOverride.key+".mp3");
-                if(cached.isFile()&&cached.length()>1500){selectedOverride.file=cached;selectedOverride.bytes=cached.length();}
+        for(Clip override:selectedOverrides)if(word>=override.start&&word<override.end){
+            if(!override.ready()&&directory!=null){
+                File cached=new File(directory,override.key+".mp3");
+                if(cached.isFile()&&cached.length()>1500){override.file=cached;override.bytes=cached.length();}
             }
-            return selectedOverride;
+            return override;
         }
         return baseClipAt(word);
     }
@@ -470,7 +473,7 @@ public final class EdgeStreamingService extends Service {
                     if(ms<0)ms=0; // overrides start at the requested sentence
                     Log.i("EdgeSentenceSeek","word="+selectedSeekWord+
                         " clip="+current.start+" startMs="+ms+
-                        (selectedOverride==current?" exact-fragment":" WordBoundary"));
+                        (selectedOverrides.contains(current)?" exact-fragment":" WordBoundary"));
                     player.armSelectedPosition(current.key+":"+current.start,ms);
                     selectedSeekWord=-1;
                 }
@@ -521,6 +524,9 @@ public final class EdgeStreamingService extends Service {
             job.attached=true;
             // Bind Media3 to streaming bytes BEFORE starting network synthesis.
             // The first MP3 frame can begin decoding without waiting for turn.end.
+            // A priority clip starts at the tapped word: no delayed seek is needed.
+            if(selectedSeekWord==clip.start && selectedOverrides.contains(clip))
+                selectedSeekWord=-1;
             player.appendLive(clip.key+":"+clip.start,clip.start,clip.end,job.buffer);
         }
         liveJobs.put(job.fileId,job);
@@ -675,7 +681,7 @@ public final class EdgeStreamingService extends Service {
         liveJobs.clear();
         if(player!=null)player.clearQueue();
         archive.clear();byStart.clear();pendingStarts.clear();priorityStart=-1;
-        selectedOverride=null;selectedSeekWord=-1;File folder=directory;
+        selectedOverrides.clear();selectedSeekWord=-1;File folder=directory;
         io.execute(()->{if(folder!=null){File[] children=folder.listFiles();if(children!=null)for(File f:children)f.delete();}
             main.post(()->{restore();persist();changed();if(done!=null)done.run();});});
     }
@@ -684,7 +690,7 @@ public final class EdgeStreamingService extends Service {
      * cannot silently redirect the player to the last ready sentence. */
     private void restore(){
         archive.clear();byStart.clear();pendingStarts.clear();priorityStart=-1;
-        selectedOverride=null;selectedSeekWord=-1;
+        selectedOverrides.clear();selectedSeekWord=-1;
         if(directory==null)return;
         Map<Integer,JSONObject> oldRows=new HashMap<>();
         try{
