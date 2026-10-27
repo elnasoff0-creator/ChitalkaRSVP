@@ -21,7 +21,7 @@ import okhttp3.Response;
 final class EdgeSpeechQueue {
     static final int PLAY=0,PREFETCH=1,BULK=2;
     static final class Ticket {
-        final int priority;final long order;final Runnable run,cancel;
+        int priority;final long order;final Runnable run,cancel;
         boolean canceled;
         Ticket(int p,long o,Runnable r,Runnable c){priority=p;order=o;run=r;cancel=c;}
     }
@@ -32,6 +32,14 @@ final class EdgeSpeechQueue {
     private static Ticket current;
     private static ScheduledFuture<?> wake;
     private static long order,blockedUntil,lastCompletedAt,lastLimitedAt;
+    // While interactive Edge audio is requested, defer explicit full-book jobs.
+    // They resume on pause or after the last spoken group completes.
+    private static boolean interactivePlayback;
+    static synchronized void setInteractivePlayback(boolean playing){
+        if(interactivePlayback==playing)return;
+        interactivePlayback=playing;
+        schedule();
+    }
     // Only background jobs are gently paced. A new tap/Play is never paced.
     private static final long BACKGROUND_GAP_MS=850L;
     private static final long DEFAULT_429_DEBOUNCE_MS=3000L;
@@ -48,6 +56,19 @@ final class EdgeSpeechQueue {
         }
         if(preempt!=null)preempt.run();
         return t;
+    }
+    /** Promote an already queued warmup to immediate Play without a second
+     * WebSocket handshake or discarding the buffered audio. */
+    static void promote(Ticket ticket){
+        Runnable preempt=null;
+        synchronized(EdgeSpeechQueue.class){
+            if(ticket==null||ticket.canceled||ticket.priority==PLAY)return;
+            ticket.priority=PLAY;
+            if(current!=null&&current!=ticket&&current.priority>PLAY&&current.cancel!=null)
+                preempt=current.cancel;
+            schedule();
+        }
+        if(preempt!=null)preempt.run();
     }
     static synchronized void release(Ticket ticket){
         if(ticket==null)return;
@@ -86,7 +107,8 @@ final class EdgeSpeechQueue {
         if(wake!=null){wake.cancel(false);wake=null;}
         pending.removeIf(t->t.canceled);
         if(current!=null||pending.isEmpty())return;
-        Ticket next=pending.stream().min(Comparator.comparingInt((Ticket t)->t.priority)
+        Ticket next=pending.stream().filter(t->!interactivePlayback||t.priority==PLAY)
+            .min(Comparator.comparingInt((Ticket t)->t.priority)
             .thenComparingLong(t->t.order)).orElse(null);
         if(next==null)return;
         long now=SystemClock.elapsedRealtime();
@@ -100,7 +122,8 @@ final class EdgeSpeechQueue {
             wake=null;
             pending.removeIf(t->t.canceled);
             if(current!=null||pending.isEmpty())return;
-            next=pending.stream().min(Comparator.comparingInt((Ticket t)->t.priority)
+            next=pending.stream().filter(t->!interactivePlayback||t.priority==PLAY)
+                .min(Comparator.comparingInt((Ticket t)->t.priority)
                 .thenComparingLong(t->t.order)).orElse(null);
             if(next==null)return;
             long now=SystemClock.elapsedRealtime();

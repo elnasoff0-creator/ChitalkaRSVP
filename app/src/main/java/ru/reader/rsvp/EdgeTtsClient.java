@@ -25,5 +25,6 @@ final class EdgeTtsClient {
         EdgeTtsClient result=new EdgeTtsClient(engine);
         engine.start();return result;
     }
+    void promoteToPlay(){engine.promoteToPlay();}
     void cancel(){engine.cancel();}
 }

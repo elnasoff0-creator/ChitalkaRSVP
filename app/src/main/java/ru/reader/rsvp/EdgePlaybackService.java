@@ -43,6 +43,7 @@ public final class EdgePlaybackService extends Service {
     public interface Listener {
         void onTrackChanged(int startWord, int endWord, String key, boolean completedPrevious);
         void onPlaybackStateChanged();
+        default void onTrackFinished(int startWord,int endWord,String key) {}
     }
     public static final String ACTION_TOGGLE = "ru.reader.rsvp.edge.TOGGLE";
     public static final String ACTION_STOP = "ru.reader.rsvp.edge.STOP";
@@ -88,6 +89,7 @@ public final class EdgePlaybackService extends Service {
     private long armedSeekMs;
 
     private int lastIndex = -1;
+    private String notifiedEndKey = "";
     private float playbackSpeed = 1f;
     private long sleepAtMs;
     private int sleepChapterEndWord=-1;
@@ -144,6 +146,7 @@ public final class EdgePlaybackService extends Service {
                 int index = player.getCurrentMediaItemIndex();
                 boolean completed = lastIndex >= 0 && index != lastIndex && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO;
                 lastIndex = index;
+                if(item!=null)notifiedEndKey="";
                 if (completed && !autoContinue) {
                     requestedPlay = false;
                     player.pause();
@@ -160,7 +163,17 @@ public final class EdgePlaybackService extends Service {
             }
             @Override public void onPlaybackStateChanged(int state) {
                 if (state == Player.STATE_ENDED) {
-                    // Preserve request to play next only when automatic continuation is enabled.
+                    // No next MediaItem exists: notify the coordinator once so it
+                    // can select the next 900-character group, without look-ahead.
+                    int index=trackIndex();
+                    if(autoContinue && requestedPlay && index>=0 && index<tracks.size()){
+                        Track completed=tracks.get(index);
+                        if(!completed.key.equals(notifiedEndKey)){
+                            notifiedEndKey=completed.key;
+                            for(Listener listener:new ArrayList<>(listeners))
+                                listener.onTrackFinished(completed.start,completed.end,completed.key);
+                        }
+                    }
                     if (!autoContinue) requestedPlay = false;
                     if (notificationShowing && !requestedPlay) hideNotification();
                 }
@@ -257,6 +270,9 @@ public final class EdgePlaybackService extends Service {
     public boolean hasFiles() { return !tracks.isEmpty(); }
     public boolean isAtEnd() {return player!=null&&player.getPlaybackState()==Player.STATE_ENDED&&player.getMediaItemCount()>0;}
     public boolean playRequested() { return requestedPlay; }
+    public boolean shouldStopAfterWord(int nextWord){
+        return sleepChapterEndWord>=0 && nextWord>=sleepChapterEndWord;
+    }
     public int trackIndex() { return player==null?-1:player.getCurrentMediaItemIndex(); }
     public int trackCount() { return tracks.size(); }
     public int currentStartWord() {
@@ -324,7 +340,7 @@ public final class EdgePlaybackService extends Service {
         player.stop();
         player.clearMediaItems();
         tracks.clear();
-        lastIndex=-1;
+        lastIndex=-1;notifiedEndKey="";
         focus.release();
         hideNotification();
         updateSession();
@@ -336,7 +352,7 @@ public final class EdgePlaybackService extends Service {
         playbackError="";
         armedSeekKey="";armedSeekMs=0;
         player.stop();player.clearMediaItems();tracks.clear();
-        lastIndex=-1;
+        lastIndex=-1;notifiedEndKey="";
         focus.release();hideNotification();updateSession();notifyState();
     }
     /** Arm a user-selected sentence BEFORE inserting a MediaItem. An MP3 that

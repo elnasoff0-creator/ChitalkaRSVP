@@ -1,7 +1,0 @@
-fix(edge): retry once on HTTP 403 with server Date clock correction (v1.11.103-beta)
-
-- Correct GEC v2 clock skew from valid HTTP Date on 403 handshake
-- Retry only with a changed token and at most once per speech request
-- Ignore stale WebSocket callbacks after retry; preserve cancel/timeout behavior
-- Keep 429 handling, Edge queue, 900/600 chunks and cached MP3 unchanged
-- Cover recovery, repeated 403, invalid Date and unchanged-token cases

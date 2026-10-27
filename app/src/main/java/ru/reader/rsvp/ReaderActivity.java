@@ -78,7 +78,8 @@ public class ReaderActivity extends Activity {
             if(mode!=TTS||ttsLocal)return;
             ttsStreamer=((EdgeStreamingService.LocalBinder)binder).getService();
             ttsStreamer.openBook(docUri,index);ttsStreamer.addObserver(ttsStreamObserver);
-            ttsStreamer.setActive(true);ttsStreamer.setAnchor(index,true);
+            // Binding and entering TTS are not manual sentence jumps.
+            ttsStreamer.setAnchor(index,false);ttsStreamer.setActive(true);
             if(ttsPlayer!=null&&ttsPlayer.playRequested())ttsStreamer.ensurePlaySelection();
         }
         @Override public void onServiceDisconnected(ComponentName name){ttsStreamer=null;}
@@ -880,14 +881,9 @@ public class ReaderActivity extends Activity {
                 chteicoInitialIndex=index;chteicoLastWordIndex=index;chteicoReadingSeconds=0;chteicoTouch();
                 ChteicoStore.openBook(this,docUri,mode);
                 draw();saveLight(true);
-                if(!ttsLocal && prefs.getBoolean("edge_warm_reader",true) && mode!=TTS){
-                    // Reader opened: prepare the selected block silently, never Play.
-                    // Prefetch service shares cache and network queue with the TTS player.
-                    startService(new Intent(this,EdgeStreamingService.class)
-                        .setAction(EdgeStreamingService.ACTION_PREFETCH)
-                        .putExtra(EdgeStreamingService.EXTRA_URI,docUri)
-                        .putExtra(EdgeStreamingService.EXTRA_ANCHOR,index));
-                }
+                // Do not contact Edge merely because a book was opened in a non-TTS
+                // mode. Speculative startup requests multiplied handshakes on mode
+                // changes and triggered HTTP 429 even before the user selected Edge.
                 if(mode==TTS)startTtsSession();
             });
         }catch(Exception ex){runOnUiThread(()->new SwipeDialogs.Builder(this).setMessage("Не удалось открыть книгу: "+ex.getMessage()).setPositiveButton("OK",null).show());}

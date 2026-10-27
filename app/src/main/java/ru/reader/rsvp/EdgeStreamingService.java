@@ -33,9 +33,9 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/** On-demand Edge speech coordinator: complete MP3 file cache -> Media3.
- * At most one active network synthesis. The next cached text group is prepared
- * during playback; no growing MP3 source or custom PCM decoder is involved.
+/** Serial Edge speech coordinator: stream the selected clip to Media3.
+ * Do not synthesize the following 900-character clip in the background.
+ * Request it only after playback reports that the current clip has ended.
  */
 public final class EdgeStreamingService extends Service {
     public interface Observer {void onChanged();}
@@ -60,9 +60,7 @@ public final class EdgeStreamingService extends Service {
     private final ArrayList<Clip> archive=new ArrayList<>();
     // The complete, sentence-indexed catalogue is independent of which MP3 has been cached.
     private final Map<Integer,Clip> byStart=new HashMap<>();
-    /** No background full-book queue during listening. At most the current live
-     * request and one prefetched fragment are visible to the player. The next
-     * request may begin only AFTER the selected stream has buffered initial audio. */
+    /** Only the selected clip can be synthesized during playback. No look-ahead. */
     private final LinkedHashMap<String,LiveJob> liveJobs=new LinkedHashMap<>();
     private static final class LiveJob {
         final Clip clip;
@@ -130,13 +128,40 @@ public final class EdgeStreamingService extends Service {
                 anchorWord=start;persist();pump();
             });
         }
-        @Override public void onPlaybackStateChanged(){main.post(()->{if(bookReady)pump();});}
+        /** A playlist with no queued next file reaches STATE_ENDED. Continue
+         * from the completed clip's exclusive end word, never replay it. */
+        @Override public void onTrackFinished(int start,int end,String key){
+            main.post(()->{
+                if(!bookReady||player==null||!player.playRequested()||
+                        !key.equals(player.currentKey()))return;
+                Clip ended=clipAt(start);
+                if(ended==null||ended.end!=end)return;
+                ended.played=true;
+                selectedOverrides.removeIf(c->end>=c.end);
+                selectedSeekWord=-1;
+                anchorWord=end;
+                persist();
+                if(end>=offsets.size()||player.shouldStopAfterWord(end)){
+                    player.pause();changed();return;
+                }
+                // The engine's network arbiter holds the next handshake until
+                // the previous WebSocket has closed, even after a user cancel.
+                pump();
+            });
+        }
+        @Override public void onPlaybackStateChanged(){main.post(()->{
+            EdgeSpeechQueue.setInteractivePlayback(active && player!=null && player.playRequested());
+            if(bookReady)pump();
+        });}
     };
     private final ServiceConnection playbackConnection=new ServiceConnection(){
         @Override public void onServiceConnected(ComponentName n,IBinder b){
             player=((EdgePlaybackService.LocalBinder)b).getService();
             player.addListener(listener);
             if(!bookUri.isEmpty())player.prepareBook("edge:"+bookUri);
+            // Service and player can bind in either order. Warm exactly one clip,
+            // only when TTS is active and the user has not pressed Play.
+            warmCurrent();
             pump();
         }
         @Override public void onServiceDisconnected(ComponentName n){player=null;}
@@ -306,11 +331,11 @@ public final class EdgeStreamingService extends Service {
                             }));
                     }
                     if(!bookReady)error="Книга не содержит текста";
-                    else {SentenceChunks.Chunk initial=SentenceChunks.forWord(sentenceParts,anchorWord);
-                        priorityStart=initial==null?-1:initial.fromWord;persist();
-                        // Start at the restored sentence, even if it falls midway
-                        // inside an older grouped MP3 without WordBoundary metadata.
-                        if(initial!=null&&initial.fromWord<anchorWord)setAnchor(anchorWord,true);
+                    else {
+                        // Startup restoration is not a tap: do not clear an active
+                        // prefetch or request 600-char priority pieces automatically.
+                        restoreStartPosition();
+                        persist();
                     }
                     warmCurrent();
                     pump();
@@ -321,6 +346,31 @@ public final class EdgeStreamingService extends Service {
             }});}
         });
     }
+    /** Restore an arbitrary word without calling the manual-seek path.
+     * A cached group with WordBoundary can seek locally. Otherwise synthesize
+     * just the remainder of the normal <=900-char group, as ONE request.
+     * On Play the same warm buffer is reused instead of a second handshake.
+     */
+    private void restoreStartPosition(){
+        selectedOverrides.clear();
+        selectedSeekWord=-1;
+        Clip base=baseClipAt(anchorWord);
+        if(base==null || anchorWord<=base.start)return;
+        int relative=charForWord(anchorWord)-charForWord(base.start);
+        if(base.ready() && EdgeSentenceSeek.at(relative,
+                EdgeWordTimings.read(base.file,base.text))>=0){
+            selectedSeekWord=anchorWord;
+            return;
+        }
+        int begin=charForWord(anchorWord);
+        SentenceChunks.Chunk group=SentenceChunks.forWord(sentenceParts,anchorWord);
+        if(group==null || begin>=group.toChar)return;
+        String remaining=bookText.substring(begin,group.toChar);
+        Clip start=new Clip(anchorWord,group.toWord,remaining,
+                EdgeAudioManager.key(remaining,voice(),rate()));
+        selectedOverrides.add(start);
+    }
+
     /** One silent, low-priority current-block request. Never synthesize
      * an already cached file and never run a speculative queue of chapters.
      * A subsequent Play can attach to the very same buffered live MP3.
@@ -330,8 +380,11 @@ public final class EdgeStreamingService extends Service {
         if(!idlePrefetchRequested && !(active && player!=null&&!player.playRequested()))return;
         if(active&&player!=null&&player.playRequested())return;
         Clip target=clipAt(anchorWord);
-        if(target==null||target.ready()||EdgeSpeechQueue.remainingMs()>0||
-                !EdgeSpeechQueue.allowPrefetch()){
+        // Never retry a failed warmup automatically. Only an explicit Play
+        // or a manual selection can permit another synthesis attempt.
+        if(target==null||target.ready()||target.awaitingUserRetry||
+                target.retryAt>SystemClock.elapsedRealtime()||
+                EdgeSpeechQueue.remainingMs()>0||!EdgeSpeechQueue.allowPrefetch()){
             if(idlePrefetchRequested&&!active){idlePrefetchRequested=false;stopSelf();}
             return;
         }
@@ -343,7 +396,8 @@ public final class EdgeStreamingService extends Service {
         if(bookReady){Clip current=clipAt(anchorWord);
             if(current!=null&&player!=null&&player.playRequested()){
                 // An explicit Play lets the user retry a previously failed stream.
-                if(!current.ready() && (current.retryAt>0 ||
+                if(!current.ready() && liveFor(current)==null &&
+                        (current.retryAt>0 ||
                         (player.playbackError()!=null&&!player.playbackError().isEmpty()))){
                     // Media3 may have rejected an old failed live DataSource. Rebuild
                     // only on an explicit user Play, never in a retry loop.
@@ -367,7 +421,8 @@ public final class EdgeStreamingService extends Service {
     }
     public void setActive(boolean enabled){
         active=enabled;
-        if(enabled){pump();return;}
+        if(enabled){warmCurrent();pump();return;}
+        EdgeSpeechQueue.setInteractivePlayback(false);
         // Leaving the TTS listener cancels network synthesis. Completed cache
         // commits are independent and continue on their own worker.
         cancelLiveExcept(null);
@@ -454,6 +509,7 @@ public final class EdgeStreamingService extends Service {
      * validated MP3 is committed to the existing persistent cache separately.
      */
     private void pump(){
+        EdgeSpeechQueue.setInteractivePlayback(active && player!=null && player.playRequested());
         if(!bookReady||directory==null||destroyed||!active)return;
         Clip current=clipAt(anchorWord);
         if(current==null)return;
@@ -461,6 +517,8 @@ public final class EdgeStreamingService extends Service {
         if(player!=null){
             player.setAutoContinue(true);
             LiveJob waiting=liveFor(current);
+            if(waiting!=null && player.playRequested() && waiting.request!=null)
+                waiting.request.promoteToPlay();
             if(waiting!=null && waiting.buffer!=null && !waiting.attached && player.playRequested()){
                 waiting.attached=true;
                 player.appendLive(current.key+":"+current.start,current.start,current.end,waiting.buffer);
@@ -478,7 +536,7 @@ public final class EdgeStreamingService extends Service {
                     selectedSeekWord=-1;
                 }
                 addTrack(current);
-                if(ahead!=null)addTrack(ahead);
+                if(ahead!=null && ahead.ready())addTrack(ahead); // disk only, no network
             }
             // Never enqueue a later cached fragment when the selected one is absent.
         }
@@ -488,18 +546,9 @@ public final class EdgeStreamingService extends Service {
         for(LiveJob j:liveJobs.values())if(!j.networkDone)busy=true;
         if(!busy&&!current.ready()&&liveFor(current)==null&&
                 !current.awaitingUserRetry && current.retryAt<=SystemClock.elapsedRealtime())startLive(current);
-        else if(!busy&&current.ready()&&ahead!=null&&!ahead.ready()&&liveFor(ahead)==null&&
-                EdgeSpeechQueue.allowPrefetch() && nearEndOfCurrentAudio(current) &&
-                !ahead.awaitingUserRetry && ahead.retryAt<=SystemClock.elapsedRealtime())startLive(ahead);
+        // Intentionally no speculative synthesis for `ahead`. Only onTrackFinished
+        // can move anchorWord to the next uncached 900-character block.
         changed();
-    }
-    /** Restrict speculative work until the listener is approaching the end.
-     * Reduced background traffic helps avoid Edge's occasional rate limits. */
-    private boolean nearEndOfCurrentAudio(Clip clip){
-        if(player==null||!player.isPlaying()||clip==null)return false;
-        if(!(clip.key+":"+clip.start).equals(player.currentKey()))return false;
-        long duration=player.durationMs();
-        return duration>0 && duration-player.positionMs()<=12000L;
     }
     private void addTrack(Clip clip){
         if(player!=null&&clip!=null&&clip.ready())
@@ -674,7 +723,9 @@ public final class EdgeStreamingService extends Service {
     }
     public void clearAudio(Runnable done){
         // An explicit deletion must stop all ongoing writers first.
-        active=false;cancelLiveExcept(null);
+        active=false;
+        EdgeSpeechQueue.setInteractivePlayback(false);
+        cancelLiveExcept(null);
         for(LiveJob job:new ArrayList<>(liveJobs.values())){
             if(job.request!=null)job.request.cancel();
         }
@@ -750,6 +801,7 @@ public final class EdgeStreamingService extends Service {
         main.removeCallbacks(saveIndex);
         persistNow(); // Last selected sentence / interrupted work survives process shutdown.
         destroyed=true;main.removeCallbacks(refreshReady);
+        EdgeSpeechQueue.setInteractivePlayback(false);
         cancelLiveExcept(null);
         liveJobs.clear();
         if(player!=null)player.removeListener(listener);

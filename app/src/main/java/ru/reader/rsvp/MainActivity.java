@@ -471,63 +471,74 @@ public class MainActivity extends Activity {
         }
         final int petStart=contentWrap.getChildCount();
         if(ChteicoStore.enabled(this) && prefs.getBoolean("mini_pet_on_home",true)){
-            // Same surface as the Continue cards; bubble overlays without changing layout.
-            // Showing a reply changes visibility only, never parent measurements.
+            // A centered, square mini-card. Emotion changes never remeasure the pet.
+            final int cardSize=140;
             FrameLayout petArea=new FrameLayout(this);
-            LinearLayout.LayoutParams areaLp=new LinearLayout.LayoutParams(-1,dp(130));
-            petArea.setBackground(shape(panelColor(),22));
+            LinearLayout.LayoutParams areaLp=new LinearLayout.LayoutParams(dp(cardSize),dp(cardSize));
             areaLp.gravity=Gravity.CENTER_HORIZONTAL;
+            petArea.setBackground(shape(panelColor(),22));
             ChteicoPetView pet=new ChteicoPetView(this);
-            FrameLayout.LayoutParams petLp=new FrameLayout.LayoutParams(dp(92),dp(93),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);
+            FrameLayout.LayoutParams petLp=new FrameLayout.LayoutParams(dp(118),dp(119),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);
             petArea.addView(pet,petLp);
+
+            // The opaque emotion bubble is OVER the face, including its open eyes
+            // on sleeping down sprites. No phrases or placeholder text on Home.
             ChteicoSpeechBubble bubble=new ChteicoSpeechBubble(this,bg,fg);
-            TextView reply=text("",15,false);
-            reply.setGravity(Gravity.CENTER);reply.setMaxLines(4);
-            bubble.addView(reply,new FrameLayout.LayoutParams(-1,-2));
-            FrameLayout.LayoutParams bubbleLp=new FrameLayout.LayoutParams(-1,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL);
-            bubbleLp.leftMargin=dp(20);bubbleLp.rightMargin=dp(20);
+            TextView emotion=text("",16,true);
+            emotion.setGravity(Gravity.CENTER);
+            emotion.setMaxLines(2);
+            emotion.setIncludeFontPadding(false);
+            bubble.addView(emotion,new FrameLayout.LayoutParams(-1,-1));
+            FrameLayout.LayoutParams bubbleLp=new FrameLayout.LayoutParams(dp(136),dp(78),Gravity.TOP|Gravity.CENTER_HORIZONTAL);
+            bubbleLp.topMargin=dp(14);
             petArea.addView(bubble,bubbleLp);
             bubble.setElevation(dp(8));
             bubble.setVisibility(View.GONE);
-            final Runnable dismissReply=()->bubble.setVisibility(View.GONE);
-            Runnable normalPetTap=()->{
-                FrameLayout.LayoutParams lp=(FrameLayout.LayoutParams)bubble.getLayoutParams();
-                lp.width=-1;bubble.setLayoutParams(lp);
-                pet.setSleeping(false);ChteicoEmotions.wake();
-                android.content.SharedPreferences game=ChteicoStore.prefs(this);
-                ChteicoPhrases.Reply r=ChteicoPhrases.next(ChteicoStore.stage(this),ChteicoStore.branch(this),false,false,
-                    game.getString("bubble_seen",""),game.getInt("bubble_last_id",-1),new java.util.Random());
-                if(r!=null){reply.setText(r.text);game.edit().putString("bubble_seen",r.seen).putInt("bubble_last_id",r.id).apply();}
-                else reply.setText("Скоро я появлюсь!");
-                bubble.removeCallbacks(dismissReply);
+
+            final Runnable dismissEmotion=()->bubble.setVisibility(View.GONE);
+            Runnable showEmotion=()->{
+                ChteicoEmotions.wake();
+                pet.setSleeping(false);
+                bubble.removeCallbacks(dismissEmotion);
+                emotion.setTextSize(17);
+                emotion.setText(ChteicoEmotions.stroke());
+                bubble.animate().cancel();
+                bubble.setAlpha(1f);
                 bubble.setVisibility(View.VISIBLE);
-                bubble.setAlpha(0f);bubble.animate().cancel();bubble.animate().alpha(1f).setDuration(180).start();
-                bubble.postDelayed(dismissReply,4200);
+                bubble.postDelayed(dismissEmotion,2800);
             };
+            // Keep checking the sleep state without moving the illustration. The
+            // only sleep animation is cycling the number of dots in the caption.
             final Runnable[] sleepAnimation=new Runnable[1];
-            sleepAnimation[0]=new Runnable(){int phase;
+            sleepAnimation[0]=new Runnable(){int phase=0;
                 @Override public void run(){
-                    if(!pet.isAttachedToWindow())return;
-                    if(!ChteicoEmotions.isSleeping())return;
-                    pet.setSleeping(true);
-                    FrameLayout.LayoutParams lp=(FrameLayout.LayoutParams)bubble.getLayoutParams();
-                    lp.width=dp(205);bubble.setLayoutParams(lp);
-                    reply.setText(ChteicoEmotions.sleep(phase++));
-                    bubble.setVisibility(View.VISIBLE);
-                    pet.postDelayed(this,850);
+                    if(!petArea.isAttachedToWindow())return;
+                    if(ChteicoEmotions.isSleeping()){
+                        pet.setSleeping(true);
+                        bubble.removeCallbacks(dismissEmotion);
+                        emotion.setTextSize(12);
+                        emotion.setText(ChteicoEmotions.sleep(phase++));
+                        bubble.animate().cancel();
+                        bubble.setAlpha(1f);
+                        bubble.setVisibility(View.VISIBLE);
+                    }else{
+                        phase=0;
+                    }
+                    petArea.postDelayed(this,850);
                 }
             };
-            pet.post(sleepAnimation[0]);
-            ChteicoEmotions.attach(pet,normalPetTap,
-                ()->{bubble.removeCallbacks(dismissReply);startActivity(new Intent(this,ChteicoActivity.class));},
-                ()->{
-                    pet.setSleeping(false);bubble.removeCallbacks(dismissReply);
-                    FrameLayout.LayoutParams lp=(FrameLayout.LayoutParams)bubble.getLayoutParams();
-                    lp.width=dp(125);lp.gravity=Gravity.TOP|Gravity.CENTER_HORIZONTAL;
-                    bubble.setLayoutParams(lp);
-                    reply.setText(ChteicoEmotions.stroke());bubble.setVisibility(View.VISIBLE);
-                    bubble.postDelayed(dismissReply,2700);
-                },HomeSectionOrder::startPetDrag);
+            if(ChteicoEmotions.isSleeping()){
+                pet.setSleeping(true);
+                emotion.setTextSize(12);
+                emotion.setText(ChteicoEmotions.sleep(0));
+                bubble.setVisibility(View.VISIBLE);
+            }
+            petArea.post(sleepAnimation[0]);
+            // Put the touch handler on the whole card so the visible bubble
+            // cannot prevent waking, petting or long-press navigation.
+            ChteicoEmotions.attach(petArea,showEmotion,
+                ()->{bubble.removeCallbacks(dismissEmotion);startActivity(new Intent(this,ChteicoActivity.class));},
+                showEmotion,HomeSectionOrder::startPetDrag);
             contentWrap.addView(petArea,areaLp);
         }
         HomeSectionOrder.apply(this,contentWrap,readingStart,audioStart,petStart,prefs);

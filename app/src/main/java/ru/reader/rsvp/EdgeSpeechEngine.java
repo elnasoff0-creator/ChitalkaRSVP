@@ -50,7 +50,11 @@ final class EdgeSpeechEngine {
     private EdgeSpeechQueue.Ticket ticket;
     private ScheduledFuture<?> watchdog;
     private WebSocket socket;
-    private boolean finished,canceled,retriedAfter403;
+    private boolean finished,canceled,retriedAfter403,connecting;
+    // The queue ticket belongs to the socket until OkHttp confirms it has ended.
+    // Otherwise cancellation can open a second WebSocket before the first closes.
+    private WebSocket closingSocket;
+    private ScheduledFuture<?> closeFallback;
     private long started,handshakeStarted,firstAudio,lastFrame;
     private int frames,connectionAttempt;
     EdgeSpeechEngine(String value,String voice,String rate,int priority,EdgeTtsClient.Callback callback){
@@ -62,11 +66,53 @@ final class EdgeSpeechEngine {
     void start(){
         synchronized(this){if(finished||canceled)return;ticket=EdgeSpeechQueue.submit(priority,this::open,this::preempt);}
     }
+    void promoteToPlay(){
+        EdgeSpeechQueue.Ticket pending;
+        synchronized(this){if(finished||canceled)return;pending=ticket;}
+        EdgeSpeechQueue.promote(pending);
+    }
     void cancel(){
-        WebSocket old;
-        synchronized(this){if(finished)return;finished=true;canceled=true;stopWatchdog();old=socket;
-            EdgeSpeechQueue.release(ticket);ticket=null;}
-        if(old!=null)old.cancel();
+        WebSocket old;boolean opening;
+        synchronized(this){
+            if(finished)return;
+            finished=true;canceled=true;stopWatchdog();old=socket;socket=null;
+            opening=connecting;
+        }
+        if(old!=null)endSocket(old,true);
+        else if(!opening)releaseTicketAfterClose();
+        // If newWebSocket() is still returning, connect() cancels and closes it.
+    }
+    private void releaseTicketAfterClose(){
+        EdgeSpeechQueue.Ticket held;
+        synchronized(this){
+            if(closeFallback!=null){closeFallback.cancel(false);closeFallback=null;}
+            closingSocket=null;
+            held=ticket;ticket=null;
+        }
+        if(held!=null)EdgeSpeechQueue.release(held);
+    }
+    private void socketTerminated(WebSocket terminated){
+        boolean match;
+        synchronized(this){match=terminated!=null && terminated==closingSocket;}
+        if(match)releaseTicketAfterClose();
+    }
+    /** A closed/canceled socket must acknowledge termination before the next
+     * queue ticket can run. The fallback force-cancels a broken close handshake. */
+    private void endSocket(WebSocket old,boolean forceCancel){
+        if(old==null){releaseTicketAfterClose();return;}
+        synchronized(this){closingSocket=old;}
+        try{
+            if(forceCancel || !old.close(1000,"complete"))old.cancel();
+        }catch(Exception ex){old.cancel();}
+        synchronized(this){
+            if(closingSocket==old){
+                closeFallback=TIMER.schedule(()->{
+                    Log.w("EdgeSpeech","WebSocket close acknowledgement timed out; forcing cancel");
+                    old.cancel();
+                    socketTerminated(old);
+                },4,TimeUnit.SECONDS);
+            }
+        }
     }
     /** A foreground tap can preempt speculative/bulk work. Unlike user cancel,
      * this completes the background callback so whole-book workers do not wait
@@ -94,12 +140,12 @@ final class EdgeSpeechEngine {
             finished=true;stopWatchdog();old=socket;socket=null;
             if(problem==null&&(frames==0||audio.size()<1500))problem="Edge не прислал MP3";
             if(problem==null)EdgeSpeechQueue.success();
-            EdgeSpeechQueue.release(ticket);ticket=null;
             bytes=problem==null?audio.toByteArray():null;
             marks=new ArrayList<>(words);count=frames;
             duration=SystemClock.elapsedRealtime()-started;
         }
-        if(old!=null)old.close(1000,"complete");
+        if(old!=null)endSocket(old,false);
+        else if(!connecting)releaseTicketAfterClose();
         Log.i("EdgeSpeech", "total="+duration+"ms firstAudio="+
             (firstAudio==0?-1:firstAudio-started)+"ms bytes="+(bytes==null?0:bytes.length)+
             (problem==null?"":" error="+problem));
@@ -137,6 +183,7 @@ final class EdgeSpeechEngine {
         synchronized(this){
             if(finished||canceled)return;
             currentAttempt=++connectionAttempt;
+            connecting=true;
             handshakeStarted=SystemClock.elapsedRealtime();
         }
         final String attemptGec=EdgeToken.generate(EdgeServerClock.adjustedEpochSeconds());
@@ -210,7 +257,9 @@ final class EdgeSpeechEngine {
                 }
                 @Override public void onFailure(WebSocket ws,Throwable e,Response response){
                     synchronized(EdgeSpeechEngine.this){
-                        if(finished||currentAttempt!=connectionAttempt)return;
+                        if(finished||currentAttempt!=connectionAttempt){
+                            socketTerminated(ws);return;
+                        }
                     }
                     int status=response==null?0:response.code();
                     if(status==403&&response!=null){
@@ -233,15 +282,30 @@ final class EdgeSpeechEngine {
                     }
                     if(status==429){EdgeSpeechQueue.limited(response);finish("HTTP 429: Edge временно ограничил запросы");}
                     else finish(status>0?"Edge HTTP "+status+": отказ сервера":"Ошибка соединения Edge: "+e);
+                    socketTerminated(ws); // OkHttp confirms failed WebSocket is gone.
                 }
                 @Override public void onClosed(WebSocket ws,int code,String reason){
+                    synchronized(EdgeSpeechEngine.this){
+                        if(currentAttempt!=connectionAttempt)return;
+                    }
                     finish("Edge закрыл соединение до завершения: "+code);
+                    socketTerminated(ws);
                 }
             });
+            boolean terminate;
             synchronized(this){
-                if(finished||currentAttempt!=connectionAttempt)connected.cancel();
-                else socket=connected;
+                connecting=false;
+                terminate=finished||currentAttempt!=connectionAttempt;
+                if(!terminate)socket=connected;
             }
-        }catch(Exception e){finish("Ошибка подключения Edge: "+e);}
+            if(terminate){
+                if(finished)endSocket(connected,true);
+                else connected.cancel(); // stale 403 attempt already failed
+            }
+        }catch(Exception e){
+            synchronized(this){connecting=false;}
+            finish("Ошибка подключения Edge: "+e);
+            if(finished && closingSocket==null)releaseTicketAfterClose();
+        }
     }
 }

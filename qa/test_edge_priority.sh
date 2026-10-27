@@ -34,6 +34,15 @@ public class TestEdgePriority {
         long latencyMs=(System.nanoTime()-start)/1000000;
         check(latencyMs<750,"tap blocked for "+latencyMs+"ms");
         EdgeSpeechQueue.release(play);
+        // While interactive reading is active, explicit full-book synthesis must
+        // wait for the user to pause or finish the current reading session.
+        EdgeSpeechQueue.setInteractivePlayback(true);
+        CountDownLatch deferred=new CountDownLatch(1);
+        EdgeSpeechQueue.Ticket queued=EdgeSpeechQueue.submit(EdgeSpeechQueue.BULK,deferred::countDown);
+        check(!deferred.await(250,TimeUnit.MILLISECONDS),"background WebSocket ran during Edge playback");
+        EdgeSpeechQueue.setInteractivePlayback(false);
+        check(deferred.await(2,TimeUnit.SECONDS),"background WebSocket did not resume after playback");
+        EdgeSpeechQueue.release(queued);
         EdgeSpeechQueue.limited(null);
         long cooldown=EdgeSpeechQueue.remainingMs();
         check(cooldown>=2000&&cooldown<=5000,"missing Retry-After should not cause 15min wait: "+cooldown);

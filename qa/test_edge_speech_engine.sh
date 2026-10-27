@@ -43,9 +43,26 @@ public byte[] toByteArray(){return bytes;}}
 JAVA
 cat > "$TMP/src/okhttp3/WebSocket.java" <<'JAVA'
 package okhttp3;
-public class WebSocket {public static volatile String sent="";
-public boolean send(String s){sent+=s;return true;}
-public boolean close(int code,String reason){return true;}public void cancel(){}
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+public class WebSocket {
+ public static volatile String sent="";
+ public static final AtomicInteger active=new AtomicInteger(),maxActive=new AtomicInteger();
+ private final WebSocketListener listener;
+ private final AtomicBoolean terminated=new AtomicBoolean(),opened=new AtomicBoolean();
+ public WebSocket(WebSocketListener l){listener=l;}
+ public void markOpened(){opened.set(true);int n=active.incrementAndGet();maxActive.accumulateAndGet(n,Math::max);}
+ public boolean send(String s){sent+=s;return true;}
+ private void shutdown(boolean clean){
+  if(!terminated.compareAndSet(false,true))return;
+  new Thread(()->{try{Thread.sleep(110);}catch(Exception ignored){}
+   if(opened.get())active.decrementAndGet();
+   if(clean)listener.onClosed(this,1000,"closed");
+   else listener.onFailure(this,new java.io.IOException("canceled"),null);
+  }).start();
+ }
+ public boolean close(int code,String reason){shutdown(true);return true;}
+ public void cancel(){shutdown(false);}
 }
 JAVA
 cat > "$TMP/src/okhttp3/WebSocketListener.java" <<'JAVA'
@@ -69,13 +86,13 @@ public class OkHttpClient {
   public OkHttpClient build(){return new OkHttpClient();}}
  public WebSocket newWebSocket(Request request,WebSocketListener listener){
   target=request.url;calls++;if(calls==1)firstTarget=target;
-  WebSocket ws=new WebSocket();
+  WebSocket ws=new WebSocket(listener);
   new Thread(()->{try{
     if(Response.status==429){listener.onFailure(ws,new java.io.IOException("limited"),new Response());return;}
     if(Response.status==403&&(always403||calls==1)){
         listener.onFailure(ws,new java.io.IOException("forbidden"),new Response());return;
     }
-    listener.onOpen(ws,new Response());Thread.sleep(30);
+    ws.markOpened();listener.onOpen(ws,new Response());Thread.sleep(30);
     byte[] header="Path: audio\r\nContent-Type: audio/mpeg".getBytes(StandardCharsets.US_ASCII);
     byte[] bytes=new byte[2+header.length+2700];bytes[0]=(byte)(header.length>>8);bytes[1]=(byte)header.length;
     System.arraycopy(header,0,bytes,2,header.length);
@@ -150,6 +167,67 @@ class EdgeSpeech429Smoke {
  }
 }
 JAVA
+cat > "$TMP/src/ru/reader/rsvp/EdgeSpeechSerialSmoke.java" <<'JAVA'
+package ru.reader.rsvp;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import okhttp3.OkHttpClient;
+import okhttp3.Response;
+import okhttp3.WebSocket;
+class EdgeSpeechSerialSmoke {
+ public static void main(String[] args)throws Exception{
+  Response.status=101;
+  CountDownLatch ended=new CountDownLatch(2);
+  final String[] errors={null,null};
+  EdgeTtsClient.Callback first=new EdgeTtsClient.Callback(){
+   public void progress(int n,long b){}
+   public void finished(byte[] mp3,int parts,String error){errors[0]=error;ended.countDown();}
+  };
+  EdgeTtsClient.Callback second=new EdgeTtsClient.Callback(){
+   public void progress(int n,long b){}
+   public void finished(byte[] mp3,int parts,String error){errors[1]=error;ended.countDown();}
+  };
+  EdgeTtsClient a=EdgeTtsClient.synthesize("Первый текст", "ru-RU-SvetlanaNeural", "+0%",first);
+  EdgeTtsClient b=EdgeTtsClient.synthesize("Второй текст", "ru-RU-SvetlanaNeural", "+0%",second);
+  if(!ended.await(6,TimeUnit.SECONDS))throw new AssertionError("Serial requests timed out");
+  if(errors[0]!=null||errors[1]!=null)throw new AssertionError("Serial errors: "+errors[0]+", "+errors[1]);
+  Thread.sleep(250);
+  if(OkHttpClient.calls!=2 || WebSocket.maxActive.get()!=1 || WebSocket.active.get()!=0)
+   throw new AssertionError("WebSockets overlapped: calls="+OkHttpClient.calls+
+     " maxActive="+WebSocket.maxActive+" active="+WebSocket.active);
+  a.cancel();b.cancel();
+  System.out.println("PASS: second WebSocket waited for first socket close acknowledgement");
+ }
+}
+JAVA
+cat > "$TMP/src/ru/reader/rsvp/EdgeSpeechCancelSerialSmoke.java" <<'JAVA'
+package ru.reader.rsvp;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import okhttp3.OkHttpClient;
+import okhttp3.Response;
+import okhttp3.WebSocket;
+class EdgeSpeechCancelSerialSmoke {
+ public static void main(String[] args)throws Exception{
+  Response.status=101;
+  EdgeTtsClient first=EdgeTtsClient.synthesize("Текст для отмены", "ru-RU-SvetlanaNeural", "+0%",
+   new EdgeTtsClient.Callback(){public void progress(int n,long b){}public void finished(byte[] b,int n,String e){}});
+  long until=System.currentTimeMillis()+1000;
+  while(WebSocket.active.get()==0 && System.currentTimeMillis()<until)Thread.sleep(5);
+  if(WebSocket.active.get()==0)throw new AssertionError("First WebSocket never opened");
+  first.cancel();
+  CountDownLatch done=new CountDownLatch(1);
+  EdgeTtsClient second=EdgeTtsClient.synthesize("Следующий текст", "ru-RU-SvetlanaNeural", "+0%",
+   new EdgeTtsClient.Callback(){public void progress(int n,long b){}public void finished(byte[] b,int n,String e){done.countDown();}});
+  if(!done.await(5,TimeUnit.SECONDS))throw new AssertionError("Second socket blocked after cancel");
+  Thread.sleep(200);
+  if(OkHttpClient.calls!=2||WebSocket.maxActive.get()!=1)
+   throw new AssertionError("Sockets overlapped during cancellation: "+WebSocket.maxActive);
+  second.cancel();
+  System.out.println("PASS: cancel completes before replacement WebSocket opens");
+ }
+}
+JAVA
 cat > "$TMP/src/ru/reader/rsvp/EdgeSpeech403Smoke.java" <<'JAVA'
 package ru.reader.rsvp;
 import java.util.concurrent.CountDownLatch;import java.util.concurrent.TimeUnit;
@@ -194,3 +272,6 @@ java -cp "$TMP/classes" ru.reader.rsvp.EdgeSpeech403Smoke recover
 java -cp "$TMP/classes" ru.reader.rsvp.EdgeSpeech403Smoke repeat-403
 java -cp "$TMP/classes" ru.reader.rsvp.EdgeSpeech403Smoke bad-date
 java -cp "$TMP/classes" ru.reader.rsvp.EdgeSpeech403Smoke same-window
+
+java -cp "$TMP/classes" ru.reader.rsvp.EdgeSpeechSerialSmoke
+java -cp "$TMP/classes" ru.reader.rsvp.EdgeSpeechCancelSerialSmoke

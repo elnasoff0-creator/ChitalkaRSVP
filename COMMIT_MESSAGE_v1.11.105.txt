@@ -1,0 +1,7 @@
+refactor(edge): serialize WebSocket synthesis after current MP3 finishes (v1.11.105-beta)
+
+- Remove background synthesis of next 900-character clip.
+- Continue at current clip end through Media3 STATE_ENDED callback.
+- Hold queue ticket until prior WebSocket closes, including cancellations.
+- Defer bulk Edge preparation while interactive listening is requested.
+- Keep 900/600 segmentation, media streaming, cache, 403/429 handling and UI.
