@@ -157,7 +157,7 @@ public final class EdgeFullBookService extends Service {
                 File target=new File(job.mp3Folder(),key+".mp3");
                 if(EdgeFullBookStore.ready(target)){i++;continue;}
                 if(!EdgeGenerationGuard.claim(target.getAbsolutePath())){
-                    Thread.sleep(700);continue;
+                    Thread.sleep(500);continue;
                 }
                 try{
                     if(EdgeFullBookStore.ready(target)){i++;continue;}
@@ -208,7 +208,7 @@ public final class EdgeFullBookService extends Service {
                             EdgeFullBookStore.status(job,EdgeFullBookStore.PAUSED);
                             return;
                         }
-                        Thread.sleep(Math.min(12000L,1500L*(attempt+1)*(attempt+1)));
+                        Thread.sleep(500L); // fixed local retry gap; 429 never auto-retries
                     }
                     if(!saved){
                         EdgeFullBookStore.progress(job,EdgeFullBookStore.readyCount(job),count,

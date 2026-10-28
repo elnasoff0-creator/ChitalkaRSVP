@@ -13,8 +13,11 @@ final class EdgeWsFrames {
         final int dataOffset;
         final int dataLength;
         final boolean terminal;
-        Frame(int offset, int length, boolean terminal){
+        final String requestId;
+        Frame(int offset, int length, boolean terminal){this(offset,length,terminal,"");}
+        Frame(int offset,int length,boolean terminal,String requestId){
             this.dataOffset=offset;this.dataLength=length;this.terminal=terminal;
+            this.requestId=requestId;
         }
     }
     private EdgeWsFrames(){}
@@ -34,6 +37,20 @@ final class EdgeWsFrames {
         }
         return "";
     }
+    /** Optional Edge request correlation header; absent in some intermediaries. */
+    static String textHeader(String message,String name){
+        if(message==null||name==null)return "";
+        String head=message;
+        int end=message.indexOf("\r\n\r\n");
+        if(end<0)end=message.indexOf("\n\n");
+        if(end>=0)head=message.substring(0,end);
+        for(String line:head.split("\\r?\\n")){
+            int sep=line.indexOf(':');
+            if(sep>0&&name.equalsIgnoreCase(line.substring(0,sep).trim()))
+                return line.substring(sep+1).trim();
+        }
+        return "";
+    }
     static String textBody(String message){
         if(message==null)return "";
         int end=message.indexOf("\r\n\r\n");
@@ -47,7 +64,7 @@ final class EdgeWsFrames {
         if(headerLength<1||headerLength>8192||headerLength>packet.length-2)
             throw new IOException("Поврежденная длина заголовка Edge");
         String head=new String(packet,2,headerLength,StandardCharsets.US_ASCII);
-        String path=null,contentType=null;
+        String path=null,contentType=null,requestId="";
         for(String line:head.split("\\r?\\n")) {
             int sep=line.indexOf(':');
             if(sep<1)continue;
@@ -55,19 +72,20 @@ final class EdgeWsFrames {
             String value=line.substring(sep+1).trim();
             if("path".equals(field))path=value;
             else if("content-type".equals(field))contentType=value;
+            else if("x-requestid".equals(field)||"x-request-id".equals(field))requestId=value;
         }
         if(!"audio".equalsIgnoreCase(path))
             throw new IOException("Неожиданный тип бинарного пакета Edge: "+(path==null?"отсутствует":path));
         int offset=2+headerLength;
         int length=packet.length-offset;
         // The service sends Path:audio with no Content-Type and no bytes at the end.
-        if(length==0&&(contentType==null||contentType.isEmpty()))return new Frame(offset,0,true);
+        if(length==0&&(contentType==null||contentType.isEmpty()))return new Frame(offset,0,true,requestId);
         if(contentType==null||contentType.isEmpty())
             throw new IOException("Аудиоданные Edge без Content-Type");
         String mime=contentType.split(";",2)[0].trim().toLowerCase(Locale.ROOT);
         if(!"audio/mpeg".equals(mime))
             throw new IOException("Edge вернул неподдерживаемый аудиоформат: "+mime);
         if(length==0)throw new IOException("Edge прислал пустой MP3-пакет");
-        return new Frame(offset,length,false);
+        return new Frame(offset,length,false,requestId);
     }
 }

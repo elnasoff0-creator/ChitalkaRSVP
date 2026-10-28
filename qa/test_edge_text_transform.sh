@@ -69,14 +69,14 @@ p=Path(sys.argv[1])/'app/src/main/java/ru/reader/rsvp'
 a=(p/'EdgeStreamingService.java').read_text()
 b=(p/'EdgeSpeechQueue.java').read_text()
 c=(p/'EdgeSpeechEngine.java').read_text()
-assert 'startLive(ahead,false,true)' in a
-assert 'current.ready()&&ahead!=null' in a
+assert 'prefetchWindow(current)' in a
+assert 'candidate.ready()||liveFor(candidate)!=null' in a
 assert 'EdgeSpeechFiles.saveMapped' in a
 assert 'job.speech.spoken' in a
-assert '(foreground||ahead)?EdgeSpeechQueue.PLAY' in a
+assert 'foreground?EdgeSpeechQueue.PLAY:EdgeSpeechQueue.PREFETCH' in a
 assert 'job.speech.aligned' in a
 assert 'if(current!=null&&!next.equals(current.key))choose(null,null)' in a
-assert 'socketTerminated(ws)' in c and 'endSocket(old,false)' in c
-assert 'if(current!=null||pending.isEmpty())return' in b
-print('PASS: one next block only after successful MP3 commit, WS serialized, transformed text/timings')
+assert 'EdgeWebSocketPool.recycle(resource)' in c and 'socketTerminated(resource)' in c
+assert 'active.size()>=MAX_ACTIVE' in b
+print('PASS: cache-first candidate window, pooled WS, transformed text/timings')
 PY

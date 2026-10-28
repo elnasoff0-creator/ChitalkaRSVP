@@ -14,7 +14,7 @@ assert 'restoreStartPosition();' in service
 assert 'if(initial!=null&&initial.fromWord<anchorWord)setAnchor(anchorWord,true)' not in service
 assert 'target.awaitingUserRetry' in service[service.index('private void warmCurrent()'):service.index('public void refreshSettings()')]
 assert 'waiting.request.promoteToPlay();' in service
-assert 'static void promote(Ticket ticket)' in queue
+assert 'void promote(Ticket ticket)' in queue
 print('PASS: entry into TTS does not issue a manual priority request or redundant warmups')
 PY
 TMP="$(mktemp -d)";trap 'rm -rf "$TMP"' EXIT

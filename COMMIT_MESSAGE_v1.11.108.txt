@@ -1,6 +1,0 @@
-feat(edge): single-socket one-ahead MP3 and send-only punctuation/dictionary (v1.11.108-beta)
-
-- One next Edge 800-char group after current audio saved; only one active WebSocket
-- V1/V2/V3 point replacement, protected decimals/domains/abbreviations, custom dictionary
-- WordBoundary and cache key mapped to original text; full-book options snapshot
-- Regression checks, clean v1.11.108 release metadata

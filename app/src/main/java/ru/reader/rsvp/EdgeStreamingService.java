@@ -33,9 +33,9 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/** Serial Edge speech coordinator: streaming Media3 + exactly one look-ahead.
- * After the complete MP3 has been committed and the previous WebSocket released,
- * one subsequent block may be synthesized while Media3 plays the cached audio.
+/** Bounded Quickify-inspired prefetch scheduler with live Media3 streaming.
+ * Up to six nearby candidates are cache-checked; the shared priority queue
+ * leases at most four reusable WebSockets with at most two speculative jobs.
  */
 public final class EdgeStreamingService extends Service {
     public interface Observer {void onChanged();}
@@ -60,7 +60,7 @@ public final class EdgeStreamingService extends Service {
     private final ArrayList<Clip> archive=new ArrayList<>();
     // The complete, sentence-indexed catalogue is independent of which MP3 has been cached.
     private final Map<Integer,Clip> byStart=new HashMap<>();
-    /** Only the playing clip and at most one next clip are eligible to synthesize. */
+    /** Playing clip and a bounded, cache-first window of nearby candidates. */
     private final LinkedHashMap<String,LiveJob> liveJobs=new LinkedHashMap<>();
     private static final class LiveJob {
         final Clip clip;
@@ -68,6 +68,7 @@ public final class EdgeStreamingService extends Service {
         final String fileId,bookId;
         EdgeSpeechTextTransform.Result speech;
         volatile boolean networkDone;
+        volatile boolean firstAudioNotified;
         boolean attached;
         EdgeTtsClient request;
         EdgeLiveBuffer buffer;
@@ -563,18 +564,41 @@ public final class EdgeStreamingService extends Service {
         }
         if(player==null||!player.playRequested()){changed();return;}
         if(EdgeSpeechQueue.remainingMs()>0){changed();return;}
-        boolean busy=false;
-        for(LiveJob j:liveJobs.values())if(!j.networkDone)busy=true;
-        if(!busy&&!current.ready()&&liveFor(current)==null&&
+        if(!current.ready()&&liveFor(current)==null&&
                 !current.awaitingUserRetry && current.retryAt<=SystemClock.elapsedRealtime())startLive(current);
-        // One-ahead only: network starts only when the current MP3 is fully
-        // committed to disk; a pending live/failed next block is not restarted.
-        // Queue priority PLAY is necessary while interactive playback is active.
-        if(!busy&&current.ready()&&ahead!=null&&!ahead.ready()&&liveFor(ahead)==null&&
-                !ahead.awaitingUserRetry&&ahead.retryAt<=SystemClock.elapsedRealtime()&&
-                (player.currentStartWord()==current.start||
-                 player.currentStartWord()<0))startLive(ahead,false,true);
+        // Do not flood the endpoint before the first playable frames exist.
+        LiveJob currentJob=liveFor(current);
+        boolean startedAudio=current.ready()||(currentJob!=null&&currentJob.buffer!=null&&
+                currentJob.buffer.available()>0);
+        if(startedAudio&&EdgeSpeechQueue.allowPrefetch())prefetchWindow(current);
         changed();
+    }
+    /** Quickify-inspired finite window: candidate selection and network concurrency
+     * are separate. Cache, existing jobs, and failed requests are checked first. */
+    private void prefetchWindow(Clip current){
+        if(current==null||directory==null||player==null||!player.playRequested())return;
+        int budget=EdgePrefetchPlanner.budget(current.text.length(),false);
+        ArrayList<Clip> candidates=new ArrayList<>();
+        ArrayList<Integer> lengths=new ArrayList<>();
+        int position=current.end;
+        for(int i=0;i<EdgePrefetchPlanner.MAX_CANDIDATES&&position<offsets.size();i++){
+            Clip candidate=clipAt(position);
+            if(candidate==null||candidate.end<=position)break;
+            candidates.add(candidate);lengths.add(candidate.text.length());
+            position=candidate.end;
+        }
+        int pending=0;
+        for(LiveJob j:liveJobs.values())if(!j.networkDone&&j.clip!=current)pending++;
+        for(int index:EdgePrefetchPlanner.select(lengths,budget,
+                EdgePrefetchPlanner.countLimit(budget))){
+            if(pending>=EdgeSpeechQueue.MAX_PREFETCH)break;
+            Clip candidate=candidates.get(index);
+            if(candidate.ready()||liveFor(candidate)!=null||candidate.awaitingUserRetry||
+                    candidate.retryAt>SystemClock.elapsedRealtime())continue;
+            // Cache key is scoped by spoken text, voice, rate and pronunciation.
+            startLive(candidate,false,true);
+            pending++;
+        }
     }
     private void addTrack(Clip clip){
         if(player!=null&&clip!=null&&clip.ready())
@@ -584,9 +608,8 @@ public final class EdgeStreamingService extends Service {
         if(clip==null||directory==null)return null;
         return liveJobs.get(new File(directory,clip.key+".mp3").getAbsolutePath());
     }
-    /** Current MP3 streams live; a single ahead MP3 accumulates independently.
-     * The live DataSource can attach to the ahead buffer if playback catches up.
-     */
+    /** MP3 frames stream immediately; speculative segments keep their own
+     * buffers so the reader can attach when the playback cursor catches up. */
     private void startLive(Clip clip){startLive(clip,false,false);}
     private void startLive(Clip clip,boolean warmup){startLive(clip,warmup,false);}
     private void startLive(Clip clip,boolean warmup,boolean ahead){
@@ -613,7 +636,7 @@ public final class EdgeStreamingService extends Service {
         EdgeTtsDiagnostics.requested(diagnosticKey,clip.text.length(),warmup);
         error="";changed();
         job.request=EdgeTtsClient.synthesize(job.speech.spoken,voice(),rate(),
-            (foreground||ahead)?EdgeSpeechQueue.PLAY:EdgeSpeechQueue.PREFETCH,
+            foreground?EdgeSpeechQueue.PLAY:EdgeSpeechQueue.PREFETCH,
             new EdgeTtsClient.Callback(){
                 @Override public void progress(int count,long bytes){}
                 @Override public void connected(){EdgeTtsDiagnostics.connected(diagnosticKey);}
@@ -621,6 +644,10 @@ public final class EdgeStreamingService extends Service {
                     EdgeTtsDiagnostics.firstMp3(diagnosticKey,length);
                     if(job.buffer!=null)try{job.buffer.append(packet,start,length);}
                     catch(java.io.IOException e){Log.w("EdgeSpeech","Live buffer rejected MP3",e);}
+                    if(!job.firstAudioNotified){
+                        job.firstAudioNotified=true;
+                        main.post(()->{if(job.bookId.equals(bookUri)&&active)pump();});
+                    }
                 }
                 @Override public void metadata(List<EdgeWordTimings.Boundary> marks){
                     job.timings=job.speech.aligned(marks);

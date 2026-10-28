@@ -159,11 +159,11 @@ class EdgeSpeech429Smoke {
   });
   if(!finish.await(3,TimeUnit.SECONDS))throw new AssertionError("429 handshake hung");
   if(error[0]==null||!error[0].contains("HTTP 429"))throw new AssertionError(error[0]);
-  if(EdgeSpeechQueue.remainingMs()<45000)throw new AssertionError("Ignored Retry-After");
+  if(EdgeSpeechQueue.remainingMs()>500)throw new AssertionError("Local wait exceeded 500ms");
   Thread.sleep(140);
   if(OkHttpClient.calls!=1)throw new AssertionError("Automatic retry after 429");
   c.cancel();
-  System.out.println("PASS: 429 fail-fast, Retry-After cooldown, no retry storm");
+  System.out.println("PASS: 429 fail-fast, fixed local 500ms cooldown, no retry storm");
  }
 }
 JAVA
@@ -260,6 +260,7 @@ class EdgeSpeech403Smoke {
 JAVA
 javac -encoding UTF-8 -d "$TMP/classes" $(find "$TMP/src" -name '*.java') \
  "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeSpeechQueue.java" \
+ "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeWebSocketPool.java" \
  "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeSpeechEngine.java" \
  "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeServerClock.java" \
  "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeToken.java" \
@@ -273,5 +274,4 @@ java -cp "$TMP/classes" ru.reader.rsvp.EdgeSpeech403Smoke repeat-403
 java -cp "$TMP/classes" ru.reader.rsvp.EdgeSpeech403Smoke bad-date
 java -cp "$TMP/classes" ru.reader.rsvp.EdgeSpeech403Smoke same-window
 
-java -cp "$TMP/classes" ru.reader.rsvp.EdgeSpeechSerialSmoke
-java -cp "$TMP/classes" ru.reader.rsvp.EdgeSpeechCancelSerialSmoke
+bash "$ROOT/qa/test_edge_reuse_pool.sh"

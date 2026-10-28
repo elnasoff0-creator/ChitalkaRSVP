@@ -45,7 +45,7 @@ public class TestEdgePriority {
         EdgeSpeechQueue.release(queued);
         EdgeSpeechQueue.limited(null);
         long cooldown=EdgeSpeechQueue.remainingMs();
-        check(cooldown>=700&&cooldown<=1500,"missing Retry-After should use about 1s cooldown: "+cooldown);
+        check(cooldown>=1&&cooldown<=500,"429 local pause must not exceed 500ms: "+cooldown);
         System.out.println("PASS: user Play preempts full-book job; no 4.5s tap delay; no 15min default 429");
     }
 }
