@@ -280,14 +280,14 @@ public class MainActivity extends Activity {
             .putExtra("count_usage", true).putExtra("resume_audio",resumePlayback));
     }
 
-    int subduedText() { return bg == 0xff1e2025 ? 0xff8f8a82 : 0xff9d948a; }
+    int subduedText() { return ReadingThemeCycle.isDark(bg) ? 0xffbcb7b1 : 0xff9d948a; }
 
     int dp(int n) { return (int) (getResources().getDisplayMetrics().density * n + .5f); }
     Typeface type() { return font == 1 ? Typeface.SERIF : font == 2 ? Typeface.MONOSPACE : Typeface.SANS_SERIF; }
     int accent() { return ReaderButtonColors.accent(this, 0xff9A5E40); }
-    int panelColor() { return prefs.getInt("panel_color", bg == 0xff1e2025 ? 0xff2a2d33 : 0xfffff9f1); }
-    int softPanel() { return bg == 0xff1e2025 ? 0xff333842 : 0xfff5ede2; }
-    int faintText() { return bg == 0xff1e2025 ? 0xffcbc6bb : 0xff6d635a; }
+    int panelColor() { return prefs.getInt("panel_color", ReadingThemeCycle.isDark(bg) ? 0xff2a2d33 : 0xfffff9f1); }
+    int softPanel() { return ReadingThemeCycle.isDark(bg) ? 0xff333842 : 0xfff5ede2; }
+    int faintText() { return ReadingThemeCycle.isDark(bg) ? 0xffcbc6bb : 0xff6d635a; }
 
     void stop() { playing = false; handler.removeCallbacks(ticker); updatePlayButton(); }
 
@@ -365,6 +365,13 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams searchLp=new LinearLayout.LayoutParams(dp(TOOLBAR_SIZE_DP),dp(TOOLBAR_SIZE_DP));
         searchLp.leftMargin=dp(TOOLBAR_GAP_DP);
         top.addView(search,searchLp);
+        View themeButton=iconButton(ReadingThemeCycle.icon(prefs),v->{
+            ReadingThemeCycle.next(prefs);bg=prefs.getInt("bg",bg);fg=prefs.getInt("fg",fg);
+            saveAll();draw();
+        },true);
+        themeButton.setContentDescription("Тема чтения: "+ReadingThemeCycle.name(prefs)+". Следующая тема");
+        LinearLayout.LayoutParams themeLp=new LinearLayout.LayoutParams(dp(TOOLBAR_SIZE_DP),dp(TOOLBAR_SIZE_DP));
+        themeLp.leftMargin=dp(TOOLBAR_GAP_DP);top.addView(themeButton,themeLp);
         View importBtn = iconButton(R.drawable.ic_plus, v -> showAddMenu());
         LinearLayout.LayoutParams importLp=new LinearLayout.LayoutParams(dp(TOOLBAR_SIZE_DP),dp(TOOLBAR_SIZE_DP));
         importLp.leftMargin=dp(TOOLBAR_GAP_DP);
@@ -489,8 +496,8 @@ public class MainActivity extends Activity {
             emotion.setMaxLines(2);
             emotion.setIncludeFontPadding(false);
             bubble.addView(emotion,new FrameLayout.LayoutParams(-1,-1));
-            FrameLayout.LayoutParams bubbleLp=new FrameLayout.LayoutParams(dp(136),dp(78),Gravity.TOP|Gravity.CENTER_HORIZONTAL);
-            bubbleLp.topMargin=dp(14);
+            FrameLayout.LayoutParams bubbleLp=new FrameLayout.LayoutParams(dp(112),dp(56),Gravity.TOP|Gravity.CENTER_HORIZONTAL);
+            bubbleLp.topMargin=dp(19);
             petArea.addView(bubble,bubbleLp);
             bubble.setElevation(dp(8));
             bubble.setVisibility(View.GONE);
@@ -500,7 +507,7 @@ public class MainActivity extends Activity {
                 ChteicoEmotions.wake();
                 pet.setSleeping(false);
                 bubble.removeCallbacks(dismissEmotion);
-                emotion.setTextSize(17);
+                emotion.setTextSize(14);
                 emotion.setText(ChteicoEmotions.stroke());
                 bubble.animate().cancel();
                 bubble.setAlpha(1f);
@@ -516,8 +523,8 @@ public class MainActivity extends Activity {
                     if(ChteicoEmotions.isSleeping()){
                         pet.setSleeping(true);
                         bubble.removeCallbacks(dismissEmotion);
-                        emotion.setTextSize(12);
-                        emotion.setText(ChteicoEmotions.sleep(phase++));
+                        emotion.setTextSize(10);
+                        emotion.setText(ChteicoEmotions.sleep(phase++).replace("( ◡‿◡ ) ",""));
                         bubble.animate().cancel();
                         bubble.setAlpha(1f);
                         bubble.setVisibility(View.VISIBLE);
@@ -529,16 +536,16 @@ public class MainActivity extends Activity {
             };
             if(ChteicoEmotions.isSleeping()){
                 pet.setSleeping(true);
-                emotion.setTextSize(12);
-                emotion.setText(ChteicoEmotions.sleep(0));
+                emotion.setTextSize(10);
+                emotion.setText(ChteicoEmotions.sleep(0).replace("( ◡‿◡ ) ",""));
                 bubble.setVisibility(View.VISIBLE);
             }
             petArea.post(sleepAnimation[0]);
-            // Put the touch handler on the whole card so the visible bubble
-            // cannot prevent waking, petting or long-press navigation.
-            ChteicoEmotions.attach(petArea,showEmotion,
+            // One tap opens Chteico; any directional movement wakes the pet
+            // and immediately starts Drag and Drop without a long press.
+            ChteicoEmotions.attach(petArea,
                 ()->{bubble.removeCallbacks(dismissEmotion);startActivity(new Intent(this,ChteicoActivity.class));},
-                showEmotion,HomeSectionOrder::startPetDrag);
+                null,showEmotion,HomeSectionOrder::startPetDrag);
             contentWrap.addView(petArea,areaLp);
         }
         HomeSectionOrder.apply(this,contentWrap,readingStart,audioStart,petStart,prefs);
@@ -546,7 +553,7 @@ public class MainActivity extends Activity {
     }
 
     View gap(int n) { TextView t = new TextView(this); t.setHeight(dp(n)); return t; }
-    View divider() { View v = new View(this); v.setBackgroundColor(bg == 0xff1e2025 ? 0xff3a3d43 : 0xffede4d8); v.setLayoutParams(new LinearLayout.LayoutParams(-1, dp(1))); return v; }
+    View divider() { View v = new View(this); v.setBackgroundColor(ReadingThemeCycle.isDark(bg) ? 0xff3a3d43 : 0xffede4d8); v.setLayoutParams(new LinearLayout.LayoutParams(-1, dp(1))); return v; }
 
     LinearLayout sectionHeader(String title, String action) {
         LinearLayout r = row();
@@ -830,13 +837,14 @@ public class MainActivity extends Activity {
         return item;
     }
 
-    View iconButton(int drawable, View.OnClickListener click) {
+    View iconButton(int drawable, View.OnClickListener click) {return iconButton(drawable,click,false);}
+    View iconButton(int drawable, View.OnClickListener click, boolean keepVectorColor) {
         LinearLayout shell = row();
         shell.setGravity(Gravity.CENTER);
         shell.setBackground(shape(ReaderButtonColors.neutral(this,softPanel()), 16));
         ImageView img = new ImageView(this);
         img.setImageResource(drawable);
-        img.setColorFilter(ReaderButtonColors.contrastingText(ReaderButtonColors.neutral(this,softPanel())));
+        if(!keepVectorColor)img.setColorFilter(ReaderButtonColors.contrastingText(ReaderButtonColors.neutral(this,softPanel())));
         shell.addView(img, new LinearLayout.LayoutParams(dp(24), dp(24)));
         shell.setClickable(true);
         shell.setFocusable(true);
@@ -1558,7 +1566,7 @@ public class MainActivity extends Activity {
                 .setPositiveButton("Применить", (d, w) -> {
                     int n = Color.rgb(sliders[0].getProgress(), sliders[1].getProgress(), sliders[2].getProgress());
                     if (background) bg = n; else fg = n;
-                    saveAll(); draw();
+                    ReadingThemeCycle.saveCustom(prefs,bg,fg);saveAll(); draw();
                 }).setNegativeButton("Отмена", null).show();
     }
 

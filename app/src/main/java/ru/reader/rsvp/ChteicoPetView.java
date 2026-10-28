@@ -58,7 +58,13 @@ public final class ChteicoPetView extends ImageView {
     public ChteicoPetView(Context c,@Nullable AttributeSet a){super(c,a);setup();}
     private void setup(){setScaleType(ScaleType.FIT_CENTER);setAdjustViewBounds(true);setContentDescription("Чтейцо — книжный питомец");}
 
+    private void applyThemeInk(){
+        int bg=getContext().getSharedPreferences("reader",Context.MODE_PRIVATE).getInt("bg",0xfff3e7d5);
+        if(ReadingThemeCycle.isDark(bg))setColorFilter(0xffffffff);
+        else clearColorFilter();
+    }
     private void showFrame(){
+        applyThemeInk();
         int stage=ChteicoStore.stage(getContext());
         int branch=ChteicoStore.branch(getContext());
         shownStage=stage;shownBranch=branch;

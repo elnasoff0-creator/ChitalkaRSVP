@@ -153,6 +153,8 @@ public final class EdgePlaybackService extends Service {
                 }
                 if (index >= 0 && index < tracks.size()) {
                     Track track=tracks.get(index);
+                    ReaderDiagnosticLog.event("PLAYER","track start="+track.start+" end="+track.end+
+                        " auto_transition="+completed);
                     if(sleepChapterEndWord>=0 && track.start>=sleepChapterEndWord){
                         sleepChapterEndWord=-1;getSharedPreferences("reader",0).edit().remove("edge_sleep_chapter_end").apply();
                         pause();return;
@@ -181,9 +183,11 @@ public final class EdgePlaybackService extends Service {
             }
             @Override public void onIsPlayingChanged(boolean isPlaying) {
                 if(isPlaying){
+                    ReaderDiagnosticLog.event("PLAYER","audio playing");
                     EdgeTtsDiagnostics.firstSound(currentKey());
                     long now=android.os.SystemClock.elapsedRealtime();
                     if(requestedPlayAtMs>0){
+                        ReaderDiagnosticLog.event("PLAYER","first_sound_after_play_ms="+(now-requestedPlayAtMs));
                         android.util.Log.i("EdgeTtsLatency","first sound after Play="+
                             (now-requestedPlayAtMs)+"ms; track="+currentKey());
                         requestedPlayAtMs=0;
@@ -193,6 +197,7 @@ public final class EdgePlaybackService extends Service {
             }
             @Override public void onAudioSessionIdChanged(int audioSessionId) { AudioEqualizer.attach(EdgePlaybackService.this,audioSessionId); }
             @Override public void onPlayerError(androidx.media3.common.PlaybackException error) {
+                ReaderDiagnosticLog.event("PLAYER","decode_error="+error.getErrorCodeName());
                 requestedPlay = false;
                 playbackError = "Android не смог воспроизвести аудиофайл: "
                         + error.getErrorCodeName();
@@ -437,6 +442,7 @@ public final class EdgePlaybackService extends Service {
     public void appendReady(String key,int start,int end,File file) {
         if (key==null || file==null || !file.isFile()) return;
         for (Track t:tracks) if (t.key.equals(key)) return;
+        ReaderDiagnosticLog.event("CACHE","cache_hit playable_mp3 start="+start+" end="+end+" bytes="+file.length());
         int oldCount = tracks.size();
         Track t=new Track(key,start,end,file);
         int insertion = 0;

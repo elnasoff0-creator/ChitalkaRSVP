@@ -31,16 +31,21 @@ final class EdgeTtsDiagnostics {
         Trace t=TRACES.get(key);if(t==null||t.opened>=0)return;
         t.opened=SystemClock.elapsedRealtime();
         Log.i(TAG,"socket-open="+shortKey(key)+" queue+handshake="+(t.opened-t.queued)+"ms");
+        ReaderDiagnosticLog.event("LATENCY","socket_ready_ms="+(t.opened-t.queued));
     }
     static void firstMp3(String key,int bytes){
         Trace t=TRACES.get(key);if(t==null||t.firstMp3>=0)return;
         t.firstMp3=SystemClock.elapsedRealtime();
+        ReaderDiagnosticLog.event("LATENCY","first_mp3_ms="+(t.firstMp3-t.queued)+
+            " from_socket_ms="+(t.opened<0?-1:t.firstMp3-t.opened));
         Log.i(TAG,"first-mp3="+shortKey(key)+" request-to-bytes="+(t.firstMp3-t.queued)+
             "ms connected-to-bytes="+(t.opened<0?-1:t.firstMp3-t.opened)+"ms packet="+bytes);
     }
     static void decoderRead(String key,int bytes){
         Trace t=TRACES.get(key);if(t==null||t.firstRead>=0)return;
         t.firstRead=SystemClock.elapsedRealtime();
+        ReaderDiagnosticLog.event("LATENCY","decoder_first_read_from_mp3_ms="+
+            (t.firstMp3<0?-1:t.firstRead-t.firstMp3));
         Log.i(TAG,"decoder-first-read="+shortKey(key)+" from-first-mp3="+
             (t.firstMp3<0?-1:t.firstRead-t.firstMp3)+"ms bytes="+bytes);
     }
@@ -49,6 +54,9 @@ final class EdgeTtsDiagnostics {
         long now=SystemClock.elapsedRealtime();
         long gap=lastTrackEndMs;
         lastTrackEndMs=0;
+        ReaderDiagnosticLog.event("LATENCY","player_started_ms="+(now-t.queued)+
+            " mp3_to_player_ms="+(t.firstMp3<0?-1:now-t.firstMp3)+
+            " inter_track_gap_ms="+(gap>0&&now-gap<30000?now-gap:-1));
         Log.i(TAG,"player-start="+shortKey(key)+" request-to-player="+(now-t.queued)+
             "ms mp3-to-player="+(t.firstMp3<0?-1:now-t.firstMp3)+
             "ms read-to-player="+(t.firstRead<0?-1:now-t.firstRead)+
@@ -56,6 +64,9 @@ final class EdgeTtsDiagnostics {
     }
     static void finished(String key,String error,int aligned){
         Trace t=TRACES.get(key);if(t==null)return;
+        ReaderDiagnosticLog.event("LATENCY","network_end_ms="+
+            (SystemClock.elapsedRealtime()-t.queued)+" boundaries="+aligned+" result="+
+            (error==null?"ok":"failed"));
         Log.i(TAG,"network-end="+shortKey(key)+" duration="+
             (SystemClock.elapsedRealtime()-t.queued)+"ms boundaries="+aligned+
             " status="+(error==null?"ok":"failed"));

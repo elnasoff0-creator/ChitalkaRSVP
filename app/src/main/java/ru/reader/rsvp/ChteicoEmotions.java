@@ -20,26 +20,25 @@ final class ChteicoEmotions {
     interface Drag { void start(View view); }
     static void attach(View view,Runnable tap,Runnable longTap,Runnable pet,Drag drag){
         final float slop=ViewConfiguration.get(view.getContext()).getScaledTouchSlop();
-        final long longMs=ViewConfiguration.getLongPressTimeout();
         view.setClickable(true);
         view.setOnTouchListener(new View.OnTouchListener(){
-            float x,y;long started;boolean consumed;
+            float x,y;boolean moved,dragged;
+            private void vibrate(View v){v.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);}
             @Override public boolean onTouch(View v,MotionEvent e){
                 switch(e.getActionMasked()){
                     case MotionEvent.ACTION_DOWN:
-                        x=e.getX();y=e.getY();started=e.getEventTime();consumed=false;return true;
+                        x=e.getX();y=e.getY();moved=false;dragged=false;return true;
                     case MotionEvent.ACTION_MOVE:
-                        if(!consumed&&drag!=null&&e.getEventTime()-started>=longMs
-                                &&Math.hypot(e.getX()-x,e.getY()-y)>slop*1.6f){
-                            consumed=true;drag.start(v);
+                        float dist=(float)Math.hypot(e.getX()-x,e.getY()-y);
+                        if(!moved&&dist>slop){
+                            moved=true;
+                            vibrate(v);
+                            if(pet!=null)pet.run(); // Every direction triggers an emotion.
+                            if(drag!=null){dragged=true;drag.start(v);} // No hold or timeout.
                         }
                         return true;
                     case MotionEvent.ACTION_UP:
-                        if(consumed)return true;
-                        float distance=(float)Math.hypot(e.getX()-x,e.getY()-y);
-                        if(distance>slop*2f){if(pet!=null)pet.run();}
-                        else if(e.getEventTime()-started>=longMs){if(longTap!=null)longTap.run();}
-                        else {v.performClick();if(tap!=null)tap.run();}
+                        if(!moved){v.performClick();vibrate(v);if(tap!=null)tap.run();}
                         return true;
                     case MotionEvent.ACTION_CANCEL:return true;
                     default:return true;

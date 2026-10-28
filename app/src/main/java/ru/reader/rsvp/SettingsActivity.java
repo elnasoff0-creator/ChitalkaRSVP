@@ -48,7 +48,9 @@ public class SettingsActivity extends Activity {
     }
     int dp(int n){return (int)(getResources().getDisplayMetrics().density*n+.5f);}    
     void load(){bg=prefs.getInt("bg",0xfff3e7d5);fg=prefs.getInt("fg",0xff30221e);font=prefs.getInt("font",1);size=prefs.getInt("size",36);display=prefs.getInt("display",1);buttonColor=prefs.getInt("button_color",NO_COLOR);accentButtonColor=prefs.getInt("button_accent_color",NO_COLOR);}    
-    void put(String k,int v){prefs.edit().putInt(k,v).apply();}
+    void put(String k,int v){prefs.edit().putInt(k,v).apply();
+        if("bg".equals(k)||"fg".equals(k))ReadingThemeCycle.saveCustom(prefs,bg,fg);
+    }
     private PackageInfo installedPackageInfo(){
         try{return getPackageManager().getPackageInfo(getPackageName(),0);}catch(Exception ignored){return null;}
     }
@@ -105,7 +107,14 @@ public class SettingsActivity extends Activity {
         list.addView(sizing);
         header("Тема чтения");
         LinearLayout themes=new LinearLayout(this);themes.setOrientation(LinearLayout.HORIZONTAL);
-        theme(themes,"Светлая",0xffffffff,0xff202020);theme(themes,"Сепия",0xfff3e7d5,0xff30221e);theme(themes,"Ночная",0xff1e2025,0xffe8e5db);theme(themes,"Мягкая",0xffdfe9d9,0xff223a29);list.addView(themes);
+        theme(themes,"Дневная",0xffffffff,0xff202020);theme(themes,"Ночная",0xff1e2025,0xffe8e5db);theme(themes,"Мягкая",0xffdfe9d9,0xff223a29);theme(themes,"Сепия",0xfff3e7d5,0xff30221e);list.addView(themes);
+        TextView customTheme=action("Пользовательская тема",()->{
+            ReadingThemeCycle.apply(prefs,ReadingThemeCycle.CUSTOM);load();draw();
+        });
+        customTheme.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_reading_theme_custom,0,0,0);
+        customTheme.setCompoundDrawablePadding(dp(8));
+        LinearLayout.LayoutParams customLp=new LinearLayout.LayoutParams(-1,-2);customLp.topMargin=dp(7);
+        list.addView(customTheme,customLp);
         header("Цвет фона");palette(backgrounds,true);
         header("Цвет текста");palette(textColors,false);
         header("Цвет фоновых подложек");
@@ -167,17 +176,17 @@ public class SettingsActivity extends Activity {
             LinearLayout stageRow=new LinearLayout(this);stageRow.setGravity(Gravity.CENTER_VERTICAL);
             TextView stageLabel=text("Этап",16,true);stageRow.addView(stageLabel,new LinearLayout.LayoutParams(dp(64),-2));
             android.widget.Spinner stageSpinner=new android.widget.Spinner(this);
-            android.widget.ArrayAdapter<String> stageAdapter=new android.widget.ArrayAdapter<>(this,android.R.layout.simple_spinner_item,stageLabels);
-            stageAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);stageSpinner.setAdapter(stageAdapter);stageSpinner.setSelection(stageIndex,false);
-            stageSpinner.setBackground(rounded(0xffffffff,12));stageSpinner.setPadding(dp(12),0,dp(12),0);
+            android.widget.ArrayAdapter<String> stageAdapter=contrastSpinnerAdapter(stageLabels);
+            stageSpinner.setAdapter(stageAdapter);stageSpinner.setSelection(stageIndex,false);
+            styleSpinner(stageSpinner);stageSpinner.setPadding(dp(12),0,dp(12),0);
             stageRow.addView(stageSpinner,new LinearLayout.LayoutParams(0,dp(50),1));devBox.addView(stageRow);
             View spaceMid=new View(this);devBox.addView(spaceMid,new LinearLayout.LayoutParams(-1,dp(8)));
             LinearLayout branchRow=new LinearLayout(this);branchRow.setGravity(Gravity.CENTER_VERTICAL);
             TextView branchLabel=text("Вид",16,true);branchRow.addView(branchLabel,new LinearLayout.LayoutParams(dp(64),-2));
             android.widget.Spinner branchSpinner=new android.widget.Spinner(this);
-            android.widget.ArrayAdapter<String> branchAdapter=new android.widget.ArrayAdapter<>(this,android.R.layout.simple_spinner_item,branchLabels);
-            branchAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);branchSpinner.setAdapter(branchAdapter);branchSpinner.setSelection(branchIndex,false);
-            branchSpinner.setBackground(rounded(0xffffffff,12));branchSpinner.setPadding(dp(12),0,dp(12),0);
+            android.widget.ArrayAdapter<String> branchAdapter=contrastSpinnerAdapter(branchLabels);
+            branchSpinner.setAdapter(branchAdapter);branchSpinner.setSelection(branchIndex,false);
+            styleSpinner(branchSpinner);branchSpinner.setPadding(dp(12),0,dp(12),0);
             branchRow.addView(branchSpinner,new LinearLayout.LayoutParams(0,dp(50),1));devBox.addView(branchRow);
             final Runnable applyDeveloperChoice=()->{
                 int targetStage=stageValues[Math.max(0,Math.min(stageValues.length-1,stageSpinner.getSelectedItemPosition()))];
@@ -287,6 +296,30 @@ public class SettingsActivity extends Activity {
             }
         });
     }
+    /** Native Spinner selected rows otherwise inherit black text from Android's light layout. */
+    android.widget.ArrayAdapter<String> contrastSpinnerAdapter(String[] labels){
+        android.widget.ArrayAdapter<String> adapter=new android.widget.ArrayAdapter<String>(this,
+                android.R.layout.simple_spinner_item,labels){
+            @Override public View getView(int position,View convertView,android.view.ViewGroup parent){
+                TextView item=(TextView)super.getView(position,convertView,parent);
+                item.setTextColor(contrast(cardColor()));
+                return item;
+            }
+            @Override public View getDropDownView(int position,View convertView,android.view.ViewGroup parent){
+                TextView item=(TextView)super.getDropDownView(position,convertView,parent);
+                item.setTextColor(contrast(cardColor()));
+                item.setBackgroundColor(cardColor());
+                item.setPadding(dp(13),dp(12),dp(13),dp(12));
+                return item;
+            }
+        };
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        return adapter;
+    }
+    void styleSpinner(android.widget.Spinner spinner){
+        spinner.setPopupBackgroundDrawable(rounded(cardColor(),10));
+        spinner.setBackground(rounded(cardColor(),12));
+    }
     void drawRsvpSettings(){
         header("Режим чтения");
         int current=Math.max(0,Math.min(3,prefs.getInt("reading_mode",prefs.getBoolean("rsvp",true)?1:0)));
@@ -299,10 +332,9 @@ public class SettingsActivity extends Activity {
         selector.addView(modeImage,new LinearLayout.LayoutParams(dp(52),dp(52)));
         android.widget.Spinner spinner=new android.widget.Spinner(this);
         String[] labels={"Обычный","Скорочтение","Курсор","Озвучка"};
-        android.widget.ArrayAdapter<String> items=new android.widget.ArrayAdapter<>(this,android.R.layout.simple_spinner_item,labels);
-        items.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        android.widget.ArrayAdapter<String> items=contrastSpinnerAdapter(labels);
         spinner.setAdapter(items);spinner.setSelection(current,false);
-        spinner.setBackground(rounded(cardColor(),14));
+        styleSpinner(spinner);
         spinner.setPadding(dp(14),0,dp(38),0);
         android.widget.FrameLayout modeDropdown=new android.widget.FrameLayout(this);
         modeDropdown.addView(spinner,new android.widget.FrameLayout.LayoutParams(-1,dp(52)));
@@ -530,6 +562,11 @@ public class SettingsActivity extends Activity {
         audioLink(R.drawable.ic_audio_timer,"Автоотмотка после паузы","Вернуться к ранее прослушанному месту",autoRewindLabel(),this::autoRewindDialog);
         audioLink(R.drawable.ic_rewind_10s,"Перемотка секундами","Интервал шагов плеера",AudioPlaybackPrefs.seekSeconds(this)+" сек",()->seekStepDialog(false));
         audioLink(R.drawable.ic_rewind_1m,"Перемотка минутами","Интервал шагов плеера",AudioPlaybackPrefs.seekMinutes(this)+" мин",()->seekStepDialog(true));
+        audioDivider();
+        header("Диагностика");
+        audioLink(R.drawable.ic_dev_beaker,"Показать лог-файл",
+            "События Edge TTS, WebSocket, HTTP 429, кэша и воспроизведения",
+            "Открыть",()->startActivity(new Intent(this,ReaderLogActivity.class)));
         gap(18);
     }
     /** Two native dropdowns only; the appearance of the reference site is not copied. */
@@ -542,10 +579,8 @@ public class SettingsActivity extends Activity {
         final String[] values={"Не заменять точки","Заменять точки на ,",
             "Заменять точки на ;","Заменять точки на :","Заменять точки на -",
             "Заменять на три переноса строки"};
-        android.widget.ArrayAdapter<String> valuesAdapter=new android.widget.ArrayAdapter<>(
-            this,android.R.layout.simple_spinner_item,values);
-        valuesAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        replacement.setAdapter(valuesAdapter);
+        android.widget.ArrayAdapter<String> valuesAdapter=contrastSpinnerAdapter(values);
+        replacement.setAdapter(valuesAdapter);styleSpinner(replacement);
         String mode=prefs.getString(EdgeSpeechTextTransform.MODE,"off");
         String symbol=prefs.getString(EdgeSpeechTextTransform.REPLACEMENT,",");
         int symbolIndex=0;
@@ -555,10 +590,8 @@ public class SettingsActivity extends Activity {
         line.addView(replacement,new LinearLayout.LayoutParams(0,dp(54),1));
         android.widget.Spinner modeSelector=new android.widget.Spinner(this);
         final String[] modes={"V1","V2","V3"};
-        android.widget.ArrayAdapter<String> modesAdapter=new android.widget.ArrayAdapter<>(
-            this,android.R.layout.simple_spinner_item,modes);
-        modesAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        modeSelector.setAdapter(modesAdapter);
+        android.widget.ArrayAdapter<String> modesAdapter=contrastSpinnerAdapter(modes);
+        modeSelector.setAdapter(modesAdapter);styleSpinner(modeSelector);
         int modeIndex="v2".equals(mode)?1:"v3".equals(mode)?2:0;
         modeSelector.setSelection(modeIndex);
         modeSelector.setEnabled(symbolIndex!=0);
@@ -747,7 +780,7 @@ public class SettingsActivity extends Activity {
                 ()->new UpdateManager(this).checkVersion()));
         gap(12);
     }
-    void theme(LinearLayout row,String name,int background,int ink){TextView chip=text(name,13,false);chip.setTextColor(ink);chip.setGravity(Gravity.CENTER);chip.setBackground(outlined(background,14));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(56),1);lp.setMargins(dp(2),0,dp(2),0);row.addView(chip,lp);chip.setOnClickListener(v->{bg=background;fg=ink;put("bg",bg);put("fg",fg);draw();});}
+    void theme(LinearLayout row,String name,int background,int ink){TextView chip=text(name,13,false);chip.setTextColor(ink);chip.setGravity(Gravity.CENTER);chip.setBackground(outlined(background,14));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(56),1);lp.setMargins(dp(2),0,dp(2),0);row.addView(chip,lp);chip.setOnClickListener(v->{bg=background;fg=ink;prefs.edit().putInt("bg",bg).putInt("fg",fg).apply();draw();});}
     void palette(int[] colors,boolean background){
         for(int rowStart=0;rowStart<colors.length;rowStart+=4){LinearLayout row=new LinearLayout(this);for(int k=rowStart;k<Math.min(colors.length,rowStart+4);k++){
             int color=colors[k];TextView tile=new TextView(this);tile.setText(color==(background?bg:fg)?"✓":" ");tile.setGravity(Gravity.CENTER);tile.setTextSize(19);tile.setTextColor(contrast(color));tile.setBackground(outlined(color,13));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(54),1);lp.setMargins(dp(3),dp(3),dp(3),dp(3));row.addView(tile,lp);
@@ -781,7 +814,7 @@ public class SettingsActivity extends Activity {
         if(primary)accentButtonColor=color;else buttonColor=color;
         put(primary?"button_accent_color":"button_color",color);
     }
-    void applyPreview(){if(preview==null)return;preview.setTextColor(fg);preview.setTextSize(Math.max(16,(int)(size*.60f)));preview.setTypeface(face());preview.setBackground(rounded(bg==0xff1e2025?0xff31343a:0xfffff9f1,20));}
+    void applyPreview(){if(preview==null)return;preview.setTextColor(fg);preview.setTextSize(Math.max(16,(int)(size*.60f)));preview.setTypeface(face());preview.setBackground(rounded(ReadingThemeCycle.isDark(bg)?0xff31343a:0xfffff9f1,20));}
     void changeSize(int delta){size=Math.max(16,Math.min(76,size+delta));put("size",size);sizeValue.setText(String.valueOf(size));applyPreview();}
     void pauses(){
         LinearLayout panel=col();panel.setPadding(dp(14),dp(8),dp(14),0);

@@ -1,9 +1,0 @@
-feat(edge): reuse bounded WebSocket pool and cache-first Quickify-style prefetch
-
-- introduce four-resource EdgeWebSocketPool with reuse after turn.end
-- prioritize interactive audio and cap concurrent speculative synthesis at two
-- select up to six nearby cache-checked prefetch candidates
-- preserve Media3 progressive MP3 and WordBoundary
-- correlate request identifiers and recover dead reused sockets
-- keep 500ms local policy and no automatic 429 retry
-- add pool, cancellation, prefetch planner, priority and regression JVM tests

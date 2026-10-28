@@ -596,6 +596,7 @@ public final class EdgeStreamingService extends Service {
             if(candidate.ready()||liveFor(candidate)!=null||candidate.awaitingUserRetry||
                     candidate.retryAt>SystemClock.elapsedRealtime())continue;
             // Cache key is scoped by spoken text, voice, rate and pronunciation.
+            ReaderDiagnosticLog.event("PREFETCH","schedule chars="+candidate.text.length()+" pending_before="+pending);
             startLive(candidate,false,true);
             pending++;
         }
@@ -614,6 +615,8 @@ public final class EdgeStreamingService extends Service {
     private void startLive(Clip clip,boolean warmup){startLive(clip,warmup,false);}
     private void startLive(Clip clip,boolean warmup,boolean ahead){
         if(clip==null||clip.ready()||directory==null||liveFor(clip)!=null)return;
+        ReaderDiagnosticLog.event("CACHE","cache_miss schedule start="+clip.start+" end="+clip.end+
+            " warmup="+warmup+" ahead="+ahead);
         lastHttp429=false; // a new explicit synthesis may report other real errors
         final LiveJob job=new LiveJob(clip,directory,bookUri);
         job.speech=EdgeSpeechTextTransform.Options.read(getSharedPreferences("reader",0)).apply(clip.text);
@@ -658,6 +661,9 @@ public final class EdgeStreamingService extends Service {
                 @Override public void finished(byte[] mp3,int parts,String problem,
                         List<EdgeWordTimings.Boundary> metadata){
                     job.networkDone=true;
+                    ReaderDiagnosticLog.event("EDGE","request callback "+(problem==null?"ok":
+                        problem.contains("HTTP 429")?"http429":"error")+" frames="+parts+
+                        " start="+clip.start);
                     EdgeTtsDiagnostics.finished(diagnosticKey,problem,
                         job.timings==null?0:job.timings.size());
                     if(problem!=null){
@@ -706,6 +712,8 @@ public final class EdgeStreamingService extends Service {
                                 getSharedPreferences("reader",0).edit().remove(
                                     "edge_v2_retry_after_epoch_ms").apply();
                                 clip.file=ready;clip.bytes=ready.length();clip.chunks=parts;
+                                ReaderDiagnosticLog.event("CACHE","saved mp3 bytes="+clip.bytes+
+                                    " start="+clip.start+" end="+clip.end);
                                 SentenceChunks.Chunk basePart=SentenceChunks.forWord(sentenceParts,clip.start);
                                 if(basePart!=null&&(clip.start!=basePart.fromWord||clip.end!=basePart.toWord))
                                     saveOverride(clip);

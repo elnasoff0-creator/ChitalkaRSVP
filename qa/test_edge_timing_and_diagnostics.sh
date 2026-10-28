@@ -84,8 +84,12 @@ public class TestEdgeTimingDiagnostics {
   }
 }
 JAVA
+cat > "$TMP/src/ru/reader/rsvp/ReaderDiagnosticLog.java" <<'JAVA'
+package ru.reader.rsvp;
+final class ReaderDiagnosticLog { static void event(String component,String detail){} }
+JAVA
 javac -encoding UTF-8 -d "$TMP/classes" \
- "$TMP/src/org/json/JSONArray.java" "$TMP/src/org/json/JSONObject.java" \
+ "$TMP/src/ru/reader/rsvp/ReaderDiagnosticLog.java" "$TMP/src/org/json/JSONArray.java" "$TMP/src/org/json/JSONObject.java" \
  "$TMP/src/android/os/SystemClock.java" "$TMP/src/android/util/Log.java" \
  "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeWordTimings.java" \
  "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeTtsDiagnostics.java" \

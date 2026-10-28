@@ -53,6 +53,7 @@ final class EdgeSpeechEngine {
     }
     void start(){
         synchronized(this){if(finished||canceled)return;queuedAt=SystemClock.elapsedRealtime();
+            ReaderDiagnosticLog.event("EDGE","request queued priority="+priority+" chars="+text.length());
             ticket=EdgeSpeechQueue.submit(priority,this::open,this::preempt);}
     }
     void promoteToPlay(){EdgeSpeechQueue.Ticket held;synchronized(this){held=ticket;}
@@ -63,6 +64,7 @@ final class EdgeSpeechEngine {
             if(finished)return;
             finished=true;canceled=true;stopWatchdog();held=lease;lease=null;
         }
+        ReaderDiagnosticLog.event("EDGE","request canceled");
         abort(held);
     }
     private void preempt(){finish("Edge TTS: запрос прерван ради активного чтения");}
@@ -93,6 +95,7 @@ final class EdgeSpeechEngine {
             closeFallback=TIMER.schedule(()->{
                 synchronized(EdgeSpeechEngine.this){if(closingLease!=resource)return;}
                 Log.w("EdgeSpeech","cancel unacknowledged at 500ms; local ticket release");
+                ReaderDiagnosticLog.event("WS","cancel close acknowledgement timeout_ms=500");
                 socketTerminated(resource);
             },500,TimeUnit.MILLISECONDS);
         }
@@ -115,6 +118,11 @@ final class EdgeSpeechEngine {
             marks=new ArrayList<>(words);count=frames;
             elapsed=SystemClock.elapsedRealtime()-started;
         }
+        ReaderDiagnosticLog.event("EDGE", "turn_complete result="+(problem==null?"ok":
+            (problem.contains("429")?"http429":"failed"))+" queue_ms="+
+            (started==0?-1:started-queuedAt)+" first_mp3_ms="+
+            (firstAudio==0?-1:firstAudio-started)+" total_ms="+elapsed+
+            " frames="+count+" words="+marks.size());
         if(problem==null){
             // Critical: turn.end releases the lease WITHOUT closing the OPEN WebSocket.
             EdgeWebSocketPool.recycle(resource);
@@ -130,6 +138,7 @@ final class EdgeSpeechEngine {
         synchronized(this){
             if(finished)return;
             started=SystemClock.elapsedRealtime();handshakeStarted=started;lastFrame=started;
+            ReaderDiagnosticLog.event("EDGE","request start priority="+priority+" queue_ms="+(started-queuedAt));
         }
         if(text.trim().isEmpty()){finish("Пустой фрагмент");return;}
         if(text.getBytes(StandardCharsets.UTF_8).length>MAX_INPUT_UTF8){
@@ -160,6 +169,7 @@ final class EdgeSpeechEngine {
             lease=resource;
         }
         if(resource.open){socketReady(resource,true);return;}
+        ReaderDiagnosticLog.event("WS","handshake start resource="+resource.id+" attempt="+connectionAttempt);
         String gec=EdgeToken.generate(EdgeServerClock.adjustedEpochSeconds());
         lastGec=gec;
         String query="?Ocp-Apim-Subscription-Key="+EdgeToken.TOKEN+
@@ -176,6 +186,7 @@ final class EdgeSpeechEngine {
         synchronized(this){if(finished||resource!=lease)return;}
         reusedTurn=reused;
         Log.i("EdgeSpeech","resourceId="+resource.id+" socketReused="+reused);
+        ReaderDiagnosticLog.event("WS","socket ready resource="+resource.id+" reused="+reused+" elapsed_ms="+(SystemClock.elapsedRealtime()-handshakeStarted));
         try{callback.connected();}catch(Exception e){Log.w("EdgeSpeech","Connected callback: "+e);}
         if(!resource.configured){
             String config="X-Timestamp:"+timestamp()+"\r\nContent-Type:application/json; charset=utf-8\r\n"
@@ -206,7 +217,10 @@ final class EdgeSpeechEngine {
                     EdgeWordTimings.parseMetadata(body,words);snapshot=new ArrayList<>(words);}
                 try{callback.metadata(snapshot);}catch(Exception e){Log.w("EdgeSpeech","Metadata callback: "+e);}
             }
-        }else if("turn.end".equals(path))finish(null);
+        }else if("turn.end".equals(path)){
+            ReaderDiagnosticLog.event("EDGE","turn.end resource="+resource.id);
+            finish(null);
+        }
     }
     void socketAudio(EdgeWebSocketPool.Lease resource,ByteString packet){
         synchronized(this){if(finished||resource!=lease)return;}
@@ -215,20 +229,24 @@ final class EdgeSpeechEngine {
         catch(IOException e){finish("Повреждённый Edge MP3 кадр: "+e.getMessage());return;}
         if(!frame.requestId.isEmpty()&&!frame.requestId.equalsIgnoreCase(resource.requestId))return;
         if(frame.terminal)return;
-        boolean tooLarge;int count;long bytes;
+        boolean tooLarge;int count;long bytes;boolean firstFrame;
         synchronized(this){
             if(finished||resource!=lease)return;
             tooLarge=audio.size()+frame.dataLength>MAX_AUDIO;
+            firstFrame=firstAudio==0;
             if(!tooLarge){audio.write(data,frame.dataOffset,frame.dataLength);frames++;
                 lastFrame=SystemClock.elapsedRealtime();if(firstAudio==0)firstAudio=lastFrame;}
             count=frames;bytes=audio.size();
         }
         if(tooLarge){finish("MP3 превысил 12 МБ");return;}
+        if(firstFrame)ReaderDiagnosticLog.event("EDGE","first_mp3_frame elapsed_ms="+(lastFrame-started)+" bytes="+frame.dataLength);
         try{callback.audio(data,frame.dataOffset,frame.dataLength);}catch(Exception e){finish("Ошибка передачи MP3 в плеер: "+e);return;}
         if((count&7)==0)callback.progress(count,bytes);
     }
     void socketFailure(EdgeWebSocketPool.Lease resource,Throwable error,Response response){
         int status=response==null?0:response.code();
+        ReaderDiagnosticLog.event("WS","failure http="+status+" resource="+resource.id+
+            " error_type="+(error==null?"none":error.getClass().getSimpleName()));
         synchronized(this){
             if(finished||resource!=lease){socketTerminated(resource);return;}
         }
@@ -237,10 +255,18 @@ final class EdgeSpeechEngine {
             if(EdgeServerClock.correctFor403(serverDate,lastGec,System.currentTimeMillis())){
                 retriedAfter403=true;
                 synchronized(this){if(lease==resource)lease=null;}
-                Log.i("EdgeSpeech","HTTP 403: clock corrected, retrying once");connect();return;
+                Log.i("EdgeSpeech","HTTP 403: clock corrected, retrying once");
+                ReaderDiagnosticLog.event("EDGE","http403 server clock adjusted; retry once");
+                connect();return;
             }
+            // A valid Date can still refresh future tokens even when it does
+            // not change the failed token's five-minute GEC bucket.
+            EdgeServerClock.observeHttpDate(serverDate,403,
+                resource.requestStartedWall,resource.requestStartedElapsed,
+                System.currentTimeMillis(),SystemClock.elapsedRealtime());
         }
-        if(status==429){EdgeSpeechQueue.limited(response);
+        if(status==429){ReaderDiagnosticLog.event("EDGE","HTTP 429 from synthesis WebSocket handshake");
+            EdgeSpeechQueue.limited(response);
             finish("HTTP 429: Edge временно ограничил запросы");socketTerminated(resource);return;}
         boolean retry;
         synchronized(this){retry=!finished&&status==0&&firstAudio==0&&
@@ -250,6 +276,7 @@ final class EdgeSpeechEngine {
         if(retry){
             long pause=connectionAttempt==1?100L:200L;
             Log.w("EdgeSpeech","Transient socket failure; retry="+connectionAttempt+" delay="+pause+"ms");
+            ReaderDiagnosticLog.event("WS","transport retry attempt="+connectionAttempt+" delay_ms="+pause);
             TIMER.schedule(this::connect,pause,TimeUnit.MILLISECONDS);
             return;
         }

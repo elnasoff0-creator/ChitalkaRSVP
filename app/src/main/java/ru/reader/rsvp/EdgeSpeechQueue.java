@@ -39,6 +39,7 @@ final class EdgeSpeechQueue {
         Runnable preempt=null;Ticket t;
         synchronized(EdgeSpeechQueue.class){
             t=new Ticket(priority,++order,run,onPreempt);pending.add(t);
+            ReaderDiagnosticLog.event("QUEUE","enqueue priority="+priority+" pending="+pending.size()+" active="+active.size());
             if(priority==PLAY&&active.size()>=MAX_ACTIVE){
                 Ticket victim=active.stream().filter(a->a.priority>PLAY&&a.cancel!=null)
                     .max(Comparator.comparingInt(a->a.priority)).orElse(null);
@@ -54,7 +55,9 @@ final class EdgeSpeechQueue {
     }
     static synchronized void release(Ticket ticket){
         if(ticket==null||ticket.canceled)return;
-        ticket.canceled=true;pending.remove(ticket);active.remove(ticket);schedule();
+        ticket.canceled=true;pending.remove(ticket);active.remove(ticket);
+        ReaderDiagnosticLog.event("QUEUE","release priority="+ticket.priority+" active="+active.size());
+        schedule();
     }
     static synchronized void restoreCooldown(long wallClockDeadlineMs){
         long remaining=wallClockDeadlineMs-System.currentTimeMillis();
@@ -69,6 +72,8 @@ final class EdgeSpeechQueue {
     static synchronized void limited(Response response){
         lastLimitedAt=SystemClock.elapsedRealtime();
         blockedUntil=Math.max(blockedUntil,lastLimitedAt+MAX_LOCAL_DELAY_MS);
+        ReaderDiagnosticLog.event("QUEUE","HTTP 429 local_cooldown_ms=500 server_retry_after="+
+            (response!=null&&response.header("Retry-After")!=null));
         Log.w("EdgeSpeechQueue","429 localDelay=500ms; serverRetryAfterPresent="+
             (response!=null&&response.header("Retry-After")!=null));
         schedule();
@@ -100,6 +105,7 @@ final class EdgeSpeechQueue {
                 schedule();return;
             }
             pending.remove(next);active.add(next);
+            ReaderDiagnosticLog.event("QUEUE","dispatch priority="+next.priority+" active="+active.size()+" pending="+pending.size());
             if(next.priority!=PLAY)lastBackgroundAt=now;
             schedule(); // Fill other free slots while reserving Play priority.
         }

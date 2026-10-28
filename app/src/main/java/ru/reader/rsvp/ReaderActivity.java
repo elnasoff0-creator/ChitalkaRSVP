@@ -50,7 +50,7 @@ public class ReaderActivity extends Activity {
     private ChunkAdapter chunkAdapter;
     private TextView wordView,progressView,speedView;
     private ImageView playIcon,selectWordButton,modeIcon;
-    private ImageButton toolbarModeAction,toolbarEngineAction,toolbarVoiceAction,toolbarSleepAction;
+    private ImageButton toolbarModeAction,toolbarEngineAction,toolbarVoiceAction,toolbarSleepAction,toolbarThemeAction;
     private boolean rsvpScrollWords=false;
     private boolean ttsLocal=true,ttsBoundPlayer=false,ttsBoundStream=false,ttsPendingPlay=false;
     private EdgePlaybackService ttsPlayer;
@@ -200,7 +200,7 @@ public class ReaderActivity extends Activity {
     }
     private int dp(int value){return (int)(getResources().getDisplayMetrics().density*value+.5f);}
     private Typeface type(){return font==1?Typeface.SERIF:font==2?Typeface.MONOSPACE:Typeface.SANS_SERIF;}
-    private int panelColor(){return bg==0xff1e2025?0xff303238:0xfffff9f0;}
+    private int panelColor(){return ReadingThemeCycle.isDark(bg)?0xff303238:0xfffff9f0;}
     private int buttonBg(){return buttonColor==NO_COLOR?panelColor():buttonColor;}
     private int accent(){return accentButtonColor==NO_COLOR?0xff915439:accentButtonColor;}
     private int contrast(int value){return Color.red(value)*0.299+Color.green(value)*0.587+Color.blue(value)*0.114<140?Color.WHITE:0xff30221e;}
@@ -212,6 +212,12 @@ public class ReaderActivity extends Activity {
         ImageButton b=new ImageButton(this);b.setImageResource(id);b.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         b.setPadding(dp(10),dp(10),dp(10),dp(10));b.setBackground(shape(buttonBg(),12));
         b.setColorFilter(contrast(buttonBg()));b.setOnClickListener(click);return b;
+    }
+    private void cycleReadingTheme(){
+        ReadingThemeCycle.next(prefs);
+        bg=prefs.getInt("bg",bg);fg=prefs.getInt("fg",fg);
+        draw();
+        saveLight(true);
     }
     private int modeDrawable(){return mode==NORMAL?R.drawable.ic_book:mode==RSVP?R.drawable.ic_mode_speedreading:mode==CURSOR?R.drawable.ic_mode_cursor:R.drawable.ic_microphone;}
 
@@ -243,6 +249,13 @@ public class ReaderActivity extends Activity {
         LinearLayout.LayoutParams toolbarModeLp=new LinearLayout.LayoutParams(dp(44),dp(44));
         toolbarModeLp.leftMargin=dp(5);toolbar.addView(toolbarModeAction,1,toolbarModeLp);
         toolbarModeAction.setBackground(shape(accent(),12));toolbarModeAction.setColorFilter(contrast(accent()));
+        // Colored XML VectorDrawable next to the navigation actions; never tint.
+        toolbarThemeAction=icon(ReadingThemeCycle.icon(prefs),v->cycleReadingTheme());
+        toolbarThemeAction.clearColorFilter();
+        toolbarThemeAction.setContentDescription("Тема чтения: " + ReadingThemeCycle.name(prefs) + ". Нажмите для следующей темы");
+        LinearLayout.LayoutParams themeLp=new LinearLayout.LayoutParams(dp(44),dp(44));
+        themeLp.leftMargin=dp(5);
+        toolbar.addView(toolbarThemeAction,themeLp);
         toolbarSpacer=new View(this);
         toolbar.addView(toolbarSpacer,new LinearLayout.LayoutParams(0,dp(1),1));
         LinearLayout.LayoutParams bookmarkLp=new LinearLayout.LayoutParams(dp(44),dp(44));bookmarkLp.leftMargin=dp(5);

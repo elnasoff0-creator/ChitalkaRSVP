@@ -258,6 +258,11 @@ class EdgeSpeech403Smoke {
  }
 }
 JAVA
+# App-local diagnostics are asynchronous on Android; network unit tests use a no-op logger.
+cat > "$TMP/src/ru/reader/rsvp/ReaderDiagnosticLog.java" <<'JAVA'
+package ru.reader.rsvp;
+final class ReaderDiagnosticLog { static void event(String component,String detail){} }
+JAVA
 javac -encoding UTF-8 -d "$TMP/classes" $(find "$TMP/src" -name '*.java') \
  "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeSpeechQueue.java" \
  "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeWebSocketPool.java" \

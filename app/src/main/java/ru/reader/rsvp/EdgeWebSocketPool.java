@@ -29,6 +29,7 @@ final class EdgeWebSocketPool {
         volatile EdgeSpeechEngine owner;
         volatile boolean open,configured,dead;
         volatile String requestId="";
+        volatile long requestStartedWall,requestStartedElapsed;
         Lease(int id){this.id=id;}
         boolean send(String text){WebSocket ws=socket;return ws!=null&&!dead&&ws.send(text);}
     }
@@ -49,11 +50,14 @@ final class EdgeWebSocketPool {
             lease.owner=owner;
         }
         Log.d("EdgeSocketPool","acquired socketId="+lease.id+" reused="+lease.open);
+        ReaderDiagnosticLog.event("POOL","acquire id="+lease.id+" reused="+lease.open);
         return lease;
     }
     static void connect(Lease lease,Request request){
         if(lease.open){EdgeSpeechEngine owner=lease.owner;if(owner!=null)owner.socketReady(lease,true);return;}
         try{
+            lease.requestStartedWall=System.currentTimeMillis();
+            lease.requestStartedElapsed=android.os.SystemClock.elapsedRealtime();
             WebSocket ws=CLIENT.newWebSocket(request,new WebSocketListener(){
                 @Override public void onOpen(WebSocket w,Response response){
                     EdgeSpeechEngine owner;
@@ -61,6 +65,8 @@ final class EdgeWebSocketPool {
                         if(lease.dead){w.cancel();return;}
                         lease.socket=w;lease.open=true;owner=lease.owner;
                     }
+                    observeDate(lease,response);
+                    ReaderDiagnosticLog.event("WS","open id="+lease.id);
                     if(owner!=null)owner.socketReady(lease,false);
                 }
                 @Override public void onMessage(WebSocket w,String message){
@@ -72,6 +78,8 @@ final class EdgeWebSocketPool {
                     if(owner!=null)owner.socketAudio(lease,packet);
                 }
                 @Override public void onFailure(WebSocket w,Throwable error,Response response){
+                    // The immediate 403 retry is corrected first inside the engine.
+                    if(response!=null&&response.code()!=403)observeDate(lease,response);
                     EdgeSpeechEngine owner=lease.owner;
                     discard(lease,false);
                     if(owner!=null)owner.socketFailure(lease,error,response);
@@ -86,12 +94,20 @@ final class EdgeWebSocketPool {
             if(lease.dead)ws.cancel();
         }catch(RuntimeException e){discard(lease,true);throw e;}
     }
+    /** Samples the Date of the existing Microsoft handshake; no standalone HTTP call. */
+    private static void observeDate(Lease lease,Response response){
+        if(response==null)return;
+        EdgeServerClock.observeHttpDate(response.header("Date"),response.code(),
+            lease.requestStartedWall,lease.requestStartedElapsed,
+            System.currentTimeMillis(),android.os.SystemClock.elapsedRealtime());
+    }
     /** Called at turn.end, after the final MP3 metadata and bytes were received. */
     static void recycle(Lease lease){
         if(lease==null)return;
         synchronized(EdgeWebSocketPool.class){
             lease.owner=null;
-            if(lease.open&&!lease.dead)IDLE.addLast(lease);
+            if(lease.open&&!lease.dead){IDLE.addLast(lease);
+                ReaderDiagnosticLog.event("POOL","recycle open id="+lease.id+" idle="+IDLE.size());}
             else retireLocked(lease);
         }
     }
@@ -103,6 +119,7 @@ final class EdgeWebSocketPool {
             ws=lease.socket;
             retireLocked(lease);
         }
+        ReaderDiagnosticLog.event("POOL","discard id="+lease.id+" cancel="+cancel);
         if(cancel&&ws!=null)try{ws.cancel();}catch(Exception e){Log.w("EdgeSocketPool","Cancel failed: "+e);}
     }
     private static void retireLocked(Lease lease){

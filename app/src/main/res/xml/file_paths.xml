@@ -3,4 +3,5 @@
     <external-files-path name="update_apk" path="Download/" />
     <external-files-path name="edge_book_audio" path="Documents/ChitalkaRSVP/Books/" />
     <files-path name="edge_book_audio_internal" path="ChitalkaRSVP/Books/" />
+    <files-path name="diagnostic_logs" path="diagnostics/" />
 </paths>

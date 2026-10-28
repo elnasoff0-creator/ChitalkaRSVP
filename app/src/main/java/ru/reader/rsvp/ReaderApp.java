@@ -8,6 +8,8 @@ import android.os.Bundle;
 public final class ReaderApp extends Application {
     @Override public void onCreate() {
         super.onCreate();
+        ReaderDiagnosticLog.init(this);
+        EdgeServerClock.initialize(new EdgeClockPreferences(this));
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks(){
             @Override public void onActivityCreated(Activity a,Bundle b){SafeSystemBars.install(a);}
             @Override public void onActivityStarted(Activity a){}

@@ -48,11 +48,11 @@ public final class ChteicoActivity extends Activity {
     private int contrast(int c){return (.299*Color.red(c)+.587*Color.green(c)+.114*Color.blue(c))<135?Color.WHITE:0xff30221e;}
     private TextView text(String s,int sp,boolean bold){TextView t=new TextView(this);t.setText(s);t.setTextSize(sp);t.setTextColor(fg);if(bold)t.setTypeface(Typeface.DEFAULT,Typeface.BOLD);return t;}
     private LinearLayout column(){LinearLayout l=new LinearLayout(this);l.setOrientation(1);return l;}
-    private LinearLayout card(){LinearLayout l=column();l.setPadding(dp(16),dp(15),dp(16),dp(15));l.setBackground(shape(bg==0xff1e2025?0xff373538:0xfffff9f2,18));
+    private LinearLayout card(){LinearLayout l=column();l.setPadding(dp(16),dp(15),dp(16),dp(15));l.setBackground(shape(ReadingThemeCycle.isDark(bg)?0xff373538:0xfffff9f2,18));
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(11));content.addView(l,lp);return l;}
     private void gap(LinearLayout l,int n){View v=new View(this);l.addView(v,new LinearLayout.LayoutParams(-1,dp(n)));}
     private TextView button(String s,Runnable click){TextView t=text(s,14,true);t.setGravity(Gravity.CENTER);t.setTextColor(contrast(accent));t.setBackground(shape(accent,14));t.setPadding(dp(10),dp(13),dp(10),dp(13));t.setOnClickListener(v->click.run());return t;}
-    private void stat(LinearLayout container,String label,String value){LinearLayout cell=column();cell.setGravity(Gravity.CENTER);cell.setPadding(dp(9),dp(13),dp(9),dp(13));cell.setBackground(shape(bg==0xff1e2025?0xff444349:0xfff0e6dc,14));
+    private void stat(LinearLayout container,String label,String value){LinearLayout cell=column();cell.setGravity(Gravity.CENTER);cell.setPadding(dp(9),dp(13),dp(9),dp(13));cell.setBackground(shape(ReadingThemeCycle.isDark(bg)?0xff444349:0xfff0e6dc,14));
         TextView big=text(value,24,true);big.setGravity(Gravity.CENTER);cell.addView(big);
         TextView sub=text(label,12,false);sub.setGravity(Gravity.CENTER);cell.addView(sub);
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.setMargins(dp(3),dp(3),dp(3),dp(3));container.addView(cell,lp);}    
@@ -141,7 +141,7 @@ public final class ChteicoActivity extends Activity {
             path.lineTo(x1,y1+r);
             path.quadTo(x1,y1,x1+r,y1);
             path.close();
-            fill.setColor(bg==0xff1e2025?0xff514a49:0xfffffdf8);
+            fill.setColor(ReadingThemeCycle.isDark(bg)?0xff514a49:0xfffffdf8);
             fill.setStyle(Paint.Style.FILL);
             stroke.setColor(fg);
             stroke.setStyle(Paint.Style.STROKE);
@@ -203,7 +203,7 @@ public final class ChteicoActivity extends Activity {
     }
     private void rewardRow(LinearLayout host,int iconRes,String title){
         LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(10),dp(10),dp(10),dp(10));
-        row.setBackground(shape(bg==0xff1e2025?0xff444349:0xfff0e6dc,14));
+        row.setBackground(shape(ReadingThemeCycle.isDark(bg)?0xff444349:0xfff0e6dc,14));
         ImageView icon=new ImageView(this);icon.setImageResource(iconRes);icon.setColorFilter(accent);row.addView(icon,new LinearLayout.LayoutParams(dp(22),dp(22)));
         TextView label=text(title,14,true);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,-2);lp.leftMargin=dp(10);row.addView(label,lp);
         host.addView(row,new LinearLayout.LayoutParams(-1,-2));
@@ -224,7 +224,7 @@ public final class ChteicoActivity extends Activity {
         if(previewAll || p.getInt("best_streak",0)>=30){rewardRow(rewards,R.drawable.ic_reward_streak30,"30 дней подряд");any=true;}
         if(!any){
             TextView none=text("Новые награды будут появляться по мере чтения и прослушивания аудиокниг.",14,false);
-            none.setTextColor(bg==0xff1e2025?0xffd5cec8:0xff7d6d60);rewards.addView(none);
+            none.setTextColor(ReadingThemeCycle.isDark(bg)?0xffd5cec8:0xff7d6d60);rewards.addView(none);
         }
     }
     private void showDisabledSummary(){

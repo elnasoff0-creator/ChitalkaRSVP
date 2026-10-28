@@ -1,0 +1,3 @@
+fix(v1.11.112): keep Edge TimeSync, add colored XML reading themes and dark/pet UX fixes
+
+Five outline VectorDrawables; single-tap next-theme cycle; dark pet contrast; Spinner selected/dropdown contrast; mini pet tap opens UI, immediate drag and swipe emotions; haptic feedback and smaller bubble. Version unchanged.

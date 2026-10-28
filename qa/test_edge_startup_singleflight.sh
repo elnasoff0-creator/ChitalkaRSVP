@@ -52,7 +52,13 @@ class EdgeStartupSingleFlightTest {
  }
 }
 JAVA
+# App-local diagnostics are asynchronous on Android; network unit tests use a no-op logger.
+cat > "$TMP/ru/reader/rsvp/ReaderDiagnosticLog.java" <<'JAVA'
+package ru.reader.rsvp;
+final class ReaderDiagnosticLog { static void event(String component,String detail){} }
+JAVA
 javac -encoding UTF-8 -d "$TMP" \
  "$TMP/android/os/SystemClock.java" "$TMP/android/util/Log.java" "$TMP/okhttp3/Response.java" \
+ "$TMP/ru/reader/rsvp/ReaderDiagnosticLog.java" \
  "$SRC/EdgeSpeechQueue.java" "$TMP/ru/reader/rsvp/EdgeStartupSingleFlightTest.java"
 java -cp "$TMP" ru.reader.rsvp.EdgeStartupSingleFlightTest

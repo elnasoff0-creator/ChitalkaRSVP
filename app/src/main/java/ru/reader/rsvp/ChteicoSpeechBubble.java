@@ -31,7 +31,7 @@ public final class ChteicoSpeechBubble extends FrameLayout {
         path.lineTo(x1+r,y2);path.quadTo(x1,y2,x1,y2-r);
         path.lineTo(x1,y1+r);path.quadTo(x1,y1,x1+r,y1);
         path.close();
-        fill.setColor(background==0xff1e2025?0xff514a49:0xfffffdf8);
+        fill.setColor(ReadingThemeCycle.isDark(background)?0xff514a49:0xfffffdf8);
         fill.setStyle(Paint.Style.FILL);
         stroke.setColor(foreground);stroke.setStyle(Paint.Style.STROKE);
         stroke.setStrokeWidth(dp(1));
