@@ -12,7 +12,7 @@ assert 'bubbleLp.topMargin=dp(19)' in pet, 'bubble should cover sleeping eyes'
 assert 'ChteicoPhrases' not in pet and 'Reply r=' not in pet, 'no phrases on MainActivity mini-pet'
 assert 'emotion.setText(ChteicoEmotions.stroke())' in pet, 'short touch must show an emotion'
 assert 'ChteicoEmotions.sleep(phase++)' in pet, 'sleep should animate dots only'
-assert 'pet.setSleeping(true)' in pet and 'ChteicoEmotions.attach(petArea,' in pet
+assert 'miniSleepAppearance.accept(true)' in pet and 'ChteicoEmotions.attach(petArea,' in pet
 assert 'startActivity(new Intent(this,ChteicoActivity.class))' in pet, 'tap must open full pet'
 assert 'HomeSectionOrder::startPetDrag' in pet, 'drag-and-drop must continue working'
 assert not re.search(r'(?:reply|speech).setText\(',pet,re.I), 'no speech text should be shown'

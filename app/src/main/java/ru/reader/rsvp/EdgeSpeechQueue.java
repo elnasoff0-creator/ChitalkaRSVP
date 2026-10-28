@@ -79,9 +79,16 @@ final class EdgeSpeechQueue {
         schedule();
     }
     private static int runningBackground(){int n=0;for(Ticket t:active)if(t.priority!=PLAY)n++;return n;}
+    /** A live foreground listen must not trigger a second, speculative WebSocket handshake.
+     * Cached audio is unaffected. The next explicit Play can still create a connection. */
+    private static boolean canRunBackground(Ticket t){
+        if(t.priority!=PREFETCH || !interactivePlayback)return true;
+        return EdgeWebSocketPool.hasIdleTransport();
+    }
     private static Ticket nextEligible(){
         return pending.stream().filter(t->!t.canceled)
             .filter(t->t.priority!=BULK||!interactivePlayback)
+            .filter(EdgeSpeechQueue::canRunBackground)
             .filter(t->t.priority==PLAY||runningBackground()<MAX_PREFETCH)
             .min(Comparator.comparingInt((Ticket t)->t.priority).thenComparingLong(t->t.order)).orElse(null);
     }

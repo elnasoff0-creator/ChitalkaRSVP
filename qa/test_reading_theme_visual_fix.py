@@ -6,9 +6,10 @@ for theme in res:
  p=xml/f'ic_reading_theme_{theme}.xml';t=ET.parse(p).getroot()
  assert t.get(ns+'width')=='24dp' and t.get(ns+'height')=='24dp'
  paths=t.findall('path');assert paths
- assert all(x.get(ns+'fillColor')=='#00000000' for x in paths)
+ assert any(x.get(ns+'fillColor')!='#00000000' for x in paths)
+ assert all(x.get(ns+'strokeColor') in ('#FF151515','#FFFFFFFF') for x in paths if x.get(ns+'strokeColor'))
  assert all(x.get(ns+'strokeColor') and x.get(ns+'strokeWidth') for x in paths)
-print('PASS 5 theme VectorDrawable XML, 24dp, outline-only and transparent')
+print('PASS 5 theme VectorDrawable XML, 24dp, color-filled with single contrast outline and transparent canvas')
 main=(s/'MainActivity.java').read_text()
 reader=(s/'ReaderActivity.java').read_text()
 settings=(s/'SettingsActivity.java').read_text()
@@ -30,11 +31,11 @@ assert 'contrastSpinnerAdapter(modes)' in settings
 assert 'setPopupBackgroundDrawable' in settings
 assert 'ReadingThemeCycle.isDark(bg)' in main
 assert 'ReadingThemeCycle.isDark(bg)' in (s/'ChteicoActivity.java').read_text()
-assert 'if(ReadingThemeCycle.isDark(bg))setColorFilter(0xffffffff)' in pet
+assert 'forceNightWhenSleeping && sleeping' in pet and 'ReadingThemeCycle.isDark(bg)' in pet
 assert 'ChteicoEmotions.attach(petArea,' in main
 assert 'null,showEmotion,HomeSectionOrder::startPetDrag' in main
 assert 'ViewConfiguration.getLongPressTimeout()' in em and 'drag.start(view)' in em
 assert 'android.view.HapticFeedbackConstants.LONG_PRESS' in em
 assert 'new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL)' in main
-assert "versionName '1.11.113-beta'" in (r/'app/build.gradle').read_text()
+assert "versionName '1.11.114-beta'" in (r/'app/build.gradle').read_text()
 print('PASS toolbar placement, cycling, custom theme persistence, dark contrast, spinner visibility, revised gestures, tight bubble and version')

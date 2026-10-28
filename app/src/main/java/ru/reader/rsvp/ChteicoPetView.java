@@ -17,6 +17,7 @@ public final class ChteicoPetView extends ImageView {
     private boolean attached;
     private boolean frameDown;
     private boolean sleeping;
+    private boolean forceNightWhenSleeping;
     private int shownStage=-1, shownBranch=-1, shownEggUnits=-1;
 
     // Stage order: Chick, Reader, Adult. Branch order: classic, speed, audio.
@@ -60,7 +61,7 @@ public final class ChteicoPetView extends ImageView {
 
     private void applyThemeInk(){
         int bg=getContext().getSharedPreferences("reader",Context.MODE_PRIVATE).getInt("bg",0xfff3e7d5);
-        if(ReadingThemeCycle.isDark(bg))setColorFilter(0xffffffff);
+        if((forceNightWhenSleeping && sleeping)||ReadingThemeCycle.isDark(bg))setColorFilter(0xffffffff);
         else clearColorFilter();
     }
     private void showFrame(){
@@ -90,6 +91,12 @@ public final class ChteicoPetView extends ImageView {
             .setDuration(FRAME_MS-80L).start();
     }
 
+    /** Only the home mini-pet opts into isolated night contrast while sleeping. */
+    public void setForceNightWhenSleeping(boolean value){
+        if(forceNightWhenSleeping==value)return;
+        forceNightWhenSleeping=value;
+        applyThemeInk();
+    }
     public void setSleeping(boolean value){
         if(sleeping==value)return;
         sleeping=value;handler.removeCallbacks(cycle);

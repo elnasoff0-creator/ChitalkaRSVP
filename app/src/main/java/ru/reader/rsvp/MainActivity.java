@@ -485,6 +485,7 @@ public class MainActivity extends Activity {
             areaLp.gravity=Gravity.CENTER_HORIZONTAL;
             petArea.setBackground(shape(panelColor(),22));
             ChteicoPetView pet=new ChteicoPetView(this);
+            pet.setForceNightWhenSleeping(true);
             FrameLayout.LayoutParams petLp=new FrameLayout.LayoutParams(dp(118),dp(119),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);
             petArea.addView(pet,petLp);
 
@@ -502,12 +503,22 @@ public class MainActivity extends Activity {
             bubble.setElevation(dp(8));
             bubble.setVisibility(View.GONE);
 
+            // Sleep is a local appearance state, never a change to the reader theme.
+            final Boolean[] miniSleepWas=new Boolean[]{null};
+            final java.util.function.Consumer<Boolean> miniSleepAppearance=sleeping->{
+                if(miniSleepWas[0]!=null && miniSleepWas[0]==sleeping)return;
+                miniSleepWas[0]=sleeping;
+                petArea.setBackground(shape(sleeping?0xff1d2531:panelColor(),22));
+                bubble.setNightAppearance(sleeping);
+                emotion.setTextColor(sleeping?Color.WHITE:fg);
+                pet.setSleeping(sleeping);
+            };
             final Runnable dismissEmotion=()->bubble.setVisibility(View.GONE);
             Runnable showEmotion=()->{
                 ChteicoEmotions.wake();
-                pet.setSleeping(false);
+                miniSleepAppearance.accept(false);
                 bubble.removeCallbacks(dismissEmotion);
-                emotion.setTextSize(23);
+                emotion.setTextSize(30);
                 emotion.setText(ChteicoEmotions.stroke());
                 bubble.animate().cancel();
                 bubble.setAlpha(1f);
@@ -521,23 +532,25 @@ public class MainActivity extends Activity {
                 @Override public void run(){
                     if(!petArea.isAttachedToWindow())return;
                     if(ChteicoEmotions.isSleeping()){
-                        pet.setSleeping(true);
+                        miniSleepAppearance.accept(true);
                         bubble.removeCallbacks(dismissEmotion);
-                        emotion.setTextSize(17);
-                        emotion.setText(ChteicoEmotions.sleep(phase++).replace("( ◡‿◡ ) ",""));
+                        // The full sleeping face must remain visible beside Zzz.
+                        emotion.setTextSize(20);
+                        emotion.setText(ChteicoEmotions.sleep(phase++));
                         bubble.animate().cancel();
                         bubble.setAlpha(1f);
                         bubble.setVisibility(View.VISIBLE);
                     }else{
                         phase=0;
+                        miniSleepAppearance.accept(false);
                     }
                     petArea.postDelayed(this,850);
                 }
             };
             if(ChteicoEmotions.isSleeping()){
-                pet.setSleeping(true);
-                emotion.setTextSize(17);
-                emotion.setText(ChteicoEmotions.sleep(0).replace("( ◡‿◡ ) ",""));
+                miniSleepAppearance.accept(true);
+                emotion.setTextSize(20);
+                emotion.setText(ChteicoEmotions.sleep(0));
                 bubble.setVisibility(View.VISIBLE);
             }
             petArea.post(sleepAnimation[0]);

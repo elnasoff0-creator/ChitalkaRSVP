@@ -12,6 +12,12 @@ public final class ChteicoSpeechBubble extends FrameLayout {
     private final Paint stroke=new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path path=new Path();
     private final int background,foreground;
+    private boolean nightAppearance;
+    public void setNightAppearance(boolean enabled){
+        if(nightAppearance==enabled)return;
+        nightAppearance=enabled;
+        invalidate();
+    }
     private int dp(int n){return (int)(getResources().getDisplayMetrics().density*n+.5f);}
     public ChteicoSpeechBubble(Context context,int bg,int fg){
         super(context);background=bg;foreground=fg;
@@ -31,9 +37,10 @@ public final class ChteicoSpeechBubble extends FrameLayout {
         path.lineTo(x1+r,y2);path.quadTo(x1,y2,x1,y2-r);
         path.lineTo(x1,y1+r);path.quadTo(x1,y1,x1+r,y1);
         path.close();
-        fill.setColor(ReadingThemeCycle.isDark(background)?0xff514a49:0xfffffdf8);
+        fill.setColor(nightAppearance?0xff27313f:
+            (ReadingThemeCycle.isDark(background)?0xff514a49:0xfffffdf8));
         fill.setStyle(Paint.Style.FILL);
-        stroke.setColor(foreground);stroke.setStyle(Paint.Style.STROKE);
+        stroke.setColor(nightAppearance?0xffffffff:foreground);stroke.setStyle(Paint.Style.STROKE);
         stroke.setStrokeWidth(dp(1));
         canvas.drawPath(path,fill);canvas.drawPath(path,stroke);
     }

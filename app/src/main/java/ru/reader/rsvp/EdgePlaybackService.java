@@ -90,6 +90,8 @@ public final class EdgePlaybackService extends Service {
 
     private int lastIndex = -1;
     private long playbackBufferingAtMs,autoTransitionAtMs;
+    private int autoTransitionIndex=-1;
+    private boolean autoTransitionWasPlaying;
     private String notifiedEndKey = "";
     private float playbackSpeed = 1f;
     private long sleepAtMs;
@@ -150,7 +152,18 @@ public final class EdgePlaybackService extends Service {
                 if(item!=null)notifiedEndKey="";
                 if(completed){
                     autoTransitionAtMs=android.os.SystemClock.elapsedRealtime();
-                    ReaderDiagnosticLog.event("PLAYER","auto_transition media3_is_playing="+player.isPlaying());
+                    autoTransitionIndex=index;
+                    autoTransitionWasPlaying=player.isPlaying();
+                    ReaderDiagnosticLog.event("PLAYER","auto_transition media3_is_playing="+
+                        autoTransitionWasPlaying+" sample_gap_ms=unavailable");
+                    // Media3 may stay isPlaying=true across a seamless transition;
+                    // no new onIsPlayingChanged(true) callback is then expected.
+                    if(autoTransitionWasPlaying){
+                        ReaderDiagnosticLog.event("PLAYER","auto_transition_continuous_state=true sample_gap_ms=unavailable");
+                        autoTransitionAtMs=0;autoTransitionIndex=-1;
+                    }
+                }else if(reason!=Player.MEDIA_ITEM_TRANSITION_REASON_AUTO){
+                    autoTransitionAtMs=0;autoTransitionIndex=-1;
                 }
                 if (completed && !autoContinue) {
                     requestedPlay = false;
@@ -175,6 +188,10 @@ public final class EdgePlaybackService extends Service {
                     ReaderDiagnosticLog.event("PLAYER","buffering_begin");
                 }else if(state==Player.STATE_READY&&playbackBufferingAtMs>0){
                     ReaderDiagnosticLog.event("PLAYER","buffering_duration_ms="+(stamp-playbackBufferingAtMs));
+                    if(autoTransitionAtMs>0&&autoTransitionIndex==player.getCurrentMediaItemIndex()){
+                        ReaderDiagnosticLog.event("PLAYER","auto_transition_buffering_callback_ms="+
+                            (stamp-playbackBufferingAtMs)+" sample_gap_ms=unavailable");
+                    }
                     playbackBufferingAtMs=0;
                 }
                 if (state == Player.STATE_ENDED) {
@@ -198,16 +215,20 @@ public final class EdgePlaybackService extends Service {
                 if(isPlaying){
                     ReaderDiagnosticLog.event("PLAYER","audio playing");
                     if(autoTransitionAtMs>0){
-                        ReaderDiagnosticLog.event("PLAYER","auto_transition_to_playing_ms="+
-                            (android.os.SystemClock.elapsedRealtime()-autoTransitionAtMs)+
-                            " (Media3 callback only)");
-                        autoTransitionAtMs=0;
+                        if(autoTransitionIndex==player.getCurrentMediaItemIndex()){
+                            ReaderDiagnosticLog.event("PLAYER","auto_transition_resume_callback_ms="+
+                                (android.os.SystemClock.elapsedRealtime()-autoTransitionAtMs)+
+                                " sample_gap_ms=unavailable");
+                        }else{
+                            ReaderDiagnosticLog.event("PLAYER","auto_transition_callback_stale_ignored");
+                        }
+                        autoTransitionAtMs=0;autoTransitionIndex=-1;
                     }
                     EdgeTtsDiagnostics.firstSound(currentKey());
                     long now=android.os.SystemClock.elapsedRealtime();
                     if(requestedPlayAtMs>0){
-                        ReaderDiagnosticLog.event("PLAYER","first_sound_after_play_ms="+(now-requestedPlayAtMs));
-                        android.util.Log.i("EdgeTtsLatency","first sound after Play="+
+                        ReaderDiagnosticLog.event("PLAYER","play_to_is_playing_callback_ms="+(now-requestedPlayAtMs));
+                        android.util.Log.i("EdgeTtsLatency","isPlaying callback after Play="+
                             (now-requestedPlayAtMs)+"ms; track="+currentKey());
                         requestedPlayAtMs=0;
                     }

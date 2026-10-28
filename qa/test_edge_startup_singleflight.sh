@@ -31,6 +31,10 @@ cat > "$TMP/okhttp3/Response.java" <<'JAVA'
 package okhttp3;
 public class Response {public String header(String n){return null;}}
 JAVA
+cat > "$TMP/ru/reader/rsvp/EdgeWebSocketPool.java" <<'JAVA'
+package ru.reader.rsvp;
+final class EdgeWebSocketPool { static boolean hasIdleTransport(){return true;} }
+JAVA
 cat > "$TMP/ru/reader/rsvp/EdgeStartupSingleFlightTest.java" <<'JAVA'
 package ru.reader.rsvp;
 import java.util.concurrent.*;
@@ -60,5 +64,6 @@ JAVA
 javac -encoding UTF-8 -d "$TMP" \
  "$TMP/android/os/SystemClock.java" "$TMP/android/util/Log.java" "$TMP/okhttp3/Response.java" \
  "$TMP/ru/reader/rsvp/ReaderDiagnosticLog.java" \
+ "$TMP/ru/reader/rsvp/EdgeWebSocketPool.java" \
  "$SRC/EdgeSpeechQueue.java" "$TMP/ru/reader/rsvp/EdgeStartupSingleFlightTest.java"
 java -cp "$TMP" ru.reader.rsvp.EdgeStartupSingleFlightTest

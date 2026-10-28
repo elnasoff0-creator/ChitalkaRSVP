@@ -56,11 +56,11 @@ final class EdgeTtsDiagnostics {
         lastTrackEndMs=0;
         ReaderDiagnosticLog.event("LATENCY","player_started_ms="+(now-t.queued)+
             " mp3_to_player_ms="+(t.firstMp3<0?-1:now-t.firstMp3)+
-            " inter_track_gap_ms="+(gap>0&&now-gap<30000?now-gap:-1));
+            " track_callback_gap_ms="+(gap>0&&now-gap<30000?now-gap:-1));
         Log.i(TAG,"player-start="+shortKey(key)+" request-to-player="+(now-t.queued)+
             "ms mp3-to-player="+(t.firstMp3<0?-1:now-t.firstMp3)+
             "ms read-to-player="+(t.firstRead<0?-1:now-t.firstRead)+
-            "ms serial-gap="+(gap>0 && now-gap<30000?now-gap:-1)+"ms");
+            "ms callback-gap="+(gap>0 && now-gap<30000?now-gap:-1)+"ms");
     }
     static void finished(String key,String error,int aligned){
         Trace t=TRACES.get(key);if(t==null)return;

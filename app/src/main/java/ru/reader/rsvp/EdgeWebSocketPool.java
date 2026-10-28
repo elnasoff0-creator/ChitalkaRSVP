@@ -135,5 +135,6 @@ final class EdgeWebSocketPool {
     private static synchronized int allocatedCount(){return allocated;}
     private static synchronized int idleCount(){return IDLE.size();}
     static synchronized int allocatedForTest(){return allocated;}
+    static synchronized boolean hasIdleTransport(){return !IDLE.isEmpty();}
     static synchronized int idleForTest(){return IDLE.size();}
 }

@@ -301,7 +301,12 @@ public final class ChteicoActivity extends Activity {
                 showSpeech(nextPetReply(),4200);
             }
         };
-        ChteicoEmotions.attach(petTapTarget,normalTap,null,()->{
+        petTapTarget.setHapticFeedbackEnabled(true);
+        ChteicoEmotions.attach(petTapTarget,()->{
+            petTapTarget.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
+            normalTap.run();
+        },null,()->{
+            petTapTarget.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
             if(sleepAnimation!=null)ui.removeCallbacks(sleepAnimation);
             pet.setSleeping(false);
             showSpeech(ChteicoEmotions.stroke(),2750);

@@ -1,9 +1,0 @@
-feat(reader): v1.11.113-beta clean - pet gesture split, emoji wrap, adaptive theme vectors, bounded Edge prefetch
-
-- System-long-press drag + haptic; tap opens pet, swipe reacts without dragging
-- Larger kaomoji and tight content-sized bubbles, full/mini pet
-- Color vector contours plus black/white background-aware outline
-- Coalesce short adjacent Edge TTS paragraphs preserving chapter and word offsets
-- Limit new background synthesis to two per current track
-- Log pool lease counts and Media3 buffering/transition callbacks
-- Preserve v1.11.112 TimeSync and 500ms/429 semantics; extend QA

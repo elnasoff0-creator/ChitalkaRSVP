@@ -79,7 +79,7 @@ public class TestEdgeTimingDiagnostics {
         logs.contains("decoder-first-read=") && logs.contains("player-start="),"Missing pipeline diagnostics");
     yes(!logs.contains(raw),"Private book text appeared in diagnostics");
     yes(logs.contains("boundaries=3"),"Missing WordBoundary count");
-    yes(logs.contains("serial-gap="),"Missing inter-block gap diagnostic");
+    yes(logs.contains("callback-gap="),"Missing clearly labeled callback-gap diagnostic");
     System.out.println("PASS: WordBoundary timing, zero-duration silence, source offsets, MP3 latency logging");
   }
 }

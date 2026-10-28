@@ -16,6 +16,13 @@ cat > "$TMP/okhttp3/Response.java" <<'JAVA'
 package okhttp3;
 public class Response {public String header(String n){return null;}}
 JAVA
+cat > "$TMP/ru/reader/rsvp/EdgeWebSocketPool.java" <<'JAVA'
+package ru.reader.rsvp;
+final class EdgeWebSocketPool {
+    static volatile boolean idle;
+    static boolean hasIdleTransport(){return idle;}
+}
+JAVA
 cat > "$TMP/ru/reader/rsvp/TestEdgePriority.java" <<'JAVA'
 package ru.reader.rsvp;
 import java.util.concurrent.*;
@@ -43,6 +50,16 @@ public class TestEdgePriority {
         EdgeSpeechQueue.setInteractivePlayback(false);
         check(deferred.await(2,TimeUnit.SECONDS),"background WebSocket did not resume after playback");
         EdgeSpeechQueue.release(queued);
+        // Play is active and no already connected socket exists: no speculative handshake.
+        EdgeSpeechQueue.setInteractivePlayback(true);
+        EdgeWebSocketPool.idle=false;
+        CountDownLatch speculative=new CountDownLatch(1);
+        EdgeSpeechQueue.Ticket ahead=EdgeSpeechQueue.submit(EdgeSpeechQueue.PREFETCH,speculative::countDown);
+        check(!speculative.await(300,TimeUnit.MILLISECONDS),"prefetch opened extra WebSocket while reading");
+        EdgeWebSocketPool.idle=true;
+        EdgeSpeechQueue.setInteractivePlayback(false); // schedules already queued work
+        check(speculative.await(2,TimeUnit.SECONDS),"prefetch never resumed when a socket was available");
+        EdgeSpeechQueue.release(ahead);
         EdgeSpeechQueue.limited(null);
         long cooldown=EdgeSpeechQueue.remainingMs();
         check(cooldown>=1&&cooldown<=500,"429 local pause must not exceed 500ms: "+cooldown);
@@ -58,6 +75,7 @@ JAVA
 javac -encoding UTF-8 -d "$TMP" \
  "$TMP/android/os/SystemClock.java" "$TMP/android/util/Log.java" "$TMP/okhttp3/Response.java" \
  "$TMP/ru/reader/rsvp/ReaderDiagnosticLog.java" \
+ "$TMP/ru/reader/rsvp/EdgeWebSocketPool.java" \
  "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeSpeechQueue.java" \
  "$TMP/ru/reader/rsvp/TestEdgePriority.java"
 java -cp "$TMP" ru.reader.rsvp.TestEdgePriority
