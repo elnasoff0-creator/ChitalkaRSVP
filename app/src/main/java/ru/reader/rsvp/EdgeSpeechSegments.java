@@ -34,8 +34,40 @@ final class EdgeSpeechSegments {
         }
         if(first!=null)grouped.add(new SentenceChunks.Chunk(first.fromChar,last.toChar,
             first.fromWord,last.toWord,raw.substring(first.fromChar,last.toChar)));
-        return grouped;
+        // Avoid standalone requests for very short paragraphs. Merge only if
+        // contiguous in book word order, within MAX and inside the same chapter.
+        // Every merged Chunk retains original fromChar/fromWord and toChar/toWord.
+        ArrayList<SentenceChunks.Chunk> compact=new ArrayList<>();
+        for(int i=0;i<grouped.size();i++){
+            SentenceChunks.Chunk part=grouped.get(i);
+            if(part.text.length()<180){
+                if(!compact.isEmpty()){
+                    SentenceChunks.Chunk prev=compact.get(compact.size()-1);
+                    if(canMerge(raw,prev,part,chapters)){
+                        compact.set(compact.size()-1,merge(raw,prev,part));
+                        continue;
+                    }
+                }
+                if(i+1<grouped.size()&&canMerge(raw,part,grouped.get(i+1),chapters)){
+                    grouped.set(i+1,merge(raw,part,grouped.get(i+1)));
+                    continue;
+                }
+            }
+            compact.add(part);
+        }
+        return compact;
     }
+    private static boolean canMerge(String raw,SentenceChunks.Chunk a,SentenceChunks.Chunk b,BookChapterIndex chapters){
+        if(a.toWord!=b.fromWord||a.fromChar>=b.fromChar)return false;
+        if(b.toChar-a.fromChar>MAX)return false;
+        return chapters==null||chapters.size()==0||
+            chapters.atChar(a.fromChar)==chapters.atChar(b.fromChar);
+    }
+    private static SentenceChunks.Chunk merge(String raw,SentenceChunks.Chunk a,SentenceChunks.Chunk b){
+        return new SentenceChunks.Chunk(a.fromChar,b.toChar,a.fromWord,b.toWord,
+                raw.substring(a.fromChar,b.toChar));
+    }
+
     /** An uncached manual jump starts at the selected word. Cover the rest of
      * its normal group with contiguous priority pieces (first <=500 chars),
      * then return to normal 800-character groups. Keep absolute book offsets.

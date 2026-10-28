@@ -89,6 +89,7 @@ public final class EdgePlaybackService extends Service {
     private long armedSeekMs;
 
     private int lastIndex = -1;
+    private long playbackBufferingAtMs,autoTransitionAtMs;
     private String notifiedEndKey = "";
     private float playbackSpeed = 1f;
     private long sleepAtMs;
@@ -147,6 +148,10 @@ public final class EdgePlaybackService extends Service {
                 boolean completed = lastIndex >= 0 && index != lastIndex && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO;
                 lastIndex = index;
                 if(item!=null)notifiedEndKey="";
+                if(completed){
+                    autoTransitionAtMs=android.os.SystemClock.elapsedRealtime();
+                    ReaderDiagnosticLog.event("PLAYER","auto_transition media3_is_playing="+player.isPlaying());
+                }
                 if (completed && !autoContinue) {
                     requestedPlay = false;
                     player.pause();
@@ -164,6 +169,14 @@ public final class EdgePlaybackService extends Service {
                 notifyState();
             }
             @Override public void onPlaybackStateChanged(int state) {
+                long stamp=android.os.SystemClock.elapsedRealtime();
+                if(state==Player.STATE_BUFFERING && playbackBufferingAtMs==0){
+                    playbackBufferingAtMs=stamp;
+                    ReaderDiagnosticLog.event("PLAYER","buffering_begin");
+                }else if(state==Player.STATE_READY&&playbackBufferingAtMs>0){
+                    ReaderDiagnosticLog.event("PLAYER","buffering_duration_ms="+(stamp-playbackBufferingAtMs));
+                    playbackBufferingAtMs=0;
+                }
                 if (state == Player.STATE_ENDED) {
                     // No next MediaItem exists: notify the coordinator once so it
                     // can select the next 800-character group, without look-ahead.
@@ -184,6 +197,12 @@ public final class EdgePlaybackService extends Service {
             @Override public void onIsPlayingChanged(boolean isPlaying) {
                 if(isPlaying){
                     ReaderDiagnosticLog.event("PLAYER","audio playing");
+                    if(autoTransitionAtMs>0){
+                        ReaderDiagnosticLog.event("PLAYER","auto_transition_to_playing_ms="+
+                            (android.os.SystemClock.elapsedRealtime()-autoTransitionAtMs)+
+                            " (Media3 callback only)");
+                        autoTransitionAtMs=0;
+                    }
                     EdgeTtsDiagnostics.firstSound(currentKey());
                     long now=android.os.SystemClock.elapsedRealtime();
                     if(requestedPlayAtMs>0){

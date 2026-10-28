@@ -119,7 +119,7 @@ public final class ChteicoActivity extends Activity {
         private final Paint fill=new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint stroke=new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Path path=new Path();
-        SpeechBubbleLayout(){super(ChteicoActivity.this);setWillNotDraw(false);setPadding(dp(12),dp(7),dp(12),dp(19));}
+        SpeechBubbleLayout(){super(ChteicoActivity.this);setWillNotDraw(false);setPadding(dp(5),dp(4),dp(5),dp(16));}
         @Override protected void onDraw(Canvas canvas){
             super.onDraw(canvas);
             float w=getWidth(), h=getHeight();
@@ -168,10 +168,18 @@ public final class ChteicoActivity extends Activity {
     private void showSpeech(String message,long durationMs){
         if(message==null||speechBubble==null||speechContainer==null)return;
         if(pendingSpeechHide!=null)ui.removeCallbacks(pendingSpeechHide);
+        boolean face=ChteicoEmotions.isFace(message);
+        speechBubble.setTextSize(face?27:15);
+        speechBubble.setMaxLines(face?1:4);
         speechBubble.setText(message);
+        if(speechBubble.getLayoutParams() instanceof FrameLayout.LayoutParams){
+            FrameLayout.LayoutParams textLp=(FrameLayout.LayoutParams)speechBubble.getLayoutParams();
+            textLp.width=face?-2:-1;
+            speechBubble.setLayoutParams(textLp);
+        }
         if(speechContainer.getLayoutParams() instanceof FrameLayout.LayoutParams){
             FrameLayout.LayoutParams lp=(FrameLayout.LayoutParams)speechContainer.getLayoutParams();
-            lp.width=message.matches("\\([^)]{1,12}\\)")?dp(132):dp(235);
+            lp.width=face?-2:dp(235);
             speechContainer.setLayoutParams(lp);
         }
         speechContainer.setVisibility(View.VISIBLE);
@@ -300,8 +308,8 @@ public final class ChteicoActivity extends Activity {
         },null);
         if(stage!=ChteicoStore.EGG){
             speechContainer=new SpeechBubbleLayout();
-            speechBubble=text("",13,false);speechBubble.setGravity(Gravity.CENTER);speechBubble.setMaxLines(4);
-            speechContainer.addView(speechBubble,new FrameLayout.LayoutParams(-1,-2));
+            speechBubble=text("",15,false);speechBubble.setGravity(Gravity.CENTER);speechBubble.setMaxLines(4);
+            speechContainer.addView(speechBubble,new FrameLayout.LayoutParams(-2,-2,Gravity.CENTER));
             FrameLayout.LayoutParams bubbleLayout=new FrameLayout.LayoutParams(dp(235),-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL);
             bubbleLayout.topMargin=0;
             petFrame.addView(speechContainer,bubbleLayout);
@@ -312,7 +320,12 @@ public final class ChteicoActivity extends Activity {
                 sleepAnimation=new Runnable(){int phase;
                     @Override public void run(){
                         if(!ChteicoEmotions.isSleeping()||speechBubble==null)return;
-                        speechBubble.setText(ChteicoEmotions.sleep(phase++));
+                        String sleep=ChteicoEmotions.sleep(phase++);
+                        speechBubble.setTextSize(19);
+                        speechBubble.setMaxLines(1);
+                        speechBubble.setText(sleep);
+                        FrameLayout.LayoutParams layout=(FrameLayout.LayoutParams)speechContainer.getLayoutParams();
+                        layout.width=-2;speechContainer.setLayoutParams(layout);
                         speechContainer.setVisibility(View.VISIBLE);
                         ui.postDelayed(this,850);
                     }

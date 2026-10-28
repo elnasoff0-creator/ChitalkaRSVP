@@ -493,10 +493,10 @@ public class MainActivity extends Activity {
             ChteicoSpeechBubble bubble=new ChteicoSpeechBubble(this,bg,fg);
             TextView emotion=text("",16,true);
             emotion.setGravity(Gravity.CENTER);
-            emotion.setMaxLines(2);
+            emotion.setMaxLines(1);
             emotion.setIncludeFontPadding(false);
-            bubble.addView(emotion,new FrameLayout.LayoutParams(-1,-1));
-            FrameLayout.LayoutParams bubbleLp=new FrameLayout.LayoutParams(dp(112),dp(56),Gravity.TOP|Gravity.CENTER_HORIZONTAL);
+            bubble.addView(emotion,new FrameLayout.LayoutParams(-2,-2,Gravity.CENTER));
+            FrameLayout.LayoutParams bubbleLp=new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL);
             bubbleLp.topMargin=dp(19);
             petArea.addView(bubble,bubbleLp);
             bubble.setElevation(dp(8));
@@ -507,7 +507,7 @@ public class MainActivity extends Activity {
                 ChteicoEmotions.wake();
                 pet.setSleeping(false);
                 bubble.removeCallbacks(dismissEmotion);
-                emotion.setTextSize(14);
+                emotion.setTextSize(23);
                 emotion.setText(ChteicoEmotions.stroke());
                 bubble.animate().cancel();
                 bubble.setAlpha(1f);
@@ -523,7 +523,7 @@ public class MainActivity extends Activity {
                     if(ChteicoEmotions.isSleeping()){
                         pet.setSleeping(true);
                         bubble.removeCallbacks(dismissEmotion);
-                        emotion.setTextSize(10);
+                        emotion.setTextSize(17);
                         emotion.setText(ChteicoEmotions.sleep(phase++).replace("( ◡‿◡ ) ",""));
                         bubble.animate().cancel();
                         bubble.setAlpha(1f);
@@ -536,13 +536,13 @@ public class MainActivity extends Activity {
             };
             if(ChteicoEmotions.isSleeping()){
                 pet.setSleeping(true);
-                emotion.setTextSize(10);
+                emotion.setTextSize(17);
                 emotion.setText(ChteicoEmotions.sleep(0).replace("( ◡‿◡ ) ",""));
                 bubble.setVisibility(View.VISIBLE);
             }
             petArea.post(sleepAnimation[0]);
-            // One tap opens Chteico; any directional movement wakes the pet
-            // and immediately starts Drag and Drop without a long press.
+            // Short tap opens the pet. Swipe causes emotion without dragging;
+            // system-duration hold starts drag and vibrates only on drag.
             ChteicoEmotions.attach(petArea,
                 ()->{bubble.removeCallbacks(dismissEmotion);startActivity(new Intent(this,ChteicoActivity.class));},
                 null,showEmotion,HomeSectionOrder::startPetDrag);

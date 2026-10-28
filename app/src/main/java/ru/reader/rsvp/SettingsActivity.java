@@ -111,7 +111,7 @@ public class SettingsActivity extends Activity {
         TextView customTheme=action("Пользовательская тема",()->{
             ReadingThemeCycle.apply(prefs,ReadingThemeCycle.CUSTOM);load();draw();
         });
-        customTheme.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_reading_theme_custom,0,0,0);
+        customTheme.setCompoundDrawablesWithIntrinsicBounds(ReadingThemeCycle.icon(prefs),0,0,0);
         customTheme.setCompoundDrawablePadding(dp(8));
         LinearLayout.LayoutParams customLp=new LinearLayout.LayoutParams(-1,-2);customLp.topMargin=dp(7);
         list.addView(customTheme,customLp);

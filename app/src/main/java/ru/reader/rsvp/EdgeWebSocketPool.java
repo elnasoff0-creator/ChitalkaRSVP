@@ -22,12 +22,12 @@ final class EdgeWebSocketPool {
         .connectTimeout(10,TimeUnit.SECONDS).readTimeout(0,TimeUnit.MILLISECONDS)
         .pingInterval(20,TimeUnit.SECONDS).build();
     private static final ArrayDeque<Lease> IDLE=new ArrayDeque<>();
-    private static int allocated,sequence;
+    private static int allocated,sequence,activeLeases;
     static final class Lease {
         final int id;
         volatile WebSocket socket;
         volatile EdgeSpeechEngine owner;
-        volatile boolean open,configured,dead;
+        volatile boolean open,configured,dead,leased;
         volatile String requestId="";
         volatile long requestStartedWall,requestStartedElapsed;
         Lease(int id){this.id=id;}
@@ -47,10 +47,11 @@ final class EdgeWebSocketPool {
                 if(allocated>=CAPACITY)throw new IllegalStateException("No Edge WebSocket lease available");
                 lease=new Lease(++sequence);allocated++;
             }
-            lease.owner=owner;
+            lease.owner=owner;lease.leased=true;activeLeases++;
         }
         Log.d("EdgeSocketPool","acquired socketId="+lease.id+" reused="+lease.open);
-        ReaderDiagnosticLog.event("POOL","acquire id="+lease.id+" reused="+lease.open);
+        ReaderDiagnosticLog.event("POOL","acquire id="+lease.id+" reused="+lease.open+
+            " active="+activeCount()+" allocated="+allocatedCount()+" idle="+idleCount());
         return lease;
     }
     static void connect(Lease lease,Request request){
@@ -106,6 +107,7 @@ final class EdgeWebSocketPool {
         if(lease==null)return;
         synchronized(EdgeWebSocketPool.class){
             lease.owner=null;
+            if(lease.leased){lease.leased=false;activeLeases=Math.max(0,activeLeases-1);}
             if(lease.open&&!lease.dead){IDLE.addLast(lease);
                 ReaderDiagnosticLog.event("POOL","recycle open id="+lease.id+" idle="+IDLE.size());}
             else retireLocked(lease);
@@ -117,9 +119,11 @@ final class EdgeWebSocketPool {
         WebSocket ws;
         synchronized(EdgeWebSocketPool.class){
             ws=lease.socket;
+            if(lease.leased){lease.leased=false;activeLeases=Math.max(0,activeLeases-1);}
             retireLocked(lease);
         }
-        ReaderDiagnosticLog.event("POOL","discard id="+lease.id+" cancel="+cancel);
+        ReaderDiagnosticLog.event("POOL","discard id="+lease.id+" cancel="+cancel+
+            " active="+activeCount()+" allocated="+allocatedCount()+" idle="+idleCount());
         if(cancel&&ws!=null)try{ws.cancel();}catch(Exception e){Log.w("EdgeSocketPool","Cancel failed: "+e);}
     }
     private static void retireLocked(Lease lease){
@@ -127,6 +131,9 @@ final class EdgeWebSocketPool {
         lease.dead=true;lease.open=false;IDLE.remove(lease);
         if(allocated>0)allocated--;
     }
+    private static synchronized int activeCount(){return activeLeases;}
+    private static synchronized int allocatedCount(){return allocated;}
+    private static synchronized int idleCount(){return IDLE.size();}
     static synchronized int allocatedForTest(){return allocated;}
     static synchronized int idleForTest(){return IDLE.size();}
 }

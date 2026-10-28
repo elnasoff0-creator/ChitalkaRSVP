@@ -62,6 +62,8 @@ public final class EdgeStreamingService extends Service {
     private final Map<Integer,Clip> byStart=new HashMap<>();
     /** Playing clip and a bounded, cache-first window of nearby candidates. */
     private final LinkedHashMap<String,LiveJob> liveJobs=new LinkedHashMap<>();
+    private int prefetchForStart=-1,prefetchIssued;
+
     private static final class LiveJob {
         final Clip clip;
         final File folder;
@@ -305,6 +307,7 @@ public final class EdgeStreamingService extends Service {
         cachedSavedPercent=0;lastCoverageCheck=0;
         archive.clear();byStart.clear();pendingStarts.clear();priorityStart=-1;
         selectedOverrides.clear();selectedSeekWord=-1;
+        prefetchForStart=-1;prefetchIssued=0;
         offsets.clear();sentenceParts.clear();bookText="";chapters=BookChapterIndex.empty();directory=null;error="";
         if(player!=null)player.prepareBook("edge:"+uri);
         changed();
@@ -466,6 +469,9 @@ public final class EdgeStreamingService extends Service {
         if(!selected){anchorWord=requested;persist();pump();return;}
         Clip base=baseClipAt(requested);
         if(base==null)return;
+        // Manual seek invalidates the speculative window; defer new jobs until
+        // the selected stream has produced playable audio.
+        prefetchForStart=-1;prefetchIssued=0;
         // Reset the playlist first, before any new file can begin playing.
         if(player!=null)player.clearTracksForSelection();
         selectedOverrides.clear();
@@ -577,6 +583,8 @@ public final class EdgeStreamingService extends Service {
      * are separate. Cache, existing jobs, and failed requests are checked first. */
     private void prefetchWindow(Clip current){
         if(current==null||directory==null||player==null||!player.playRequested())return;
+        if(prefetchForStart!=current.start){prefetchForStart=current.start;prefetchIssued=0;}
+        if(prefetchIssued>=EdgeSpeechQueue.MAX_PREFETCH)return;
         int budget=EdgePrefetchPlanner.budget(current.text.length(),false);
         ArrayList<Clip> candidates=new ArrayList<>();
         ArrayList<Integer> lengths=new ArrayList<>();
@@ -591,14 +599,14 @@ public final class EdgeStreamingService extends Service {
         for(LiveJob j:liveJobs.values())if(!j.networkDone&&j.clip!=current)pending++;
         for(int index:EdgePrefetchPlanner.select(lengths,budget,
                 EdgePrefetchPlanner.countLimit(budget))){
-            if(pending>=EdgeSpeechQueue.MAX_PREFETCH)break;
+            if(pending>=EdgeSpeechQueue.MAX_PREFETCH||prefetchIssued>=EdgeSpeechQueue.MAX_PREFETCH)break;
             Clip candidate=candidates.get(index);
             if(candidate.ready()||liveFor(candidate)!=null||candidate.awaitingUserRetry||
                     candidate.retryAt>SystemClock.elapsedRealtime())continue;
             // Cache key is scoped by spoken text, voice, rate and pronunciation.
             ReaderDiagnosticLog.event("PREFETCH","schedule chars="+candidate.text.length()+" pending_before="+pending);
             startLive(candidate,false,true);
-            pending++;
+            pending++;prefetchIssued++;
         }
     }
     private void addTrack(Clip clip){

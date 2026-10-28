@@ -17,7 +17,12 @@ final class ReadingThemeCycle {
         for(int i=0;i<4;i++)if(bg==BACKGROUND[i]&&fg==FOREGROUND[i])return i;
         return CUSTOM;
     }
-    static int icon(SharedPreferences p){return ICONS[current(p)];}
+    static final int[] DARK_ICONS={R.drawable.ic_reading_theme_day_dark,R.drawable.ic_reading_theme_night_dark,
+        R.drawable.ic_reading_theme_soft_dark,R.drawable.ic_reading_theme_sepia_dark,R.drawable.ic_reading_theme_custom_dark};
+    static int icon(SharedPreferences p){
+        int index=current(p);
+        return isDark(p.getInt("bg",BACKGROUND[SEPIA]))?DARK_ICONS[index]:ICONS[index];
+    }
     static String name(SharedPreferences p){return NAMES[current(p)];}
     static void saveCustom(SharedPreferences p,int bg,int fg){
         p.edit().putInt("theme_custom_bg",bg).putInt("theme_custom_fg",fg).apply();

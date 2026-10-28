@@ -15,7 +15,7 @@ public final class ChteicoSpeechBubble extends FrameLayout {
     private int dp(int n){return (int)(getResources().getDisplayMetrics().density*n+.5f);}
     public ChteicoSpeechBubble(Context context,int bg,int fg){
         super(context);background=bg;foreground=fg;
-        setWillNotDraw(false);setPadding(dp(12),dp(7),dp(12),dp(19));
+        setWillNotDraw(false);setPadding(dp(5),dp(4),dp(5),dp(16));
     }
     @Override protected void onDraw(Canvas canvas){
         super.onDraw(canvas);

@@ -6,7 +6,7 @@ import android.view.View;
 import android.view.ViewConfiguration;
 import java.util.Random;
 
-/** Shared emotions and stroke gesture for Chteico and the home companion. */
+/** Tap opens; system-duration long press starts drag; direction-independent swipe reacts. */
 final class ChteicoEmotions {
     private static final String[] FACES={"(~‿^)","(♡‿♡)","(＾▽＾)","(◕‿◕)"};
     private static final Random RANDOM=new Random();
@@ -17,30 +17,48 @@ final class ChteicoEmotions {
     static void wake(){sleeping=false;lastInteraction=SystemClock.elapsedRealtime();}
     static String stroke(){wake();return FACES[RANDOM.nextInt(FACES.length)];}
     static String sleep(int phase){return "( ◡‿◡ ) Zzz"+new String[]{".","..","..."}[Math.abs(phase)%3];}
+    static boolean isFace(String text){return text!=null&&text.startsWith("(")&&text.endsWith(")")&&text.length()<=16;}
     interface Drag { void start(View view); }
     static void attach(View view,Runnable tap,Runnable longTap,Runnable pet,Drag drag){
-        final float slop=ViewConfiguration.get(view.getContext()).getScaledTouchSlop();
+        final int slop=ViewConfiguration.get(view.getContext()).getScaledTouchSlop();
+        final int longMs=ViewConfiguration.getLongPressTimeout();
         view.setClickable(true);
         view.setOnTouchListener(new View.OnTouchListener(){
-            float x,y;boolean moved,dragged;
-            private void vibrate(View v){v.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);}
+            float x,y;boolean moved,dragging,down;
+            final Runnable triggerLong=()->{
+                if(!down||moved||dragging)return;
+                dragging=true;
+                if(drag!=null){
+                    view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+                    drag.start(view);
+                }else if(longTap!=null)longTap.run();
+            };
             @Override public boolean onTouch(View v,MotionEvent e){
                 switch(e.getActionMasked()){
                     case MotionEvent.ACTION_DOWN:
-                        x=e.getX();y=e.getY();moved=false;dragged=false;return true;
+                        x=e.getX();y=e.getY();moved=false;dragging=false;down=true;
+                        // The Home ScrollView must not steal vertical pet swipes.
+                        if(v.getParent()!=null)v.getParent().requestDisallowInterceptTouchEvent(true);
+                        v.removeCallbacks(triggerLong);
+                        if(drag!=null||longTap!=null)v.postDelayed(triggerLong,longMs);
+                        return true;
                     case MotionEvent.ACTION_MOVE:
-                        float dist=(float)Math.hypot(e.getX()-x,e.getY()-y);
-                        if(!moved&&dist>slop){
-                            moved=true;
-                            vibrate(v);
-                            if(pet!=null)pet.run(); // Every direction triggers an emotion.
-                            if(drag!=null){dragged=true;drag.start(v);} // No hold or timeout.
+                        if(!down)return true;
+                        if(!moved&&Math.hypot(e.getX()-x,e.getY()-y)>slop){
+                            moved=true;v.removeCallbacks(triggerLong);
                         }
                         return true;
                     case MotionEvent.ACTION_UP:
-                        if(!moved){v.performClick();vibrate(v);if(tap!=null)tap.run();}
+                        v.removeCallbacks(triggerLong);down=false;
+                        if(v.getParent()!=null)v.getParent().requestDisallowInterceptTouchEvent(false);
+                        if(dragging)return true;
+                        if(moved){if(pet!=null)pet.run();}
+                        else {v.performClick();if(tap!=null)tap.run();}
                         return true;
-                    case MotionEvent.ACTION_CANCEL:return true;
+                    case MotionEvent.ACTION_CANCEL:
+                        v.removeCallbacks(triggerLong);down=false;
+                        if(v.getParent()!=null)v.getParent().requestDisallowInterceptTouchEvent(false);
+                        return true;
                     default:return true;
                 }
             }

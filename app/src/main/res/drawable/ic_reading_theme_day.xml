@@ -1,6 +1,7 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp" android:height="24dp"
-    android:viewportWidth="24" android:viewportHeight="24">
-    <path android:fillColor="#00000000" android:strokeColor="#FFD56B" android:strokeWidth="1.75" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M15.4,12 A3.4,3.4 0,1 1,8.6,12 A3.4,3.4 0,1 1,15.4,12"/>
-    <path android:fillColor="#00000000" android:strokeColor="#FFD56B" android:strokeWidth="1.75" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M12,1.8 V4.1 M12,19.9 V22.2 M1.8,12 H4.1 M19.9,12 H22.2 M4.8,4.8 L6.5,6.5 M17.5,17.5 L19.2,19.2 M19.2,4.8 L17.5,6.5 M6.5,17.5 L4.8,19.2"/>
+<?xml version='1.0' encoding='utf-8'?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#00000000" android:strokeColor="#FF101010" android:strokeWidth="2.95" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M15.4,12 A3.4,3.4 0,1 1,8.6,12 A3.4,3.4 0,1 1,15.4,12" />
+    <path android:fillColor="#00000000" android:strokeColor="#FFD56B" android:strokeWidth="1.75" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M15.4,12 A3.4,3.4 0,1 1,8.6,12 A3.4,3.4 0,1 1,15.4,12" />
+    <path android:fillColor="#00000000" android:strokeColor="#FF101010" android:strokeWidth="2.95" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M12,1.8 V4.1 M12,19.9 V22.2 M1.8,12 H4.1 M19.9,12 H22.2 M4.8,4.8 L6.5,6.5 M17.5,17.5 L19.2,19.2 M19.2,4.8 L17.5,6.5 M6.5,17.5 L4.8,19.2" />
+    <path android:fillColor="#00000000" android:strokeColor="#FFD56B" android:strokeWidth="1.75" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M12,1.8 V4.1 M12,19.9 V22.2 M1.8,12 H4.1 M19.9,12 H22.2 M4.8,4.8 L6.5,6.5 M17.5,17.5 L19.2,19.2 M19.2,4.8 L17.5,6.5 M6.5,17.5 L4.8,19.2" />
 </vector>

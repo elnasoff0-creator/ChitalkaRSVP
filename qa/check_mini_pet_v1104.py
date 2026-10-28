@@ -7,7 +7,7 @@ assert 'new LinearLayout.LayoutParams(dp(cardSize),dp(cardSize))' in pet, 'mini-
 assert 'areaLp.gravity=Gravity.CENTER_HORIZONTAL' in pet, 'mini-pet must be centered'
 assert 'petArea.setBackground(shape(panelColor(),22))' in pet, 'keep shared card color'
 assert pet.index('petArea.addView(pet,petLp)') < pet.index('petArea.addView(bubble,bubbleLp)'), 'bubble must overlay the pet'
-assert 'new FrameLayout.LayoutParams(dp(112),dp(56),Gravity.TOP|Gravity.CENTER_HORIZONTAL)' in pet, 'bubble should cover face at a fixed position'
+assert 'new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL)' in pet, 'bubble must be tightly wrapped at fixed top location'
 assert 'bubbleLp.topMargin=dp(19)' in pet, 'bubble should cover sleeping eyes'
 assert 'ChteicoPhrases' not in pet and 'Reply r=' not in pet, 'no phrases on MainActivity mini-pet'
 assert 'emotion.setText(ChteicoEmotions.stroke())' in pet, 'short touch must show an emotion'
