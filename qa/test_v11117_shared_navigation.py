@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static architecture and gesture checks for the one-drawer v1.11.117-beta refactor.
+"""Static architecture and gesture checks for the one-drawer v1.11.118-beta refactor.
 Not a substitute for on-device tests of touch animation and insets.
 """
 from pathlib import Path
@@ -41,5 +41,5 @@ assert classes.get('KvuheBookActivity')=='UrlImportActivity'
 for xml_name in ['ic_home.xml','ic_book.xml','ic_microphone.xml','ic_downloads.xml','ic_chteico_nav.xml','ic_settings.xml','ic_web_update.xml','ic_info_help.xml']:
     assert (root/'app/src/main/res/drawable'/xml_name).exists()
 build=(root/'app/build.gradle').read_text()
-assert "versionCode 11700; versionName '1.11.117-beta'" in build
+assert "versionCode 11800; versionName '1.11.118-beta'" in build
 print('PASS v1.11.117: single identical 8-item overlay, icons, swipe-to-close only, navigation, 14 Activity destinations, version')

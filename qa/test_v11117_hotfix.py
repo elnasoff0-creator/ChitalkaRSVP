@@ -25,13 +25,14 @@ assert 'audioDetails.setVisibility(opening?View.VISIBLE:View.GONE)' in main
 assert 'emptyAudio.setVisibility(opening?View.VISIBLE:View.GONE)' in main
 for prefix in ['"book_library_expanded"','"audio_library_expanded"']:
     assert 'apply();draw();' not in main[main.find(prefix)-130:main.find(prefix)+170]
-assert 'ValueAnimator.ofFloat(0f,1f)' in pet and 'FRAME_MS=640L' in pet
+assert 'FRAME_MS=630L' in pet and 'setDuration(FRAME_MS-62L)' in pet
+assert 'ValueAnimator.ofFloat(0f,1f)' not in pet
 assert 'spring();' in pet and 'frameDown=!frameDown;' in pet
-assert 'dictionarySelectedWord=tapped' in reader and 'selectTtsWord(tapped)' in reader
-assert 'drawDictionarySelection(c)' in reader and 'EXTRA_WORD,words[dictionarySelectedWord]' in reader
-assert 'String word=selected.replaceAll' in dictionary
+assert 'dictionarySelectedWord' not in reader and 'selectTtsWord(tapped)' in reader
+assert 'EdgeDictionaryActivity.EXTRA_SENTENCE' in reader and 'chooseWordFromSentence(original)' in dictionary
+assert 'activeSentence=getIntent().getStringExtra(EXTRA_SENTENCE)' in dictionary
 ET.parse(root/'app/src/main/res/drawable/ic_audiotheque.xml')
 xml=(root/'app/src/main/res/drawable/ic_audiotheque.xml').read_text()
 assert 'M4.5,12 L4.5,9.5' in xml and 'M6.5,10.8' in xml
-assert "versionCode 11700; versionName '1.11.117-beta'" in (root/'app/build.gradle').read_text()
-print('PASS: no swipe-open, sentence-aware overlay, stable lists, synced pet bounce, dictionary selection, audiotheque vector, unchanged version')
+assert "versionCode 11800; versionName '1.11.118-beta'" in (root/'app/build.gradle').read_text()
+print('PASS: no swipe-open, sentence-aware overlay, stable lists, restored pet animation, dictionary sentence picker, audiotheque vector, unchanged version')

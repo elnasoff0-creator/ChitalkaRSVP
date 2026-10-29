@@ -1,3 +1,0 @@
-fix(v1.11.117): allow literal symbol-to-punctuation Edge dictionary rules; show full Android TTS caption sentence
-
-Retain versionName 1.11.117-beta and versionCode 11700.

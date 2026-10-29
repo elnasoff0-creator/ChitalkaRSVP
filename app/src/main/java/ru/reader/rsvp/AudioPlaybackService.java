@@ -12,6 +12,7 @@ import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import android.content.pm.ServiceInfo;
 import java.util.*;
+import java.io.File;
 
 /** Background playback for local audio and system TTS. Never stores private files in a public directory. */
 public class AudioPlaybackService extends Service implements TextToSpeech.OnInitListener {
@@ -543,13 +544,29 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         if(active&&ttsMode&&ttsStartRequested)startTts();
     }}
 
+    private int cachedLocalTimingPosition=-1;
+    private long cachedLocalTimingLength=-1L,cachedLocalTimingModified=-1L;
+    private java.util.List<LocalTtsWordTimings.Mark> cachedLocalTimingMarks=java.util.Collections.emptyList();
+    private java.util.List<LocalTtsWordTimings.Mark> localTimingMarks(int chunkPosition){
+        File sidecar=LocalTtsWordTimings.sidecar(localFile(chunkPosition));
+        long length=sidecar.isFile()?sidecar.length():0L;
+        long modified=sidecar.isFile()?sidecar.lastModified():0L;
+        if(chunkPosition!=cachedLocalTimingPosition||length!=cachedLocalTimingLength||modified!=cachedLocalTimingModified){
+            cachedLocalTimingPosition=chunkPosition;cachedLocalTimingLength=length;cachedLocalTimingModified=modified;
+            cachedLocalTimingMarks=LocalTtsWordTimings.read(localFile(chunkPosition));
+        }
+        return cachedLocalTimingMarks;
+    }
+    public boolean sleepAtChapterEnd(){return sleepAtChapterEnd;}
+    public int sleepChaptersRemaining(){return sleepChaptersRemaining;}
+    public int ttsSleepEndWord(){return ttsSleepEndWord;}
     /** Absolute source-text range. A voice without reliable callback metadata highlights the chunk. */
     public int[] currentTtsWordRange(){
         if(!ttsMode||ttsPosition<0||ttsPosition>=chunks.size())return new int[]{0,0};
         int base=ttsChunkCharPositions.get(ttsPosition);
         String chunk=chunks.get(ttsPosition);
         if(ttsAudio!=null){
-            java.util.List<LocalTtsWordTimings.Mark> marks=LocalTtsWordTimings.read(localFile(ttsPosition));
+            java.util.List<LocalTtsWordTimings.Mark> marks=localTimingMarks(ttsPosition);
             if(marks.size()>1){
                 try{LocalTtsWordTimings.Mark mark=LocalTtsWordTimings.at(marks,ttsAudio.getCurrentPosition());
                     if(mark!=null&&mark.end<=chunk.length())return new int[]{base+mark.start,base+mark.end};

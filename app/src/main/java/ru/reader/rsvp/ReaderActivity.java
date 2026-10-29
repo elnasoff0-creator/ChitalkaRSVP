@@ -50,7 +50,7 @@ public class ReaderActivity extends NavigationActivity {
     private ChunkAdapter chunkAdapter;
     private TextView wordView,progressView,speedView;
     private ImageView playIcon,selectWordButton,modeIcon;
-    private ImageButton toolbarModeAction,toolbarEngineAction,toolbarVoiceAction,toolbarSleepAction,toolbarThemeAction;
+    private ImageButton toolbarModeAction,toolbarEngineAction,toolbarVoiceAction,toolbarThemeAction;
     private boolean rsvpScrollWords=false;
     private boolean ttsLocal=true,ttsBoundPlayer=false,ttsBoundStream=false,ttsPendingPlay=false;
     private EdgePlaybackService ttsPlayer;
@@ -58,19 +58,34 @@ public class ReaderActivity extends NavigationActivity {
     // A manual scroll suspends follow until one of the three explicit return actions.
     private boolean followSuspended=false,readerWasPaused=false;
     private TextView ttsFloatingCaption;
-    private int dictionarySelectedWord=-1;
+    private boolean lastRenderedTtsPlayState=false;
+    private boolean playStateRendered=false;
+    private String lastCaptionText="";
+    private TextView toolbarSleepValue;
+    private View toolbarSleepAction;
+    private long lastSleepBadgeUpdate=-1L;
+    private long launchStartedAt=0L;
+    private long initialDrawElapsed=0L;
+    private boolean ttsTickQueued=false;
+    private boolean localStateReceiverRegistered=false;
+    private final BroadcastReceiver localStateReceiver=new BroadcastReceiver(){
+        @Override public void onReceive(Context context,Intent intent){
+            if(mode==TTS&&ttsLocal)scheduleTtsUi();
+        }
+    };
     private long navigationEpoch=0L;
     private long tocPreviewGeneration=0L; // invalidate delayed preview alignment on new user action
     private long lastIgnoredEpoch=-1L;
 
-    private final EdgeStreamingService.Observer ttsStreamObserver=()->{if(ReaderActivity.this.mode==TTS)refreshTtsPosition();};
+    private final EdgeStreamingService.Observer ttsStreamObserver=()->{if(ReaderActivity.this.mode==TTS)scheduleTtsUi();};
     private final EdgePlaybackService.Listener ttsPlayerListener=new EdgePlaybackService.Listener(){
-        @Override public void onTrackChanged(int start,int end,String key,boolean completed){if(mode==TTS)refreshTtsPosition();}
-        @Override public void onPlaybackStateChanged(){if(mode==TTS)refreshTtsPosition();}
+        @Override public void onTrackChanged(int start,int end,String key,boolean completed){if(mode==TTS)scheduleTtsUi();}
+        @Override public void onPlaybackStateChanged(){if(mode==TTS)scheduleTtsUi();}
     };
     private final ServiceConnection ttsPlayerConnection=new ServiceConnection(){
         @Override public void onServiceConnected(ComponentName name,IBinder binder){
             if(mode!=TTS||ttsLocal)return;
+            ReaderDiagnosticLog.event("READER_STARTUP","edge_player_bind_ms="+(SystemClock.elapsedRealtime()-launchStartedAt));
             ttsPlayer=((EdgePlaybackService.LocalBinder)binder).getService();
             ttsPlayer.prepareBook("edge:"+docUri);ttsPlayer.restoreSharedSleepTimer();
             ttsPlayer.setAutoContinue(true);ttsPlayer.setPlaybackSpeed(Math.min(5f,TtsWpm.rate(ReaderActivity.this)));
@@ -83,6 +98,7 @@ public class ReaderActivity extends NavigationActivity {
     private final ServiceConnection ttsStreamConnection=new ServiceConnection(){
         @Override public void onServiceConnected(ComponentName name,IBinder binder){
             if(mode!=TTS||ttsLocal)return;
+            ReaderDiagnosticLog.event("READER_STARTUP","edge_stream_bind_ms="+(SystemClock.elapsedRealtime()-launchStartedAt));
             ttsStreamer=((EdgeStreamingService.LocalBinder)binder).getService();
             ttsStreamer.openBook(docUri,index);ttsStreamer.addObserver(ttsStreamObserver);
             // Binding and entering TTS are not manual sentence jumps.
@@ -109,8 +125,19 @@ public class ReaderActivity extends NavigationActivity {
     // Overlay controls replace the legacy immersive fullscreen preference entirely.
     private boolean normalChromeVisible=false;
     private final Runnable ttsUiTick=new Runnable(){@Override public void run(){
-        if(mode==TTS){refreshTtsPosition();handler.postDelayed(this,180);}
+        ttsTickQueued=false;
+        if(mode!=TTS)return;
+        refreshTtsPosition();
+        // Accurate WordBoundary requires polling only while audio is actually playing.
+        // On pause, the sleep badge alone may need a low-frequency refresh.
+        long next=ttsCurrentlyPlaying()?180L:(sleepTimerActive()?15000L:-1L);
+        if(next>0){ttsTickQueued=true;handler.postDelayed(this,next);}
     }};
+    private void scheduleTtsUi(){
+        if(mode!=TTS||ttsTickQueued)return;
+        ttsTickQueued=true;handler.post(ttsUiTick);
+    }
+    private void cancelTtsUi(){handler.removeCallbacks(ttsUiTick);ttsTickQueued=false;}
     private float touchDownX,touchDownY;
     private long touchDownTime;
     private boolean touchMoved=false;
@@ -156,6 +183,7 @@ public class ReaderActivity extends NavigationActivity {
     }};
 
     @Override public void onCreate(Bundle state){super.onCreate(state);
+        launchStartedAt=SystemClock.elapsedRealtime();
         prefs=getSharedPreferences("reader",MODE_PRIVATE);readPreferences();
         docUri=getIntent().getStringExtra("book_uri");
         if(docUri==null||docUri.isEmpty())docUri=prefs.getString("uri","");
@@ -179,7 +207,19 @@ public class ReaderActivity extends NavigationActivity {
         }
         if(!getIntent().getBooleanExtra("reset",false)&&getIntent().hasExtra("word_index"))
             index=Math.max(0,getIntent().getIntExtra("word_index",index));
-        draw();if(!docUri.isEmpty())load(Uri.parse(docUri),getIntent().getBooleanExtra("reset",false));
+        long drawStarted=SystemClock.elapsedRealtime();
+        if(docUri.isEmpty())draw();
+        else{
+            // Do not build the heavy RecyclerView, its toolbar and all controls
+            // twice: first with an empty book and then with the loaded session.
+            FrameLayout loading=new FrameLayout(this);loading.setBackgroundColor(bg);
+            TextView status=text("Загрузка книги…",16);status.setGravity(Gravity.CENTER);
+            loading.addView(status,new FrameLayout.LayoutParams(-1,-1));
+            setContentView(loading);SafeSystemBars.matchBackground(this,bg);
+        }
+        initialDrawElapsed=SystemClock.elapsedRealtime()-drawStarted;
+        ReaderDiagnosticLog.event("READER_STARTUP","create_ms="+(SystemClock.elapsedRealtime()-launchStartedAt)+" first_ui_ms="+initialDrawElapsed);
+        if(!docUri.isEmpty())load(Uri.parse(docUri),getIntent().getBooleanExtra("reset",false));
     }
     private void readPreferences(){
         wpm=prefs.getInt("wpm",350);portion=ReadingWordMap.portion(prefs.getInt("rsvp_portion",1));
@@ -278,10 +318,18 @@ public class ReaderActivity extends NavigationActivity {
         toolbarVoiceAction.setContentDescription("Голос озвучивания");
         LinearLayout.LayoutParams voiceLp=new LinearLayout.LayoutParams(dp(44),dp(44));voiceLp.leftMargin=dp(5);
         // Voice selection lives in the overflow menu; retain its handler for compatibility.
-        toolbarSleepAction=icon(R.drawable.ic_sleep_timer,v->chooseTtsSleep());
-        toolbarSleepAction.setContentDescription("Таймер сна");
+        LinearLayout sleepBadge=new LinearLayout(this);sleepBadge.setOrientation(LinearLayout.VERTICAL);
+        sleepBadge.setGravity(Gravity.CENTER);sleepBadge.setBackground(shape(buttonBg(),12));
+        ImageView sleepIcon=new ImageView(this);sleepIcon.setImageResource(R.drawable.ic_sleep_timer);
+        sleepIcon.setColorFilter(contrast(buttonBg()));
+        sleepBadge.addView(sleepIcon,new LinearLayout.LayoutParams(dp(22),dp(22)));
+        toolbarSleepValue=text("",11);toolbarSleepValue.setGravity(Gravity.CENTER);
+        toolbarSleepValue.setSingleLine(true);toolbarSleepValue.setTextColor(contrast(buttonBg()));
+        sleepBadge.addView(toolbarSleepValue,new LinearLayout.LayoutParams(-1,dp(16)));
+        sleepBadge.setOnClickListener(v->chooseTtsSleep());sleepBadge.setContentDescription("Таймер сна");
+        toolbarSleepAction=sleepBadge;
         LinearLayout.LayoutParams sleepLp=new LinearLayout.LayoutParams(dp(44),dp(44));sleepLp.leftMargin=dp(5);
-        toolbar.addView(toolbarSleepAction,sleepLp);
+        toolbar.addView(sleepBadge,sleepLp);
         LinearLayout speedGauge=new LinearLayout(this);speedGauge.setGravity(Gravity.CENTER);speedGauge.setOrientation(LinearLayout.VERTICAL);
         speedGauge.setBackground(shape(buttonBg(),12));speedGauge.setPadding(dp(3),dp(2),dp(3),dp(2));
         ImageView speedNeedle=new ImageView(this);speedNeedle.setImageResource(R.drawable.ic_audio_speed);
@@ -472,12 +520,7 @@ public class ReaderActivity extends NavigationActivity {
                 if(words.length==0)return;
                 BookChunkIndex.Chunk c=chunks.get(chunkId);
                 int first=map.clamp(index);
-                // A manually selected Edge word stays highlighted independently of
-                // the spoken sentence's start and moving WordBoundary cursor.
-                if(first<c.startWord||first>=c.endWord){
-                    if(mode==TTS)drawDictionarySelection(c);
-                    return;
-                }
+                if(first<c.startWord||first>=c.endWord)return;
                 int endWord=Math.min(c.endWord-1,Math.min(words.length-1,first+portion-1));
                 int from=map.starts[first]-c.startChar,to=map.ends[endWord]-c.startChar;
                 if(from<0||to>content.length()||to<=from)return;
@@ -509,16 +552,6 @@ public class ReaderActivity extends NavigationActivity {
                     if(normalSelectText!=NO_COLOR)span(new ForegroundColorSpan(normalSelectText),from,to);
                     if(normalSelectScale>100)span(new RelativeSizeSpan(normalSelectScale/100f),from,to);
                 }
-                // Selection for the dictionary has higher visual priority than
-                // both the sentence background and the live WordBoundary cursor.
-                if(mode==TTS)drawDictionarySelection(c);
-            }
-            void drawDictionarySelection(BookChunkIndex.Chunk c){
-                if(dictionarySelectedWord<c.startWord||dictionarySelectedWord>=c.endWord)return;
-                int selectionFrom=map.starts[dictionarySelectedWord]-c.startChar;
-                int selectionTo=map.ends[dictionarySelectedWord]-c.startChar;
-                if(selectionFrom>=0&&selectionTo<=content.length()&&selectionFrom<selectionTo)
-                    span(new BackgroundColorSpan(0xffffbf38),selectionFrom,selectionTo);
             }
             void span(Object obj,int first,int last){content.setSpan(obj,first,last,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);applied.add(obj);}
         }
@@ -567,13 +600,9 @@ public class ReaderActivity extends NavigationActivity {
                 int old=index;
                 selectedWordActive=true;
                 if(mode==TTS){
-                    dictionarySelectedWord=tapped; // exact tapped word, not sentence start
-                    selectTtsWord(tapped);     // playback anchor remains sentence start
-                    ReaderDiagnosticLog.event("DICTIONARY","WORD_SELECTED text="+words[tapped]+" at="+tapped);
+                    selectTtsWord(tapped); // sentence selection only; dictionary selection happens in its Activity
                 }else index=tapped;
                 refreshHighlight(old);
-                if(mode==TTS&&dictionarySelectedWord>=0&&chunks!=null)
-                    chunkAdapter.updateVisible(chunks.chunkForWord(dictionarySelectedWord));
                 updateProgress();saveLight(true);
                 return true;
             });
@@ -722,6 +751,7 @@ public class ReaderActivity extends NavigationActivity {
     }
     private void updatePlayButton(){
         boolean active=mode==TTS?ttsCurrentlyPlaying():playing;
+        if(mode==TTS){lastRenderedTtsPlayState=active;playStateRendered=true;}
         if(playIcon!=null)playIcon.setImageResource(active?R.drawable.ic_pause:R.drawable.ic_play);
         if(floatingPlayIcon!=null)floatingPlayIcon.setImageResource(active?R.drawable.ic_pause:R.drawable.ic_play);
     }
@@ -921,11 +951,13 @@ public class ReaderActivity extends NavigationActivity {
     }
     private void updateFloatingCaption(){
         if(ttsFloatingCaption==null)return;
+        String previousCaption=lastCaptionText;
         if(mode!=TTS||!followSuspended||!ttsCurrentlyPlaying()||words.length==0||isActiveSentenceVisible()){
             ttsFloatingCaption.setVisibility(View.GONE);return;
         }
         SentenceChunks.Chunk part=SentenceChunks.forWord(ttsParts,map.clamp(index));
-        if(part==null){ttsFloatingCaption.setText(words[map.clamp(index)]);}
+        if(part==null){String text=words[map.clamp(index)];
+            if(!text.equals(lastCaptionText)){lastCaptionText=text;ttsFloatingCaption.setText(text);}}
         else{
             int first=Math.max(0,part.fromChar);
             // System Android TTS synthesizers often provide no reliable
@@ -936,9 +968,13 @@ public class ReaderActivity extends NavigationActivity {
             int through=ttsLocal ? Math.min(body.length(),part.toChar)
                 : Math.min(body.length(),map.ends[map.clamp(index)]);
             String content=body.substring(first,Math.max(first,through)).trim();
-            ttsFloatingCaption.setText(content.isEmpty()?words[map.clamp(index)]:content);
+            String next=content.isEmpty()?words[map.clamp(index)]:content;
+            if(!next.equals(lastCaptionText)){lastCaptionText=next;ttsFloatingCaption.setText(next);}
+
         }
+        boolean captionWasHidden=ttsFloatingCaption.getVisibility()!=View.VISIBLE;
         ttsFloatingCaption.setVisibility(View.VISIBLE);
+        if(!captionWasHidden&&previousCaption.equals(lastCaptionText))return;
         ttsFloatingCaption.post(()->{
             if(ttsFloatingCaption!=null&&ttsFloatingCaption.getLayout()!=null){
                 android.text.Layout layout=ttsFloatingCaption.getLayout();
@@ -955,9 +991,12 @@ public class ReaderActivity extends NavigationActivity {
     }
     private void openEdgeDictionary(){
         Intent intent=new Intent(this,EdgeDictionaryActivity.class);
-        if(dictionarySelectedWord>=0&&dictionarySelectedWord<words.length){
-            intent.putExtra(EdgeDictionaryActivity.EXTRA_WORD,words[dictionarySelectedWord]);
-            intent.putExtra(EdgeDictionaryActivity.EXTRA_CONTEXT,body.substring(Math.max(0,map.starts[dictionarySelectedWord]-70),Math.min(body.length(),map.ends[dictionarySelectedWord]+70)));
+        // Load the currently spoken/last selected sentence, not a separately highlighted word.
+        if(words.length>0){
+            SentenceChunks.Chunk sentence=SentenceChunks.forWord(ttsParts,map.clamp(index));
+            if(sentence!=null&&sentence.toChar>sentence.fromChar)
+                intent.putExtra(EdgeDictionaryActivity.EXTRA_SENTENCE,
+                    body.substring(Math.max(0,sentence.fromChar),Math.min(body.length(),sentence.toChar)));
         }
         startActivity(intent);
     }
@@ -982,9 +1021,7 @@ public class ReaderActivity extends NavigationActivity {
                 matches.addView(entry,new LinearLayout.LayoutParams(-1,-2));
                 entry.setOnClickListener(v->{int previous=index;index=map.atCharacter(position);selectedWordActive=true;
                     followSuspended=false;
-                    if(mode==TTS)dictionarySelectedWord=index;
                     refreshHighlight(previous);
-                    if(chunks!=null&&mode==TTS)chunkAdapter.updateVisible(chunks.chunkForWord(dictionarySelectedWord));
                     updateProgress();ensureWordVisible(true);saveLight(true);dialog.dismiss();});
             }
         };
@@ -1120,20 +1157,24 @@ public class ReaderActivity extends NavigationActivity {
             load(uri,true);
         }
     }
-    private void load(Uri uri,boolean reset){new Thread(()->{
+    private void load(Uri uri,boolean reset){
+        final long requestAt=SystemClock.elapsedRealtime();
+        new Thread(()->{
         try{
             // Reuse exactly one immutable book, word map, chapter index and UI
             // chunk index for all four reading modes and their speech engines.
             UnifiedBookSession session=UnifiedBookSession.open(this,uri);
+            long openedAt=SystemClock.elapsedRealtime();
+            ReaderDiagnosticLog.event("READER_STARTUP","book_prepare_ms="+(openedAt-requestAt)+" words="+session.words.words.length);
             BookLoader.Book book=session.book;
             final String loadedText=book.text;
             final String loadedTitle=book.title;
             final String loadedAuthor=book.author;
             final ReadingWordMap prepared=session.words;
             final BookChapterIndex parsedChapters=book.chapters;
-            dictionarySelectedWord=-1;
             final BookChunkIndex indexed=session.blocks;
             runOnUiThread(()->{
+                long uiBegin=SystemClock.elapsedRealtime();
                 stop();title=loadedTitle;author=loadedAuthor==null?"":loadedAuthor;body=loadedText;
                 map=prepared;words=prepared.words;chunks=indexed;
                 chapters=parsedChapters!=null&&parsedChapters.size()>=3?parsedChapters:BookChapterIndex.empty();
@@ -1145,10 +1186,14 @@ public class ReaderActivity extends NavigationActivity {
                 chteicoInitialIndex=index;chteicoLastWordIndex=index;chteicoReadingSeconds=0;chteicoTouch();
                 ChteicoStore.openBook(this,docUri,mode);
                 draw();saveLight(true);
+                if(sceneRoot!=null)sceneRoot.post(()->ReaderDiagnosticLog.event("READER_STARTUP",
+                    "first_reader_frame_ms="+(SystemClock.elapsedRealtime()-requestAt)));
                 // Do not contact Edge merely because a book was opened in a non-TTS
                 // mode. Speculative startup requests multiplied handshakes on mode
                 // changes and triggered HTTP 429 even before the user selected Edge.
                 if(mode==TTS)startTtsSession();
+                ReaderDiagnosticLog.event("READER_STARTUP","loaded_ui_ms="+(SystemClock.elapsedRealtime()-uiBegin)+
+                    " total_ms="+(SystemClock.elapsedRealtime()-requestAt)+" count="+words.length);
             });
         }catch(Exception ex){runOnUiThread(()->new SwipeDialogs.Builder(this).setMessage("Не удалось открыть книгу: "+ex.getMessage()).setPositiveButton("OK",null).show());}
     }).start();}
@@ -1163,18 +1208,18 @@ public class ReaderActivity extends NavigationActivity {
     }
     private void startTtsSession(){
         if(mode!=TTS||docUri.isEmpty()||words.length==0)return;
-        handler.removeCallbacks(ttsUiTick);
+        cancelTtsUi();
         ttsPendingPlay=false;
         ReaderTtsController.begin(this,ttsLocal,docUri,index);
         if(!ttsLocal){
             ttsBoundPlayer=bindService(new Intent(this,EdgePlaybackService.class),ttsPlayerConnection,BIND_AUTO_CREATE);
             ttsBoundStream=bindService(new Intent(this,EdgeStreamingService.class),ttsStreamConnection,BIND_AUTO_CREATE);
         }
-        handler.post(ttsUiTick);
-        updatePlayButton();updateProgress();
+        scheduleTtsUi();
+        updatePlayButton();updateProgress();updateSleepTimerBadge();
     }
     private void releaseTts(){
-        handler.removeCallbacks(ttsUiTick);ttsPendingPlay=false;pendingTtsWord=-1;
+        cancelTtsUi();ttsPendingPlay=false;pendingTtsWord=-1;
         cachedTimingKey="";cachedTimingWords=java.util.Collections.emptyList();lastTtsError="";
         if(ttsLocal){
             ReaderTtsController.stopLocal(this);
@@ -1198,7 +1243,7 @@ public class ReaderActivity extends NavigationActivity {
             if(ttsPlayer.playRequested())ttsPlayer.pause();
             else {ttsPlayer.play();if(ttsStreamer!=null)ttsStreamer.ensurePlaySelection();}
         }else ttsPendingPlay=!ttsPendingPlay;
-        updatePlayButton();
+        updatePlayButton();scheduleTtsUi();
     }
     private void selectTtsWord(int at){
         // A tap selects the sentence; the book's UI block is never reloaded.
@@ -1270,7 +1315,14 @@ public class ReaderActivity extends NavigationActivity {
             if(!followSuspended)ensureWordVisible(false);
         }
         if(followSuspended&&mode==TTS)updateFloatingCaption();
-        updatePlayButton();
+        updatePlayButtonIfChanged();
+        updateSleepTimerBadge();
+    }
+    private void updatePlayButtonIfChanged(){
+        boolean now=ttsCurrentlyPlaying();
+        if(!playStateRendered||lastRenderedTtsPlayState!=now){
+            lastRenderedTtsPlayState=now;playStateRendered=true;updatePlayButton();
+        }
     }
     private void chooseTtsEngine(){
         if(mode!=TTS)return;
@@ -1320,36 +1372,104 @@ public class ReaderActivity extends NavigationActivity {
         return chapter==null?map.starts.length:map.atCharacter(chapter.endChar);
     }
     private int chapterEndAfter(int fromWord,int count){
-        if(chapters==null||chapters.size()==0)return map.starts.length;
+        if(chapters==null||chapters.size()==0){
+            // Books without trustworthy TOC use their existing text blocks.
+            if(chunks!=null&&chunks.size()>0){
+                int block=chunks.chunkForWord(map.clamp(fromWord));
+                return chunks.get(Math.min(chunks.size()-1,block+Math.max(1,count)-1)).endWord;
+            }
+            return map.starts.length;
+        }
         int startChar=map.starts.length>0?map.starts[map.clamp(fromWord)]:0;
         int current=0;
         for(int i=0;i<chapters.size();i++)if(chapters.get(i).startChar<=startChar)current=i;
         int endIdx=Math.min(chapters.size()-1,current+Math.max(1,count)-1);
         return map.atCharacter(chapters.get(endIdx).endChar);
     }
+    private long sleepDeadlineRemaining(){
+        long deadline=prefs.getLong("audio_sleep_deadline",0L);
+        return deadline>0L?Math.max(0L,deadline-System.currentTimeMillis()):0L;
+    }
+    private int currentPlaybackWord(){
+        if(ttsLocal){AudioPlaybackService local=AudioPlaybackService.instance;
+            if(local!=null&&local.isTtsMode()){
+                int[] spoken=local.currentTtsWordRange();
+                return map.clamp(map.atCharacter(spoken[0]));
+            }
+        }else if(ttsPlayer!=null&&ttsStreamer!=null){
+            EdgeStreamingService.Clip playingClip=ttsStreamer.currentClip();
+            if(playingClip!=null&&playingClip.start<=index&&index<playingClip.end)return map.clamp(index);
+            if(playingClip!=null)return map.clamp(playingClip.start);
+        }
+        return map.clamp(index);
+    }
+    private int sleepTargetWord(){
+        if(ttsLocal){AudioPlaybackService local=AudioPlaybackService.instance;
+            if(local!=null&&local.isTtsMode()&&local.sleepAtChapterEnd())
+                return local.ttsSleepEndWord();
+            if(!prefs.getBoolean("audio_sleep_at_chapter_end",false))return -1;
+            return prefs.getInt("reader_tts_sleep_end",-1);
+        }
+        if(ttsPlayer!=null)return ttsPlayer.sleepChapterEndWord();
+        return prefs.getInt("edge_sleep_chapter_end",-1);
+    }
+    private long sleepChapterRemaining(){
+        int end=sleepTargetWord();if(end<0||words.length==0)return -1;
+        int remaining=Math.max(0,end-currentPlaybackWord());
+        return (remaining*60000L)/Math.max(1,TtsWpm.get(this));
+    }
+    private boolean sleepTimerActive(){
+        return sleepDeadlineRemaining()>0||sleepTargetWord()>=0;
+    }
+    private void updateSleepTimerBadge(){
+        if(mode!=TTS||toolbarSleepValue==null)return;
+        long fixed=sleepDeadlineRemaining();
+        long chapter=fixed<=0?sleepChapterRemaining():-1L;
+        String label=fixed>0?((fixed+59999L)/60000L)+"м":
+            chapter>=0?((chapter+59999L)/60000L)+"м":"";
+        if(!label.contentEquals(toolbarSleepValue.getText())){
+            toolbarSleepValue.setText(label);
+            if(toolbarSleepAction!=null)toolbarSleepAction.setContentDescription(label.isEmpty()?"Таймер сна выключен":
+                "Таймер сна, осталось "+label+(chapter>=0?" до конца главы":""));
+        }
+        int visibility=label.isEmpty()?View.INVISIBLE:View.VISIBLE;
+        if(toolbarSleepValue.getVisibility()!=visibility)toolbarSleepValue.setVisibility(visibility);
+    }
     private void chooseTtsSleep(){
         if(mode!=TTS)return;
         SleepTimerSheet.open(this,new SleepTimerSheet.Listener(){
             @Override public void minutes(int minutes){
+                prefs.edit().remove("reader_tts_sleep_end").apply();
                 if(ttsLocal)startService(new Intent(ReaderActivity.this,AudioPlaybackService.class)
                     .setAction(AudioPlaybackService.SLEEP).putExtra("minutes",minutes));
                 else if(ttsPlayer!=null)ttsPlayer.setSleepMinutes(minutes);
+                updateSleepTimerBadge();scheduleTtsUi();
             }
             @Override public void chapters(int count){
-                int end=chapterEndAfter(index,count);
-                if(ttsLocal)startService(new Intent(ReaderActivity.this,AudioPlaybackService.class)
-                    .setAction(AudioPlaybackService.SLEEP).putExtra("minutes",-count).putExtra("end_word",end));
-                else if(ttsPlayer!=null)ttsPlayer.setSleepChapterEnd(end);
+                int end=chapterEndAfter(currentPlaybackWord(),count);
+                if(ttsLocal){
+                    prefs.edit().putInt("reader_tts_sleep_end",end).apply();
+                    startService(new Intent(ReaderActivity.this,AudioPlaybackService.class)
+                        .setAction(AudioPlaybackService.SLEEP).putExtra("minutes",-count).putExtra("end_word",end));
+                }else if(ttsPlayer!=null)ttsPlayer.setSleepChapterEnd(end);
+                updateSleepTimerBadge();scheduleTtsUi();
             }
             @Override public long remainingMillis(int count){
-                int end=chapterEndAfter(index,count);
-                return Math.max(0,end-index)*60000L/Math.max(1,TtsWpm.get(ReaderActivity.this));
+                int position=currentPlaybackWord(),end=chapterEndAfter(position,count);
+                return Math.max(0,end-position)*60000L/Math.max(1,TtsWpm.get(ReaderActivity.this));
             }
         });
     }
     @Override protected void onResume(){super.onResume();
         if(readerWasPaused&&words.length>0) returnToActiveWord();
         readerWasPaused=false;
+        if(!localStateReceiverRegistered){
+            IntentFilter stateFilter=new IntentFilter(AudioPlaybackService.ACTION_STATE);
+            if(Build.VERSION.SDK_INT>=33)this.registerReceiver(localStateReceiver,stateFilter,Context.RECEIVER_NOT_EXPORTED);
+            else this.registerReceiver(localStateReceiver,stateFilter);
+            localStateReceiverRegistered=true;
+        }
+        if(mode==TTS)scheduleTtsUi();
         chteicoResumed=true;chteicoTouch();handler.removeCallbacks(chteicoReadTick);handler.postDelayed(chteicoReadTick,10000);
         if(prefs!=null){
         int oldBg=bg,oldFg=fg,oldSize=size,oldFont=font,oldMode=mode,oldPortion=portion;
@@ -1376,6 +1496,9 @@ public class ReaderActivity extends NavigationActivity {
     }}
     @Override protected void onPause(){
         readerWasPaused=true;
+        cancelTtsUi();
+        if(localStateReceiverRegistered){try{this.unregisterReceiver(localStateReceiver);}catch(Exception ignored){}
+            localStateReceiverRegistered=false;}
         chteicoResumed=false;handler.removeCallbacks(chteicoReadTick);
         chteicoCompleteIfReachedEnd();save();stop();super.onPause();
     }

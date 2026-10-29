@@ -1,0 +1,12 @@
+PROChitalka v1.11.118-beta / versionCode 11800 - performance, sleep, dictionary fix
+
+Java syntax parser: PASS (111 Java sources)
+ReaderActivity local method resolution: PASS
+New performance/sleep/dictionary source contract: PASS (13 / 13)
+General QA script suite: 40 / 41 PASS in a parallel run.
+  test_edge_clock_sync.sh reported a callback wait timeout under parallel CPU load.
+  Standalone rerun of test_edge_clock_sync.sh: PASS.
+Earlier run before final static-test correction: 40 / 41; failure was the new test's outdated first_ui_ms spelling, corrected.
+
+These checks are Java source syntax / static / desktop-JVM tests, not an Android compilation, UI render, or device performance benchmark.
+Device QA still required for: sleep minute badge in all engines, end-of-chapter behavior and speed, word choice dialog, foreground/background TTS, ReaderActivity startup timings.

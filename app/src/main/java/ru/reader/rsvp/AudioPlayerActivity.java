@@ -491,13 +491,21 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         if(speedValue!=null){if(service.isTtsMode())setTextIfDifferent(speedValue,String.valueOf(TtsWpm.get(this)));
             else {float rate=service.getSpeed();setTextIfDifferent(speedValue,(rate==(int)rate?Integer.toString((int)rate):Float.toString(rate))+"×");}}
         if(timerAction!=null){
-            long remaining=service.getSleepRemainingMillis();timerAction.setAlpha(remaining>0?1f:.70f);
+            long remaining=service.getSleepRemainingMillis();
+            boolean chapterMode=remaining<=0&&service.sleepAtChapterEnd();
+            if(chapterMode)remaining=service.isTtsMode()?
+                Math.max(0,getSharedPreferences("reader",0).getInt("reader_tts_sleep_end",-1)-service.getTtsAnchorWord())*60000L/
+                    Math.max(1,TtsWpm.get(this)):
+                service.getChapterSleepRemainingMillis(service.sleepChaptersRemaining());
+            // Track duration is in source milliseconds, convert to wall time at selected playback speed.
+            if(chapterMode&&remaining>=0&&!service.isTtsMode())remaining=(long)(remaining/Math.max(.1f,service.getSpeed()));
+            timerAction.setAlpha((remaining>0||chapterMode)?1f:.70f);
             if(timerValue!=null){
-                String counter=remaining<=0?"":remaining<60000?(Math.max(1,remaining/1000)+"с"):
-                    ((remaining+59999)/60000)+"м";
+                String counter=remaining>0?((remaining+59999L)/60000L)+"м":chapterMode?"Гл":"";
                 setTextIfDifferent(timerValue,counter);
-                timerValue.setVisibility(remaining>0?View.VISIBLE:View.GONE);
-                timerAction.setContentDescription(remaining<=0?"Таймер сна выключен":"Таймер сна: осталось "+counter);
+                timerValue.setVisibility(counter.isEmpty()?View.GONE:View.VISIBLE);
+                timerAction.setContentDescription(counter.isEmpty()?"Таймер сна выключен":
+                    "Таймер сна: осталось "+counter+(chapterMode?" до конца главы":""));
             }
         }
         if(!service.isTtsMode() && (shownSeekSeconds!=AudioPlaybackPrefs.seekSeconds(this)

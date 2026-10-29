@@ -14,6 +14,8 @@ import java.util.regex.Pattern;
 final class EdgeSpeechTextTransform {
     static final String MODE="edge_dot_mode_v108", REPLACEMENT="edge_dot_replace_v108";
     static final String DICTIONARY="edge_pronunciation_dictionary_v108";
+    /** Literal lines/symbols to omit from speech; never sent to Edge WebSocket. */
+    static final String IGNORED="edge_ignored_text_v118";
     static final String[] MODES={"off","v1","v2","v3"};
     static final String[] SYMBOLS={",",";",":","-","\n\n\n"};
     // Domains/URLs, decimal numbers and common abbreviations cannot be modified.
@@ -21,23 +23,53 @@ final class EdgeSpeechTextTransform {
         "(?iu)(?:https?://|www\\.)[^\\s]+|(?<![\\p{L}\\p{N}_])[\\p{L}\\p{N}-]+(?:\\.[\\p{L}\\p{N}-]+)+(?:/[^\\s]*)?|[0-9]+\\.[0-9]+|(?:[\\p{L}]\\.){2,}|\\b(?:г|ул|им|стр|т|д|др|тп|пр)\\.");
     private static final Pattern RULE=Pattern.compile("(?m)^([^=\\r\\n]+)=(.{1,120})$");
     static final class Options {
-        final String mode,replacement,dictionary;
-        Options(String mode,String replacement,String dictionary){
+        final String mode,replacement,dictionary,ignored;
+        Options(String mode,String replacement,String dictionary){this(mode,replacement,dictionary,"");}
+        Options(String mode,String replacement,String dictionary,String ignored){
+            this.ignored=ignored==null?"":ignored.substring(0,Math.min(ignored.length(),8192));
             this.mode=Arrays.asList(MODES).contains(mode)?mode:"off";
             this.replacement=Arrays.asList(SYMBOLS).contains(replacement)?replacement:",";
             this.dictionary=dictionary==null?"":dictionary.substring(0,Math.min(dictionary.length(),8192));
         }
-        static Options read(SharedPreferences preferences){return new Options(
-            preferences.getString(MODE,"off"), preferences.getString(REPLACEMENT,","),
-            preferences.getString(DICTIONARY,""));}
+        static Options read(SharedPreferences preferences){
+            String dictionary=preferences.getString(DICTIONARY,"");
+            String ignored=preferences.getString(IGNORED,"");
+            // v1.11.117 shipped ***=. as an example symbol replacement.
+            // Treat an existing exact rule as ignored immediately, even before
+            // the user opens the new dictionary editor to migrate its storage.
+            if(dictionary.contains("***=.")){
+                StringBuilder cleaned=new StringBuilder();
+                for(String row:dictionary.split("\\r?\\n")){
+                    if("***=.".equals(row.trim())){
+                        if(!java.util.Arrays.asList(ignored.split("\\r?\\n")).contains("***"))
+                            ignored=ignored.isEmpty()?"***":ignored+"\n***";
+                    }else if(!row.isEmpty()){
+                        if(cleaned.length()>0)cleaned.append('\n');cleaned.append(row);
+                    }
+                }
+                dictionary=cleaned.toString();
+            }
+            return new Options(preferences.getString(MODE,"off"),
+                preferences.getString(REPLACEMENT,","),dictionary,ignored);
+        }
         Result apply(String original){return EdgeSpeechTextTransform.apply(original,this);}
-        String fingerprint(){return mode+"|"+replacement+"|"+dictionary;}
+        String fingerprint(){return mode+"|"+replacement+"|"+dictionary+"|ignore:"+ignored;}
     }
     static final class Result {
         final String original,spoken;
         final int[] from,to;
-        Result(String original,String spoken,int[] from,int[] to){
+        final boolean ignoredAny;
+        Result(String original,String spoken,int[] from,int[] to){this(original,spoken,from,to,false);}
+        Result(String original,String spoken,int[] from,int[] to,boolean ignoredAny){
             this.original=original;this.spoken=spoken;this.from=from;this.to=to;
+            this.ignoredAny=ignoredAny;
+        }
+        /** Entire segment was intentionally ignored: synthesize no MP3 and open no socket.
+         * Punctuation left around removed strings must not cause a request. */
+        boolean skipSynthesis(){
+            if(!ignoredAny)return false;
+            for(int i=0;i<spoken.length();i++)if(Character.isLetterOrDigit(spoken.charAt(i)))return false;
+            return true;
         }
         String cacheKey(String voice,String rate){
             // Unmodified speech retains every previously saved MP3 key.
@@ -68,10 +100,11 @@ final class EdgeSpeechTextTransform {
         void copy(String original,int begin,int end){
             for(int i=begin;i<end;i++)append(original.substring(i,i+1),i,i+1);
         }
-        Result result(String source){
+        Result result(String source){return result(source,false);}
+        Result result(String source,boolean ignoredAny){
             int[] a=new int[from.size()],b=new int[to.size()];
             for(int i=0;i<a.length;i++){a[i]=from.get(i);b[i]=to.get(i);}
-            return new Result(source,speech.toString(),a,b);
+            return new Result(source,speech.toString(),a,b,ignoredAny);
         }
     }
     private EdgeSpeechTextTransform(){}
@@ -79,6 +112,11 @@ final class EdgeSpeechTextTransform {
         String source=text==null?"":text;
         Buffer original=new Buffer();original.copy(source,0,source.length());
         Result result=original.result(source);
+        // Ignore only user-supplied literal sequences. A complete matching
+        // segment is silently skipped; inside a real sentence only the matched
+        // span disappears, preserving the pronunciation of its remaining words.
+        result=ignoreLiterals(result,options.ignored);
+        if(result.skipSynthesis())return result;
         if(!options.dictionary.trim().isEmpty()){
             int rules=0;
             java.util.ArrayList<String[]> rulesOrdered=new java.util.ArrayList<>();
@@ -127,7 +165,7 @@ final class EdgeSpeechTextTransform {
                     cursor=occurrences.end();
                 }
                 copyRange(result,updated,cursor,result.spoken.length());
-                result=updated.result(source);rules++;
+                result=updated.result(source,result.ignoredAny);rules++;
             }
         }
         if("off".equals(options.mode))return result;
@@ -150,7 +188,46 @@ final class EdgeSpeechTextTransform {
                  ("v3".equals(options.mode)&&whitespaceNext));
             output.append(eligible?options.replacement:String.valueOf(c),result.from[i],result.to[i]);
         }
-        return output.result(source);
+        return output.result(source,result.ignoredAny);
+    }
+    /** Literal (not regex) ignore rules; longest patterns take precedence. */
+    private static Result ignoreLiterals(Result input,String patterns){
+        if(patterns==null||patterns.isEmpty()||input.spoken.isEmpty())return input;
+        ArrayList<String> items=new ArrayList<>();
+        for(String row:patterns.split("\\r?\\n")){
+            String key=row.trim();
+            if(!key.isEmpty()&&key.length()<=400&&items.size()<100&&!items.contains(key))items.add(key);
+        }
+        if(items.isEmpty())return input;
+        items.sort((a,b)->Integer.compare(b.length(),a.length()));
+        boolean[] omitted=new boolean[input.spoken.length()];boolean found=false;
+        for(String item:items){
+            boolean beginsWord=Character.isLetterOrDigit(item.charAt(0))||item.charAt(0)=='_';
+            char end=item.charAt(item.length()-1);
+            boolean endsWord=Character.isLetterOrDigit(end)||end=='_';
+            Pattern literal=Pattern.compile("(?iu)"+(beginsWord?"(?<![\\p{L}\\p{N}_])":"")+
+                Pattern.quote(item)+(endsWord?"(?![\\p{L}\\p{N}_])":""));
+            Matcher m=literal.matcher(input.spoken);
+            while(m.find()){
+                boolean free=true;
+                for(int i=m.start();i<m.end();i++)if(omitted[i]){free=false;break;}
+                if(!free)continue;
+                Arrays.fill(omitted,m.start(),m.end(),true);found=true;
+            }
+        }
+        if(!found)return input;
+        Buffer filtered=new Buffer();
+        int i=0;
+        while(i<input.spoken.length()){
+            if(!omitted[i]){copyRange(input,filtered,i,i+1);i++;continue;}
+            int start=i;while(i<input.spoken.length()&&omitted[i])i++;
+            // Avoid joining two spoken words: e.g. word***word -> word word.
+            boolean betweenWords=start>0&&i<input.spoken.length() &&
+                Character.isLetterOrDigit(input.spoken.charAt(start-1))&&
+                Character.isLetterOrDigit(input.spoken.charAt(i));
+            if(betweenWords)filtered.append(" ",input.from[start],input.to[i-1]);
+        }
+        return filtered.result(input.original,true);
     }
     private static void copyRange(Result input,Buffer target,int begin,int end){
         for(int i=begin;i<end;i++)target.append(input.spoken.substring(i,i+1),input.from[i],input.to[i]);

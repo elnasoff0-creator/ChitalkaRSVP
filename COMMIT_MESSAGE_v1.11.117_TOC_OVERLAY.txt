@@ -1,8 +1,0 @@
-fix(reader): keep TTS playing and viewport browsable when selecting TOC chapters
-
-- Separate chapter preview scrolling from active TTS word and audio position.
-- Suspend auto-follow when navigating to another chapter during playback.
-- Show speech overlay only after active sentence leaves readable viewport.
-- Cancel delayed TOC alignment after user scroll/return/new preview.
-- Add regression guard qa/test_v11117_toc_browsing.py.
-- Keep versionName 1.11.117-beta and versionCode 11700 unchanged.

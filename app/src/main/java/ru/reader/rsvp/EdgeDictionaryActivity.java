@@ -24,6 +24,8 @@ import java.util.Locale;
 /** Reader-compatible editable dictionary for EdgeSpeechTextTransform, with pronunciation preview. */
 public final class EdgeDictionaryActivity extends NavigationActivity {
     static final String EXTRA_WORD="dictionary_selected_word",EXTRA_CONTEXT="dictionary_selected_context";
+    static final String EXTRA_SENTENCE="dictionary_current_sentence";
+    private String activeSentence="";
     private SharedPreferences prefs;
     private LinearLayout entries;
     private EditText filter;
@@ -33,6 +35,7 @@ public final class EdgeDictionaryActivity extends NavigationActivity {
     private File previewFile;
     private final Handler main=new Handler(Looper.getMainLooper());
     private final ArrayList<Rule> rules=new ArrayList<>();
+    private final ArrayList<String> ignored=new ArrayList<>();
     private static class Rule {
         String word,context,spoken;
         Rule(String w,String c,String s){word=w;context=c;spoken=s;}
@@ -44,25 +47,34 @@ public final class EdgeDictionaryActivity extends NavigationActivity {
     @Override public void onCreate(Bundle state){super.onCreate(state);
         prefs=getSharedPreferences("reader",MODE_PRIVATE);
         bg=prefs.getInt("bg",0xfff3e7d5);ink=prefs.getInt("fg",0xff30221e);
-        parse();render();String selected=getIntent().getStringExtra(EXTRA_WORD);
-        if(selected!=null&&!selected.trim().isEmpty()){
-            String word=selected.replaceAll("^[^\\p{L}]+|[^\\p{L}]+$","");
-            int existing=-1;
-            for(int i=0;i<rules.size();i++)if(rules.get(i).word.equalsIgnoreCase(word)&&rules.get(i).context.isEmpty()){existing=i;break;}
-            if(existing<0)editRule(-1,word,"","");
-            else editRule(existing,rules.get(existing).word,rules.get(existing).context,rules.get(existing).spoken);
-        }
+        parse();
+        if(prefs.getString(EdgeSpeechTextTransform.DICTIONARY,"").contains("***=."))save();
+        activeSentence=getIntent().getStringExtra(EXTRA_SENTENCE);
+        if(activeSentence==null)activeSentence="";
+        render(); // Select a word in the dictionary, not in the reader's visual spans.
     }
-    private void parse(){rules.clear();for(String line:prefs.getString(EdgeSpeechTextTransform.DICTIONARY,"").split("\\r?\\n")){
+    private void parse(){ignored.clear();
+        for(String line:prefs.getString(EdgeSpeechTextTransform.IGNORED,"").split("\\r?\\n")){
+            String value=line.trim();if(!value.isEmpty()&&!ignored.contains(value))ignored.add(value);
+        }
+        rules.clear();for(String line:prefs.getString(EdgeSpeechTextTransform.DICTIONARY,"").split("\\r?\\n")){
         int eq=line.indexOf('=');if(eq<1||eq==line.length()-1)continue;
         String left=line.substring(0,eq).trim();int bar=left.indexOf('|');
         String w=(bar<0?left:left.substring(0,bar)).trim();String ctx=bar<0?"":left.substring(bar+1).trim();
-        if(!w.isEmpty())rules.add(new Rule(w,ctx,line.substring(eq+1).trim()));
+        String spoken=line.substring(eq+1).trim();
+        if("***".equals(w)&&ctx.isEmpty()&&".".equals(spoken)){
+            if(!ignored.contains("***"))ignored.add("***");continue;
+        }
+        if(!w.isEmpty())rules.add(new Rule(w,ctx,spoken));
     }}
     private void save(){StringBuilder b=new StringBuilder();int count=0;
         for(Rule r:rules){if(count>=100)break;String line=r.line();if(b.length()+line.length()+1>8192)break;
             if(b.length()>0)b.append('\n');b.append(line);count++;}
-        prefs.edit().putString(EdgeSpeechTextTransform.DICTIONARY,b.toString()).apply();
+        StringBuilder blocked=new StringBuilder();
+        for(String item:ignored){if(blocked.length()+item.length()+1>8192)break;
+            if(blocked.length()>0)blocked.append('\n');blocked.append(item);}
+        prefs.edit().putString(EdgeSpeechTextTransform.DICTIONARY,b.toString())
+            .putString(EdgeSpeechTextTransform.IGNORED,blocked.toString()).apply();
     }
     private void render(){
         LinearLayout page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);
@@ -77,6 +89,10 @@ public final class EdgeDictionaryActivity extends NavigationActivity {
         addSymbols.setTextSize(12);addSymbols.setAllCaps(false);addSymbols.setTextColor(ink);
         bar.addView(addSymbols,new LinearLayout.LayoutParams(dp(90),dp(44)));
         addSymbols.setOnClickListener(v->editRule(-1,"","","",true));
+        Button addIgnored=new Button(this);addIgnored.setText("Игнорировать");
+        addIgnored.setTextSize(12);addIgnored.setAllCaps(false);addIgnored.setTextColor(ink);
+        page.addView(addIgnored,new LinearLayout.LayoutParams(-1,dp(44)));
+        addIgnored.setOnClickListener(v->editIgnored(-1));
         ImageButton add=new ImageButton(this);add.setImageResource(R.drawable.ic_plus);add.setColorFilter(ink);add.setBackground(fill(bg));
         bar.addView(add,new LinearLayout.LayoutParams(dp(44),dp(44)));add.setOnClickListener(v->editRule(-1,"","",""));
         filter=new EditText(this);filter.setSingleLine(true);filter.setHint("Поиск по словарю");page.addView(filter);
@@ -89,7 +105,7 @@ public final class EdgeDictionaryActivity extends NavigationActivity {
     }
     private void showEntries(){if(entries==null)return;entries.removeAllViews();
         String needle=filter==null?"":filter.getText().toString().toLowerCase(Locale.ROOT);
-        if(rules.isEmpty()){TextView empty=label("Словарь пуст. Добавьте первое слово с ударением или заменой.",15);
+        if(rules.isEmpty()&&ignored.isEmpty()){TextView empty=label("Словарь пуст. Добавьте слово, замену знаков или игнорируемый текст.",15);
             empty.setPadding(12,22,12,22);entries.addView(empty);return;}
         for(int i=0;i<rules.size();i++){int id=i;Rule r=rules.get(i);
             if(!r.word.toLowerCase(Locale.ROOT).contains(needle)&&!r.spoken.toLowerCase(Locale.ROOT).contains(needle))continue;
@@ -105,6 +121,49 @@ public final class EdgeDictionaryActivity extends NavigationActivity {
             View divider=new View(this);divider.setBackgroundColor((ink&0x00ffffff)|0x22000000);
             entries.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));
         }
+        if(!ignored.isEmpty()){
+            TextView section=label("ИГНОРИРОВАТЬ · не отправлять в Edge TTS",13);
+            section.setPadding(dp(8),dp(14),0,dp(7));entries.addView(section);
+        }
+        for(int i=0;i<ignored.size();i++){
+            int index=i;String item=ignored.get(i);
+            if(!item.toLowerCase(Locale.ROOT).contains(needle))continue;
+            LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(8),dp(5),dp(8),dp(5));
+            TextView label=label("Пропуск: "+item,15);
+            row.addView(label,new LinearLayout.LayoutParams(0,dp(48),1));label.setGravity(Gravity.CENTER_VERTICAL);
+            label.setOnClickListener(v->editIgnored(index));
+            ImageButton edit=new ImageButton(this);edit.setImageResource(R.drawable.ic_edit_name);edit.setColorFilter(ink);
+            row.addView(edit,new LinearLayout.LayoutParams(dp(42),dp(42)));
+            edit.setOnClickListener(v->editIgnored(index));entries.addView(row);
+        }
+    }
+    private void editIgnored(int index){
+        EditText field=new EditText(this);field.setSingleLine(true);
+        field.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD|
+            InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        field.setHint("Например: *** или целое предложение");
+        if(index>=0)field.setText(ignored.get(index));
+        LinearLayout body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);
+        body.setPadding(dp(20),0,dp(20),0);body.addView(field);
+        TextView help=label("Совпадения исключаются из отправки в WebSocket. Если весь фрагмент состоит из игнорируемого текста, он пропускается без синтеза. Внутри обычного предложения удаляется только совпавшая часть.",13);
+        body.addView(help);
+        AlertDialog.Builder builder=new AlertDialog.Builder(this)
+            .setTitle(index>=0?"Изменить игнорируемый текст":"Добавить в игнорирование")
+            .setView(body).setNegativeButton("Отмена",null).setPositiveButton("Сохранить",null);
+        if(index>=0)builder.setNeutralButton("Удалить",(d,w)->{ignored.remove(index);save();showEntries();});
+        AlertDialog dialog=builder.create();dialog.setOnShowListener(v->{
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(w->{
+                String value=field.getText().toString().trim();
+                if(value.isEmpty()||value.length()>400||value.contains("\n")||value.contains("\r")){
+                    Toast.makeText(this,"Введите строку до 400 символов",Toast.LENGTH_LONG).show();return;
+                }
+                if(index>=0)ignored.set(index,value);
+                else if(!ignored.contains(value)&&ignored.size()<100)ignored.add(value);
+                else {Toast.makeText(this,"Уже существует или достигнут лимит 100 строк",Toast.LENGTH_LONG).show();return;}
+                save();showEntries();dialog.dismiss();
+            });
+        });dialog.show();
     }
     private EditText input(String hint,String value,LinearLayout host){
         EditText edit=new EditText(this);edit.setHint(hint);edit.setText(value);edit.setSingleLine(true);
@@ -115,17 +174,28 @@ public final class EdgeDictionaryActivity extends NavigationActivity {
     }
     private void editRule(int index,String word,String context,String spoken,boolean symbols){
         LinearLayout pane=new LinearLayout(this);pane.setOrientation(LinearLayout.VERTICAL);pane.setPadding(dp(15),0,dp(15),0);
-        EditText original=input(symbols?"Знаки в книге (например ***)":"Слово в книге",word,pane);
+        LinearLayout wordRow=new LinearLayout(this);wordRow.setGravity(Gravity.CENTER_VERTICAL);
+        pane.addView(wordRow,new LinearLayout.LayoutParams(-1,-2));
+        EditText original=new EditText(this);original.setSingleLine(true);
+        original.setHint(symbols?"Знаки в книге (например !)":"Слово в книге");original.setText(word);
+        wordRow.addView(original,new LinearLayout.LayoutParams(0,dp(55),1));
+        if(!symbols){
+            Button fromSentence=new Button(this);fromSentence.setAllCaps(false);
+            fromSentence.setText("Из предложения");fromSentence.setTextSize(11);
+            wordRow.addView(fromSentence,new LinearLayout.LayoutParams(dp(128),dp(52)));
+            fromSentence.setContentDescription("Добавить слово из текущего предложения");
+            fromSentence.setOnClickListener(v->chooseWordFromSentence(original));
+        }
         if(symbols)original.setInputType(InputType.TYPE_CLASS_TEXT|
             InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD|InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        EditText pronunciation=input(symbols?"Заменить на (например .)":"Произношение / замена",spoken.isEmpty()?word:spoken,pane);
+        EditText pronunciation=input(symbols?"Заменить на (например -)":"Произношение / замена",spoken.isEmpty()?word:spoken,pane);
         if(symbols)pronunciation.setInputType(InputType.TYPE_CLASS_TEXT|
             InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD|InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         TextView stress=label("Ударение: выберите гласную",13);pane.addView(stress);
         if(symbols)stress.setVisibility(View.GONE);
         LinearLayout vowels=new LinearLayout(this);vowels.setGravity(Gravity.CENTER_VERTICAL);pane.addView(vowels);
         if(symbols)vowels.setVisibility(View.GONE);
-        if(symbols){TextView hint=label("Символьная замена применяется к тексту перед Edge TTS. Например: *** → . (без произнесения звёздочек).",12);pane.addView(hint);}
+        if(symbols){TextView hint=label("Символьная замена перед Edge TTS. Например: ! → -. Для полного пропуска используйте «Игнорировать».",12);pane.addView(hint);}
         final Runnable renderVowels=()->{
             vowels.removeAllViews();String text=pronunciation.getText().toString().replace("\u0301","");
             for(int i=0;i<text.length();i++){
@@ -159,6 +229,25 @@ public final class EdgeDictionaryActivity extends NavigationActivity {
             });
         if(index>=0)dlg.setNeutralButton("Удалить",(d,w)->{rules.remove(index);save();showEntries();});
         dlg.show();
+    }
+    /** The source sentence is passed by ReaderActivity; the book view does not need a dictionary selection span. */
+    private void chooseWordFromSentence(EditText target){
+        if(activeSentence.trim().isEmpty()){
+            Toast.makeText(this,"Текущее предложение недоступно. Откройте словарь из книги.",Toast.LENGTH_LONG).show();
+            return;
+        }
+        ArrayList<String> words=new ArrayList<>();
+        java.util.regex.Matcher matcher=java.util.regex.Pattern
+            .compile("[\\p{L}\\p{N}]+(?:[-’'][\\p{L}\\p{N}]+)*").matcher(activeSentence);
+        while(matcher.find()&&words.size()<100)words.add(matcher.group());
+        if(words.isEmpty()){
+            Toast.makeText(this,"В предложении нет слов",Toast.LENGTH_SHORT).show();return;
+        }
+        String[] choices=words.toArray(new String[0]);
+        new AlertDialog.Builder(this).setTitle("Выберите слово из предложения")
+            .setItems(choices,(dialog,which)->{
+                target.setText(choices[which]);target.setSelection(target.length());
+            }).setNegativeButton("Отмена",null).show();
     }
     private void listen(String word){
         if(word.isEmpty())return;

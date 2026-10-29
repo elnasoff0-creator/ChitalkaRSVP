@@ -232,6 +232,17 @@ public final class ChteicoActivity extends NavigationActivity {
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(112),1f);lp.setMargins(dp(3),dp(3),dp(3),dp(3));
         rewardLine.addView(tile,lp);rewardCount++;
     }
+    /** Reserve the missing columns of the last row without showing empty award cards. */
+    private void finishRewardGrid(){
+        if(rewardLine==null)return;
+        int missing=(3-rewardCount%3)%3;
+        for(int i=0;i<missing;i++){
+            View spacer=new View(this);
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(112),1f);
+            lp.setMargins(dp(3),dp(3),dp(3),dp(3));
+            rewardLine.addView(spacer,lp);
+        }
+    }
     private void addRewardsCard(){
         boolean previewAll=ChteicoStore.developerUnlocked(this) && p.getBoolean("dev_show_all_rewards",false);
         LinearLayout rewards=card();rewards.addView(text(previewAll?"Награды (предпросмотр)":"Награды",18,true));gap(rewards,8);
@@ -246,6 +257,7 @@ public final class ChteicoActivity extends NavigationActivity {
         if(previewAll || p.getInt("finished_books_count",0)>=10){rewardRow(rewards,R.drawable.ic_reward_books10,"10 прочитанных книг");any=true;}
         if(previewAll || p.getInt("finished_audio_count",0)>=10){rewardRow(rewards,R.drawable.ic_reward_audio10,"10 аудиокниг");any=true;}
         if(previewAll || p.getInt("best_streak",0)>=30){rewardRow(rewards,R.drawable.ic_reward_streak30,"30 дней подряд");any=true;}
+        finishRewardGrid();
         if(!any){
             TextView none=text("Новые награды будут появляться по мере чтения и прослушивания аудиокниг.",14,false);
             none.setTextColor(ReadingThemeCycle.isDark(bg)?0xffd5cec8:0xff7d6d60);rewards.addView(none);
@@ -274,11 +286,19 @@ public final class ChteicoActivity extends NavigationActivity {
         p=ChteicoStore.prefs(this);
         root=column();root.setBackgroundColor(bg);root.setPadding(dp(13),dp(22),dp(13),dp(9));setContentView(root);SafeSystemBars.matchBackground(this,bg);
         LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);
-        ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_menu_lines);back.setColorFilter(fg);
+        // Match the reader toolbar: 44dp rounded-square neutral surfaces in both themes.
+        int toolbarButtonColor=ReaderButtonColors.neutral(this,
+            ReadingThemeCycle.isDark(bg)?0xff303238:0xfffff9f0);
+        int toolbarIconColor=contrast(toolbarButtonColor);
+        ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_menu_lines);
+        back.setColorFilter(toolbarIconColor);
+        back.setBackground(shape(toolbarButtonColor,12));
         back.setPadding(dp(10),dp(10),dp(10),dp(10));back.setOnClickListener(v->UniversalDrawer.show(this));
         top.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));
         View spacer=new View(this);top.addView(spacer,new LinearLayout.LayoutParams(0,dp(20),1));
-        ImageView settingsIcon=new ImageView(this);settingsIcon.setImageResource(R.drawable.ic_settings);settingsIcon.setColorFilter(fg);
+        ImageView settingsIcon=new ImageView(this);settingsIcon.setImageResource(R.drawable.ic_settings);
+        settingsIcon.setColorFilter(toolbarIconColor);
+        settingsIcon.setBackground(shape(toolbarButtonColor,12));
         settingsIcon.setPadding(dp(10),dp(10),dp(10),dp(10));top.addView(settingsIcon,new LinearLayout.LayoutParams(dp(44),dp(44)));
         settingsIcon.setOnClickListener(v->startActivity(new Intent(this,SettingsActivity.class).putExtra("chteico_tab",true)));
         root.addView(top);

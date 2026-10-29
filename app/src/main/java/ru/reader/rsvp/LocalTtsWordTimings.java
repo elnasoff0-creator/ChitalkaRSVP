@@ -58,7 +58,12 @@ final class LocalTtsWordTimings {
         }catch(Exception ignored){return Collections.emptyList();}
     }
     static Mark at(List<Mark> list,long ms){
-        Mark selected=null;for(Mark mark:list){if(mark.atMs>ms)break;selected=mark;}return selected;
+        if(list==null||list.isEmpty())return null;
+        int left=0,right=list.size()-1,best=-1;
+        while(left<=right){int mid=(left+right)>>>1;
+            if(list.get(mid).atMs<=ms){best=mid;left=mid+1;}else right=mid-1;
+        }
+        return best<0?null:list.get(best);
     }
     static long atChar(List<Mark> list,int character){
         for(Mark mark:list)if(character>=mark.start&&character<mark.end)return mark.atMs;

@@ -133,7 +133,9 @@ public final class EdgeFullBookService extends Service {
             JSONArray index=new JSONArray();
             for(EdgeTextSegments.Part part:parts){
                 JSONObject o=new JSONObject();
-                String key=speechOptions.apply(part.text).cacheKey(job.voice,job.rate);
+                EdgeSpeechTextTransform.Result speech=speechOptions.apply(part.text);
+                if(speech.skipSynthesis())continue; // no index/MP3/WebSocket for ignored parts
+                String key=speech.cacheKey(job.voice,job.rate);
                 o.put("start",part.start).put("end",part.end).put("text",part.text).put("key",key);
                 index.put(o);
             }
@@ -225,8 +227,17 @@ public final class EdgeFullBookService extends Service {
             if(EdgeFullBookStore.running(job)){
                 completed=EdgeFullBookStore.readyCount(job);
                 EdgeFullBookStore.progress(job,completed,count,null);
-                EdgeOfflineIndex.Stats selection=EdgeOfflineIndex.stats(job.mp3Folder(),chapterStart,chapterEnd);
-                EdgeFullBookStore.status(job,selection.complete()?EdgeFullBookStore.DONE:EdgeFullBookStore.FAILED);
+                // Ignored segments have no MP3 by design; count only actual
+                // eligible queue entries when determining completion.
+                int eligible=0,ready=0;
+                for(int k=0;k<index.length();k++){
+                    JSONObject row=index.getJSONObject(k);
+                    if(only!=null&&(row.optInt("end",0)<=chapterStart ||
+                        row.optInt("start",0)>=chapterEnd))continue;
+                    eligible++;
+                    if(EdgeFullBookStore.ready(new File(job.mp3Folder(),row.getString("key")+".mp3")))ready++;
+                }
+                EdgeFullBookStore.status(job,ready==eligible?EdgeFullBookStore.DONE:EdgeFullBookStore.FAILED);
             }
         }catch(InterruptedException e){Thread.currentThread().interrupt();}
         catch(Exception e){
@@ -244,6 +255,9 @@ public final class EdgeFullBookService extends Service {
                               EdgeSpeechTextTransform.Options speechOptions) throws InterruptedException {
         Result result=new Result();CountDownLatch done=new CountDownLatch(1);
         result.transformation=speechOptions.apply(text);
+        if(result.transformation.skipSynthesis()){
+            result.data=new byte[0];return result;
+        }
         synthesizingUri=job.uri;
         currentClient=EdgeTtsClient.synthesize(result.transformation.spoken,job.voice,job.rate,
             EdgeSpeechQueue.BULK,new EdgeTtsClient.Callback(){

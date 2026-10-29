@@ -403,6 +403,7 @@ public final class EdgeStreamingService extends Service {
         if(!idlePrefetchRequested && !(active && player!=null&&!player.playRequested()))return;
         if(active&&player!=null&&player.playRequested())return;
         Clip target=clipAt(anchorWord);
+        if(target!=null&&shouldIgnore(target))return; // no warmup WebSocket
         // Never retry a failed warmup automatically. Only an explicit Play
         // or a manual selection can permit another synthesis attempt.
         if(target==null||target.ready()||target.awaitingUserRetry||
@@ -556,12 +557,42 @@ public final class EdgeStreamingService extends Service {
     /** The on-demand engine streams encoded MP3 to Media3 immediately; the final
      * validated MP3 is committed to the existing persistent cache separately.
      */
+    private boolean shouldIgnore(Clip clip){
+        return clip!=null&&EdgeSpeechTextTransform.Options.read(getSharedPreferences("reader",0))
+            .apply(clip.text).skipSynthesis();
+    }
+    /** Skip every ignored segment before touching the player or WebSocket.
+     * This also handles a direct seek into an ignored segment. */
+    private Clip skipIgnored(Clip current){
+        if(current==null||!shouldIgnore(current))return current;
+        int next=anchorWord;int skipped=0;
+        while(current!=null&&shouldIgnore(current)&&current.end>next){
+            ReaderDiagnosticLog.event("EDGE","ignore segment start="+current.start+" end="+current.end);
+            next=current.end;skipped++;
+            if(next>=offsets.size())break;
+            current=clipAt(next);
+        }
+        if(skipped==0)return current;
+        final int nextAnchor=next;
+        selectedSeekWord=-1;selectedOverrides.removeIf(c->c.end<=nextAnchor);
+        anchorWord=nextAnchor;prefetchForStart=-1;prefetchIssued=0;
+        if(player!=null){
+            boolean play=player.playRequested();
+            player.clearTracksForSelection();
+            if(play&&next<offsets.size())player.play();
+            else if(play)player.pause();
+        }
+        persist();changed();
+        return next>=offsets.size()?null:current;
+    }
     private void pump(){
         EdgeSpeechQueue.setInteractivePlayback(active && player!=null && player.playRequested());
         if(!bookReady||directory==null||destroyed||!active)return;
-        Clip current=clipAt(anchorWord);
+        Clip current=skipIgnored(clipAt(anchorWord));
         if(current==null)return;
         Clip ahead=clipAt(current.end);
+        // A skipped next segment must never be added as a cached track.
+        if(shouldIgnore(ahead))ahead=null;
         if(player!=null){
             player.setAutoContinue(true);
             LiveJob waiting=liveFor(current);
@@ -612,7 +643,9 @@ public final class EdgeStreamingService extends Service {
         for(int i=0;i<EdgePrefetchPlanner.MAX_CANDIDATES&&position<offsets.size();i++){
             Clip candidate=clipAt(position);
             if(candidate==null||candidate.end<=position)break;
-            candidates.add(candidate);lengths.add(candidate.text.length());
+            if(!shouldIgnore(candidate)){
+                candidates.add(candidate);lengths.add(candidate.text.length());
+            }
             position=candidate.end;
         }
         int pending=0;
@@ -642,7 +675,7 @@ public final class EdgeStreamingService extends Service {
     private void startLive(Clip clip){startLive(clip,false,false);}
     private void startLive(Clip clip,boolean warmup){startLive(clip,warmup,false);}
     private void startLive(Clip clip,boolean warmup,boolean ahead){
-        if(clip==null||clip.ready()||directory==null||liveFor(clip)!=null)return;
+        if(clip==null||clip.ready()||directory==null||liveFor(clip)!=null||shouldIgnore(clip))return;
         ReaderDiagnosticLog.event("CACHE","cache_miss schedule start="+clip.start+" end="+clip.end+
             " warmup="+warmup+" ahead="+ahead);
         lastHttp429=false; // a new explicit synthesis may report other real errors

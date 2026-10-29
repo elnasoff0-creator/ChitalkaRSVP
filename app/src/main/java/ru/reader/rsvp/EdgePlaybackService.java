@@ -366,6 +366,7 @@ public final class EdgePlaybackService extends Service {
         handler.postDelayed(sleepRunnable, minutes * 60_000L);
         notifyState();
     }
+    public int sleepChapterEndWord(){return sleepChapterEndWord;}
     public long sleepRemainingMs() {
         return sleepAtMs <= 0L ? 0L : Math.max(0L, sleepAtMs - System.currentTimeMillis());
     }
