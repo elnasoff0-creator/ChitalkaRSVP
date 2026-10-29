@@ -25,7 +25,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 
 /** Public-site audiobook/series results. No MP3 is requested until a book is selected. */
-public final class KvuheSearchActivity extends Activity {
+public final class KvuheSearchActivity extends NavigationActivity {
     private static final int BG=0xfff3e7d5,INK=0xff30221e,MUTED=0xff716259,ACCENT=0xffa26949,WHITE=0xfffff9f0;
     private EditText query;
     private TextView state,booksTab,seriesTab;

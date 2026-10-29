@@ -1,9 +1,0 @@
-feat(reader): v1.11.116 beta dictionary Activity, search, universal drawer and Chteico improvements
-
-- 18 approved spec requirements 17-34
-- New standalone EdgeDictionaryActivity with accent and context transformations
-- Reader selectable TTS word + full-book search
-- Unified in-app drawer; home expandable library/audio sections
-- Mini pet evolution scaling, wake and 3-column rewards
-- Edge transcript positioning, scroll behavior and TOC threshold
-- Desktop/static regression tests; Android SDK/device build outstanding

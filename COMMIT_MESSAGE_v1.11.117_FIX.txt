@@ -1,0 +1,9 @@
+fix(v1.11.117): keep 11700, correct reader overlay, dictionary selection, drawer, home toggles, pet bounce and audiotheque icon
+
+- Remove NavigationActivity left-edge swipe-to-open; retain drawer swipe-to-close
+- Show Edge TTS caption only after selected sentence is completely off-screen
+- Keep MainActivity library/audio lists stable and lazily build contents
+- Synchronize elastic pet bounce with 640ms up/down wing frame changes
+- Keep selected dictionary word distinct from sentence playback anchor and on top of TTS highlights
+- Redraw minimalist book-in-headphones AudioLibrary VectorDrawable
+- Extend regression QA to cover six UI fixes

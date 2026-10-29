@@ -38,7 +38,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class MainActivity extends Activity {
+public class MainActivity extends NavigationActivity {
     static class BookMeta {
         String uri = "";
         String title = "Книга";
@@ -319,9 +319,9 @@ public class MainActivity extends Activity {
         return t;
     }
 
-    FrameLayout navigationSurface, drawerShade;
-    private ScrollView drawerPanel, homeScroll;
-    private boolean drawerClosing, touchingScreen, pendingCoverRefresh;
+    FrameLayout navigationSurface;
+    private ScrollView homeScroll;
+    private boolean touchingScreen, pendingCoverRefresh;
     private int savedHomeScrollY;
     private static final int TOOLBAR_SIZE_DP=44;
     private static final int TOOLBAR_GAP_DP=5;
@@ -330,13 +330,9 @@ public class MainActivity extends Activity {
     void draw() {
         stop();
         if(homeScroll!=null && screen==0) savedHomeScrollY=homeScroll.getScrollY();
-        // A redraw replaces the whole view hierarchy. Never keep the old drawer
-        // pointer; otherwise the menu button may silently ignore future taps.
-        drawerShade=null;
-        drawerPanel=null;
-        drawerClosing=false;
         root = column();
         root.setBackgroundColor(bg);
+        UniversalDrawer.discard(this);
         navigationSurface = new FrameLayout(this);
         navigationSurface.addView(root,new FrameLayout.LayoutParams(-1,-1));
         setContentView(navigationSurface);
@@ -394,31 +390,41 @@ public class MainActivity extends Activity {
             add(contentWrap, empty);
         }
 
-        ArrayList<BookMeta> sortedBooks = sortedLibraryBooks();
+        final ArrayList<BookMeta> sortedBooks = sortedLibraryBooks();
         boolean bookExpanded=prefs.getBoolean("book_library_expanded",false);
         add(contentWrap,gap(12));
         TextView bookToggle=buttonish("Библиотека ("+library.size()+")  "+(bookExpanded?"⌃":"⌄"),softPanel(),fg,true);
-        bookToggle.setOnClickListener(v->{prefs.edit().putBoolean("book_library_expanded",!bookExpanded).apply();draw();});
         add(contentWrap,iconToggle(bookToggle,R.drawable.ic_audio_chapters));
-        if(bookExpanded){
-        if (library.isEmpty()) {
-            TextView empty = text("Здесь появятся добавленные книги с мини-обложками и сохранённым прогрессом.", 15, false);
-            empty.setTextColor(faintText());
-            empty.setBackground(shape(panelColor(), 22));
-            pad(empty, 16);
-            add(contentWrap, empty);
-        } else {
-            LinearLayout libPanel = column();
-            libPanel.setBackground(shape(panelColor(), 22));
-            for (int i = 0; i < sortedBooks.size(); i++) {
-                if (i > 0) libPanel.addView(divider());
-                libPanel.addView(libraryRow(sortedBooks.get(i)));
+        LinearLayout bookDetails=column();
+        add(contentWrap,bookDetails);
+        bookDetails.setVisibility(bookExpanded?View.VISIBLE:View.GONE);
+        // Materialize the library only once when first expanded; never rebuild
+        // every card or restart asynchronous cover loads during a toggle.
+        final boolean[] booksBuilt={false};
+        Runnable buildBooks=()->{
+            if(booksBuilt[0])return;
+            booksBuilt[0]=true;
+            if(library.isEmpty()){
+                TextView empty=text("Здесь появятся добавленные книги с мини-обложками и сохранённым прогрессом.",15,false);
+                empty.setTextColor(faintText());empty.setBackground(shape(panelColor(),22));pad(empty,16);
+                add(bookDetails,empty);
+            }else{
+                LinearLayout libPanel=column();libPanel.setBackground(shape(panelColor(),22));
+                for(int i=0;i<sortedBooks.size();i++){
+                    if(i>0)libPanel.addView(divider());
+                    libPanel.addView(libraryRow(sortedBooks.get(i)));
+                }
+                add(bookDetails,gap(8));add(bookDetails,libPanel);
             }
-            add(contentWrap, gap(8));
-            add(contentWrap, libPanel);
-        }
-
-        }
+        };
+        if(bookExpanded)buildBooks.run();
+        bookToggle.setOnClickListener(v->{
+            boolean opening=bookDetails.getVisibility()!=View.VISIBLE;
+            prefs.edit().putBoolean("book_library_expanded",opening).apply();
+            if(opening)buildBooks.run();
+            bookDetails.setVisibility(opening?View.VISIBLE:View.GONE);
+            bookToggle.setText("Библиотека ("+library.size()+")  "+(opening?"⌃":"⌄"));
+        });
         // Keep one consistent separation between the text and audio groups.
         // Previously 12 + 16 + 12 dp were stacked here.
         final int audioStart=contentWrap.getChildCount();
@@ -427,9 +433,16 @@ public class MainActivity extends Activity {
         if(audioBooks.isEmpty()){
             boolean audioExpanded=prefs.getBoolean("audio_library_expanded",false);
             TextView audioToggle=buttonish("Аудиотека (0)  "+(audioExpanded?"⌃":"⌄"),softPanel(),fg,true);
-            audioToggle.setOnClickListener(v->{prefs.edit().putBoolean("audio_library_expanded",!audioExpanded).apply();draw();});
             add(contentWrap,gap(12));add(contentWrap,iconToggle(audioToggle,R.drawable.ic_audiotheque));
-            if(audioExpanded){TextView note=text("Здесь появятся добавленные аудиокниги.",14,false);add(contentWrap,note);}
+            TextView emptyAudio=text("Здесь появятся добавленные аудиокниги.",14,false);
+            add(contentWrap,emptyAudio);
+            emptyAudio.setVisibility(audioExpanded?View.VISIBLE:View.GONE);
+            audioToggle.setOnClickListener(v->{
+                boolean opening=emptyAudio.getVisibility()!=View.VISIBLE;
+                prefs.edit().putBoolean("audio_library_expanded",opening).apply();
+                emptyAudio.setVisibility(opening?View.VISIBLE:View.GONE);
+                audioToggle.setText("Аудиотека (0)  "+(opening?"⌃":"⌄"));
+            });
         }
         if(!audioBooks.isEmpty()){
             String lastId=prefs.getString("audio_last_book","");
@@ -457,12 +470,18 @@ public class MainActivity extends Activity {
             add(contentWrap,gap(12));
             boolean expanded=prefs.getBoolean("audio_library_expanded",false);
             TextView toggle=buttonish("Аудиотека ("+audioBooks.size()+")  "+(expanded?"⌃":"⌄"),softPanel(),fg,true);
-            toggle.setOnClickListener(v->{prefs.edit().putBoolean("audio_library_expanded",!expanded).apply();draw();});
             add(contentWrap,iconToggle(toggle,R.drawable.ic_audiotheque));
-            if(expanded){
+            LinearLayout audioDetails=column();add(contentWrap,audioDetails);
+            audioDetails.setVisibility(expanded?View.VISIBLE:View.GONE);
+            final int audioCount=audioBooks.size();
+            final java.util.ArrayList<AudioLibrary.Book> displayAudioBooks=audioBooks;
+            final boolean[] audioBuilt={false};
+            Runnable buildAudio=()->{
+                if(audioBuilt[0])return;
+                audioBuilt[0]=true;
                 LinearLayout audioList=column();audioList.setBackground(shape(panelColor(),18));
-                for(int i=0;i<audioBooks.size();i++){
-                    AudioLibrary.Book ab=audioBooks.get(i);
+                for(int i=0;i<displayAudioBooks.size();i++){
+                    AudioLibrary.Book ab=displayAudioBooks.get(i);
                     LinearLayout r=row();pad(r,12,10,12,10);
                     int listenedPercent = audioProgress(ab);
                     boolean finished = listenedPercent >= 100;
@@ -477,11 +496,19 @@ public class MainActivity extends Activity {
                     r.addView(play);
                     r.setOnClickListener(v->openAudioBook(ab.id));
                     audioList.addView(r);
-                    if(i!=audioBooks.size()-1)audioList.addView(divider());
+                    if(i!=displayAudioBooks.size()-1)audioList.addView(divider());
                 }
-                add(contentWrap,gap(8));
-                add(contentWrap,audioList);
-            }
+                add(audioDetails,gap(8));
+                add(audioDetails,audioList);
+            };
+            if(expanded)buildAudio.run();
+            toggle.setOnClickListener(v->{
+                boolean opening=audioDetails.getVisibility()!=View.VISIBLE;
+                prefs.edit().putBoolean("audio_library_expanded",opening).apply();
+                if(opening)buildAudio.run();
+                audioDetails.setVisibility(opening?View.VISIBLE:View.GONE);
+                toggle.setText("Аудиотека ("+audioCount+")  "+(opening?"⌃":"⌄"));
+            });
         }
         final int petStart=contentWrap.getChildCount();
         if(ChteicoStore.enabled(this) && prefs.getBoolean("mini_pet_on_home",true)){
@@ -1119,115 +1146,29 @@ public class MainActivity extends Activity {
     }
 
 
-    /** Swipe from the left edge to open; swipe left on the drawer to close. */
-    private float drawerDownX,drawerDownY;
+    /** The gesture and animated overlay now come from NavigationActivity/UniversalDrawer. */
     @Override public boolean dispatchTouchEvent(android.view.MotionEvent event){
         int action=event.getActionMasked();
-        if(action==android.view.MotionEvent.ACTION_DOWN){
-            touchingScreen=true;
-            drawerDownX=event.getX();drawerDownY=event.getY();
-        }else if(action==android.view.MotionEvent.ACTION_UP||action==android.view.MotionEvent.ACTION_CANCEL){
+        if(action==android.view.MotionEvent.ACTION_DOWN)touchingScreen=true;
+        else if(action==android.view.MotionEvent.ACTION_UP||action==android.view.MotionEvent.ACTION_CANCEL){
             touchingScreen=false;
-            if(action==android.view.MotionEvent.ACTION_UP){
-                float dx=event.getX()-drawerDownX,dy=event.getY()-drawerDownY;
-                boolean horizontal=Math.abs(dx)>dp(72)&&Math.abs(dx)>Math.abs(dy)*1.6f;
-                if(horizontal&&drawerShade==null&&drawerDownX<dp(32)&&dx>0){openDrawer();return true;}
-                if(horizontal&&drawerShade!=null&&dx<0){closeDrawer();return true;}
-            }
-            if(pendingCoverRefresh&&drawerShade==null){
+            if(pendingCoverRefresh&&!UniversalDrawer.isOpen(this))
                 handler.postDelayed(this::refreshCoverAfterIdle,160);
-            }
         }
         return super.dispatchTouchEvent(event);
     }
     private void refreshCoverAfterIdle(){
-        if(!pendingCoverRefresh||touchingScreen||drawerShade!=null||screen!=0)return;
+        if(!pendingCoverRefresh||touchingScreen||UniversalDrawer.isOpen(this)||screen!=0)return;
         pendingCoverRefresh=false;
         draw();
     }
     private void onCoverBackfilled(){
         if(screen!=0)return;
         pendingCoverRefresh=true;
-        // Never replace a tapped button mid-gesture or redraw over an open menu.
-        if(!touchingScreen&&drawerShade==null)handler.postDelayed(this::refreshCoverAfterIdle,180);
+        if(!touchingScreen&&!UniversalDrawer.isOpen(this))handler.postDelayed(this::refreshCoverAfterIdle,180);
     }
-    private void closeDrawer(){closeDrawer(null);}
-    private void closeDrawer(Runnable afterClose){
-        if(drawerShade==null||navigationSurface==null||drawerClosing){
-            if(drawerShade==null&&afterClose!=null)afterClose.run();
-            return;
-        }
-        final FrameLayout shade=drawerShade;
-        final ScrollView panel=drawerPanel;
-        if(panel==null){navigationSurface.removeView(shade);drawerShade=null;
-            if(afterClose!=null)afterClose.run();return;}
-        drawerClosing=true;
-        panel.animate().cancel();
-        panel.animate().translationX(-panel.getWidth()).setDuration(205).start();
-        shade.animate().alpha(0f).setDuration(205).withEndAction(()->{
-            if(drawerShade==shade){
-                if(shade.getParent()==navigationSurface)navigationSurface.removeView(shade);
-                drawerShade=null;drawerPanel=null;drawerClosing=false;
-                if(afterClose!=null)afterClose.run();
-                else if(pendingCoverRefresh)handler.postDelayed(this::refreshCoverAfterIdle,80);
-            }
-        }).start();
-    }
-    void openDrawer(){
-        if(navigationSurface==null)return;
-        if(drawerShade!=null){
-            // Ignore duplicate taps while the drawer is already visible.
-            return;
-        }
-        FrameLayout shade=new FrameLayout(this);drawerShade=shade;
-        shade.setBackgroundColor(0x92000000);
-        shade.setAlpha(0f);
-        navigationSurface.addView(shade,new FrameLayout.LayoutParams(-1,-1));
-        shade.setOnClickListener(v->closeDrawer());
-        int maxWidth=Math.min(dp(340),(int)(getResources().getDisplayMetrics().widthPixels*0.84f));
-        ScrollView scroll=new ScrollView(this);drawerPanel=scroll;
-        scroll.setFillViewport(true);
-        scroll.setBackgroundColor(bg);
-        scroll.setClickable(true);
-        FrameLayout.LayoutParams panelLp=new FrameLayout.LayoutParams(maxWidth,-1,Gravity.START);
-        shade.addView(scroll,panelLp);
-        LinearLayout panel=column();panel.setPadding(dp(18),dp(23),dp(18),dp(18));scroll.addView(panel);
-        LinearLayout branding=row();branding.setGravity(Gravity.CENTER_VERTICAL);
-        ImageView logo=new ImageView(this);
-        logo.setImageResource(R.drawable.ic_launcher_foreground);
-        logo.setBackground(shape(softPanel(),14));
-        logo.setClipToOutline(true);
-        branding.addView(logo,new LinearLayout.LayoutParams(dp(43),dp(43)));
-        TextView brand=text("  ПРОЧиталка",21,true);branding.addView(brand);panel.addView(branding);
-        View separator=new View(this);separator.setBackgroundColor(fg&0x44ffffff);
-        LinearLayout.LayoutParams slp=new LinearLayout.LayoutParams(-1,dp(1));slp.topMargin=dp(18);slp.bottomMargin=dp(10);panel.addView(separator,slp);
-        drawerItem(panel,R.drawable.ic_home,"Главный экран",()->{screen=0;draw();});
-        drawerItem(panel,R.drawable.ic_book,"Чтение",()->{if(currentUri==null||currentUri.isEmpty())pick();else openBook(currentUri,false,true);});
-        drawerItem(panel,R.drawable.ic_microphone,"Аудиокнига",this::openLastMedia);
-        drawerItem(panel,R.drawable.ic_downloads,"Загрузки",()->startActivity(new Intent(this,DownloadActivity.class)));
-        drawerItem(panel,ChteicoStore.enabled(this)?R.drawable.ic_chteico_nav:R.drawable.ic_stats_nav,ChteicoStore.enabled(this)?"Чтейцо":"Статистика",()->startActivity(new Intent(this,ChteicoActivity.class)));
-        View separator2=new View(this);separator2.setBackgroundColor(fg&0x44ffffff);
-        LinearLayout.LayoutParams slp2=new LinearLayout.LayoutParams(-1,dp(1));slp2.topMargin=dp(14);slp2.bottomMargin=dp(10);panel.addView(separator2,slp2);
-        drawerItem(panel,R.drawable.ic_settings,"Настройки",this::settings);
-        drawerItem(panel,R.drawable.ic_web_update,"Обновление",()->new UpdateManager(this).checkVersion());
-        drawerItem(panel,R.drawable.ic_info_help,"Справка",()->startActivity(new Intent(this,ActivityInfo.class)));
-        scroll.post(()->{
-            // Waiting for layout gives the exact width, even on tablets.
-            if(drawerPanel!=scroll||drawerShade!=shade)return;
-            scroll.setTranslationX(-scroll.getWidth());
-            shade.animate().alpha(1f).setDuration(205).start();
-            scroll.animate().translationX(0f).setDuration(220).start();
-        });
-    }
-    void drawerItem(LinearLayout panel,int icon,String title,Runnable action){
-        LinearLayout item=row();item.setGravity(Gravity.CENTER_VERTICAL);
-        item.setPadding(dp(11),dp(12),dp(6),dp(12));
-        ImageView iv=new ImageView(this);iv.setImageResource(icon);iv.setColorFilter(fg);
-        item.addView(iv,new LinearLayout.LayoutParams(dp(24),dp(24)));
-        TextView text=text(title,17,false);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.leftMargin=dp(20);item.addView(text,lp);
-        item.setOnClickListener(v->closeDrawer(action));
-        panel.addView(item,new LinearLayout.LayoutParams(-1,dp(57)));
-    }
+    void openDrawer(){UniversalDrawer.show(this);}
+
     void openLastMedia(){
         String mode=prefs.getString("last_media_kind","");
         String lastAudio=prefs.getString("audio_last_book","");
@@ -1609,7 +1550,7 @@ public class MainActivity extends Activity {
     }
 
     @Override public void onBackPressed(){
-        if(drawerShade!=null){closeDrawer();return;}
+        if(UniversalDrawer.closeIfOpen(this))return;
         super.onBackPressed();
     }
     private boolean hasResumedOnce = false;

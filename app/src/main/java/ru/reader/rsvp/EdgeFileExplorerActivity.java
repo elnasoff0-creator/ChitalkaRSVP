@@ -26,7 +26,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 
 /** Browse persistent per-book Edge TTS audio files without relying on restricted Android/data access. */
-public class EdgeFileExplorerActivity extends Activity {
+public class EdgeFileExplorerActivity extends NavigationActivity {
     private static final int CHOOSE_EXPORT_FOLDER=509;
     private File folder;
     private ListView filesView;

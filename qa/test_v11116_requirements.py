@@ -19,16 +19,16 @@ checks={
 '26. context-sensitive rules':'local.contains(context.toLowerCase(Locale.ROOT))' in trans and 'contains("|")' in trans,
 '27. original WordBoundary mapping':'sourceFrom=from[word.from]' in trans and 'sourceTo=to[word.to-1]' in trans,
 '28. standalone dictionary activity':'class EdgeDictionaryActivity' in dictact and 'EdgeDictionaryActivity.class' in settings,
-'29. word tap selects independently':'dictionarySelectedWord=index;selectTtsWord(index)' in reader and 'dictionarySelectedWord>=c.startWord' in reader,
+'29. word tap selects independently':'dictionarySelectedWord=tapped' in reader and 'selectTtsWord(tapped)' in reader and 'dictionarySelectedWord<c.startWord' in reader,
 '30. reader overflow pass selected word':'EXTRA_WORD,words[dictionarySelectedWord]' in reader and 'Словарь MS Edge' in sheets,
 '31. whole-book search':'haystack.indexOf(needle,offset)' in reader and 'Поиск по книге' in sheets,
 '32. shared left drawer':'class UniversalDrawer' in nav and 'UniversalDrawer.show(this)' in reader and 'UniversalDrawer.show(this)' in rd('AudioPlayerActivity.java'),
-'33. drawer home, no Library or AudioLibrary': '"Главный экран"' in nav and '"Главный экран"' in main and '"Библиотека"' not in nav and '"Аудиотека"' not in nav,
+'33. drawer home, no Library or AudioLibrary': '"Главный экран"' in nav and 'UniversalDrawer.show(this)' in main and '"Библиотека"' not in nav and '"Аудиотека"' not in nav,
 '34. library/audio toggles and icons':'iconToggle(bookToggle,R.drawable.ic_audio_chapters)' in main and 'iconToggle(toggle,R.drawable.ic_audiotheque)' in main,
 }
 for k,v in checks.items():print(('PASS' if v else 'FAIL')+' '+k)
 assert all(checks.values()),'Missing 1.11.116 feature static evidence'
 manifest=(root/'app/src/main/AndroidManifest.xml').read_text()
 assert '.EdgeDictionaryActivity' in manifest
-assert "versionName '1.11.116-beta'" in (root/'app/build.gradle').read_text()
+assert "versionName '1.11.117-beta'" in (root/'app/build.gradle').read_text()
 print('PASS: 18/18 feature-source assertions + manifest/version')

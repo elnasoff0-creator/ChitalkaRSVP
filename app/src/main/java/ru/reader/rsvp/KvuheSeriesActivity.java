@@ -16,7 +16,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import java.util.ArrayList;
 
 /** Cycle/series detail: browse its books, never download an entire series implicitly. */
-public final class KvuheSeriesActivity extends Activity {
+public final class KvuheSeriesActivity extends NavigationActivity {
     private static final int BACK=0xfff3e7d5,WHITE=0xfffff9f0,INK=0xff30221e,GRAY=0xff716259;
     private final ArrayList<KvuheSearchParser.Entry> books=new ArrayList<>();
     private TextView state;private RecyclerView.Adapter<Row> adapter;

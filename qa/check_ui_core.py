@@ -53,11 +53,12 @@ has('SleepTimerSheet.java','Конец главы','setOnLongClickListener','П�
 has('AudioPlaybackService.java','sleepChaptersRemaining','getChapterSleepRemainingMillis','audio_sleep_chapter_count')
 has('ReaderActivity.java','chapterEndAfter','SleepTimerSheet.open(this','GradientDrawable.Orientation.TOP_BOTTOM','if(mode==RSVP&&playing)return;')
 has('HomeSectionOrder.java','home_section_order','startDragAndDrop','ACTION_DROP','prefs.edit().putString')
-has('MainActivity.java','HomeSectionOrder.apply','panel_color','ChteicoEmotions.attach','ic_launcher_foreground','ChteicoEmotions.sleep')
+has('MainActivity.java','HomeSectionOrder.apply','panel_color','ChteicoEmotions.attach','ChteicoEmotions.sleep')
+has('UniversalDrawer.java','R.drawable.ic_launcher_foreground','branding.addView(logo')
 has('ChteicoPetView.java','setSleeping(boolean','if(!attached||sleeping)return;')
 has('ChteicoEmotions.java','(♡‿♡)','(＾▽＾)','(◕‿◕)','( ◡‿◡ ) Zzz','(~‿^)')
 has('SettingsActivity.java','Цвет фоновых подложек','panelColorDialog','panel_color')
-assert 'R.drawable.ic_reader' not in files['MainActivity.java'].split('ImageView logo=new ImageView(this);',1)[1].split('branding.addView',1)[0]
+assert 'R.drawable.ic_reader' not in files['UniversalDrawer.java'].split('ImageView logo=new ImageView(a);',1)[1].split('branding.addView',1)[0]
 assert 'sectionHeader("Продолжить чтение"' not in files['MainActivity.java'].split('void drawHome()',1)[1].split('void showLibrarySearch()',1)[0]
 assert 'sectionHeader("Продолжить аудиокнигу"' not in files['MainActivity.java'].split('void drawHome()',1)[1].split('void showLibrarySearch()',1)[0]
 print('PASS: v1.11.101 sleep, section drag, emotions, gradient and underlay')

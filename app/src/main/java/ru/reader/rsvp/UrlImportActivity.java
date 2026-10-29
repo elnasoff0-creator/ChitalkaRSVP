@@ -9,7 +9,7 @@ import android.widget.*;
 import java.util.*;
 
 /** Preview-and-consent UI for URLs. Never starts downloading before user confirmation. */
-public class UrlImportActivity extends Activity {
+public class UrlImportActivity extends NavigationActivity {
     LinearLayout root,chapters;EditText address;TextView status,title,summary,overall;ImageView coverPreview;Button download,all,none,find;KvuheParser.Book preview;ArrayList<CheckBox> checks=new ArrayList<>();Handler handler=new Handler(Looper.getMainLooper());
     int background=0xfff3e7d5,foreground=0xff30221e;
     int dp(int v){return (int)(v*getResources().getDisplayMetrics().density+.5f);}

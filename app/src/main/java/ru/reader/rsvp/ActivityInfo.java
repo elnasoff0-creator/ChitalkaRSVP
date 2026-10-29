@@ -9,7 +9,7 @@ import android.view.View;
 import android.widget.*;
 
 /** Offline, short-form collapsible in-app manual. */
-public class ActivityInfo extends Activity {
+public class ActivityInfo extends NavigationActivity {
     private int bg,fg;
     int dp(int n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
     GradientDrawable background(int color){GradientDrawable gd=new GradientDrawable();gd.setColor(color);gd.setCornerRadius(dp(12));return gd;}

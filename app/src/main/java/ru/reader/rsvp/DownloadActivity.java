@@ -38,7 +38,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /** Unified online-download dashboard. Neither downloader is owned/started by this screen. */
-public final class DownloadActivity extends Activity {
+public final class DownloadActivity extends NavigationActivity {
     private static final int BG=0xfff3e7d5,PANEL=0xfffff9f0,INK=0xff30221e,MUTED=0xff716259,ACCENT=0xffa26949,GREEN=0xff2b6145;
     private static final String FILTER_KEY="downloads_filter_v2";
     private final Handler main=new Handler(Looper.getMainLooper());

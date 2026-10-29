@@ -8,9 +8,7 @@ PASS check_ui_core.py
 PASS test_audio_focus_policy.sh
 PASS test_edge_429_silent.sh
 PASS test_edge_500ms_policy.sh
-FAIL test_edge_clock_sync.sh
-  STDOUT: 
-  STDERR: Exception in thread "main" java.lang.AssertionError: the callback waited for sync 	at ru.reader.rsvp.TestEdgeClockSync.check(TestEdgeClockSync.java:19) 	at ru.reader.rsvp.TestEdgeClockSync.main(TestEdgeClockSync.java:37) 
+PASS test_edge_clock_sync.sh
 PASS test_edge_live_buffer.sh
 PASS test_edge_offline_chapters.sh
 PASS test_edge_prefetch_planner.sh
@@ -34,9 +32,9 @@ PASS test_v11113_ui_prefetch.py
 PASS test_v11114_completion.py
 PASS test_v11115_requirements.py
 PASS test_v11116_requirements.py
-TOTAL 34 PASS 33 FAIL 1
-Scope: Java syntax, source structural checks and desktop JVM tests only; no Android SDK, Gradle build or device rendering.
-FOLLOW-UP: test_edge_clock_sync.sh standalone rerun PASS (timing-sensitive when 4 JVM suites ran concurrently).
-XML_RESOURCE_VALIDATION: 102/102 XML parse PASS; 91 app drawable names referenced. 7 initially reported android.R.drawable are framework resources, not missing local resources.
-JAVA_SOURCE: 110 parsed, no Android type/SDK compilation.
-NEW_FEATURES: 18/18 structural assertions PASS.
+PASS test_v11117_hotfix.py
+PASS test_v11117_shared_navigation.py
+PASS test_v11117_symbols_local_caption.py
+PASS test_v11117_toc_browsing.py
+TOTAL 38 PASS 38 FAIL 0
+Scope: Java syntax, XML/resources, static assertions, desktop JVM tests. No Android SDK or device rendering.

@@ -16,7 +16,7 @@ import java.io.File;
 import java.util.*;
 
 /** Discover installed Android voices dynamically, with offline Russian voices first. */
-public class TtsVoiceActivity extends Activity {
+public class TtsVoiceActivity extends NavigationActivity {
     private TextToSpeech synth;
     private LinearLayout items;
     private String engine="";

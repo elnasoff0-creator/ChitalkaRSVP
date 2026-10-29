@@ -25,7 +25,7 @@ import java.util.concurrent.Executors;
 /** Chapter-organized offline Edge manager; its percentages are verified MP3
  * coverage of actual book words, not incomplete request counters.
  */
-public final class EdgeChapterDownloadsActivity extends Activity {
+public final class EdgeChapterDownloadsActivity extends NavigationActivity {
     private static final int BG=0xfff3e7d5,PANEL=0xfffff9f0,INK=0xff30221e,MUTED=0xff716259,ACCENT=0xffa26949;
     private final Handler main=new Handler(Looper.getMainLooper());
     private final ExecutorService worker=Executors.newSingleThreadExecutor();

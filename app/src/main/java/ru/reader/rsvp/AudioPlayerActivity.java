@@ -12,7 +12,7 @@ import org.json.JSONArray;
 import java.util.*;
 
 /** Standalone audio interface. Playback remains in AudioPlaybackService on navigation. */
-public class AudioPlayerActivity extends Activity {
+public class AudioPlayerActivity extends NavigationActivity {
     private static final int FILE_PICK=301, FOLDER_PICK=302, COVER_PICK=303;
     LinearLayout root,playRow,overallTimes; FrameLayout coverArea; TextView overallLabel; ScrollView ttsTextFrame; TextView title,info,elapsed,duration,spokenText,wholeProgress,speedAction; View timerAction; TextView timerValue; SeekBar progress, totalProgress; TextView chapterElapsed, chapterDuration, overallTime, overallPercent, overallRemaining, speedValue; View chapterPicker; android.widget.ImageView coverImage, playIcon, coverPlaceholderIcon; TextView coverPlaceholderText;
     Handler handler=new Handler(Looper.getMainLooper()); boolean dragging=false, draggingTotal=false;String bookUri=""; AudioLibrary.Book selected;

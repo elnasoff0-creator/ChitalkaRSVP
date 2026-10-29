@@ -29,7 +29,7 @@ import java.util.HashSet;
 import java.util.Locale;
 
 /** Direct MP3, FB2, EPUB and public cloud-share downloads; no audiobook-site parsing. */
-public final class LinkDownloadActivity extends Activity {
+public final class LinkDownloadActivity extends NavigationActivity {
     private static final int PICK_FOLDER=3401,BG=0xfff3e7d5,INK=0xff30221e,ACCENT=0xff925536,CARD=0xfffff9f0;
     private final Handler main=new Handler(Looper.getMainLooper());
     private LinearLayout root,previewArea;

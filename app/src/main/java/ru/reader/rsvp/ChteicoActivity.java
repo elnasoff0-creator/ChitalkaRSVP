@@ -27,7 +27,7 @@ import android.widget.TextView;
 import java.util.Random;
 
 /** Reading companion screen with spoiler-free evolution, stats and earned rewards. */
-public final class ChteicoActivity extends Activity {
+public final class ChteicoActivity extends NavigationActivity {
     private LinearLayout root,content;
     private ProgressBar progressBar;
     private TextView progressLabel;

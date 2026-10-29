@@ -87,7 +87,13 @@ final class EdgeSpeechTextTransform {
                 rulesOrdered.add(new String[]{rows.group(1).trim(),rows.group(2).trim()});
             // Specific contextual rules precede generic spelling rules, regardless
             // of the order in which the user entered them in the dictionary.
-            rulesOrdered.sort((a,b)->Boolean.compare(b[0].contains("|"),a[0].contains("|")));
+            rulesOrdered.sort((a,b)->{
+                // A contextual rule wins; within equal priority, longer symbol
+                // sequences win over shorter ones (*** before *).
+                int contextual=Boolean.compare(b[0].contains("|"),a[0].contains("|"));
+                if(contextual!=0)return contextual;
+                return Integer.compare(b[0].split("\\|",2)[0].length(),a[0].split("\\|",2)[0].length());
+            });
             for(String[] entry:rulesOrdered){
                 String rule=entry[0],replacement=entry[1];
                 int bar=rule.indexOf('|');
@@ -95,7 +101,13 @@ final class EdgeSpeechTextTransform {
                 String context=bar<0?"":rule.substring(bar+1).trim();
                 if(originalWord.length()<1||originalWord.length()>60||replacement.isEmpty())continue;
                 String escaped=Pattern.quote(originalWord);
-                Pattern literal=Pattern.compile("(?iu)(?<![\\p{L}\\p{N}_])"+escaped+"(?![\\p{L}\\p{N}_])");
+                // Restrict only edges that are letters/digits/underscores.
+                // Pure punctuation (***, ---, !!!) must also match beside text.
+                boolean beginsWord=Character.isLetterOrDigit(originalWord.charAt(0))||originalWord.charAt(0)=='_';
+                char finalChar=originalWord.charAt(originalWord.length()-1);
+                boolean endsWord=Character.isLetterOrDigit(finalChar)||finalChar=='_';
+                Pattern literal=Pattern.compile("(?iu)"+(beginsWord?"(?<![\\p{L}\\p{N}_])":"")+
+                    escaped+(endsWord?"(?![\\p{L}\\p{N}_])":""));
                 Matcher occurrences=literal.matcher(result.spoken);
                 Buffer updated=new Buffer();int cursor=0,matches=0;
                 while(occurrences.find()&&matches++<100){
@@ -104,8 +116,14 @@ final class EdgeSpeechTextTransform {
                             Math.min(result.spoken.length(),occurrences.end()+90)).toLowerCase(Locale.ROOT);
                         if(!local.contains(context.toLowerCase(Locale.ROOT)))continue;
                     }
+                    // Never reprocess text created by another rule. Otherwise
+                    // a second symbol rule can unexpectedly change the first.
+                    int sourceStart=result.from[occurrences.start()];
+                    int sourceEnd=result.to[occurrences.end()-1];
+                    if(sourceStart<0||sourceEnd>source.length()||
+                       !source.substring(sourceStart,sourceEnd).equalsIgnoreCase(originalWord))continue;
                     copyRange(result,updated,cursor,occurrences.start());
-                    updated.append(replacement,result.from[occurrences.start()],result.to[occurrences.end()-1]);
+                    updated.append(replacement,sourceStart,sourceEnd);
                     cursor=occurrences.end();
                 }
                 copyRange(result,updated,cursor,result.spoken.length());
@@ -122,7 +140,12 @@ final class EdgeSpeechTextTransform {
             char c=result.spoken.charAt(i);
             boolean atLineEnd=i+1==result.spoken.length()||result.spoken.charAt(i+1)=='\n'||result.spoken.charAt(i+1)=='\r';
             boolean whitespaceNext=i+1<result.spoken.length()&&(result.spoken.charAt(i+1)==' '||result.spoken.charAt(i+1)=='\t');
-            boolean eligible=c=='.'&&!shield[i]&&
+            // An explicit dictionary rule such as ***=. overrides the
+            // generic dot-replacement preference. Only source dots qualify.
+            boolean sourceDot=result.to[i]==result.from[i]+1 &&
+                result.from[i]>=0 && result.from[i]<source.length() &&
+                source.charAt(result.from[i])=='.';
+            boolean eligible=c=='.'&&sourceDot&&!shield[i]&&
                 ("v1".equals(options.mode)||("v2".equals(options.mode)&&!atLineEnd)||
                  ("v3".equals(options.mode)&&whitespaceNext));
             output.append(eligible?options.replacement:String.valueOf(c),result.from[i],result.to[i]);

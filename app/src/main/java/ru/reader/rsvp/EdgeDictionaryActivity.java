@@ -12,6 +12,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.Editable;
 import android.text.TextWatcher;
+import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.*;
@@ -21,7 +22,7 @@ import java.util.ArrayList;
 import java.util.Locale;
 
 /** Reader-compatible editable dictionary for EdgeSpeechTextTransform, with pronunciation preview. */
-public final class EdgeDictionaryActivity extends Activity {
+public final class EdgeDictionaryActivity extends NavigationActivity {
     static final String EXTRA_WORD="dictionary_selected_word",EXTRA_CONTEXT="dictionary_selected_context";
     private SharedPreferences prefs;
     private LinearLayout entries;
@@ -70,6 +71,12 @@ public final class EdgeDictionaryActivity extends Activity {
         ImageButton drawer=new ImageButton(this);drawer.setImageResource(R.drawable.ic_menu_lines);drawer.setColorFilter(ink);drawer.setBackground(fill(bg));
         bar.addView(drawer,new LinearLayout.LayoutParams(dp(44),dp(44)));drawer.setOnClickListener(v->UniversalDrawer.show(this));
         TextView heading=label("Словарь MS Edge",20);bar.addView(heading,new LinearLayout.LayoutParams(0,-2,1));
+        // Symbols have their own entry action and a punctuation-friendly
+        // keyboard; they are NOT restricted to dictionary word tokens.
+        Button addSymbols=new Button(this);addSymbols.setText("Знаки +");
+        addSymbols.setTextSize(12);addSymbols.setAllCaps(false);addSymbols.setTextColor(ink);
+        bar.addView(addSymbols,new LinearLayout.LayoutParams(dp(90),dp(44)));
+        addSymbols.setOnClickListener(v->editRule(-1,"","","",true));
         ImageButton add=new ImageButton(this);add.setImageResource(R.drawable.ic_plus);add.setColorFilter(ink);add.setBackground(fill(bg));
         bar.addView(add,new LinearLayout.LayoutParams(dp(44),dp(44)));add.setOnClickListener(v->editRule(-1,"","",""));
         filter=new EditText(this);filter.setSingleLine(true);filter.setHint("Поиск по словарю");page.addView(filter);
@@ -104,11 +111,21 @@ public final class EdgeDictionaryActivity extends Activity {
         host.addView(edit,new LinearLayout.LayoutParams(-1,dp(55)));return edit;
     }
     private void editRule(int index,String word,String context,String spoken){
+        editRule(index,word,context,spoken,!word.isEmpty()&&!word.matches(".*[\\p{L}\\p{N}].*"));
+    }
+    private void editRule(int index,String word,String context,String spoken,boolean symbols){
         LinearLayout pane=new LinearLayout(this);pane.setOrientation(LinearLayout.VERTICAL);pane.setPadding(dp(15),0,dp(15),0);
-        EditText original=input("Слово в книге",word,pane);
-        EditText pronunciation=input("Произношение / замена",spoken.isEmpty()?word:spoken,pane);
+        EditText original=input(symbols?"Знаки в книге (например ***)":"Слово в книге",word,pane);
+        if(symbols)original.setInputType(InputType.TYPE_CLASS_TEXT|
+            InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD|InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        EditText pronunciation=input(symbols?"Заменить на (например .)":"Произношение / замена",spoken.isEmpty()?word:spoken,pane);
+        if(symbols)pronunciation.setInputType(InputType.TYPE_CLASS_TEXT|
+            InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD|InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         TextView stress=label("Ударение: выберите гласную",13);pane.addView(stress);
+        if(symbols)stress.setVisibility(View.GONE);
         LinearLayout vowels=new LinearLayout(this);vowels.setGravity(Gravity.CENTER_VERTICAL);pane.addView(vowels);
+        if(symbols)vowels.setVisibility(View.GONE);
+        if(symbols){TextView hint=label("Символьная замена применяется к тексту перед Edge TTS. Например: *** → . (без произнесения звёздочек).",12);pane.addView(hint);}
         final Runnable renderVowels=()->{
             vowels.removeAllViews();String text=pronunciation.getText().toString().replace("\u0301","");
             for(int i=0;i<text.length();i++){
@@ -130,11 +147,13 @@ public final class EdgeDictionaryActivity extends Activity {
         pane.addView(contextHelp);
         Button previewButton=new Button(this);previewButton.setText("▶ Прослушать");pane.addView(previewButton);
         previewButton.setOnClickListener(v->listen(pronunciation.getText().toString().trim()));
-        AlertDialog.Builder dlg=new AlertDialog.Builder(this).setTitle(index<0?"Добавить слово":"Редактировать слово").setView(pane)
+        AlertDialog.Builder dlg=new AlertDialog.Builder(this).setTitle(symbols?
+            (index<0?"Добавить знаки":"Редактировать знаки"):
+            (index<0?"Добавить слово":"Редактировать слово")).setView(pane)
             .setNegativeButton("Отмена",null).setPositiveButton("Сохранить",(d,w)->{
                 String o=original.getText().toString().trim(),s=pronunciation.getText().toString().trim(),c=contextInput.getText().toString().trim();
                 if(o.isEmpty()||s.isEmpty()||o.contains("=")||o.contains("|")||c.contains("=")||c.contains("|")||o.contains("\n")||s.contains("\n")){
-                    Toast.makeText(this,"Неверное слово или замена",Toast.LENGTH_LONG).show();return;}
+                    Toast.makeText(this,"Неверные знаки, слово или замена",Toast.LENGTH_LONG).show();return;}
                 Rule r=new Rule(o,c,s);if(index>=0&&index<rules.size())rules.set(index,r);else if(rules.size()<100)rules.add(r);
                 save();showEntries();
             });

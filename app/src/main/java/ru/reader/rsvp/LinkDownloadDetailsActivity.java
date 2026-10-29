@@ -20,7 +20,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 /** Status and controls for one persistent direct-link batch. */
-public final class LinkDownloadDetailsActivity extends Activity {
+public final class LinkDownloadDetailsActivity extends NavigationActivity {
     private final Handler handler=new Handler(Looper.getMainLooper());
     private String id;private LinearLayout root;private boolean visible;
     private int dp(int v){return Math.round(v*getResources().getDisplayMetrics().density);}

@@ -51,6 +51,25 @@ class TestTransform{
    yes(original.substring(aligned.get(1).from,aligned.get(1).to).equals("Пётр"),"later mapping wrong");
    yes(original.substring(aligned.get(3).from,aligned.get(3).to).equals("привет"),"last mapping wrong");
    yes(!mapped.cacheKey("a","b").equals(off.cacheKey("a","b")),"speech cache identity unchanged");
+   // Symbol rules are literal, not regex: *** is a single replaceable sequence.
+   String symbols="Начало*** конец ***! Затем продолжение.";
+   EdgeSpeechTextTransform.Result punct=new EdgeSpeechTextTransform.Options("off",",","***=.").apply(symbols);
+   yes(punct.spoken.equals("Начало. конец .! Затем продолжение."),"literal symbol substitution must work adjacent to words");
+   yes(punct.original.equals(symbols),"symbol substitution changed the book text");
+   yes(punct.from[6]==6&&punct.to[6]==9,"symbol substitution should map to entire original span");
+   EdgeSpeechTextTransform.Result dotMode=new EdgeSpeechTextTransform.Options("v1",";","***=.").apply("Привет*** Пока. Всё.");
+   yes(dotMode.spoken.equals("Привет. Пока; Всё;"),"dictionary dot must override global dot mode");
+   EdgeSpeechTextTransform.Result longest=new EdgeSpeechTextTransform.Options("off",",","*=звезда\n***=.").apply("*** *");
+   yes(longest.spoken.equals(". звезда"),"longest symbol sequence wins");
+   EdgeSpeechTextTransform.Result mappedSymbols=new EdgeSpeechTextTransform.Options("off",",","***=.").apply("Ёлка *** растёт");
+   yes(mappedSymbols.spoken.equals("Ёлка . растёт"),"custom symbol speech");
+   java.util.List<EdgeWordTimings.Boundary> symbolEvents=List.of(
+       new EdgeWordTimings.Boundary(1000000,1000000,"Ёлка"),
+       new EdgeWordTimings.Boundary(2000000,1000000,"растёт"));
+   java.util.List<EdgeWordTimings.Word> symbolWords=mappedSymbols.aligned(symbolEvents);
+   yes(symbolWords.size()==2,"symbol substitution shifted WordBoundary alignment");
+   yes(mappedSymbols.original.substring(symbolWords.get(1).from,symbolWords.get(1).to).equals("растёт"),"following word mapping changed");
+   yes(!punct.cacheKey("a","b").equals(new EdgeSpeechTextTransform.Options("off",",","").apply(symbols).cacheKey("a","b")),"symbol replacement must invalidate audio cache");
    System.out.println("PASS: V1/V2/V3, decimals, URL, dictionary, newline mapping, cache separation, WordBoundary");
  }
 }

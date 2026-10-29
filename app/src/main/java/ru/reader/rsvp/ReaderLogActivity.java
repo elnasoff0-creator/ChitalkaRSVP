@@ -18,7 +18,7 @@ import androidx.core.content.FileProvider;
 import java.io.File;
 
 /** On-device log viewer; shows only diagnostics written by this application. */
-public final class ReaderLogActivity extends Activity {
+public final class ReaderLogActivity extends NavigationActivity {
     private TextView logView,info;
     private int foreground,background;
     private int dp(int x){return (int)(x*getResources().getDisplayMetrics().density+.5f);}

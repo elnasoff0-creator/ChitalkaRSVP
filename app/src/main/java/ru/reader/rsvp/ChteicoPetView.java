@@ -1,5 +1,6 @@
 package ru.reader.rsvp;
 
+import android.animation.ValueAnimator;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
@@ -12,7 +13,8 @@ import androidx.annotation.Nullable;
  * No animated drawable resources or secondary emotion animations.
  */
 public final class ChteicoPetView extends ImageView {
-    private static final long FRAME_MS=820L;
+    private static final long FRAME_MS=640L;
+    private ValueAnimator springAnimator;
     private final Handler handler=new Handler(Looper.getMainLooper());
     private boolean attached;
     private boolean frameDown;
@@ -92,15 +94,22 @@ public final class ChteicoPetView extends ImageView {
         setImageResource(FRAMES[s][b][frameDown?1:0]);
     }
 
+    /** Spring pulse starts on exactly the same tick as each wing up/down change. */
     private void spring(){
-        boolean egg=shownStage==ChteicoStore.EGG;
-        setPivotX(getWidth()*.5f);
-        setPivotY(getHeight()*.84f);
-        animate().cancel();
-        animate()
-            .scaleX(egg?(frameDown?1.035f:1f):(frameDown?1.012f:1f))
-            .scaleY(egg?(frameDown?.96f:1f):(frameDown?.986f:1.012f))
-            .setDuration(FRAME_MS-80L).start();
+        if(springAnimator!=null)springAnimator.cancel();
+        final boolean egg=shownStage==ChteicoStore.EGG;
+        setPivotX(getWidth()*.5f);setPivotY(getHeight()*.84f);
+        springAnimator=ValueAnimator.ofFloat(0f,1f);
+        springAnimator.setDuration(FRAME_MS-28L);
+        springAnimator.addUpdateListener(a->{
+            float t=(float)a.getAnimatedValue();
+            // Spring recoil and secondary bounce, fully settled before the next frame.
+            float bounce=(float)(Math.sin(Math.PI*t)*(1f+.22f*Math.sin(3*Math.PI*t)));
+            setScaleX(1f+(egg?.085f:.105f)*bounce);
+            setScaleY(1f-(egg?.072f:.095f)*bounce);
+            setTranslationY(-getHeight()*(egg?.024f:.040f)*bounce);
+        });
+        springAnimator.start();
     }
 
     /** Only the home mini-pet opts into isolated night contrast while sleeping. */
@@ -112,7 +121,7 @@ public final class ChteicoPetView extends ImageView {
     public void setSleeping(boolean value){
         if(sleeping==value)return;
         sleeping=value;handler.removeCallbacks(cycle);
-        animate().cancel();setScaleX(1f);setScaleY(1f);
+        animate().cancel();if(springAnimator!=null)springAnimator.cancel();setScaleX(1f);setScaleY(1f);setTranslationY(0f);
         frameDown=value;showFrame();
         if(attached&&!sleeping)handler.postDelayed(cycle,FRAME_MS);
     }
@@ -120,7 +129,7 @@ public final class ChteicoPetView extends ImageView {
         handler.removeCallbacks(cycle);
         frameDown=sleeping;
         shownStage=-1;shownBranch=-1;shownEggUnits=-1;
-        animate().cancel();setScaleX(1f);setScaleY(1f);setRotation(0f);setTranslationY(0f);
+        animate().cancel();if(springAnimator!=null)springAnimator.cancel();setScaleX(1f);setScaleY(1f);setTranslationY(0f);setRotation(0f);setTranslationY(0f);
         showFrame();
         if(attached&&!sleeping)handler.postDelayed(cycle,FRAME_MS);
     }
@@ -129,7 +138,7 @@ public final class ChteicoPetView extends ImageView {
         super.onAttachedToWindow();attached=true;refresh();
     }
     @Override protected void onDetachedFromWindow(){
-        attached=false;handler.removeCallbacksAndMessages(null);animate().cancel();
+        attached=false;handler.removeCallbacksAndMessages(null);animate().cancel();if(springAnimator!=null)springAnimator.cancel();
         super.onDetachedFromWindow();
     }
 }

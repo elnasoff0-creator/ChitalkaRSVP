@@ -21,7 +21,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /** Choose a text book and a fixed voice before creating an offline Edge synthesis job. */
-public final class EdgeFullBookActivity extends Activity {
+public final class EdgeFullBookActivity extends NavigationActivity {
     private static final int BG=0xfff3e7d5,PANEL=0xfffff9f0,INK=0xff30221e,ACCENT=0xffa26949;
     private int dp(int v){return Math.round(getResources().getDisplayMetrics().density*v);}
     private GradientDrawable rounded(int color){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(18));return d;}

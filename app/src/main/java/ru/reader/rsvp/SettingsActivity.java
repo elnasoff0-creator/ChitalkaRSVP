@@ -22,7 +22,7 @@ import android.widget.EditText;
 import android.text.InputType;
 
 /** Separate, persistent reader settings with live typography/background preview. */
-public class SettingsActivity extends Activity {
+public class SettingsActivity extends NavigationActivity {
     private static final int NO_COLOR=0x00000000;
     private static final int NORMAL=0,RSVP=1,CURSOR=2;
 
