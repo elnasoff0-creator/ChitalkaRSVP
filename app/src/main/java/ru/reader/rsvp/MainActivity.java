@@ -479,7 +479,7 @@ public class MainActivity extends Activity {
         final int petStart=contentWrap.getChildCount();
         if(ChteicoStore.enabled(this) && prefs.getBoolean("mini_pet_on_home",true)){
             // A centered, square mini-card. Emotion changes never remeasure the pet.
-            final int cardSize=140;
+            final int cardSize=182;
             FrameLayout petArea=new FrameLayout(this);
             LinearLayout.LayoutParams areaLp=new LinearLayout.LayoutParams(dp(cardSize),dp(cardSize));
             areaLp.gravity=Gravity.CENTER_HORIZONTAL;
@@ -513,13 +513,18 @@ public class MainActivity extends Activity {
                 emotion.setTextColor(sleeping?Color.WHITE:fg);
                 pet.setSleeping(sleeping);
             };
+            final EmotionTapWaves emotionRays=new EmotionTapWaves(this);
+            petArea.addView(emotionRays,new FrameLayout.LayoutParams(-1,-1));
+            emotionRays.setClickable(false);
             final Runnable dismissEmotion=()->bubble.setVisibility(View.GONE);
             Runnable showEmotion=()->{
                 ChteicoEmotions.wake();
                 miniSleepAppearance.accept(false);
                 bubble.removeCallbacks(dismissEmotion);
-                emotion.setTextSize(30);
+                emotion.setTextSize(39);
                 emotion.setText(ChteicoEmotions.stroke());
+                petArea.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
+                emotionRays.burst();
                 bubble.animate().cancel();
                 bubble.setAlpha(1f);
                 bubble.setVisibility(View.VISIBLE);
@@ -535,7 +540,7 @@ public class MainActivity extends Activity {
                         miniSleepAppearance.accept(true);
                         bubble.removeCallbacks(dismissEmotion);
                         // The full sleeping face must remain visible beside Zzz.
-                        emotion.setTextSize(20);
+                        emotion.setTextSize(26);
                         emotion.setText(ChteicoEmotions.sleep(phase++));
                         bubble.animate().cancel();
                         bubble.setAlpha(1f);
@@ -549,11 +554,12 @@ public class MainActivity extends Activity {
             };
             if(ChteicoEmotions.isSleeping()){
                 miniSleepAppearance.accept(true);
-                emotion.setTextSize(20);
+                emotion.setTextSize(26);
                 emotion.setText(ChteicoEmotions.sleep(0));
                 bubble.setVisibility(View.VISIBLE);
             }
             petArea.post(sleepAnimation[0]);
+            petArea.setHapticFeedbackEnabled(true);
             // Short tap opens the pet. Swipe causes emotion without dragging;
             // system-duration hold starts drag and vibrates only on drag.
             ChteicoEmotions.attach(petArea,

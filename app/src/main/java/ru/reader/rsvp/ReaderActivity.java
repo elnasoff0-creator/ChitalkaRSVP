@@ -55,7 +55,12 @@ public class ReaderActivity extends Activity {
     private boolean ttsLocal=true,ttsBoundPlayer=false,ttsBoundStream=false,ttsPendingPlay=false;
     private EdgePlaybackService ttsPlayer;
     private EdgeStreamingService ttsStreamer;
-    private long lastTtsVisualUpdate=0;
+    // A manual scroll suspends follow until one of the three explicit return actions.
+    private boolean followSuspended=false,readerWasPaused=false;
+    private TextView ttsFloatingCaption;
+    private long navigationEpoch=0L;
+    private long lastIgnoredEpoch=-1L;
+
     private final EdgeStreamingService.Observer ttsStreamObserver=()->{if(ReaderActivity.this.mode==TTS)refreshTtsPosition();};
     private final EdgePlaybackService.Listener ttsPlayerListener=new EdgePlaybackService.Listener(){
         @Override public void onTrackChanged(int start,int end,String key,boolean completed){if(mode==TTS)refreshTtsPosition();}
@@ -79,7 +84,9 @@ public class ReaderActivity extends Activity {
             ttsStreamer=((EdgeStreamingService.LocalBinder)binder).getService();
             ttsStreamer.openBook(docUri,index);ttsStreamer.addObserver(ttsStreamObserver);
             // Binding and entering TTS are not manual sentence jumps.
-            ttsStreamer.setAnchor(index,false);ttsStreamer.setActive(true);
+            if(pendingTtsWord>=0)ttsStreamer.setAnchor(pendingTtsWord,true);
+            else ttsStreamer.setAnchor(index,false);
+            ttsStreamer.setActive(true);
             if(ttsPlayer!=null&&ttsPlayer.playRequested())ttsStreamer.ensurePlaySelection();
         }
         @Override public void onServiceDisconnected(ComponentName name){ttsStreamer=null;}
@@ -140,8 +147,8 @@ public class ReaderActivity extends Activity {
         int previous=index;
         index+=count;
         if(mode==RSVP)updateWord();
-        if(mode!=RSVP||chunks.chunkForWord(previous)!=chunks.chunkForWord(index))refreshHighlight(previous);
-        if(mode==CURSOR)ensureWordVisible(false);
+        refreshHighlight(previous); // The paused RSVP word must never lose its highlight.
+        if(mode==CURSOR&&!followSuspended)ensureWordVisible(false);
         updateProgress();saveLight(false);
         handler.postDelayed(this,delayForPortion(index,Math.min(portion,words.length-index)));
     }};
@@ -238,9 +245,9 @@ public class ReaderActivity extends Activity {
             android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
             new int[]{opaque,(bg&0x00ffffff)|0xb0000000,(bg&0x00ffffff)});
         toolbarStack.setBackground(toolbarFade);
-        toolbarStack.setPadding(dp(5),dp(4),dp(5),dp(5));
+        toolbarStack.setPadding(dp(5),0,dp(5),dp(5));
         FrameLayout.LayoutParams toolbarOverlay=new FrameLayout.LayoutParams(-1,-2,Gravity.TOP);
-        toolbarOverlay.setMargins(dp(8),dp(7),dp(8),0);sceneRoot.addView(toolbarStack,toolbarOverlay);
+        toolbarOverlay.setMargins(dp(8),0,dp(8),0);sceneRoot.addView(toolbarStack,toolbarOverlay);
         toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);
         toolbarStack.addView(toolbar,new LinearLayout.LayoutParams(-1,dp(44)));
         toolbar.addView(icon(R.drawable.ic_back,v->BackNavigation.back(this)),new LinearLayout.LayoutParams(dp(44),dp(44)));
@@ -361,10 +368,27 @@ public class ReaderActivity extends Activity {
         textList.setBackgroundColor(Color.TRANSPARENT);
         chunkAdapter=new ChunkAdapter();textList.setAdapter(chunkAdapter);
         readingFrame.addView(textList,new LinearLayout.LayoutParams(-1,0,1));
+        // Reader-only top caption, not a SYSTEM_ALERT_WINDOW. It does not
+        // intercept gestures outside its own clickable surface.
+        ttsFloatingCaption=new TextView(this);
+        ttsFloatingCaption.setTextSize(16);
+        ttsFloatingCaption.setTextColor(contrast(buttonBg()));
+        ttsFloatingCaption.setBackground(shape(buttonBg(),16));
+        ttsFloatingCaption.setPadding(dp(13),dp(10),dp(13),dp(10));
+        ttsFloatingCaption.setMaxLines(4);
+        ttsFloatingCaption.setEllipsize(TextUtils.TruncateAt.END);
+        ttsFloatingCaption.setElevation(dp(12));
+        ttsFloatingCaption.setGravity(Gravity.CENTER_VERTICAL);
+        ttsFloatingCaption.setVisibility(View.GONE);
+        ttsFloatingCaption.setOnClickListener(v->returnToActiveWord());
+        FrameLayout.LayoutParams captionLp=new FrameLayout.LayoutParams(-1,-2,Gravity.TOP);
+        captionLp.setMargins(dp(16),dp(79),dp(16),0);
+        sceneRoot.addView(ttsFloatingCaption,captionLp);
         textList.addOnScrollListener(new RecyclerView.OnScrollListener(){
             @Override public void onScrollStateChanged(RecyclerView rv,int state){
                 if(state==RecyclerView.SCROLL_STATE_DRAGGING){
-                    chteicoTouch();userScrolling=true;
+                    chteicoTouch();userScrolling=true;followSuspended=true;
+                    if(mode==TTS)updateFloatingCaption();
                     if(mode==RSVP){stop();scrollWordAccumulator=0;}
                 }
                 if(state==RecyclerView.SCROLL_STATE_IDLE){
@@ -380,6 +404,10 @@ public class ReaderActivity extends Activity {
                     if(contentsAction!=null)contentsAction.setVisibility(dy<0?View.VISIBLE:View.INVISIBLE);
                     if(toolbarWpm!=null)toolbarWpm.setVisibility(dy<0&&mode!=NORMAL?View.VISIBLE:View.INVISIBLE);
 
+                }
+                if(userScrolling&&mode==CURSOR&&playing&&!isActiveWordVisible()){
+                    // Do not move the viewport; the reader must press Play explicitly.
+                    stop();
                 }
                 if(!userScrolling||restoringScroll||words.length==0)return;
                 if(mode!=RSVP||playing||!rsvpScrollWords)return;
@@ -460,6 +488,7 @@ public class ReaderActivity extends Activity {
                 }else if(mode==RSVP){
                     // Paused RSVP context uses the same typography as ordinary word selection.
                     int selectedEnd=map.ends[first]-c.startChar;
+                    span(new BackgroundColorSpan(0x66ffc94e),from,selectedEnd);
                     if(normalSelectText!=NO_COLOR)span(new ForegroundColorSpan(normalSelectText),from,selectedEnd);
                     if(normalSelectScale>100)span(new RelativeSizeSpan(normalSelectScale/100f),from,selectedEnd);
                 }else if(mode==NORMAL&&(selecting||selectedWordActive)){
@@ -621,8 +650,7 @@ public class ReaderActivity extends Activity {
         if(textList==null||mode!=RSVP)return;
         if(textList.getVisibility()==(visible?View.VISIBLE:View.GONE))return;
         textList.setVisibility(visible?View.VISIBLE:View.GONE);
-        // RSVP never scrolls while playing; stopping or returning to it positions once.
-        if(visible&&!playing)textList.post(()->ensureWordVisible(true));
+        // Never snap back to an old word when the RSVP context becomes visible.
     }
     private void stepRsvpByScroll(int dy){
         if(words.length==0||dy==0)return;
@@ -670,6 +698,7 @@ public class ReaderActivity extends Activity {
         if(mode==TTS){toggleTtsPlayback();return;}
         if(mode==NORMAL||words.length==0)return;
         if(playing){stop();saveLight(true);return;}
+        returnToActiveWord();
         playing=true;waitingForStart=false;
         handler.removeCallbacks(ticker);handler.removeCallbacks(beginDelayedReading);
         if(mode==RSVP){
@@ -693,6 +722,7 @@ public class ReaderActivity extends Activity {
         removeCountdownRing();updatePlayButton();setRsvpContextVisible(true);
         if(rsvpPane!=null)rsvpPane.setVisibility(View.GONE);
         applyFullscreenUi();
+        refreshHighlight(index); // The current word remains marked after stopping RSVP.
     }
 
     private class CountdownRingView extends View {
@@ -754,45 +784,97 @@ public class ReaderActivity extends Activity {
         wordView.setTextSize(size);wordView.setTypeface(type(),Typeface.BOLD);wordView.setText(span);
         if(focusLines!=null)focusLines.invalidate();updateProgress();
     }
-    private void ensureWordVisible(boolean force){
+    private int chapterForWord(int word){
+        if(chapters==null||map.starts.length==0)return -1;
+        int pos=map.starts[map.clamp(word)],result=-1;
+        for(int i=0;i<chapters.size();i++)if(chapters.get(i).startChar<=pos)result=i;
+        return result;
+    }
+    private boolean isActiveWordVisible(){
+        if(textList==null||layoutManager==null||chunks==null||words.length==0)return false;
+        int c=chunks.chunkForWord(map.clamp(index));
+        RecyclerView.ViewHolder item=textList.findViewHolderForAdapterPosition(c+1);
+        if(!(item instanceof ChunkAdapter.Holder))return false;
+        TextView v=((ChunkAdapter.Holder)item).value;
+        android.text.Layout l=v.getLayout();if(l==null)return false;
+        int offset=Math.max(0,Math.min(v.length(),map.starts[map.clamp(index)]-chunks.get(c).startChar));
+        int line=l.getLineForOffset(offset);
+        int top=item.itemView.getTop()+v.getTotalPaddingTop()+l.getLineTop(line);
+        int bottom=item.itemView.getTop()+v.getTotalPaddingTop()+l.getLineBottom(line);
+        // Toolbar and transport controls are floating overlays over the RecyclerView.
+        return bottom>dp(85)&&top<textList.getHeight()-dp(90);
+    }
+    /** Center the active line; far-away chapters jump close then settle gently. */
+    private void ensureWordVisible(boolean explicitReturn){
         if(mode==RSVP&&playing)return;
+        if(!explicitReturn&&followSuspended)return;
         if(textList==null||textList.getVisibility()!=View.VISIBLE||layoutManager==null||chunks==null||words.length==0)return;
-        int chunk=chunks.chunkForWord(index);
-        int start=layoutManager.findFirstVisibleItemPosition()-1,end=layoutManager.findLastVisibleItemPosition()-1;
-        if(force||chunk<start||chunk>end){
+        int chunk=chunks.chunkForWord(map.clamp(index));
+        RecyclerView.ViewHolder item=textList.findViewHolderForAdapterPosition(chunk+1);
+        if(!(item instanceof ChunkAdapter.Holder)){
+            if(!explicitReturn && chunk>=layoutManager.findFirstVisibleItemPosition()-1
+                && chunk<=layoutManager.findLastVisibleItemPosition()-1)return;
             restoringScroll=true;
-            layoutManager.scrollToPositionWithOffset(chunk+1,dp(14));
-            // Scroll to the selected word inside the chunk, not merely its first line.
+            layoutManager.scrollToPositionWithOffset(chunk+1,Math.max(dp(65),textList.getHeight()/2));
             textList.post(()->{
-                if(textList==null||textList.getVisibility()!=View.VISIBLE)return;
-                RecyclerView.ViewHolder holder=textList.findViewHolderForAdapterPosition(chunk+1);
-                if(holder instanceof ChunkAdapter.Holder && ((ChunkAdapter.Holder)holder).value!=null){
-                    TextView value=((ChunkAdapter.Holder)holder).value;
-                    android.text.Layout lay=value.getLayout();
-                    if(lay!=null){
-                        int local=Math.max(0,map.starts[map.clamp(index)]-chunks.get(chunk).startChar);
-                        int line=lay.getLineForOffset(Math.min(local,lay.getText().length()));
-                        int selectedY=holder.itemView.getTop()+value.getTotalPaddingTop()+lay.getLineTop(line);
-                        textList.scrollBy(0,selectedY-Math.max(dp(18),textList.getHeight()/3));
-                    }
-                }
-                handler.postDelayed(()->restoringScroll=false,120);
+                if(!followSuspended&&textList!=null&&textList.getVisibility()==View.VISIBLE)
+                    centerActiveVisibleLine(false);
+                restoringScroll=false;
             });
             return;
         }
-        RecyclerView.ViewHolder existing=textList.findViewHolderForAdapterPosition(chunk+1);
-        if(!(existing instanceof ChunkAdapter.Holder))return;
-        ChunkAdapter.Holder h=(ChunkAdapter.Holder)existing;
-        android.text.Layout l=h.value.getLayout();if(l==null)return;
-        int offset=map.starts[map.clamp(index)]-chunks.get(chunk).startChar;
-        int line=l.getLineForOffset(Math.max(0,offset));
-        int y=h.itemView.getTop()+h.value.getTotalPaddingTop()+l.getLineTop(line);
-        int bottom=h.itemView.getTop()+h.value.getTotalPaddingTop()+l.getLineBottom(line);
-        if(y<dp(28)||bottom>textList.getHeight()-dp(28)){
-            int delta=y<dp(28)?y-dp(64):bottom-textList.getHeight()+dp(65);
-            restoringScroll=true;textList.scrollBy(0,delta);
-            handler.postDelayed(()->restoringScroll=false,120);
+        centerActiveVisibleLine(!explicitReturn);
+    }
+    private void centerActiveVisibleLine(boolean gentle){
+        if(textList==null||layoutManager==null||chunks==null||words.length==0)return;
+        int chunk=chunks.chunkForWord(map.clamp(index));
+        RecyclerView.ViewHolder item=textList.findViewHolderForAdapterPosition(chunk+1);
+        if(!(item instanceof ChunkAdapter.Holder))return;
+        TextView v=((ChunkAdapter.Holder)item).value;
+        android.text.Layout layout=v.getLayout();if(layout==null)return;
+        int offset=Math.max(0,Math.min(v.length(),map.starts[map.clamp(index)]-chunks.get(chunk).startChar));
+        int line=layout.getLineForOffset(offset);
+        int center=item.itemView.getTop()+v.getTotalPaddingTop()
+            +(layout.getLineTop(line)+layout.getLineBottom(line))/2;
+        int viewportCenter=(dp(80)+textList.getHeight()-dp(84))/2;
+        int delta=center-viewportCenter;
+        if(Math.abs(delta)<=dp(9))return;
+        restoringScroll=true;
+        if(Math.abs(delta)>textList.getHeight()*2){
+            // The line's offset INSIDE the same chunk must be subtracted here;
+            // jumping to the chunk's first line repeatedly would loop or flicker.
+            int relativeLineCenter=v.getTotalPaddingTop()
+                +(layout.getLineTop(line)+layout.getLineBottom(line))/2;
+            layoutManager.scrollToPositionWithOffset(chunk+1,viewportCenter-relativeLineCenter);
+            textList.post(()->{
+                restoringScroll=false;
+                if(!followSuspended)centerActiveVisibleLine(true);
+            });
+        }else{
+            textList.smoothScrollBy(0,delta);
+            textList.postDelayed(()->restoringScroll=false,300);
         }
+    }
+    private void updateFloatingCaption(){
+        if(ttsFloatingCaption==null)return;
+        if(mode!=TTS||!followSuspended||!ttsCurrentlyPlaying()||words.length==0){
+            ttsFloatingCaption.setVisibility(View.GONE);return;
+        }
+        SentenceChunks.Chunk part=SentenceChunks.forWord(ttsParts,map.clamp(index));
+        if(part==null){ttsFloatingCaption.setText(words[map.clamp(index)]);}
+        else{
+            int first=Math.max(0,part.fromChar);
+            int through=Math.min(body.length(),map.ends[map.clamp(index)]);
+            // Progressive transcript: reveal only words whose playback boundary passed.
+            String content=body.substring(first,Math.max(first,through)).trim();
+            ttsFloatingCaption.setText(content.isEmpty()?words[map.clamp(index)]:content);
+        }
+        ttsFloatingCaption.setVisibility(View.VISIBLE);
+    }
+    private void returnToActiveWord(){
+        followSuspended=false;userScrolling=false;
+        if(ttsFloatingCaption!=null)ttsFloatingCaption.setVisibility(View.GONE);
+        if(textList!=null)textList.post(()->ensureWordVisible(true));
     }
     private void modeDialog(){
         ReaderSheets.modes(this,mode,selected->{
@@ -817,7 +899,7 @@ public class ReaderActivity extends Activity {
         pendingTtsWord=-1;
         mode=next;selecting=false;normalChromeVisible=false;toolbarExpanded=true;
         ReaderToolbarController.reset(toolbarStack);
-        updateModeUI();refreshHighlight(old);ensureWordVisible(true);saveLight(true);
+        updateModeUI();refreshHighlight(old);returnToActiveWord();saveLight(true);
         if(mode==TTS)startTtsSession();
     }
     private void chteicoTouch(){chteicoLastInteraction=SystemClock.elapsedRealtime();}
@@ -941,6 +1023,7 @@ public class ReaderActivity extends Activity {
         return ttsPendingPlay||ttsPlayer!=null&&ttsPlayer.playRequested();
     }
     private void toggleTtsPlayback(){
+        if(!ttsCurrentlyPlaying())returnToActiveWord();
         if(ttsLocal){ReaderTtsController.localPauseOrResume(this);
         }else if(ttsPlayer!=null){
             if(ttsPlayer.playRequested())ttsPlayer.pause();
@@ -954,6 +1037,8 @@ public class ReaderActivity extends Activity {
         SentenceChunks.Chunk sentence=SentenceChunks.forWord(ttsParts,index);
         if(sentence!=null)index=sentence.fromWord;
         pendingTtsWord=index;
+        navigationEpoch++;
+        ReaderDiagnosticLog.event("NAVIGATION","USER_SELECT chapter="+chapterForWord(index)+" word="+index+" epoch="+navigationEpoch);
         prefs.edit().putInt("tts_word:"+docUri,index).apply();
         boolean autoplay=prefs.getBoolean("tts_tap_autoplay",false);
         if(ttsLocal){
@@ -1001,13 +1086,21 @@ public class ReaderActivity extends Activity {
         if(pendingTtsWord>=0){
             SentenceChunks.Chunk target=SentenceChunks.forWord(ttsParts,pendingTtsWord);
             if(target!=null&&actual>=target.fromWord&&actual<target.toWord)pendingTtsWord=-1;
-            else actual=-1; // stale callback from the previous streamed sentence
+            else{
+                if(actual>=0&&lastIgnoredEpoch!=navigationEpoch){
+                    lastIgnoredEpoch=navigationEpoch;
+                    ReaderDiagnosticLog.event("NAVIGATION","NAVIGATION_IGNORED_STALE epoch="+navigationEpoch+
+                        " actual="+actual+" selected="+pendingTtsWord);
+                }
+                actual=-1; // stale callback from the previous streamed sentence
+            }
         }
         if(active&&actual>=0&&actual<words.length&&actual!=index){
             int old=index;index=actual;refreshHighlight(old);updateProgress();
-            long now=SystemClock.uptimeMillis();
-            if(now-lastTtsVisualUpdate>900){ensureWordVisible(false);lastTtsVisualUpdate=now;}
+            // A manual drag owns the viewport until overlay, mode return, or Play.
+            if(!followSuspended)ensureWordVisible(false);
         }
+        if(followSuspended&&mode==TTS)updateFloatingCaption();
         updatePlayButton();
     }
     private void chooseTtsEngine(){
@@ -1086,6 +1179,8 @@ public class ReaderActivity extends Activity {
         });
     }
     @Override protected void onResume(){super.onResume();
+        if(readerWasPaused&&words.length>0) returnToActiveWord();
+        readerWasPaused=false;
         chteicoResumed=true;chteicoTouch();handler.removeCallbacks(chteicoReadTick);handler.postDelayed(chteicoReadTick,10000);
         if(prefs!=null){
         int oldBg=bg,oldFg=fg,oldSize=size,oldFont=font,oldMode=mode,oldPortion=portion;
@@ -1111,6 +1206,7 @@ public class ReaderActivity extends Activity {
 
     }}
     @Override protected void onPause(){
+        readerWasPaused=true;
         chteicoResumed=false;handler.removeCallbacks(chteicoReadTick);
         chteicoCompleteIfReachedEnd();save();stop();super.onPause();
     }

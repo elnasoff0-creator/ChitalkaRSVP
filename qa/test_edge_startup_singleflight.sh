@@ -7,8 +7,10 @@ python3 - "$SRC" <<'PY'
 import sys
 from pathlib import Path
 src=Path(sys.argv[1]); reader=(src/'ReaderActivity.java').read_text(); service=(src/'EdgeStreamingService.java').read_text(); queue=(src/'EdgeSpeechQueue.java').read_text()
-assert 'ttsStreamer.setAnchor(index,false);ttsStreamer.setActive(true);' in reader
-assert reader.count('ttsStreamer.setAnchor(index,true);')==1, 'only manual taps may select an anchor'
+assert 'if(pendingTtsWord>=0)ttsStreamer.setAnchor(pendingTtsWord,true);' in reader
+assert 'else ttsStreamer.setAnchor(index,false);' in reader
+assert 'ttsStreamer.setActive(true);' in reader
+assert reader.count('ttsStreamer.setAnchor(index,true);')==1, 'only a user tap may select the current index'
 assert '.setAction(EdgeStreamingService.ACTION_PREFETCH)' not in reader, 'ordinary reader must not issue idle Edge requests'
 assert 'restoreStartPosition();' in service
 assert 'if(initial!=null&&initial.fromWord<anchorWord)setAnchor(anchorWord,true)' not in service

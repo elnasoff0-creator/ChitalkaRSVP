@@ -37,6 +37,7 @@ public final class ChteicoActivity extends Activity {
     private boolean firstResume=true;
     private TextView speechBubble;
     private SpeechBubbleLayout speechContainer;
+    private TapWaves emotionTapWaves;
     private Runnable pendingSpeechHide;
     private Runnable sleepAnimation;
     private final Random phraseRandom=new Random();
@@ -169,7 +170,11 @@ public final class ChteicoActivity extends Activity {
         if(message==null||speechBubble==null||speechContainer==null)return;
         if(pendingSpeechHide!=null)ui.removeCallbacks(pendingSpeechHide);
         boolean face=ChteicoEmotions.isFace(message);
-        speechBubble.setTextSize(face?27:15);
+        speechBubble.setTextSize(face?41:15);
+        if(face){
+            if(emotionTapWaves!=null)emotionTapWaves.burst();
+            if(pet!=null)pet.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
+        }
         speechBubble.setMaxLines(face?1:4);
         speechBubble.setText(message);
         if(speechBubble.getLayoutParams() instanceof FrameLayout.LayoutParams){
@@ -284,7 +289,8 @@ public final class ChteicoActivity extends Activity {
         FrameLayout.LayoutParams spriteLayout=new FrameLayout.LayoutParams(dp(248),dp(247),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);
         pet=new ChteicoPetView(this);petFrame.addView(pet,spriteLayout);
         // Draw rays over the whole card width; restrict taps to the pet itself.
-        TapWaves waves=new TapWaves();petFrame.addView(waves,new FrameLayout.LayoutParams(-1,-1));
+        TapWaves waves=new TapWaves();emotionTapWaves=waves;
+        petFrame.addView(waves,new FrameLayout.LayoutParams(-1,-1));
         View petTapTarget=new View(this);
         petFrame.addView(petTapTarget,new FrameLayout.LayoutParams(dp(248),dp(247),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL));
         Runnable normalTap=()->{
@@ -302,11 +308,12 @@ public final class ChteicoActivity extends Activity {
             }
         };
         petTapTarget.setHapticFeedbackEnabled(true);
+        pet.setHapticFeedbackEnabled(true);
         ChteicoEmotions.attach(petTapTarget,()->{
             petTapTarget.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
             normalTap.run();
         },null,()->{
-            petTapTarget.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
+            // showSpeech provides one haptic pulse when the face actually appears.
             if(sleepAnimation!=null)ui.removeCallbacks(sleepAnimation);
             pet.setSleeping(false);
             showSpeech(ChteicoEmotions.stroke(),2750);
@@ -326,7 +333,7 @@ public final class ChteicoActivity extends Activity {
                     @Override public void run(){
                         if(!ChteicoEmotions.isSleeping()||speechBubble==null)return;
                         String sleep=ChteicoEmotions.sleep(phase++);
-                        speechBubble.setTextSize(19);
+                        speechBubble.setTextSize(29);
                         speechBubble.setMaxLines(1);
                         speechBubble.setText(sleep);
                         FrameLayout.LayoutParams layout=(FrameLayout.LayoutParams)speechContainer.getLayoutParams();

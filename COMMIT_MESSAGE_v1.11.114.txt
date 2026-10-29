@@ -1,8 +1,0 @@
-fix(chteico,edge): release v1.11.114 sleep contrast, haptics and WS gating
-
-- Restore full mini sleep face and private night presentation
-- Increase normal mini emotions to 30sp; keep full Chteico at 27sp
-- Add tap/swipe haptics in full Chteico only
-- Defer speculative WebSocket handshakes during interactive reading
-- Separate Media3 callbacks and buffering from unmeasured audio-sample gap
-- Keep approved filled contrast theme vectors and existing TTS architecture

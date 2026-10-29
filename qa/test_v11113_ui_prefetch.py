@@ -11,8 +11,8 @@ assert 'if(moved){if(pet!=null)pet.run();}' in em
 assert 'else {v.performClick();if(tap!=null)tap.run();}' in em
 assert 'vibrate(v)' not in em
 assert 'new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL)' in main
-assert 'emotion.setTextSize(30)' in main and 'emotion.setTextSize(20)' in main
-assert 'speechBubble.setTextSize(face?27:15)' in full
+assert 'emotion.setTextSize(39)' in main and 'emotion.setTextSize(26)' in main
+assert 'speechBubble.setTextSize(face?41:15)' in full
 assert 'lp.width=face?-2:dp(235)' in full
 assert 'setPadding(dp(5),dp(4),dp(5),dp(16))' in full
 assert 'setPadding(dp(5),dp(4),dp(5),dp(16))' in (s/'ChteicoSpeechBubble.java').read_text()
@@ -32,5 +32,5 @@ assert 'prefetchIssued>=EdgeSpeechQueue.MAX_PREFETCH' in service
 assert 'pending++;prefetchIssued++' in service
 assert 'activeLeases' in (s/'EdgeWebSocketPool.java').read_text()
 assert 'buffering_duration_ms' in (s/'EdgePlaybackService.java').read_text()
-assert 'versionName \'1.11.114-beta\'' in (r/'app/build.gradle').read_text()
+assert 'versionName \'1.11.115-beta\'' in (r/'app/build.gradle').read_text()
 print('PASS: new long-hold/tap/swipe separation; haptic only drag; wrap bubbles, white-black adaptive icon outlines, bounded prefetch and diagnostic instrumentation')

@@ -85,6 +85,8 @@ public final class EdgeStreamingService extends Service {
     private final LinkedHashSet<Integer> pendingStarts=new LinkedHashSet<>();
     private int priorityStart=-1;
     private int selectedSeekWord=-1;
+    // A tap may arrive before the asynchronous chapter index finishes loading.
+    private int deferredSelectedWord=-1;
     private final ArrayList<Clip> selectedOverrides=new ArrayList<>();
 
     private final ArrayList<Observer> observers=new ArrayList<>();
@@ -300,13 +302,18 @@ public final class EdgeStreamingService extends Service {
     }
     public void openBook(String uri,int initialWord){
         if(uri==null||uri.isEmpty())return;
-        if(uri.equals(bookUri)){if(player==null||player.currentStartWord()<0)anchorWord=Math.max(0,initialWord);pump();return;}
+        if(uri.equals(bookUri)){
+            // Do not overwrite an explicit selection with a stale activity bind.
+            if(deferredSelectedWord<0 && selectedSeekWord<0 &&
+                    (player==null||player.currentStartWord()<0))anchorWord=Math.max(0,initialWord);
+            pump();return;
+        }
         // Flush the previous book's pending index before switching its directory.
         main.removeCallbacks(saveIndex);persistNow();
         cancelLiveExcept(null);liveJobs.clear();bookUri=uri;bookReady=false;anchorWord=Math.max(0,initialWord);
         cachedSavedPercent=0;lastCoverageCheck=0;
         archive.clear();byStart.clear();pendingStarts.clear();priorityStart=-1;
-        selectedOverrides.clear();selectedSeekWord=-1;
+        selectedOverrides.clear();selectedSeekWord=-1;deferredSelectedWord=-1;
         prefetchForStart=-1;prefetchIssued=0;
         offsets.clear();sentenceParts.clear();bookText="";chapters=BookChapterIndex.empty();directory=null;error="";
         if(player!=null)player.prepareBook("edge:"+uri);
@@ -345,7 +352,11 @@ public final class EdgeStreamingService extends Service {
                     else {
                         // Startup restoration is not a tap: do not clear an active
                         // prefetch or request 500-char priority pieces automatically.
-                        restoreStartPosition();
+                        if(deferredSelectedWord>=0){
+                            int selected=deferredSelectedWord;
+                            deferredSelectedWord=-1;
+                            setAnchor(selected,true);
+                        }else restoreStartPosition();
                         persist();
                     }
                     warmCurrent();
@@ -464,8 +475,13 @@ public final class EdgeStreamingService extends Service {
         }
     }
     public void setAnchor(int word,boolean selected){
-        if(!bookReady){anchorWord=Math.max(0,word);return;}
+        if(!bookReady){
+            anchorWord=Math.max(0,word);
+            if(selected)deferredSelectedWord=anchorWord;
+            return;
+        }
         int requested=Math.max(0,Math.min(offsets.size()-1,word));
+        if(selected)ReaderDiagnosticLog.event("NAVIGATION","PLAY_TARGET selected_word="+requested+" source=manual");
         if(!selected){anchorWord=requested;persist();pump();return;}
         Clip base=baseClipAt(requested);
         if(base==null)return;
@@ -473,7 +489,11 @@ public final class EdgeStreamingService extends Service {
         // the selected stream has produced playable audio.
         prefetchForStart=-1;prefetchIssued=0;
         // Reset the playlist first, before any new file can begin playing.
-        if(player!=null)player.clearTracksForSelection();
+        boolean resumeSelectedPlay=player!=null&&player.playRequested();
+        if(player!=null){
+            player.clearTracksForSelection();
+            if(resumeSelectedPlay)player.play();
+        }
         selectedOverrides.clear();
         selectedSeekWord=requested;
         Clip target=base;

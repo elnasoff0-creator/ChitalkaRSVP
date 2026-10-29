@@ -14,11 +14,11 @@ assert 'pet.setForceNightWhenSleeping(true)' in main
 assert 'forceNightWhenSleeping && sleeping' in pet
 assert 'nightAppearance?0xff27313f' in bubble
 assert 'nightAppearance?0xffffffff:foreground' in bubble
-assert 'emotion.setTextSize(30)' in main
-assert 'speechBubble.setTextSize(face?27:15)' in full
+assert 'emotion.setTextSize(39)' in main
+assert 'speechBubble.setTextSize(face?41:15)' in full
 assert 'FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL)' in main
 assert 'setPadding(dp(5),dp(4),dp(5),dp(16))' in bubble
-assert full.count('petTapTarget.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)')==2
+assert full.count('petTapTarget.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)')==1
 assert 'view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)' in em
 assert 'canRunBackground' in q and 'EdgeWebSocketPool.hasIdleTransport()' in q and 'interactivePlayback' in q
 assert 'static synchronized boolean hasIdleTransport()' in pool
@@ -27,8 +27,8 @@ assert 'autoTransitionIndex==player.getCurrentMediaItemIndex()' in play
 assert 'sample_gap_ms=unavailable' in play
 assert 'play_to_is_playing_callback_ms' in play and 'first_sound_after_play_ms' not in play
 assert 'track_callback_gap_ms' in (s/'EdgeTtsDiagnostics.java').read_text()
-assert 'versionCode 11400' in (r/'app/build.gradle').read_text()
-assert "versionName '1.11.114-beta'" in (r/'app/build.gradle').read_text()
+assert 'versionCode 11500' in (r/'app/build.gradle').read_text()
+assert "versionName '1.11.115-beta'" in (r/'app/build.gradle').read_text()
 # Approved vector colors and transparent backgrounds must survive the release.
 import xml.etree.ElementTree as ET
 xml=r/'app/src/main/res/drawable';ns='{http://schemas.android.com/apk/res/android}'
@@ -39,4 +39,4 @@ for theme in ('day','night','soft','sepia','custom'):
         paths=icon.findall('path')
         assert paths and any(x.get(ns+'fillColor')!='#00000000' for x in paths)
         assert any(x.get(ns+'strokeColor')==edge for x in paths)
-print('PASS v1.11.114: sleep face, isolated night mini pet, 30sp emotions, 2 full-UI haptics, compact bubble, bounded prefetch, callback-only diagnostics, XML colors, version')
+print('PASS regression to v1.11.115: sleep face, isolated night mini pet, 39sp emotions, tap and emotion full-UI haptics, compact bubble, bounded prefetch, callback-only diagnostics, XML colors, version')

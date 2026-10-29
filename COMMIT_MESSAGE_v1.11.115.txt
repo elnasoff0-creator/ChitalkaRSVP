@@ -1,0 +1,9 @@
+feat(reader): v1.11.115 explicit-only return, smooth focus and TTS overlay
+
+- Center active sentence with near/far scroll policy, preserve manual scroll
+- Progressive WordBoundary caption overlay and click-to-follow
+- Fix deferred selected chapter on Edge book indexing and pending Play
+- Cursor offscreen pause; RSVP highlight preserved and recentered on return
+- Remove toolbar gap after system insets
+- Enlarge Chteico emotions and animated haptic reaction waves
+- Update QA and version to 1.11.115-beta
