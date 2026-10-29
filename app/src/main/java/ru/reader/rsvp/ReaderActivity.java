@@ -33,8 +33,12 @@ public class ReaderActivity extends NavigationActivity {
     private BookChapterIndex chapters=BookChapterIndex.empty();
     private java.util.ArrayList<SentenceChunks.Chunk> ttsParts=new java.util.ArrayList<>();
     private int pendingTtsWord=-1;
+    private long pendingTtsSelectedAt=0L;
     private String cachedTimingKey="",lastTtsError="";
     private java.util.List<EdgeWordTimings.Word> cachedTimingWords=java.util.Collections.emptyList();
+    private String timingLoadingKey="",lastMissingTimingKey="";
+    private long cachedTimingSidecarLength=-1L,cachedTimingSidecarModified=-1L;
+    private final java.util.concurrent.ExecutorService timingReader=java.util.concurrent.Executors.newSingleThreadExecutor();
     private boolean toolbarExpanded=true;
     private FrameLayout sceneRoot,floatingPlayButton,rsvpPlayFrame;
     private TextView bookTitle;
@@ -66,7 +70,9 @@ public class ReaderActivity extends NavigationActivity {
     private long lastSleepBadgeUpdate=-1L;
     private long launchStartedAt=0L;
     private long initialDrawElapsed=0L;
+    private long edgePlayerBindStartedAt=0L,edgeStreamBindStartedAt=0L;
     private boolean ttsTickQueued=false;
+    private long ttsTickDueAt=0L;
     private boolean localStateReceiverRegistered=false;
     private final BroadcastReceiver localStateReceiver=new BroadcastReceiver(){
         @Override public void onReceive(Context context,Intent intent){
@@ -85,7 +91,8 @@ public class ReaderActivity extends NavigationActivity {
     private final ServiceConnection ttsPlayerConnection=new ServiceConnection(){
         @Override public void onServiceConnected(ComponentName name,IBinder binder){
             if(mode!=TTS||ttsLocal)return;
-            ReaderDiagnosticLog.event("READER_STARTUP","edge_player_bind_ms="+(SystemClock.elapsedRealtime()-launchStartedAt));
+            ReaderDiagnosticLog.event("READER_STARTUP","edge_player_bind_ms="+(SystemClock.elapsedRealtime()-launchStartedAt)
+                +" bind_wait_ms="+Math.max(0,SystemClock.elapsedRealtime()-edgePlayerBindStartedAt));
             ttsPlayer=((EdgePlaybackService.LocalBinder)binder).getService();
             ttsPlayer.prepareBook("edge:"+docUri);ttsPlayer.restoreSharedSleepTimer();
             ttsPlayer.setAutoContinue(true);ttsPlayer.setPlaybackSpeed(Math.min(5f,TtsWpm.rate(ReaderActivity.this)));
@@ -98,7 +105,8 @@ public class ReaderActivity extends NavigationActivity {
     private final ServiceConnection ttsStreamConnection=new ServiceConnection(){
         @Override public void onServiceConnected(ComponentName name,IBinder binder){
             if(mode!=TTS||ttsLocal)return;
-            ReaderDiagnosticLog.event("READER_STARTUP","edge_stream_bind_ms="+(SystemClock.elapsedRealtime()-launchStartedAt));
+            ReaderDiagnosticLog.event("READER_STARTUP","edge_stream_bind_ms="+(SystemClock.elapsedRealtime()-launchStartedAt)
+                +" bind_wait_ms="+Math.max(0,SystemClock.elapsedRealtime()-edgeStreamBindStartedAt));
             ttsStreamer=((EdgeStreamingService.LocalBinder)binder).getService();
             ttsStreamer.openBook(docUri,index);ttsStreamer.addObserver(ttsStreamObserver);
             // Binding and entering TTS are not manual sentence jumps.
@@ -125,19 +133,25 @@ public class ReaderActivity extends NavigationActivity {
     // Overlay controls replace the legacy immersive fullscreen preference entirely.
     private boolean normalChromeVisible=false;
     private final Runnable ttsUiTick=new Runnable(){@Override public void run(){
-        ttsTickQueued=false;
+        ttsTickQueued=false;ttsTickDueAt=0L;
         if(mode!=TTS)return;
         refreshTtsPosition();
-        // Accurate WordBoundary requires polling only while audio is actually playing.
-        // On pause, the sleep badge alone may need a low-frequency refresh.
         long next=ttsCurrentlyPlaying()?180L:(sleepTimerActive()?15000L:-1L);
-        if(next>0){ttsTickQueued=true;handler.postDelayed(this,next);}
+        if(next>0)queueTtsUi(next);
     }};
-    private void scheduleTtsUi(){
-        if(mode!=TTS||ttsTickQueued)return;
-        ttsTickQueued=true;handler.post(ttsUiTick);
+    private void queueTtsUi(long delay){
+        if(mode!=TTS)return;
+        long due=SystemClock.uptimeMillis()+delay;
+        if(ttsTickQueued){
+            // A Play, track-change or manual navigation must pre-empt a pending
+            // 15-second pause/badge refresh. Never let an old timer starve UI.
+            if(ttsTickDueAt<=due)return;
+            handler.removeCallbacks(ttsUiTick);
+        }
+        ttsTickQueued=true;ttsTickDueAt=due;handler.postDelayed(ttsUiTick,delay);
     }
-    private void cancelTtsUi(){handler.removeCallbacks(ttsUiTick);ttsTickQueued=false;}
+    private void scheduleTtsUi(){queueTtsUi(0L);}
+    private void cancelTtsUi(){handler.removeCallbacks(ttsUiTick);ttsTickQueued=false;ttsTickDueAt=0L;}
     private float touchDownX,touchDownY;
     private long touchDownTime;
     private boolean touchMoved=false;
@@ -965,7 +979,18 @@ public class ReaderActivity extends NavigationActivity {
             // stays at the first word until the next sentence. Show the entire
             // active sentence immediately so the caption never freezes after
             // a single word. Online Edge continues its progressive transcript.
-            int through=ttsLocal ? Math.min(body.length(),part.toChar)
+            boolean missingWordTiming=false;
+            if(!ttsLocal&&ttsStreamer!=null){
+                EdgeStreamingService.Clip playingClip=ttsStreamer.currentClip();
+                if(playingClip!=null){
+                    boolean cached=!cachedTimingWords.isEmpty()
+                        &&(playingClip.key+":"+playingClip.start).equals(cachedTimingKey);
+                    missingWordTiming=!cached&&ttsStreamer.liveWords(playingClip).isEmpty();
+                }
+            }
+            // Without WordBoundary metadata, show the sentence rather than a
+            // misleading one-word caption until exact timing data arrives.
+            int through=(ttsLocal||missingWordTiming)?Math.min(body.length(),part.toChar)
                 : Math.min(body.length(),map.ends[map.clamp(index)]);
             String content=body.substring(first,Math.max(first,through)).trim();
             String next=content.isEmpty()?words[map.clamp(index)]:content;
@@ -1042,46 +1067,51 @@ public class ReaderActivity extends NavigationActivity {
      */
     private void previewTocDuringPlayback(int word){
         if(textList==null||layoutManager==null||chunks==null||words.length==0)return;
-        int target=map.clamp(word);
+        int target=map.clamp(word),chunk=chunks.chunkForWord(target);
         final long generation=++tocPreviewGeneration;
-        followSuspended=true;
-        userScrolling=false;
+        followSuspended=true;userScrolling=false;restoringScroll=true;
         ReaderDiagnosticLog.event("NAVIGATION","TOC_VIEW_ONLY target="+target+
             " playing="+index+" chapter="+chapterForWord(target));
-        int chunk=chunks.chunkForWord(target);
-        restoringScroll=true;
-        // Position the chosen text block first.  The chosen chapter may begin
-        // well inside that block, so the second pass aligns the actual line.
         layoutManager.scrollToPositionWithOffset(chunk+1,dp(108));
-        textList.post(()->{
-            if(textList==null||layoutManager==null||chunks==null||mode!=TTS
-                ||generation!=tocPreviewGeneration||!followSuspended){
-                restoringScroll=false;return;
+        // RecyclerView may not have laid out the destination when a first post()
+        // executes. Retry across actual frames, without seeking the audio clock.
+        textList.postOnAnimation(()->alignTocPreview(target,chunk,generation,0));
+    }
+    private void alignTocPreview(int target,int chunk,long generation,int attempt){
+        if(textList==null||layoutManager==null||chunks==null||mode!=TTS
+            ||generation!=tocPreviewGeneration||!followSuspended){restoringScroll=false;return;}
+        RecyclerView.ViewHolder holder=textList.findViewHolderForAdapterPosition(chunk+1);
+        if(!(holder instanceof ChunkAdapter.Holder)||
+                ((ChunkAdapter.Holder)holder).value.getLayout()==null){
+            if(attempt<12){
+                layoutManager.scrollToPositionWithOffset(chunk+1,dp(108));
+                textList.postOnAnimation(()->alignTocPreview(target,chunk,generation,attempt+1));
+            }else{restoringScroll=false;updateFloatingCaption();
+                ReaderDiagnosticLog.event("NAVIGATION","TOC_LAYOUT_TIMEOUT word="+target);}
+            return;
+        }
+        TextView value=((ChunkAdapter.Holder)holder).value;
+        android.text.Layout lines=value.getLayout();
+        int offset=Math.max(0,Math.min(value.length(),map.starts[target]-chunks.get(chunk).startChar));
+        int line=lines.getLineForOffset(offset);
+        int lineY=value.getTotalPaddingTop()+lines.getLineTop(line);
+        int top=holder.itemView.getTop()+lineY;
+        int delta=top-dp(108);
+        if(Math.abs(delta)>dp(2)){
+            // Offset inside the chunk is essential for chapters starting mid-block.
+            layoutManager.scrollToPositionWithOffset(chunk+1,dp(108)-lineY);
+            if(attempt<12){
+                textList.postOnAnimation(()->alignTocPreview(target,chunk,generation,attempt+1));return;
             }
-            RecyclerView.ViewHolder holder=textList.findViewHolderForAdapterPosition(chunk+1);
-            if(holder instanceof ChunkAdapter.Holder){
-                TextView value=((ChunkAdapter.Holder)holder).value;
-                android.text.Layout lines=value.getLayout();
-                if(lines!=null){
-                    int offset=Math.max(0,Math.min(value.length(),
-                        map.starts[target]-chunks.get(chunk).startChar));
-                    int line=lines.getLineForOffset(offset);
-                    int top=holder.itemView.getTop()+value.getTotalPaddingTop()+lines.getLineTop(line);
-                    int delta=top-dp(108);
-                    if(Math.abs(delta)>dp(2))textList.scrollBy(0,delta);
-                }
-            }
-            restoringScroll=false;
-            // Layout is now at the selected chapter.  Show the overlay only
-            // when the *currently spoken* sentence is outside the viewport.
-            textList.post(()->{if(mode==TTS&&followSuspended
-                &&generation==tocPreviewGeneration)updateFloatingCaption();});
-        });
+        }
+        restoringScroll=false;
+        ReaderDiagnosticLog.event("NAVIGATION","TOC_LANDED word="+target+" offset="+delta);
+        updateFloatingCaption();
     }
     private void showToc(){
         UiNavigationSheet.showContents(this,chapters!=null&&chapters.size()>=3?chapters:BookChapterIndex.empty(),chunks,body,map,index,word->{
             if(word<0||word>=words.length)return;
-            if(mode==TTS&&ttsCurrentlyPlaying()){
+            if(mode==TTS&&(ttsCurrentlyPlaying()||ttsPlaybackRequested())){
                 previewTocDuringPlayback(word);
                 return;
             }
@@ -1212,15 +1242,21 @@ public class ReaderActivity extends NavigationActivity {
         ttsPendingPlay=false;
         ReaderTtsController.begin(this,ttsLocal,docUri,index);
         if(!ttsLocal){
+            edgePlayerBindStartedAt=SystemClock.elapsedRealtime();
             ttsBoundPlayer=bindService(new Intent(this,EdgePlaybackService.class),ttsPlayerConnection,BIND_AUTO_CREATE);
+            edgeStreamBindStartedAt=SystemClock.elapsedRealtime();
             ttsBoundStream=bindService(new Intent(this,EdgeStreamingService.class),ttsStreamConnection,BIND_AUTO_CREATE);
+            ReaderDiagnosticLog.event("READER_STARTUP","edge_bind_requested_ms="+
+                (edgePlayerBindStartedAt-launchStartedAt));
         }
         scheduleTtsUi();
         updatePlayButton();updateProgress();updateSleepTimerBadge();
     }
     private void releaseTts(){
         cancelTtsUi();ttsPendingPlay=false;pendingTtsWord=-1;
-        cachedTimingKey="";cachedTimingWords=java.util.Collections.emptyList();lastTtsError="";
+        cachedTimingKey="";timingLoadingKey="";
+        cachedTimingSidecarLength=-1L;cachedTimingSidecarModified=-1L;
+        cachedTimingWords=java.util.Collections.emptyList();lastTtsError="";
         if(ttsLocal){
             ReaderTtsController.stopLocal(this);
         }else{
@@ -1230,6 +1266,14 @@ public class ReaderActivity extends NavigationActivity {
             if(ttsBoundPlayer){unbindService(ttsPlayerConnection);ttsBoundPlayer=false;}
             ttsStreamer=null;ttsPlayer=null;
         }
+    }
+    /** Buffering is still an active Play request: TOC must browse rather than seek. */
+    private boolean ttsPlaybackRequested(){
+        if(ttsLocal){
+            AudioPlaybackService local=AudioPlaybackService.instance;
+            return local!=null&&local.isTtsMode()&&!local.isPaused();
+        }
+        return ttsPendingPlay||(ttsPlayer!=null&&ttsPlayer.playRequested());
     }
     private boolean ttsCurrentlyPlaying(){
         if(ttsLocal){AudioPlaybackService s=AudioPlaybackService.instance;
@@ -1251,6 +1295,7 @@ public class ReaderActivity extends NavigationActivity {
         SentenceChunks.Chunk sentence=SentenceChunks.forWord(ttsParts,index);
         if(sentence!=null)index=sentence.fromWord;
         pendingTtsWord=index;
+        pendingTtsSelectedAt=SystemClock.uptimeMillis();
         navigationEpoch++;
         ReaderDiagnosticLog.event("NAVIGATION","USER_SELECT chapter="+chapterForWord(index)+" word="+index+" epoch="+navigationEpoch);
         prefs.edit().putInt("tts_word:"+docUri,index).apply();
@@ -1286,14 +1331,39 @@ public class ReaderActivity extends NavigationActivity {
                 String timingKey=clip.key+":"+clip.start;
                 java.util.List<EdgeWordTimings.Word> ticks;
                 if(clip.ready()){
-                    if(!timingKey.equals(cachedTimingKey)){
-                        cachedTimingWords=EdgeWordTimings.read(clip.file,clip.text);
-                        cachedTimingKey=timingKey;
+                    java.io.File sidecar=EdgeWordTimings.sidecar(clip.file);
+                    long sideLength=sidecar.isFile()?sidecar.length():0L;
+                    long sideModified=sidecar.isFile()?sidecar.lastModified():0L;
+                    boolean changed=timingKey.equals(cachedTimingKey)&&cachedTimingWords.isEmpty()
+                        &&(sideLength!=cachedTimingSidecarLength||sideModified!=cachedTimingSidecarModified);
+                    if((!timingKey.equals(cachedTimingKey)||changed)&&!timingKey.equals(timingLoadingKey)){
+                        timingLoadingKey=timingKey;
+                        final java.io.File file=clip.file;
+                        final String spoken=clip.text;
+                        final String requested=timingKey;
+                        timingReader.execute(()->{
+                            java.util.List<EdgeWordTimings.Word> loaded=EdgeWordTimings.read(file,spoken);
+                            handler.post(()->{
+                                if(!requested.equals(timingLoadingKey))return;
+                                timingLoadingKey="";cachedTimingWords=loaded;
+                                cachedTimingKey=requested;
+                                java.io.File side=EdgeWordTimings.sidecar(file);
+                                cachedTimingSidecarLength=side.isFile()?side.length():0L;
+                                cachedTimingSidecarModified=side.isFile()?side.lastModified():0L;
+                                if(loaded.isEmpty()&&!requested.equals(lastMissingTimingKey)){
+                                    lastMissingTimingKey=requested;
+                                    ReaderDiagnosticLog.event("HIGHLIGHT","WORD_TIMINGS_EMPTY clip="+requested);
+                                }
+                                scheduleTtsUi();
+                            });
+                        });
                     }
-                    ticks=cachedTimingWords;
+                    ticks=timingKey.equals(cachedTimingKey)&&!cachedTimingWords.isEmpty()
+                        ?cachedTimingWords:ttsStreamer.liveWords(clip);
                 }else ticks=ttsStreamer.liveWords(clip);
                 int at=EdgeWordTimings.at(ticks,ttsPlayer.positionMs());
                 if(at>=0)actual=map.atCharacter(ttsStreamer.charForWord(clip.start)+ticks.get(at).from);
+                else if(ticks.isEmpty()&&ttsPlayer.isPlaying())actual=clip.start;
             }
         }
         boolean active=ttsCurrentlyPlaying();
@@ -1301,12 +1371,25 @@ public class ReaderActivity extends NavigationActivity {
             SentenceChunks.Chunk target=SentenceChunks.forWord(ttsParts,pendingTtsWord);
             if(target!=null&&actual>=target.fromWord&&actual<target.toWord)pendingTtsWord=-1;
             else{
+                EdgeStreamingService.Clip activeClip=ttsStreamer==null?null:ttsStreamer.currentClip();
+                if(activeClip!=null&&ttsPlayer!=null&&ttsPlayer.isPlaying()
+                    &&(activeClip.key+":"+activeClip.start).equals(ttsPlayer.currentKey())
+                    &&activeClip.start>=0&&activeClip.end>activeClip.start
+                    &&target!=null&&actual>=activeClip.start&&actual<activeClip.end
+                    &&((activeClip.start>=target.fromWord&&activeClip.start<target.toWord)
+                        ||SystemClock.uptimeMillis()-pendingTtsSelectedAt>8000L)){
+                    // Playback has advanced to a verified active clip. The former
+                    // tap guard is no longer allowed to hold back WordBoundary.
+                    ReaderDiagnosticLog.event("NAVIGATION","PENDING_SELECTION_RELEASED word="+actual);
+                    pendingTtsWord=-1;
+                }else{
                 if(actual>=0&&lastIgnoredEpoch!=navigationEpoch){
                     lastIgnoredEpoch=navigationEpoch;
                     ReaderDiagnosticLog.event("NAVIGATION","NAVIGATION_IGNORED_STALE epoch="+navigationEpoch+
                         " actual="+actual+" selected="+pendingTtsWord);
                 }
                 actual=-1; // stale callback from the previous streamed sentence
+                }
             }
         }
         if(active&&actual>=0&&actual<words.length&&actual!=index){
@@ -1387,8 +1470,11 @@ public class ReaderActivity extends NavigationActivity {
         return map.atCharacter(chapters.get(endIdx).endChar);
     }
     private long sleepDeadlineRemaining(){
-        long deadline=prefs.getLong("audio_sleep_deadline",0L);
-        return deadline>0L?Math.max(0L,deadline-System.currentTimeMillis()):0L;
+        if(ttsLocal){
+            AudioPlaybackService local=AudioPlaybackService.instance;
+            if(local!=null&&local.isTtsMode())return local.getSleepRemainingMillis();
+        }else if(ttsPlayer!=null)return ttsPlayer.sleepRemainingMs();
+        return Math.max(0L,prefs.getLong(PlaybackSleepCountdown.TTS_KEY,0L));
     }
     private int currentPlaybackWord(){
         if(ttsLocal){AudioPlaybackService local=AudioPlaybackService.instance;
@@ -1405,13 +1491,12 @@ public class ReaderActivity extends NavigationActivity {
     }
     private int sleepTargetWord(){
         if(ttsLocal){AudioPlaybackService local=AudioPlaybackService.instance;
-            if(local!=null&&local.isTtsMode()&&local.sleepAtChapterEnd())
+            if(local!=null&&local.isTtsMode()&&local.ttsSleepEndWord()>=0)
                 return local.ttsSleepEndWord();
-            if(!prefs.getBoolean("audio_sleep_at_chapter_end",false))return -1;
-            return prefs.getInt("reader_tts_sleep_end",-1);
+            return prefs.getInt(PlaybackSleepCountdown.TTS_CHAPTER_KEY,-1);
         }
         if(ttsPlayer!=null)return ttsPlayer.sleepChapterEndWord();
-        return prefs.getInt("edge_sleep_chapter_end",-1);
+        return prefs.getInt(PlaybackSleepCountdown.TTS_CHAPTER_KEY,-1);
     }
     private long sleepChapterRemaining(){
         int end=sleepTargetWord();if(end<0||words.length==0)return -1;
@@ -1439,7 +1524,7 @@ public class ReaderActivity extends NavigationActivity {
         if(mode!=TTS)return;
         SleepTimerSheet.open(this,new SleepTimerSheet.Listener(){
             @Override public void minutes(int minutes){
-                prefs.edit().remove("reader_tts_sleep_end").apply();
+                prefs.edit().remove(PlaybackSleepCountdown.TTS_CHAPTER_KEY).apply();
                 if(ttsLocal)startService(new Intent(ReaderActivity.this,AudioPlaybackService.class)
                     .setAction(AudioPlaybackService.SLEEP).putExtra("minutes",minutes));
                 else if(ttsPlayer!=null)ttsPlayer.setSleepMinutes(minutes);
@@ -1448,7 +1533,7 @@ public class ReaderActivity extends NavigationActivity {
             @Override public void chapters(int count){
                 int end=chapterEndAfter(currentPlaybackWord(),count);
                 if(ttsLocal){
-                    prefs.edit().putInt("reader_tts_sleep_end",end).apply();
+                    prefs.edit().putInt(PlaybackSleepCountdown.TTS_CHAPTER_KEY,end).apply();
                     startService(new Intent(ReaderActivity.this,AudioPlaybackService.class)
                         .setAction(AudioPlaybackService.SLEEP).putExtra("minutes",-count).putExtra("end_word",end));
                 }else if(ttsPlayer!=null)ttsPlayer.setSleepChapterEnd(end);
@@ -1461,7 +1546,7 @@ public class ReaderActivity extends NavigationActivity {
         });
     }
     @Override protected void onResume(){super.onResume();
-        if(readerWasPaused&&words.length>0) returnToActiveWord();
+        if(readerWasPaused&&words.length>0&&!followSuspended) returnToActiveWord();
         readerWasPaused=false;
         if(!localStateReceiverRegistered){
             IntentFilter stateFilter=new IntentFilter(AudioPlaybackService.ACTION_STATE);
@@ -1502,7 +1587,8 @@ public class ReaderActivity extends NavigationActivity {
         chteicoResumed=false;handler.removeCallbacks(chteicoReadTick);
         chteicoCompleteIfReachedEnd();save();stop();super.onPause();
     }
-    @Override protected void onDestroy(){if(mode==TTS)releaseTts();stop();applySystemBars(false);super.onDestroy();}
+    @Override protected void onDestroy(){
+        timingReader.shutdownNow();if(mode==TTS)releaseTts();stop();applySystemBars(false);super.onDestroy();}
     @Override public void onBackPressed(){BackNavigation.back(this);}
     private class FocusLinesView extends View {
         final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);

@@ -50,9 +50,14 @@ final class SleepTimerSheet {
             LinearLayout picker=new LinearLayout(activity);picker.setGravity(Gravity.CENTER_VERTICAL);
             picker.setVisibility(View.GONE);body.addView(picker,new LinearLayout.LayoutParams(-1,dp(activity,50)));
             android.content.SharedPreferences timerState=activity.getSharedPreferences("reader",0);
-            boolean chapterActive=timerState.getBoolean("audio_sleep_at_chapter_end",false)
-                ||timerState.getInt("edge_sleep_chapter_end",-1)>0;
-            final int[] count={chapterActive?Math.max(1,timerState.getInt("audio_sleep_chapter_count",1)):1};
+            AudioPlaybackService local=AudioPlaybackService.instance;
+            boolean ttsDomain=activity instanceof ReaderActivity
+                ||(local!=null&&local.isTtsMode());
+            boolean chapterActive=ttsDomain
+                ?timerState.getInt(PlaybackSleepCountdown.TTS_CHAPTER_KEY,-1)>0
+                :timerState.getBoolean("audio_sleep_at_chapter_end",false);
+            final int[] count={chapterActive&&!ttsDomain
+                ?Math.max(1,timerState.getInt("audio_sleep_chapter_count",1)):1};
             TextView minus=text(activity,"−1",19);minus.setGravity(Gravity.CENTER);
             TextView countLabel=text(activity,"1 глава",17);countLabel.setGravity(Gravity.CENTER);
             TextView plus=text(activity,"+1",19);plus.setGravity(Gravity.CENTER);

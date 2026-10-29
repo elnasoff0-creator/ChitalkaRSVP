@@ -1,0 +1,9 @@
+fix(tts): repair timing refresh, TOC navigation and independent sleep clocks
+
+- Wake UI refresh immediately on play/track callbacks
+- Load Edge WordBoundary metadata without blocking main thread
+- Align TOC after RecyclerView layout; don't seek during playback
+- Keep TTS and audiobook sleep timers separate and play-time based
+- Add sleep-clock JVM regression and startup bind metrics
+
+Version: v1.11.119-beta (11900)

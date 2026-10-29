@@ -1,1 +1,0 @@
-feat(edge-tts): skip ignored literal sentences before WebSocket; add dictionary ignore editor, maintain offsets, bump 11800

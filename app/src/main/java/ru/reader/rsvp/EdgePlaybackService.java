@@ -94,7 +94,7 @@ public final class EdgePlaybackService extends Service {
     private boolean autoTransitionWasPlaying;
     private String notifiedEndKey = "";
     private float playbackSpeed = 1f;
-    private long sleepAtMs;
+    private PlaybackSleepCountdown ttsSleepClock;
     private int sleepChapterEndWord=-1;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable chteicoAudioTick=new Runnable(){@Override public void run(){
@@ -106,13 +106,12 @@ public final class EdgePlaybackService extends Service {
         }
         handler.postDelayed(this,1000);
     }};
-    private final Runnable sleepRunnable = () -> {
-        sleepAtMs = 0L;
-        getSharedPreferences("reader",0).edit().putLong("audio_sleep_deadline",0L).apply();
-        stopAudio();
-        clearQueue();
-        stopSelf();
-    };
+    private final Runnable sleepRunnable=new Runnable(){@Override public void run(){
+        if(ttsSleepClock!=null && ttsSleepClock.tick(isPlaying())){
+            ttsSleepClock.setMinutes(0);pause();
+        }
+        handler.postDelayed(this,1000);
+    }};
     private final BroadcastReceiver exclusiveSource = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
             if (AudioModeCoordinator.STOP_EDGE.equals(i.getAction())) {
@@ -131,10 +130,9 @@ public final class EdgePlaybackService extends Service {
     @Override public void onCreate() {
         super.onCreate();
         handler.postDelayed(chteicoAudioTick,1000);
-        sleepChapterEndWord=getSharedPreferences("reader",0).getInt("edge_sleep_chapter_end",-1);
-        sleepAtMs=getSharedPreferences("reader",0).getLong("audio_sleep_deadline",0L);
-        if(sleepAtMs>System.currentTimeMillis())handler.postDelayed(sleepRunnable,sleepAtMs-System.currentTimeMillis());
-        else sleepAtMs=0L;
+        sleepChapterEndWord=getSharedPreferences("reader",0).getInt(PlaybackSleepCountdown.TTS_CHAPTER_KEY,-1);
+        ttsSleepClock=new PlaybackSleepCountdown(this,PlaybackSleepCountdown.TTS_KEY);
+        handler.postDelayed(sleepRunnable,1000);
         playbackSpeed=getSharedPreferences("reader",0).getFloat("edge_playback_speed",1f);
         playbackSpeed=Math.max(0.5f,Math.min(3f,playbackSpeed));
         player = new ExoPlayer.Builder(this)
@@ -174,7 +172,7 @@ public final class EdgePlaybackService extends Service {
                     ReaderDiagnosticLog.event("PLAYER","track start="+track.start+" end="+track.end+
                         " auto_transition="+completed);
                     if(sleepChapterEndWord>=0 && track.start>=sleepChapterEndWord){
-                        sleepChapterEndWord=-1;getSharedPreferences("reader",0).edit().remove("edge_sleep_chapter_end").apply();
+                        sleepChapterEndWord=-1;getSharedPreferences("reader",0).edit().remove(PlaybackSleepCountdown.TTS_CHAPTER_KEY).apply();
                         pause();return;
                     }
                     for (Listener listener:new ArrayList<>(listeners)) listener.onTrackChanged(track.start, track.end, track.key, completed);
@@ -306,9 +304,11 @@ public final class EdgePlaybackService extends Service {
     public void setListener(Listener value) {listeners.clear();addListener(value);}
     public void prepareBook(String id) {
         String requested=id==null?"":id;
-        if (!requested.equals(activeBookId)) {clearQueue();activeBookId=requested;
-            sleepChapterEndWord=-1;
-            getSharedPreferences("reader",0).edit().remove("edge_sleep_chapter_end").apply();
+        if (!requested.equals(activeBookId)) {
+            boolean differentBook=!activeBookId.isEmpty();
+            clearQueue();activeBookId=requested;
+            if(differentBook){sleepChapterEndWord=-1;
+                getSharedPreferences("reader",0).edit().remove(PlaybackSleepCountdown.TTS_CHAPTER_KEY).apply();}
             updateArtwork(requested);updateSession();}
     }
     public void setAutoContinue(boolean enabled) { autoContinue=enabled; }
@@ -336,39 +336,26 @@ public final class EdgePlaybackService extends Service {
         updateSession();
         notifyState();
     }
-    /** Refresh shared sleep deadline after switching from the Android TTS engine. */
-    public void restoreSharedSleepTimer() {
-        handler.removeCallbacks(sleepRunnable);
-        sleepChapterEndWord=getSharedPreferences("reader",0).getInt("edge_sleep_chapter_end",-1);
-        sleepAtMs=getSharedPreferences("reader",0).getLong("audio_sleep_deadline",0L);
-        if(sleepAtMs>System.currentTimeMillis())
-            handler.postDelayed(sleepRunnable,sleepAtMs-System.currentTimeMillis());
-        else sleepAtMs=0L;
+    /** Local and Edge TTS use one listening-time budget; audiobook is independent. */
+    public void restoreSharedSleepTimer(){
+        if(ttsSleepClock!=null)ttsSleepClock.reload();
+        sleepChapterEndWord=getSharedPreferences("reader",0).getInt(PlaybackSleepCountdown.TTS_CHAPTER_KEY,-1);
     }
-    /** Stops at the first TTS clip beginning at/after the following chapter boundary. */
     public void setSleepChapterEnd(int endWord){
-        handler.removeCallbacks(sleepRunnable);sleepAtMs=0L;
+        if(ttsSleepClock!=null)ttsSleepClock.setMinutes(0);
         sleepChapterEndWord=endWord>0?endWord:-1;
-        getSharedPreferences("reader",0).edit().putLong("audio_sleep_deadline",0L)
-            .putInt("edge_sleep_chapter_end",sleepChapterEndWord).apply();notifyState();
+        getSharedPreferences("reader",0).edit().putInt(PlaybackSleepCountdown.TTS_CHAPTER_KEY,sleepChapterEndWord).apply();
+        notifyState();
     }
-    public void setSleepMinutes(int minutes) {
+    public void setSleepMinutes(int minutes){
         sleepChapterEndWord=-1;
-        getSharedPreferences("reader",0).edit().remove("edge_sleep_chapter_end").apply();
-        handler.removeCallbacks(sleepRunnable);
-        if (minutes <= 0) {
-            sleepAtMs = 0L;
-            getSharedPreferences("reader",0).edit().putLong("audio_sleep_deadline",0L).apply();
-            notifyState();return;
-        }
-        sleepAtMs = System.currentTimeMillis() + minutes * 60_000L;
-        getSharedPreferences("reader",0).edit().putLong("audio_sleep_deadline",sleepAtMs).apply();
-        handler.postDelayed(sleepRunnable, minutes * 60_000L);
+        getSharedPreferences("reader",0).edit().remove(PlaybackSleepCountdown.TTS_CHAPTER_KEY).apply();
+        if(ttsSleepClock!=null)ttsSleepClock.setMinutes(minutes);
         notifyState();
     }
     public int sleepChapterEndWord(){return sleepChapterEndWord;}
     public long sleepRemainingMs() {
-        return sleepAtMs <= 0L ? 0L : Math.max(0L, sleepAtMs - System.currentTimeMillis());
+        return ttsSleepClock==null?0L:ttsSleepClock.remainingMillis();
     }
     public long positionMs() { return player==null?0:Math.max(0,player.getCurrentPosition()); }
     public long durationMs() {
@@ -540,6 +527,7 @@ public final class EdgePlaybackService extends Service {
         notifyState();
     }
     public void pause() {
+        if(ttsSleepClock!=null)ttsSleepClock.freeze();
         requestedPlay=false;requestedPlayAtMs=0;
         player.pause();
         focus.release();
@@ -548,6 +536,7 @@ public final class EdgePlaybackService extends Service {
         notifyState();
     }
     public void stopAudio() {
+        if(ttsSleepClock!=null)ttsSleepClock.freeze();
         requestedPlay=false;requestedPlayAtMs=0;
         player.pause();
         if (player.getMediaItemCount()>0) player.seekTo(0);
@@ -644,6 +633,7 @@ public final class EdgePlaybackService extends Service {
         try {unregisterReceiver(noisy);}catch(Exception ignored){}
         try {unregisterReceiver(exclusiveSource);}catch(Exception ignored){}
         handler.removeCallbacks(sleepRunnable);
+        if(ttsSleepClock!=null)ttsSleepClock.freeze();
         focus.release();
         hideNotification();
         if(mediaSession!=null){mediaSession.setActive(false);mediaSession.release();mediaSession=null;}
