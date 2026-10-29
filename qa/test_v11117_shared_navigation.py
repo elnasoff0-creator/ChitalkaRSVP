@@ -41,5 +41,5 @@ assert classes.get('KvuheBookActivity')=='UrlImportActivity'
 for xml_name in ['ic_home.xml','ic_book.xml','ic_microphone.xml','ic_downloads.xml','ic_chteico_nav.xml','ic_settings.xml','ic_web_update.xml','ic_info_help.xml']:
     assert (root/'app/src/main/res/drawable'/xml_name).exists()
 build=(root/'app/build.gradle').read_text()
-assert "versionCode 11900; versionName '1.11.119-beta'" in build
+assert "versionCode 12000; versionName '1.11.120-beta'" in build
 print('PASS v1.11.117: single identical 8-item overlay, icons, swipe-to-close only, navigation, 14 Activity destinations, version')

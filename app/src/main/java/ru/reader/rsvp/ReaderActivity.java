@@ -1128,13 +1128,19 @@ public class ReaderActivity extends NavigationActivity {
     void openReadingFromDrawer(){setMode(NORMAL);}
 
     private void setMode(int next){if(next<0||next>TTS||next==mode)return;
+        final long modeSelectedAt=SystemClock.elapsedRealtime();
+        if(next==TTS)ReaderDiagnosticLog.event("READER_STARTUP","tts_mode_selected engine="+(ttsLocal?"local":"edge"));
         chteicoTouch();stop();int old=index,previousMode=mode;
         if(previousMode==TTS)releaseTts();
         pendingTtsWord=-1;
         mode=next;selecting=false;normalChromeVisible=false;toolbarExpanded=true;
         ReaderToolbarController.reset(toolbarStack);
         updateModeUI();refreshHighlight(old);returnToActiveWord();saveLight(true);
-        if(mode==TTS)startTtsSession();
+        if(mode==TTS){
+            ReaderDiagnosticLog.event("READER_STARTUP","tts_ui_ready_ms="+
+                (SystemClock.elapsedRealtime()-modeSelectedAt));
+            startTtsSession();
+        }
     }
     private void chteicoTouch(){chteicoLastInteraction=SystemClock.elapsedRealtime();}
     private void chteicoCompleteIfReachedEnd(){

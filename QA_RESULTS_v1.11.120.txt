@@ -41,5 +41,6 @@ PASS test_v11118_ignored_speech.sh
 PASS test_v11118_perf_sleep_dictionary.py
 PASS test_v11119_listening_clock.sh
 PASS test_v11119_navigation_highlight_sleep.py
-TOTAL 43 PASS 43 FAIL 0
+PASS test_v11120_lazy_startup.py
+TOTAL 44 PASS 44 FAIL 0
 Scope: Java syntax, XML/resources, static assertions, desktop JVM tests. No Android SDK or device rendering.

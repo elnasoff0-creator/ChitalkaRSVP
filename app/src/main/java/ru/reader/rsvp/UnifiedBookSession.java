@@ -15,6 +15,11 @@ final class UnifiedBookSession {
     final java.util.ArrayList<Integer> ttsWordPositions;
     final java.util.ArrayList<SentenceChunks.Chunk> speechSegments;
     private static volatile UnifiedBookSession active;
+    private volatile java.util.ArrayList<SentenceChunks.Chunk> edgeGroups;
+    synchronized java.util.ArrayList<SentenceChunks.Chunk> edgeGroups(){
+        if(edgeGroups==null)edgeGroups=EdgeSpeechSegments.split(book.text,book.chapters);
+        return edgeGroups;
+    }
     private UnifiedBookSession(String u,BookLoader.Book b,ReadingWordMap w){
         uri=u;book=b;words=w;blocks=new BookChunkIndex(b.text,w,560);
         ttsWordPositions=new java.util.ArrayList<>(w.starts.length);

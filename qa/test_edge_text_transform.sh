@@ -94,7 +94,7 @@ assert 'EdgeSpeechFiles.saveMapped' in a
 assert 'job.speech.spoken' in a
 assert 'foreground?EdgeSpeechQueue.PLAY:EdgeSpeechQueue.PREFETCH' in a
 assert 'job.speech.aligned' in a
-assert 'if(current!=null&&!next.equals(current.key))choose(null,null)' in a
+assert 'if(speechOptions!=null&&!requested.equals(speechRevision))' in a
 assert 'EdgeWebSocketPool.recycle(resource)' in c and 'socketTerminated(resource)' in c
 assert 'active.size()>=MAX_ACTIVE' in b
 print('PASS: cache-first candidate window, pooled WS, transformed text/timings')

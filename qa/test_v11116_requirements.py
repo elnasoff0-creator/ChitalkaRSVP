@@ -30,5 +30,5 @@ for k,v in checks.items():print(('PASS' if v else 'FAIL')+' '+k)
 assert all(checks.values()),'Missing 1.11.116 feature static evidence'
 manifest=(root/'app/src/main/AndroidManifest.xml').read_text()
 assert '.EdgeDictionaryActivity' in manifest
-assert "versionName '1.11.119-beta'" in (root/'app/build.gradle').read_text()
+assert "versionName '1.11.120-beta'" in (root/'app/build.gradle').read_text()
 print('PASS: 18/18 feature-source assertions + manifest/version')

@@ -27,8 +27,8 @@ assert 'autoTransitionIndex==player.getCurrentMediaItemIndex()' in play
 assert 'sample_gap_ms=unavailable' in play
 assert 'play_to_is_playing_callback_ms' in play and 'first_sound_after_play_ms' not in play
 assert 'track_callback_gap_ms' in (s/'EdgeTtsDiagnostics.java').read_text()
-assert 'versionCode 11900' in (r/'app/build.gradle').read_text()
-assert "versionName '1.11.119-beta'" in (r/'app/build.gradle').read_text()
+assert 'versionCode 12000' in (r/'app/build.gradle').read_text()
+assert "versionName '1.11.120-beta'" in (r/'app/build.gradle').read_text()
 # Approved vector colors and transparent backgrounds must survive the release.
 import xml.etree.ElementTree as ET
 xml=r/'app/src/main/res/drawable';ns='{http://schemas.android.com/apk/res/android}'

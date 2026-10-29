@@ -7,7 +7,7 @@ e=(p/'EdgePlaybackService.java').read_text()
 s=(p/'SleepTimerSheet.java').read_text()
 c=(p/'PlaybackSleepCountdown.java').read_text()
 checks={
- 'correct version':"versionCode 11900; versionName '1.11.119-beta'" in (root/'app/build.gradle').read_text(),
+ 'correct version':"versionCode 12000; versionName '1.11.120-beta'" in (root/'app/build.gradle').read_text(),
  'urgent UI callback preempts 15 second timer':'handler.removeCallbacks(ttsUiTick);' in r and 'if(ttsTickDueAt<=due)return' in r,
  'track and media callbacks wake UI':'ttsPlayerListener' in r and 'scheduleTtsUi()' in r and 'localStateReceiver' in r,
  'TOC retries on actual animation frames':'postOnAnimation(()->alignTocPreview(' in r and 'if(attempt<12)' in r,

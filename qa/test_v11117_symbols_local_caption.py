@@ -16,8 +16,8 @@ checks={
  'custom dot preserved': 'boolean sourceDot=' in transform,
  'system TTS complete sentence': 'int through=(ttsLocal||missingWordTiming)?Math.min(body.length(),part.toChar)' in reader,
  'Edge progressive caption remains': ': Math.min(body.length(),map.ends[map.clamp(index)])' in reader,
- 'version code is 11900': bool(re.search(r'versionCode\s+11900\b',gradle)),
- 'version name remains': '1.11.119-beta' in gradle,
+ 'version code is 12000': bool(re.search(r'versionCode\s+12000\b',gradle)),
+ 'version name remains': '1.11.120-beta' in gradle,
 }
 for label,ok in checks.items():
  print(('PASS' if ok else 'FAIL'),label)

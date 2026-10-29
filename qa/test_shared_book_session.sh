@@ -57,6 +57,7 @@ public class TestSharedBook {
   check(first.words.size()>5 && first.blocks.size()>0,"shared UI indexes are built");
   check(UnifiedBookSession.open(context,uri)==first,"mode switch is zero-reload");
   check(BookLoader.parsed==1,"mode switch never reopened EPUB");
+  check(first.edgeGroups()==first.edgeGroups(),"Edge grouped sentence list reused between mode switches");
   Field active=UnifiedBookSession.class.getDeclaredField("active");active.setAccessible(true);active.set(null,null);
   UnifiedBookSession disk=UnifiedBookSession.open(context,uri);
   check(BookLoader.parsed==1,"cold app start used disk cache without original EPUB");
@@ -77,6 +78,7 @@ javac -encoding UTF-8 -d "$WORK/classes" \
  app/src/main/java/ru/reader/rsvp/ReadingWordMap.java \
  app/src/main/java/ru/reader/rsvp/BookChunkIndex.java \
  app/src/main/java/ru/reader/rsvp/SentenceChunks.java \
+ app/src/main/java/ru/reader/rsvp/EdgeSpeechSegments.java \
  app/src/main/java/ru/reader/rsvp/UnifiedBookSession.java \
  "$WORK/src/ru/reader/rsvp/TestSharedBook.java"
 java -cp "$WORK/classes" ru.reader.rsvp.TestSharedBook "$WORK"

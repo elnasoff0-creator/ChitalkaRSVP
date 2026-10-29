@@ -23,7 +23,7 @@ checks={
     'paused navigation still works': 'int previous=index;stop();index=word;' in toc,
     'normal TTS progress respects suspended follow': 'if(!followSuspended)ensureWordVisible(false)' in s,
     'caption checks spoken sentence visibility': 'isActiveSentenceVisible()' in s[s.index('private void updateFloatingCaption()'):s.index('private void returnToActiveWord()')],
-    'version unchanged': '11900' in (src.parents[3]/'build.gradle').read_text() if (src.parents[3]/'build.gradle').exists() else True,
+    'version unchanged': '12000' in (src.parents[3]/'build.gradle').read_text() if (src.parents[3]/'build.gradle').exists() else True,
 }
 for name,ok in checks.items():
     print(('PASS' if ok else 'FAIL'),name)
