@@ -71,9 +71,6 @@ public final class EdgeStreamingService extends Service {
     private String speechRevision="";
     private long restoreStartedAt=0L;
     private long trackReadyLoggedAt=-1L;
-    private final Runnable idleExpiry=()->{
-        if(!active && (player==null||!player.playRequested()))stopSelf();
-    };
     private static final long IDLE_REUSE_MS=120000L;
     private void invalidateSpeech(){
         speechOptions=null;speechRevision="";preparedSpeech.clear();
@@ -177,6 +174,11 @@ public final class EdgeStreamingService extends Service {
     private boolean bookReady,active,destroyed,playerBound,idlePrefetchRequested;
     private int anchorWord;
     private EdgePlaybackService player;
+    // Initialized after active/player: Java rejects field reads of later declarations
+    // inside a field-initializer lambda (illegal forward reference).
+    private final Runnable idleExpiry=()->{
+        if(!active && (player==null||!player.playRequested()))stopSelf();
+    };
     private final Runnable refreshReady=new Runnable(){@Override public void run(){
         if(destroyed)return;
         if(bookReady&&directory!=null&&active)pump(); // ready offline files only

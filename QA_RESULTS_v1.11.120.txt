@@ -9,6 +9,7 @@ PASS test_audio_focus_policy.sh
 PASS test_edge_429_silent.sh
 PASS test_edge_500ms_policy.sh
 PASS test_edge_clock_sync.sh
+PASS test_edge_idle_expiry_compilation.py
 PASS test_edge_live_buffer.sh
 PASS test_edge_offline_chapters.sh
 PASS test_edge_prefetch_planner.sh
@@ -42,5 +43,5 @@ PASS test_v11118_perf_sleep_dictionary.py
 PASS test_v11119_listening_clock.sh
 PASS test_v11119_navigation_highlight_sleep.py
 PASS test_v11120_lazy_startup.py
-TOTAL 44 PASS 44 FAIL 0
+TOTAL 45 PASS 45 FAIL 0
 Scope: Java syntax, XML/resources, static assertions, desktop JVM tests. No Android SDK or device rendering.
