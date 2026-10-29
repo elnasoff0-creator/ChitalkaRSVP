@@ -399,7 +399,7 @@ public class MainActivity extends Activity {
         add(contentWrap,gap(12));
         TextView bookToggle=buttonish("Библиотека ("+library.size()+")  "+(bookExpanded?"⌃":"⌄"),softPanel(),fg,true);
         bookToggle.setOnClickListener(v->{prefs.edit().putBoolean("book_library_expanded",!bookExpanded).apply();draw();});
-        add(contentWrap,bookToggle);
+        add(contentWrap,iconToggle(bookToggle,R.drawable.ic_audio_chapters));
         if(bookExpanded){
         if (library.isEmpty()) {
             TextView empty = text("Здесь появятся добавленные книги с мини-обложками и сохранённым прогрессом.", 15, false);
@@ -424,6 +424,13 @@ public class MainActivity extends Activity {
         final int audioStart=contentWrap.getChildCount();
         java.util.ArrayList<AudioLibrary.Book> audioBooks=AudioLibrary.load(this);
         audioBooks = sortedAudioBooks(audioBooks);
+        if(audioBooks.isEmpty()){
+            boolean audioExpanded=prefs.getBoolean("audio_library_expanded",false);
+            TextView audioToggle=buttonish("Аудиотека (0)  "+(audioExpanded?"⌃":"⌄"),softPanel(),fg,true);
+            audioToggle.setOnClickListener(v->{prefs.edit().putBoolean("audio_library_expanded",!audioExpanded).apply();draw();});
+            add(contentWrap,gap(12));add(contentWrap,iconToggle(audioToggle,R.drawable.ic_audiotheque));
+            if(audioExpanded){TextView note=text("Здесь появятся добавленные аудиокниги.",14,false);add(contentWrap,note);}
+        }
         if(!audioBooks.isEmpty()){
             String lastId=prefs.getString("audio_last_book","");
             AudioLibrary.Book recent=null;
@@ -451,7 +458,7 @@ public class MainActivity extends Activity {
             boolean expanded=prefs.getBoolean("audio_library_expanded",false);
             TextView toggle=buttonish("Аудиотека ("+audioBooks.size()+")  "+(expanded?"⌃":"⌄"),softPanel(),fg,true);
             toggle.setOnClickListener(v->{prefs.edit().putBoolean("audio_library_expanded",!expanded).apply();draw();});
-            add(contentWrap,toggle);
+            add(contentWrap,iconToggle(toggle,R.drawable.ic_audiotheque));
             if(expanded){
                 LinearLayout audioList=column();audioList.setBackground(shape(panelColor(),18));
                 for(int i=0;i<audioBooks.size();i++){
@@ -486,7 +493,8 @@ public class MainActivity extends Activity {
             petArea.setBackground(shape(panelColor(),22));
             ChteicoPetView pet=new ChteicoPetView(this);
             pet.setForceNightWhenSleeping(true);
-            FrameLayout.LayoutParams petLp=new FrameLayout.LayoutParams(dp(118),dp(119),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);
+            pet.setMiniEvolutionSizing(true);
+            FrameLayout.LayoutParams petLp=new FrameLayout.LayoutParams(-1,-1,Gravity.CENTER);
             petArea.addView(pet,petLp);
 
             // The opaque emotion bubble is OVER the face, including its open eyes
@@ -563,7 +571,8 @@ public class MainActivity extends Activity {
             // Short tap opens the pet. Swipe causes emotion without dragging;
             // system-duration hold starts drag and vibrates only on drag.
             ChteicoEmotions.attach(petArea,
-                ()->{bubble.removeCallbacks(dismissEmotion);startActivity(new Intent(this,ChteicoActivity.class));},
+                ()->{boolean wake=ChteicoEmotions.isSleeping();if(wake)ChteicoEmotions.wake();
+                    bubble.removeCallbacks(dismissEmotion);startActivity(new Intent(this,ChteicoActivity.class).putExtra("wake_pet",wake));},
                 null,showEmotion,HomeSectionOrder::startPetDrag);
             contentWrap.addView(petArea,areaLp);
         }
@@ -571,6 +580,16 @@ public class MainActivity extends Activity {
         // Navigation moved to the accessible left drawer.
     }
 
+    private LinearLayout iconToggle(TextView toggle,int iconId){
+        LinearLayout row=row();row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setBackground(shape(softPanel(),14));
+        ImageView image=new ImageView(this);image.setImageResource(iconId);image.setColorFilter(fg);
+        LinearLayout.LayoutParams iconLp=new LinearLayout.LayoutParams(dp(27),dp(27));iconLp.leftMargin=dp(13);
+        row.addView(image,iconLp);
+        toggle.setBackgroundColor(Color.TRANSPARENT);
+        row.addView(toggle,new LinearLayout.LayoutParams(0,-2,1));
+        row.setOnClickListener(v->toggle.performClick());return row;
+    }
     View gap(int n) { TextView t = new TextView(this); t.setHeight(dp(n)); return t; }
     View divider() { View v = new View(this); v.setBackgroundColor(ReadingThemeCycle.isDark(bg) ? 0xff3a3d43 : 0xffede4d8); v.setLayoutParams(new LinearLayout.LayoutParams(-1, dp(1))); return v; }
 
@@ -1182,7 +1201,7 @@ public class MainActivity extends Activity {
         TextView brand=text("  ПРОЧиталка",21,true);branding.addView(brand);panel.addView(branding);
         View separator=new View(this);separator.setBackgroundColor(fg&0x44ffffff);
         LinearLayout.LayoutParams slp=new LinearLayout.LayoutParams(-1,dp(1));slp.topMargin=dp(18);slp.bottomMargin=dp(10);panel.addView(separator,slp);
-        drawerItem(panel,R.drawable.ic_audio_chapters,"Библиотека",()->{screen=0;draw();});
+        drawerItem(panel,R.drawable.ic_home,"Главный экран",()->{screen=0;draw();});
         drawerItem(panel,R.drawable.ic_book,"Чтение",()->{if(currentUri==null||currentUri.isEmpty())pick();else openBook(currentUri,false,true);});
         drawerItem(panel,R.drawable.ic_microphone,"Аудиокнига",this::openLastMedia);
         drawerItem(panel,R.drawable.ic_downloads,"Загрузки",()->startActivity(new Intent(this,DownloadActivity.class)));

@@ -32,5 +32,5 @@ assert 'prefetchIssued>=EdgeSpeechQueue.MAX_PREFETCH' in service
 assert 'pending++;prefetchIssued++' in service
 assert 'activeLeases' in (s/'EdgeWebSocketPool.java').read_text()
 assert 'buffering_duration_ms' in (s/'EdgePlaybackService.java').read_text()
-assert 'versionName \'1.11.115-beta\'' in (r/'app/build.gradle').read_text()
+assert 'versionName \'1.11.116-beta\'' in (r/'app/build.gradle').read_text()
 print('PASS: new long-hold/tap/swipe separation; haptic only drag; wrap bubbles, white-black adaptive icon outlines, bounded prefetch and diagnostic instrumentation')

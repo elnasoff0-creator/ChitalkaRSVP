@@ -21,9 +21,9 @@ public final class KvuheBookActivity extends UrlImportActivity {
         screen.setPadding(dp(13),dp(22),dp(13),dp(12));setContentView(screen);SafeSystemBars.matchBackground(this,background);
         LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);
         screen.addView(head,new LinearLayout.LayoutParams(-1,dp(50)));
-        ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_back);back.setColorFilter(foreground);
+        ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_menu_lines);back.setColorFilter(foreground);
         back.setPadding(dp(10),dp(10),dp(10),dp(10));back.setBackground(shape(0xfffff9f0));
-        back.setContentDescription("Назад");back.setOnClickListener(v->BackNavigation.back(this));
+        back.setContentDescription("Главное меню");back.setOnClickListener(v->UniversalDrawer.show(this));
         head.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));
         TextView header=text("Аудиокнига",23);header.setTypeface(Typeface.SERIF,Typeface.BOLD);header.setGravity(Gravity.CENTER);
         head.addView(header,new LinearLayout.LayoutParams(0,-1,1));head.addView(new View(this),new LinearLayout.LayoutParams(dp(49),dp(49)));

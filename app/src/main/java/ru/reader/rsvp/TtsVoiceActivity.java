@@ -27,7 +27,7 @@ public class TtsVoiceActivity extends Activity {
     @Override public void onCreate(Bundle b){super.onCreate(b);android.content.SharedPreferences pref=getSharedPreferences("reader",0);
         bg=pref.getInt("bg",0xfff3e7d5);fg=pref.getInt("fg",0xff30221e);engine=pref.getString("tts_engine","");
         LinearLayout layout=new LinearLayout(this);layout.setOrientation(1);layout.setBackgroundColor(bg);layout.setPadding(dp(12),dp(22),dp(12),dp(10));setContentView(layout);SafeSystemBars.matchBackground(this,bg);
-        TextView title=row("←   Голос и озвучивание",23);title.setOnClickListener(v->finish());layout.addView(title);
+        TextView title=row("☰   Голос и озвучивание",23);title.setOnClickListener(v->UniversalDrawer.show(this));layout.addView(title);
         ScrollView scroll=new ScrollView(this);layout.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));items=new LinearLayout(this);items.setOrientation(1);scroll.addView(items);
         loadEngine();
     }

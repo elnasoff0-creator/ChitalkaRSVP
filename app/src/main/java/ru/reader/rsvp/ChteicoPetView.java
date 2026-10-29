@@ -18,6 +18,17 @@ public final class ChteicoPetView extends ImageView {
     private boolean frameDown;
     private boolean sleeping;
     private boolean forceNightWhenSleeping;
+    private boolean miniEvolutionSizing=false;
+    public void setMiniEvolutionSizing(boolean enabled){miniEvolutionSizing=enabled;updateMiniInsets();}
+    private void updateMiniInsets(){
+        if(!miniEvolutionSizing||getWidth()==0||getHeight()==0)return;
+        int stage=ChteicoStore.stage(getContext());
+        float scale=stage==ChteicoStore.EGG?.70f:stage==ChteicoStore.CHICK?.80f:stage==ChteicoStore.READER?.90f:1f;
+        int horizontal=Math.round(getWidth()*(1f-scale)/2f);
+        int vertical=Math.round(getHeight()*(1f-scale)/2f);
+        setPadding(horizontal,vertical,horizontal,vertical);
+    }
+    @Override protected void onSizeChanged(int w,int h,int oldW,int oldH){super.onSizeChanged(w,h,oldW,oldH);updateMiniInsets();}
     private int shownStage=-1, shownBranch=-1, shownEggUnits=-1;
 
     // Stage order: Chick, Reader, Adult. Branch order: classic, speed, audio.
@@ -69,6 +80,7 @@ public final class ChteicoPetView extends ImageView {
         int stage=ChteicoStore.stage(getContext());
         int branch=ChteicoStore.branch(getContext());
         shownStage=stage;shownBranch=branch;
+        updateMiniInsets();
         if(stage==ChteicoStore.EGG){
             shownEggUnits=ChteicoStore.eggUnits(getContext());
             setImageResource(ChteicoStore.eggCracked(getContext())

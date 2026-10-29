@@ -37,8 +37,8 @@ public final class EdgeFullBookActivity extends Activity {
         LinearLayout outer=new LinearLayout(this);outer.setOrientation(LinearLayout.VERTICAL);
         outer.setPadding(dp(15),dp(24),dp(15),dp(12));outer.setBackgroundColor(BG);setContentView(outer);SafeSystemBars.matchBackground(this,BG);
         LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);outer.addView(head);
-        TextView back=label("‹",35,false);back.setGravity(Gravity.CENTER);back.setBackground(rounded(PANEL));
-        head.addView(back,new LinearLayout.LayoutParams(dp(50),dp(50)));back.setOnClickListener(v->BackNavigation.back(this));
+        TextView back=label("☰",26,false);back.setGravity(Gravity.CENTER);back.setBackground(rounded(PANEL));
+        head.addView(back,new LinearLayout.LayoutParams(dp(50),dp(50)));back.setOnClickListener(v->UniversalDrawer.show(this));
         TextView title=label("Подготовить аудиокнигу",23,true);title.setTypeface(Typeface.SERIF,Typeface.BOLD);
         LinearLayout.LayoutParams ht=new LinearLayout.LayoutParams(0,-2,1);ht.leftMargin=dp(12);head.addView(title,ht);
         TextView help=label("Выберите FB2 или EPUB из библиотеки. Edge TTS подготовит все недостающие MP3 в фоне. Существующие аудиофайлы останутся на месте.",14,false);

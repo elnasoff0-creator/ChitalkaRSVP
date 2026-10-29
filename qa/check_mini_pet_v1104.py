@@ -13,7 +13,7 @@ assert 'ChteicoPhrases' not in pet and 'Reply r=' not in pet, 'no phrases on Mai
 assert 'emotion.setText(ChteicoEmotions.stroke())' in pet, 'short touch must show an emotion'
 assert 'ChteicoEmotions.sleep(phase++)' in pet, 'sleep should animate dots only'
 assert 'miniSleepAppearance.accept(true)' in pet and 'ChteicoEmotions.attach(petArea,' in pet
-assert 'startActivity(new Intent(this,ChteicoActivity.class))' in pet, 'tap must open full pet'
+assert 'startActivity(new Intent(this,ChteicoActivity.class).putExtra("wake_pet",wake))' in pet, 'tap must open pet with wake state'
 assert 'HomeSectionOrder::startPetDrag' in pet, 'drag-and-drop must continue working'
 assert not re.search(r'(?:reply|speech).setText\(',pet,re.I), 'no speech text should be shown'
 print('PASS: centered square mini-pet; only overlaid emotions; sleep down + dots; card gestures')

@@ -74,9 +74,9 @@ public final class DownloadActivity extends Activity {
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(12),dp(25),dp(12),dp(12));root.setBackgroundColor(BG);setContentView(root);SafeSystemBars.matchBackground(this,BG);
         LinearLayout toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);
         root.addView(toolbar,new LinearLayout.LayoutParams(-1,dp(52)));
-        ImageView back=icon(R.drawable.ic_back,"Назад",44);
+        ImageView back=icon(R.drawable.ic_menu_lines,"Главное меню",44);
         toolbar.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));
-        back.setOnClickListener(v->BackNavigation.back(this));
+        back.setOnClickListener(v->UniversalDrawer.show(this));
         toolbar.addView(new View(this),new LinearLayout.LayoutParams(0,dp(1),1));
         toolbarAction(toolbar,R.drawable.ic_search_audiobook,"Поиск аудиокниг",()->startActivity(new Intent(this,KvuheSearchActivity.class)));
         toolbarAction(toolbar,R.drawable.ic_import_link,"Импорт по ссылке",()->startActivity(new Intent(this,LinkDownloadActivity.class)));

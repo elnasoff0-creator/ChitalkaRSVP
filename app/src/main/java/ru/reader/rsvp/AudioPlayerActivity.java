@@ -111,7 +111,7 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         root.setPadding(dp(12),dp(29),dp(12),dp(10));setContentView(root);SafeSystemBars.matchBackground(this,BACKGROUND);
         LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);
         root.addView(top,new LinearLayout.LayoutParams(-1,dp(54)));
-        top.addView(topAction(R.drawable.ic_back,"Назад",v->BackNavigation.back(this)),new LinearLayout.LayoutParams(dp(44),dp(44)));
+        top.addView(topAction(R.drawable.ic_menu_lines,"Главное меню",v->UniversalDrawer.show(this)),new LinearLayout.LayoutParams(dp(44),dp(44)));
         top.addView(new View(this),new LinearLayout.LayoutParams(0,dp(1),1f));
         if(selected==null){TextView method=label("TTS ▾",13);method.setGravity(Gravity.CENTER);
             method.setOnClickListener(v->methodMenu());

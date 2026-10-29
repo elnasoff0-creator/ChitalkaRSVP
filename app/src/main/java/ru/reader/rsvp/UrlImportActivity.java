@@ -22,11 +22,11 @@ public class UrlImportActivity extends Activity {
     @Override public void onCreate(Bundle b){super.onCreate(b);android.content.SharedPreferences p=getSharedPreferences("reader",0);background=p.getInt("bg",background);foreground=p.getInt("fg",foreground);draw();}
     void draw(){handler.removeCallbacksAndMessages(null);ScrollView scroll=new ScrollView(this);root=new LinearLayout(this);root.setPadding(dp(15),dp(24),dp(15),dp(18));root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(background);scroll.addView(root);setContentView(scroll);SafeSystemBars.matchBackground(this,background);
         LinearLayout toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);root.addView(toolbar);
-        android.widget.ImageView back=new android.widget.ImageView(this);back.setImageResource(R.drawable.ic_back);
+        android.widget.ImageView back=new android.widget.ImageView(this);back.setImageResource(R.drawable.ic_menu_lines);
         back.setColorFilter(foreground);back.setPadding(dp(10),dp(10),dp(10),dp(10));
         back.setBackground(shape(background==0xff1e2025?0xff303238:0xfffff8ef));
         toolbar.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));
-        back.setContentDescription("Назад");back.setOnClickListener(v->BackNavigation.back(this));
+        back.setContentDescription("Главное меню");back.setOnClickListener(v->UniversalDrawer.show(this));
         TextView caption=text("Импорт по ссылке",23);toolbar.addView(caption);
         Button queue=button("Очередь загрузок");add(root,queue);queue.setOnClickListener(v->startActivity(new Intent(this,DownloadActivity.class)));address=new EditText(this);address.setSingleLine(true);address.setHint("https://knigavuhe.org/book/...");address.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_URI);add(root,address);String requested=getIntent().getStringExtra("source");if(requested!=null)address.setText(requested);
         LinearLayout row=new LinearLayout(this);root.addView(row);Button paste=button("Вставить");row.addView(paste,new LinearLayout.LayoutParams(0,-2,1));paste.setOnClickListener(v->{android.content.ClipboardManager clip=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);if(clip.hasPrimaryClip()&&clip.getPrimaryClip().getItemCount()>0)address.setText(clip.getPrimaryClip().getItemAt(0).coerceToText(this));});find=button("Найти аудиокнигу");row.addView(find,new LinearLayout.LayoutParams(0,-2,2));find.setOnClickListener(v->fetch());

@@ -59,7 +59,7 @@ public final class EdgeChapterDownloadsActivity extends Activity {
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(BG);
         root.setPadding(dp(14),dp(24),dp(14),dp(10));setContentView(root);SafeSystemBars.matchBackground(this,BG);
         LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);root.addView(header);
-        TextView back=button("‹",()->BackNavigation.back(this));header.addView(back,new LinearLayout.LayoutParams(dp(48),dp(46)));
+        TextView back=button("☰",()->UniversalDrawer.show(this));header.addView(back,new LinearLayout.LayoutParams(dp(48),dp(46)));
         TextView label=text("Загрузка озвучки",22,true);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);
         lp.leftMargin=dp(10);header.addView(label,lp);
         TextView book=text(title,15,false);book.setTextColor(MUTED);LinearLayout.LayoutParams bookLp=new LinearLayout.LayoutParams(-1,-2);

@@ -26,8 +26,8 @@ public final class KvuheSeriesActivity extends Activity {
     @Override protected void onCreate(Bundle saved){super.onCreate(saved);
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(13),dp(22),dp(13),dp(13));root.setBackgroundColor(BACK);setContentView(root);SafeSystemBars.matchBackground(this,BACK);
         LinearLayout toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);root.addView(toolbar,new LinearLayout.LayoutParams(-1,dp(52)));
-        ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_back);back.setColorFilter(INK);back.setPadding(dp(10),dp(10),dp(10),dp(10));
-        back.setBackground(bg(WHITE));back.setOnClickListener(v->BackNavigation.back(this));toolbar.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_menu_lines);back.setColorFilter(INK);back.setPadding(dp(10),dp(10),dp(10),dp(10));
+        back.setBackground(bg(WHITE));back.setOnClickListener(v->UniversalDrawer.show(this));toolbar.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));
         TextView heading=text("Цикл аудиокниг",23);heading.setTypeface(Typeface.SERIF,Typeface.BOLD);heading.setGravity(Gravity.CENTER);
         toolbar.addView(heading,new LinearLayout.LayoutParams(0,-1,1));toolbar.addView(new View(this),new LinearLayout.LayoutParams(dp(44),dp(44)));
         TextView title=text(getIntent().getStringExtra("title"),21);title.setTypeface(Typeface.SERIF,Typeface.BOLD);

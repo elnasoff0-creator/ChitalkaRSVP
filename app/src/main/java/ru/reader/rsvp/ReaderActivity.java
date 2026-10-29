@@ -58,6 +58,7 @@ public class ReaderActivity extends Activity {
     // A manual scroll suspends follow until one of the three explicit return actions.
     private boolean followSuspended=false,readerWasPaused=false;
     private TextView ttsFloatingCaption;
+    private int dictionarySelectedWord=-1;
     private long navigationEpoch=0L;
     private long lastIgnoredEpoch=-1L;
 
@@ -250,7 +251,7 @@ public class ReaderActivity extends Activity {
         toolbarOverlay.setMargins(dp(8),0,dp(8),0);sceneRoot.addView(toolbarStack,toolbarOverlay);
         toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);
         toolbarStack.addView(toolbar,new LinearLayout.LayoutParams(-1,dp(44)));
-        toolbar.addView(icon(R.drawable.ic_back,v->BackNavigation.back(this)),new LinearLayout.LayoutParams(dp(44),dp(44)));
+        toolbar.addView(icon(R.drawable.ic_menu_lines,v->UniversalDrawer.show(this)),new LinearLayout.LayoutParams(dp(44),dp(44)));
         toolbarModeAction=icon(modeDrawable(),v->modeDialog());
         toolbarModeAction.setContentDescription("Режим чтения: Чтение, Скорочтение, Курсор, Озвучка");
         LinearLayout.LayoutParams toolbarModeLp=new LinearLayout.LayoutParams(dp(44),dp(44));
@@ -306,6 +307,8 @@ public class ReaderActivity extends Activity {
         toolbar.addView(icon(R.drawable.ic_more_vertical,v->{
             ReaderSheets.overflow(this,mode==TTS,which->{if(which==0)bookmark();else if(which==1)settings();
                     else if(mode==TTS&&which==2)chooseTtsVoice();
+                    else if(which==(mode==TTS?4:3))openEdgeDictionary();
+                    else if(which==(mode==TTS?5:4))showBookSearch();
                     else if(!docUri.isEmpty())startActivity(new Intent(this,EdgeChapterDownloadsActivity.class)
                         .putExtra("book_uri",docUri).putExtra("book_title",title));});
         }),settingsLp);
@@ -375,14 +378,16 @@ public class ReaderActivity extends Activity {
         ttsFloatingCaption.setTextColor(contrast(buttonBg()));
         ttsFloatingCaption.setBackground(shape(buttonBg(),16));
         ttsFloatingCaption.setPadding(dp(13),dp(10),dp(13),dp(10));
-        ttsFloatingCaption.setMaxLines(4);
-        ttsFloatingCaption.setEllipsize(TextUtils.TruncateAt.END);
+        ttsFloatingCaption.setMaxLines(Integer.MAX_VALUE);
+        ttsFloatingCaption.setMaxHeight(dp(188));
+        ttsFloatingCaption.setEllipsize(null);
+        ttsFloatingCaption.setSingleLine(false);
         ttsFloatingCaption.setElevation(dp(12));
         ttsFloatingCaption.setGravity(Gravity.CENTER_VERTICAL);
         ttsFloatingCaption.setVisibility(View.GONE);
         ttsFloatingCaption.setOnClickListener(v->returnToActiveWord());
         FrameLayout.LayoutParams captionLp=new FrameLayout.LayoutParams(-1,-2,Gravity.TOP);
-        captionLp.setMargins(dp(16),dp(79),dp(16),0);
+        captionLp.setMargins(dp(8),dp(44),dp(8),0);
         sceneRoot.addView(ttsFloatingCaption,captionLp);
         textList.addOnScrollListener(new RecyclerView.OnScrollListener(){
             @Override public void onScrollStateChanged(RecyclerView rv,int state){
@@ -463,6 +468,14 @@ public class ReaderActivity extends Activity {
                 if(words.length==0)return;
                 BookChunkIndex.Chunk c=chunks.get(chunkId);
                 int first=map.clamp(index);
+                // A manually selected Edge word stays highlighted independently of
+                // the spoken sentence's start and moving WordBoundary cursor.
+                if(mode==TTS&&dictionarySelectedWord>=c.startWord&&dictionarySelectedWord<c.endWord){
+                    int selectedFrom=map.starts[dictionarySelectedWord]-c.startChar;
+                    int selectedTo=map.ends[dictionarySelectedWord]-c.startChar;
+                    if(selectedFrom>=0&&selectedTo<=content.length()&&selectedFrom<selectedTo)
+                        span(new BackgroundColorSpan(0x99ffda00),selectedFrom,selectedTo);
+                }
                 if(first<c.startWord||first>=c.endWord)return;
                 int endWord=Math.min(c.endWord-1,Math.min(words.length-1,first+portion-1));
                 int from=map.starts[first]-c.startChar,to=map.ends[endWord]-c.startChar;
@@ -541,8 +554,11 @@ public class ReaderActivity extends Activity {
                 int offset=l.getOffsetForHorizontal(line,Math.max(0,event.getX()-item.getTotalPaddingLeft()));
                 int old=index;index=map.atCharacter(chunks.get(row).startChar+offset);
                 selectedWordActive=true;
-                if(mode==TTS)selectTtsWord(index);
-                refreshHighlight(old);updateProgress();saveLight(true);
+                if(mode==TTS){dictionarySelectedWord=index;selectTtsWord(index);}
+                refreshHighlight(old);
+                if(mode==TTS&&dictionarySelectedWord>=0&&chunks!=null)
+                    chunkAdapter.updateVisible(chunks.chunkForWord(dictionarySelectedWord));
+                updateProgress();saveLight(true);
                 return true;
             });
             return holder;
@@ -870,11 +886,59 @@ public class ReaderActivity extends Activity {
             ttsFloatingCaption.setText(content.isEmpty()?words[map.clamp(index)]:content);
         }
         ttsFloatingCaption.setVisibility(View.VISIBLE);
+        ttsFloatingCaption.post(()->{
+            if(ttsFloatingCaption!=null&&ttsFloatingCaption.getLayout()!=null){
+                android.text.Layout layout=ttsFloatingCaption.getLayout();
+                int hidden=Math.max(0,layout.getHeight()-ttsFloatingCaption.getHeight()+ttsFloatingCaption.getTotalPaddingBottom());
+                ttsFloatingCaption.scrollTo(0,hidden);
+            }
+        });
     }
     private void returnToActiveWord(){
         followSuspended=false;userScrolling=false;
         if(ttsFloatingCaption!=null)ttsFloatingCaption.setVisibility(View.GONE);
         if(textList!=null)textList.post(()->ensureWordVisible(true));
+    }
+    private void openEdgeDictionary(){
+        Intent intent=new Intent(this,EdgeDictionaryActivity.class);
+        if(dictionarySelectedWord>=0&&dictionarySelectedWord<words.length){
+            intent.putExtra(EdgeDictionaryActivity.EXTRA_WORD,words[dictionarySelectedWord]);
+            intent.putExtra(EdgeDictionaryActivity.EXTRA_CONTEXT,body.substring(Math.max(0,map.starts[dictionarySelectedWord]-70),Math.min(body.length(),map.ends[dictionarySelectedWord]+70)));
+        }
+        startActivity(intent);
+    }
+    private void showBookSearch(){
+        if(body.isEmpty())return;
+        EditText query=new EditText(this);query.setSingleLine(true);query.setHint("Поиск по всей книге");
+        LinearLayout panel=column();panel.setPadding(dp(16),0,dp(16),0);panel.addView(query);
+        TextView result=text("Введите слово или фразу",13);add(panel,result);
+        ScrollView scroll=new ScrollView(this);LinearLayout matches=column();scroll.addView(matches);
+        panel.addView(scroll,new LinearLayout.LayoutParams(-1,dp(290)));
+        final android.app.AlertDialog dialog=new android.app.AlertDialog.Builder(this)
+            .setTitle("Поиск по книге").setView(panel).setNegativeButton("Закрыть",null).create();
+        Runnable update=()->{
+            matches.removeAllViews();String needle=query.getText().toString().trim().toLowerCase(java.util.Locale.ROOT);
+            if(needle.isEmpty()){result.setText("Введите слово или фразу");return;}
+            String haystack=body.toLowerCase(java.util.Locale.ROOT);int offset=0,count=0;java.util.ArrayList<Integer> positions=new java.util.ArrayList<>();
+            while((offset=haystack.indexOf(needle,offset))>=0){count++;if(positions.size()<100)positions.add(offset);offset+=Math.max(1,needle.length());}
+            result.setText("Найдено: "+count+(count>100?" · первые 100 результатов":""));
+            for(int position:positions){
+                String context=body.substring(Math.max(0,position-48),Math.min(body.length(),position+needle.length()+65)).replaceAll("\\s+"," ");
+                TextView entry=text(context,15);entry.setPadding(dp(8),dp(12),dp(8),dp(12));
+                matches.addView(entry,new LinearLayout.LayoutParams(-1,-2));
+                entry.setOnClickListener(v->{int previous=index;index=map.atCharacter(position);selectedWordActive=true;
+                    followSuspended=false;
+                    if(mode==TTS)dictionarySelectedWord=index;
+                    refreshHighlight(previous);
+                    if(chunks!=null&&mode==TTS)chunkAdapter.updateVisible(chunks.chunkForWord(dictionarySelectedWord));
+                    updateProgress();ensureWordVisible(true);saveLight(true);dialog.dismiss();});
+            }
+        };
+        query.addTextChangedListener(new android.text.TextWatcher(){
+            public void beforeTextChanged(CharSequence s,int a,int count,int after){}
+            public void onTextChanged(CharSequence s,int start,int before,int count){update.run();}
+            public void afterTextChanged(android.text.Editable e){}
+        });dialog.show();
     }
     private void modeDialog(){
         ReaderSheets.modes(this,mode,selected->{
@@ -882,7 +946,7 @@ public class ReaderActivity extends Activity {
         });
     }
     private void showToc(){
-        UiNavigationSheet.showContents(this,chapters,chunks,body,map,index,word->{
+        UiNavigationSheet.showContents(this,chapters!=null&&chapters.size()>=3?chapters:BookChapterIndex.empty(),chunks,body,map,index,word->{
             if(word<0||word>=words.length)return;
             int previous=index;stop();index=word;selectedWordActive=true;
             refreshHighlight(previous);updateProgress();ensureWordVisible(true);saveLight(true);
@@ -964,10 +1028,12 @@ public class ReaderActivity extends Activity {
             final String loadedAuthor=book.author;
             final ReadingWordMap prepared=session.words;
             final BookChapterIndex parsedChapters=book.chapters;
+            dictionarySelectedWord=-1;
             final BookChunkIndex indexed=session.blocks;
             runOnUiThread(()->{
                 stop();title=loadedTitle;author=loadedAuthor==null?"":loadedAuthor;body=loadedText;
-                map=prepared;words=prepared.words;chunks=indexed;chapters=parsedChapters;
+                map=prepared;words=prepared.words;chunks=indexed;
+                chapters=parsedChapters!=null&&parsedChapters.size()>=3?parsedChapters:BookChapterIndex.empty();
                 ttsParts=session.speechSegments;docUri=uri.toString();
                 prefs.edit().putString("book_title:"+docUri,title)
                     .putString("book_author:"+docUri,author)

@@ -60,6 +60,8 @@ public class EdgeFileExplorerActivity extends Activity {
         rootView.setPadding(10,18,10,8);
         rootView.setBackgroundColor(0xfff3e7d5);
         setContentView(rootView);SafeSystemBars.matchBackground(this,getSharedPreferences("reader",0).getInt("bg",0xfff3e7d5));
+        TextView menuTitle=label("☰  Главное меню",17);menuTitle.setPadding(8,10,8,12);
+        menuTitle.setOnClickListener(v->UniversalDrawer.show(this));rootView.addView(menuTitle);
         rootView.addView(label("Файлы аудиокниги · "+(folder.getName().equals("EdgeTTS")?folder.getParentFile().getName():folder.getName()),18));
         subtitle=label(folder.getAbsolutePath(),11);
         rootView.addView(subtitle);

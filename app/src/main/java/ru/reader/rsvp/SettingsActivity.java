@@ -79,7 +79,7 @@ public class SettingsActivity extends Activity {
     void draw(){
         root=col();root.setBackgroundColor(bg);root.setPadding(dp(14),dp(25),dp(14),dp(9));setContentView(root);SafeSystemBars.matchBackground(this,bg);
         LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);
-        ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_back);back.setColorFilter(contrast(bg));back.setPadding(dp(10),dp(10),dp(10),dp(10));back.setOnClickListener(v->finish());top.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_menu_lines);back.setColorFilter(contrast(bg));back.setPadding(dp(10),dp(10),dp(10),dp(10));back.setOnClickListener(v->UniversalDrawer.show(this));top.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));
         TextView name=text("Настройки",24,true);name.setTypeface(Typeface.SERIF,Typeface.BOLD);top.addView(name,new LinearLayout.LayoutParams(0,-2,1));root.addView(top);
         ScrollView sc=new ScrollView(this);list=col();sc.addView(list);root.addView(sc,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout tabs=new LinearLayout(this);
@@ -555,7 +555,7 @@ public class SettingsActivity extends Activity {
         edgePunctuationSpinners();
         audioLink(R.drawable.ic_tts_engine,"Словарь произношения · Edge TTS",
             "Каждая строка: исходное слово=произношение. Только для отправки на синтез",
-            "Редактировать",this::edgeDictionaryDialog);
+            "Редактировать",()->startActivity(new android.content.Intent(this,EdgeDictionaryActivity.class)));
         audioDivider();
         header("Аудиокниги MP3 / M4A");
         audioLink(R.drawable.ic_equalizer,"Эквалайзер","Настройка звучания аудиокниг",equalizerLabel(),this::equalizerDialog);

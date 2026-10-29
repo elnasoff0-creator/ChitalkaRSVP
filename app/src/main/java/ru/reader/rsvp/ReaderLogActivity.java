@@ -36,7 +36,7 @@ public final class ReaderLogActivity extends Activity {
         LinearLayout base=new LinearLayout(this);base.setOrientation(1);base.setBackgroundColor(background);
         base.setPadding(dp(13),dp(20),dp(13),dp(10));setContentView(base);
         LinearLayout title=new LinearLayout(this);title.setGravity(Gravity.CENTER_VERTICAL);
-        TextView back=button("‹",this::finish);back.setTextSize(30);
+        TextView back=button("☰",()->UniversalDrawer.show(this));back.setTextSize(30);
         title.addView(back,new LinearLayout.LayoutParams(dp(42),dp(54)));
         TextView heading=label("Лог-файл ПРОЧиталки",20);heading.setTypeface(null,Typeface.BOLD);
         title.addView(heading,new LinearLayout.LayoutParams(0,-2,1));base.addView(title);

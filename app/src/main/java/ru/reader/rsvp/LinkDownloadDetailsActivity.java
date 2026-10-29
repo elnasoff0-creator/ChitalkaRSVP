@@ -34,7 +34,7 @@ public final class LinkDownloadDetailsActivity extends Activity {
     private final Runnable ticker=new Runnable(){@Override public void run(){if(!visible)return;render();handler.postDelayed(this,1100);}};
     private void command(String cmd){Intent intent=new Intent(this,DirectLinkDownloadService.class).setAction(cmd).putExtra(DirectLinkDownloadService.EXTRA_ID,id);if(Build.VERSION.SDK_INT>=26&&DirectLinkDownloadService.START.equals(cmd))startForegroundService(intent);else startService(intent);handler.postDelayed(this::render,250);}
     private void render(){LinkDownloadStore.Batch b=LinkDownloadStore.get(this,id);root.removeAllViews();if(b==null){add(text("Задание не найдено",20));return;}
-        Button back=button("← Назад");add(back);back.setOnClickListener(v->BackNavigation.back(this));
+        Button back=button("☰ Главное меню");add(back);back.setOnClickListener(v->UniversalDrawer.show(this));
         TextView title=text(b.title,24);title.setTypeface(Typeface.SERIF,Typeface.BOLD);add(title);
         add(text("Сохранение: "+b.treeLabel+(b.subfolder.isEmpty()?"":" / "+b.subfolder),14));
         add(text("Готово: "+b.completed()+" / "+b.files.size()+" · "+status(b.status),15));

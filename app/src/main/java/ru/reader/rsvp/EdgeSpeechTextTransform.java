@@ -81,15 +81,29 @@ final class EdgeSpeechTextTransform {
         Result result=original.result(source);
         if(!options.dictionary.trim().isEmpty()){
             int rules=0;
+            java.util.ArrayList<String[]> rulesOrdered=new java.util.ArrayList<>();
             Matcher rows=RULE.matcher(options.dictionary);
-            while(rows.find()&&rules<100){
-                String originalWord=rows.group(1).trim(),replacement=rows.group(2).trim();
+            while(rows.find()&&rulesOrdered.size()<100)
+                rulesOrdered.add(new String[]{rows.group(1).trim(),rows.group(2).trim()});
+            // Specific contextual rules precede generic spelling rules, regardless
+            // of the order in which the user entered them in the dictionary.
+            rulesOrdered.sort((a,b)->Boolean.compare(b[0].contains("|"),a[0].contains("|")));
+            for(String[] entry:rulesOrdered){
+                String rule=entry[0],replacement=entry[1];
+                int bar=rule.indexOf('|');
+                String originalWord=(bar<0?rule:rule.substring(0,bar)).trim();
+                String context=bar<0?"":rule.substring(bar+1).trim();
                 if(originalWord.length()<1||originalWord.length()>60||replacement.isEmpty())continue;
                 String escaped=Pattern.quote(originalWord);
                 Pattern literal=Pattern.compile("(?iu)(?<![\\p{L}\\p{N}_])"+escaped+"(?![\\p{L}\\p{N}_])");
                 Matcher occurrences=literal.matcher(result.spoken);
                 Buffer updated=new Buffer();int cursor=0,matches=0;
                 while(occurrences.find()&&matches++<100){
+                    if(!context.isEmpty()){
+                        String local=result.spoken.substring(Math.max(0,occurrences.start()-90),
+                            Math.min(result.spoken.length(),occurrences.end()+90)).toLowerCase(Locale.ROOT);
+                        if(!local.contains(context.toLowerCase(Locale.ROOT)))continue;
+                    }
                     copyRange(result,updated,cursor,occurrences.start());
                     updated.append(replacement,result.from[occurrences.start()],result.to[occurrences.end()-1]);
                     cursor=occurrences.end();

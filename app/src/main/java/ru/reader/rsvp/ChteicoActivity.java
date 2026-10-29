@@ -43,7 +43,11 @@ public final class ChteicoActivity extends Activity {
     private final Random phraseRandom=new Random();
     private final Handler ui=new Handler(Looper.getMainLooper());
     private int dp(int n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}    
-    @Override protected void onCreate(Bundle b){super.onCreate(b);show();}
+    @Override protected void onCreate(Bundle b){super.onCreate(b);
+        boolean wake=getIntent().getBooleanExtra("wake_pet",false);
+        if(wake)ChteicoEmotions.wake();show();
+        if(wake)ui.postDelayed(()->showSpeech(ChteicoEmotions.stroke(),2750),120);
+    }
     @Override protected void onResume(){super.onResume();if(firstResume)firstResume=false;else show();}
     private GradientDrawable shape(int color,int radius){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(radius));return d;}
     private int contrast(int c){return (.299*Color.red(c)+.587*Color.green(c)+.114*Color.blue(c))<135?Color.WHITE:0xff30221e;}
@@ -214,12 +218,19 @@ public final class ChteicoActivity extends Activity {
         stat(b,"Сессий",String.valueOf(p.getInt("sessions",0)));
         gap(stats,8);stats.addView(button("Подробная статистика",this::statistics));
     }
+    private LinearLayout rewardLine;
+    private int rewardCount;
     private void rewardRow(LinearLayout host,int iconRes,String title){
-        LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(10),dp(10),dp(10),dp(10));
-        row.setBackground(shape(ReadingThemeCycle.isDark(bg)?0xff444349:0xfff0e6dc,14));
-        ImageView icon=new ImageView(this);icon.setImageResource(iconRes);icon.setColorFilter(accent);row.addView(icon,new LinearLayout.LayoutParams(dp(22),dp(22)));
-        TextView label=text(title,14,true);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,-2);lp.leftMargin=dp(10);row.addView(label,lp);
-        host.addView(row,new LinearLayout.LayoutParams(-1,-2));
+        if(rewardCount%3==0){rewardLine=new LinearLayout(this);rewardLine.setOrientation(LinearLayout.HORIZONTAL);host.addView(rewardLine,new LinearLayout.LayoutParams(-1,-2));}
+        LinearLayout tile=column();tile.setGravity(Gravity.CENTER);
+        tile.setPadding(dp(6),dp(14),dp(6),dp(14));
+        tile.setBackground(shape(ReadingThemeCycle.isDark(bg)?0xff444349:0xfff0e6dc,14));
+        ImageView image=new ImageView(this);image.setImageResource(iconRes);image.setColorFilter(accent);
+        tile.addView(image,new LinearLayout.LayoutParams(dp(34),dp(34)));
+        TextView label=text(title,11,true);label.setGravity(Gravity.CENTER);label.setMaxLines(3);
+        LinearLayout.LayoutParams labelLp=new LinearLayout.LayoutParams(-1,-2);labelLp.topMargin=dp(7);tile.addView(label,labelLp);
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(112),1f);lp.setMargins(dp(3),dp(3),dp(3),dp(3));
+        rewardLine.addView(tile,lp);rewardCount++;
     }
     private void addRewardsCard(){
         boolean previewAll=ChteicoStore.developerUnlocked(this) && p.getBoolean("dev_show_all_rewards",false);
@@ -228,12 +239,12 @@ public final class ChteicoActivity extends Activity {
             TextView note=text("Тестовый показ всех наград — без изменения статистики.",12,false);
             rewards.addView(note);gap(rewards,8);
         }
-        boolean any=false;
-        if(previewAll || p.getInt("finished_books_count",0)>0){rewardRow(rewards,R.drawable.ic_reward_book,"Первая книга");gap(rewards,6);any=true;}
-        if(previewAll || p.getInt("finished_audio_count",0)>0){rewardRow(rewards,R.drawable.ic_reward_audio,"Первая аудиокнига");gap(rewards,6);any=true;}
-        if(previewAll || p.getInt("best_streak",0)>=7){rewardRow(rewards,R.drawable.ic_reward_streak,"Серия 7 дней");gap(rewards,6);any=true;}
-        if(previewAll || p.getInt("finished_books_count",0)>=10){rewardRow(rewards,R.drawable.ic_reward_books10,"10 прочитанных книг");gap(rewards,6);any=true;}
-        if(previewAll || p.getInt("finished_audio_count",0)>=10){rewardRow(rewards,R.drawable.ic_reward_audio10,"10 аудиокниг");gap(rewards,6);any=true;}
+        boolean any=false;rewardCount=0;rewardLine=null;
+        if(previewAll || p.getInt("finished_books_count",0)>0){rewardRow(rewards,R.drawable.ic_reward_book,"Первая книга");any=true;}
+        if(previewAll || p.getInt("finished_audio_count",0)>0){rewardRow(rewards,R.drawable.ic_reward_audio,"Первая аудиокнига");any=true;}
+        if(previewAll || p.getInt("best_streak",0)>=7){rewardRow(rewards,R.drawable.ic_reward_streak,"Серия 7 дней");any=true;}
+        if(previewAll || p.getInt("finished_books_count",0)>=10){rewardRow(rewards,R.drawable.ic_reward_books10,"10 прочитанных книг");any=true;}
+        if(previewAll || p.getInt("finished_audio_count",0)>=10){rewardRow(rewards,R.drawable.ic_reward_audio10,"10 аудиокниг");any=true;}
         if(previewAll || p.getInt("best_streak",0)>=30){rewardRow(rewards,R.drawable.ic_reward_streak30,"30 дней подряд");any=true;}
         if(!any){
             TextView none=text("Новые награды будут появляться по мере чтения и прослушивания аудиокниг.",14,false);
@@ -263,8 +274,8 @@ public final class ChteicoActivity extends Activity {
         p=ChteicoStore.prefs(this);
         root=column();root.setBackgroundColor(bg);root.setPadding(dp(13),dp(22),dp(13),dp(9));setContentView(root);SafeSystemBars.matchBackground(this,bg);
         LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);
-        ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_back);back.setColorFilter(fg);
-        back.setPadding(dp(10),dp(10),dp(10),dp(10));back.setOnClickListener(v->finish());
+        ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_menu_lines);back.setColorFilter(fg);
+        back.setPadding(dp(10),dp(10),dp(10),dp(10));back.setOnClickListener(v->UniversalDrawer.show(this));
         top.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));
         View spacer=new View(this);top.addView(spacer,new LinearLayout.LayoutParams(0,dp(20),1));
         ImageView settingsIcon=new ImageView(this);settingsIcon.setImageResource(R.drawable.ic_settings);settingsIcon.setColorFilter(fg);

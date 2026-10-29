@@ -197,9 +197,9 @@ final class UiNavigationSheet {
     }
     static void showContents(Activity a,BookChapterIndex chapters,BookChunkIndex blocks,
                              String full,ReadingWordMap map,int activeWord,IndexChoice choice){
-        Sheet sh=sheet(a,chapters!=null&&chapters.size()>0?"Оглавление":"Текстовые блоки");
+        Sheet sh=sheet(a,chapters!=null&&chapters.size()>=3?"Оглавление":"Текстовые блоки");
         ArrayList<TocEntry> choices=new ArrayList<>();int selected=0;
-        if(chapters!=null&&chapters.size()>0){
+        if(chapters!=null&&chapters.size()>=3){
             int currentChar=map.starts.length==0?0:map.starts[Math.max(0,Math.min(activeWord,map.starts.length-1))];
             for(int i=0;i<chapters.size();i++){
                 BookChapterIndex.Chapter c=chapters.get(i);
