@@ -87,7 +87,9 @@ final class UniversalDrawer {
         item(a,list,fg,R.drawable.ic_book,"Чтение",()->reading(a));
         item(a,list,fg,R.drawable.ic_microphone,"Аудиокнига",()->audiobook(a));
         item(a,list,fg,R.drawable.ic_downloads,"Загрузки",()->open(a,DownloadActivity.class));
-        item(a,list,fg,R.drawable.ic_chteico_nav,"Чтейцо",()->open(a,ChteicoActivity.class));
+        boolean companionEnabled=ChteicoStore.enabled(a);
+        item(a,list,fg,companionEnabled?R.drawable.ic_chteico_nav:R.drawable.ic_stats_nav,
+            companionEnabled?"Чтейцо":"Статистика",()->open(a,ChteicoActivity.class));
         separator(a,list,fg,14,10);
         item(a,list,fg,R.drawable.ic_settings,"Настройки",()->open(a,SettingsActivity.class));
         item(a,list,fg,R.drawable.ic_web_update,"Обновление",()->new UpdateManager(a).checkVersion());

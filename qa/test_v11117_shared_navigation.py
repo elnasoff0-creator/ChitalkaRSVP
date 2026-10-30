@@ -11,9 +11,10 @@ base=(p/'NavigationActivity.java').read_text()
 main=(p/'MainActivity.java').read_text()
 back=(p/'BackNavigation.java').read_text()
 entries=re.findall(r'item\(a,list,fg,R\.drawable\.\w+,"([^"]+)",',nav)
-expected=['Главный экран','Чтение','Аудиокнига','Загрузки','Чтейцо','Настройки','Обновление','Справка']
+expected=['Главный экран','Чтение','Аудиокнига','Загрузки','Настройки','Обновление','Справка']
 assert entries==expected,(entries,expected)
-for gone in ['Скорочтение','Озвучивание','Статистика','О приложении','Библиотека','Аудиотека']:
+assert 'companionEnabled?"Чтейцо":"Статистика"' in nav
+for gone in ['Скорочтение','Озвучивание','О приложении','Библиотека','Аудиотека']:
     assert f'"{gone}"' not in nav,gone
 assert 'import android.app.Dialog;' not in nav and 'WindowManager.LayoutParams' not in nav
 assert 'findViewById(android.R.id.content)' in nav
@@ -41,5 +42,5 @@ assert classes.get('KvuheBookActivity')=='UrlImportActivity'
 for xml_name in ['ic_home.xml','ic_book.xml','ic_microphone.xml','ic_downloads.xml','ic_chteico_nav.xml','ic_settings.xml','ic_web_update.xml','ic_info_help.xml']:
     assert (root/'app/src/main/res/drawable'/xml_name).exists()
 build=(root/'app/build.gradle').read_text()
-assert "versionCode 12000; versionName '1.11.120-beta'" in build
+assert "versionCode 12100; versionName '1.11.121-beta'" in build
 print('PASS v1.11.117: single identical 8-item overlay, icons, swipe-to-close only, navigation, 14 Activity destinations, version')

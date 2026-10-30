@@ -140,8 +140,6 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         timerAction=timerGroup;
         LinearLayout.LayoutParams timerLp=new LinearLayout.LayoutParams(dp(44),dp(44));timerLp.leftMargin=dp(5);
         top.addView(timerGroup,timerLp);
-        LinearLayout.LayoutParams audioSettingsLp=new LinearLayout.LayoutParams(dp(44),dp(44));audioSettingsLp.leftMargin=dp(5);
-        top.addView(topAction(R.drawable.ic_settings,"Аудионастройки",v->openAudioSettings()),audioSettingsLp);
         LinearLayout titleRow=new LinearLayout(this);titleRow.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams tl=new LinearLayout.LayoutParams(-1,-2);tl.topMargin=dp(10);root.addView(titleRow,tl);
         title=label("Аудиокнига",21);title.setGravity(Gravity.CENTER);title.setTypeface(android.graphics.Typeface.SERIF,1);

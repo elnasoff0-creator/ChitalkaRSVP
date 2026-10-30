@@ -232,9 +232,25 @@ public class SettingsActivity extends NavigationActivity {
                     }).show();
             }));
         }else list.addView(action("Имя питомца: "+ChteicoStore.petName(this),()->{}));
-        gap(14);header("Напоминания и оповещения");
-        chteicoSwitch("Ежедневное напоминание","daily");
-        chteicoSwitch("Напомнить при неактивности","inactive");
+        gap(16);header("Сброс и тестирование");
+        list.addView(action("Сбросить вариант развития",()->new SwipeDialogs.Builder(this)
+            .setTitle("Начать новую историю?")
+            .setMessage("Питомец вновь станет яйцом и сможет выбрать другой облик. Книжная статистика, библиотека и сохранённое имя останутся.")
+            .setNegativeButton("Отмена",null).setPositiveButton("Сбросить",(dialog,which)->{ChteicoStore.resetBranch(this);draw();}).show()));
+        gap(8);list.addView(action("Полностью сбросить Чтейцо",()->new SwipeDialogs.Builder(this)
+            .setTitle("Сбросить Чтейцо?")
+            .setMessage("Будут сброшены игровая стадия, имя и выбранная ветка питомца. Книжная статистика, заработанные награды, книги и позиции чтения останутся нетронутыми.")
+            .setNegativeButton("Отмена",null).setPositiveButton("Сбросить",(dialog,which)->{ChteicoStore.resetPet(this);draw();}).show()));
+        // Notification controls live together in a dedicated card below rewards.
+        gap(14);
+        LinearLayout noticeBox=col();noticeBox.setBackground(rounded(cardColor(),16));
+        noticeBox.setPadding(dp(14),dp(11),dp(14),dp(11));
+        TextView noticeTitle=text("Напоминания и оповещения",18,true);
+        noticeBox.addView(noticeTitle);
+        list.addView(noticeBox);
+
+        chteicoSwitch(noticeBox,"Ежедневное напоминание","daily");
+        chteicoSwitch(noticeBox,"Напомнить при неактивности","inactive");
         LinearLayout daysRow=new LinearLayout(this);daysRow.setGravity(Gravity.CENTER_VERTICAL);
         TextView daysLabel=text("Дней без чтения или аудио",15,false);
         daysRow.addView(daysLabel,new LinearLayout.LayoutParams(0,-2,1));
@@ -252,24 +268,15 @@ public class SettingsActivity extends NavigationActivity {
         });
         days.setOnFocusChangeListener((v,focus)->{if(!focus)saveInactiveDays(days);});
         days.setOnEditorActionListener((v,action,event)->{saveInactiveDays(days);days.clearFocus();return false;});
-        list.addView(daysRow);
-        chteicoSwitch("Уведомления о достижениях","achievements_notice");
-        list.addView(action("Время напоминаний: "+game.getInt("reminder_hour",19)+":00",()->{
+        noticeBox.addView(daysRow);
+        chteicoSwitch(noticeBox,"Уведомления о достижениях","achievements_notice");
+        noticeBox.addView(action("Время напоминаний: "+game.getInt("reminder_hour",19)+":00",()->{
             android.widget.TimePicker picker=new android.widget.TimePicker(this);
             picker.setIs24HourView(true);picker.setHour(game.getInt("reminder_hour",19));picker.setMinute(0);
             new SwipeDialogs.Builder(this).setTitle("Время напоминаний").setView(picker)
                 .setNegativeButton("Отмена",null)
                 .setPositiveButton("Сохранить",(d,w)->{game.edit().putInt("reminder_hour",picker.getHour()).apply();ChteicoNotifications.schedule(this);draw();}).show();
         }));
-        gap(16);header("Сброс и тестирование");
-        list.addView(action("Сбросить вариант развития",()->new SwipeDialogs.Builder(this)
-            .setTitle("Начать новую историю?")
-            .setMessage("Питомец вновь станет яйцом и сможет выбрать другой облик. Книжная статистика, библиотека и сохранённое имя останутся.")
-            .setNegativeButton("Отмена",null).setPositiveButton("Сбросить",(dialog,which)->{ChteicoStore.resetBranch(this);draw();}).show()));
-        gap(8);list.addView(action("Полностью сбросить Чтейцо",()->new SwipeDialogs.Builder(this)
-            .setTitle("Сбросить Чтейцо?")
-            .setMessage("Будут сброшены игровая стадия, имя и выбранная ветка питомца. Книжная статистика, заработанные награды, книги и позиции чтения останутся нетронутыми.")
-            .setNegativeButton("Отмена",null).setPositiveButton("Сбросить",(dialog,which)->{ChteicoStore.resetPet(this);draw();}).show()));
         gap(18);
     }
     void saveInactiveDays(EditText input){
@@ -285,10 +292,10 @@ public class SettingsActivity extends NavigationActivity {
             android.widget.Toast.makeText(this,"Укажите целое число дней больше нуля",android.widget.Toast.LENGTH_SHORT).show();
         }
     }
-    void chteicoSwitch(String label,String key){
+    void chteicoSwitch(LinearLayout host,String label,String key){
         final android.content.SharedPreferences game=ChteicoStore.prefs(this);
         android.widget.Switch sw=new android.widget.Switch(this);sw.setText(label);sw.setTextColor(contrast(bg));sw.setTextSize(15);
-        sw.setPadding(dp(4),dp(9),dp(4),dp(9));sw.setChecked(game.getBoolean(key,false));list.addView(sw);
+        sw.setPadding(dp(4),dp(9),dp(4),dp(9));sw.setChecked(game.getBoolean(key,false));host.addView(sw);
         sw.setOnCheckedChangeListener((view,on)->{
             game.edit().putBoolean(key,on).apply();ChteicoNotifications.schedule(this);
             if(on&&android.os.Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED){

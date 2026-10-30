@@ -122,6 +122,8 @@ public class ReaderActivity extends NavigationActivity {
     private BookChunkIndex chunks;
     private String body="",title="",author="",docUri="";
     private String[] words=new String[0];
+    private int viewportWord=-1; // Browsing position; NEVER a playback/reading seek.
+    private boolean manualViewportMovement=false;
     private int index=0,wpm=350,portion=1,size=36,bg=0xfff3e7d5,fg=0xff30221e,font=1,mode=RSVP;
     private int focusColor=0xffed3030,lineColor=0xff915439,linePosition=50;
     private int cursorBackground=0xff96583f,cursorText=NO_COLOR,cursorScale=100;
@@ -210,17 +212,23 @@ public class ReaderActivity extends NavigationActivity {
             }
         }catch(Exception ignored){}
         index=prefs.getInt("position:"+docUri,index);
-        if(!getIntent().getBooleanExtra("reset",false))index=prefs.getInt("tts_word:"+docUri,index);
+        // The speech cursor is restored only after any explicit mode override.
         if(getIntent().getBooleanExtra("reset",false))index=0;
         int requestedMode=getIntent().getIntExtra("reading_mode_override",-1);
         if(requestedMode>=0&&requestedMode<=TTS){mode=requestedMode;
             prefs.edit().putInt("reading_mode",requestedMode).apply();}
+        if(mode==TTS&&!getIntent().getBooleanExtra("reset",false))
+            index=prefs.getInt("tts_word:"+docUri,index);
         if(getIntent().hasExtra("tts_mode_local")){
             ttsLocal=getIntent().getBooleanExtra("tts_mode_local",ttsLocal);
             prefs.edit().putBoolean("tts_last_local",ttsLocal).apply();
         }
         if(!getIntent().getBooleanExtra("reset",false)&&getIntent().hasExtra("word_index"))
             index=Math.max(0,getIntent().getIntExtra("word_index",index));
+        if(!getIntent().getBooleanExtra("reset",false)&&!getIntent().hasExtra("word_index"))
+            viewportWord=prefs.getInt("viewport:"+docUri,-1);
+        else prefs.edit().remove("viewport:"+docUri).apply();
+        if(viewportWord>=0)followSuspended=true;
         long drawStarted=SystemClock.elapsedRealtime();
         if(docUri.isEmpty())draw();
         else{
@@ -368,10 +376,10 @@ public class ReaderActivity extends NavigationActivity {
         // The numeric WPM control belongs to the lower floating overlay, not the packed toolbar.
         LinearLayout.LayoutParams settingsLp=new LinearLayout.LayoutParams(dp(44),dp(44));settingsLp.leftMargin=dp(5);
         toolbar.addView(icon(R.drawable.ic_more_vertical,v->{
-            ReaderSheets.overflow(this,mode==TTS,which->{if(which==0)bookmark();else if(which==1)settings();
-                    else if(mode==TTS&&which==2)chooseTtsVoice();
-                    else if(which==(mode==TTS?4:3))openEdgeDictionary();
-                    else if(which==(mode==TTS?5:4))showBookSearch();
+            ReaderSheets.overflow(this,mode==TTS,which->{if(which==0)bookmark();
+                    else if(mode==TTS&&which==1)chooseTtsVoice();
+                    else if(which==(mode==TTS?3:2))openEdgeDictionary();
+                    else if(which==(mode==TTS?4:3))showBookSearch();
                     else if(!docUri.isEmpty())startActivity(new Intent(this,EdgeChapterDownloadsActivity.class)
                         .putExtra("book_uri",docUri).putExtra("book_title",title));});
         }),settingsLp);
@@ -408,7 +416,8 @@ public class ReaderActivity extends NavigationActivity {
         selectWordButton.setPadding(dp(11),dp(11),dp(11),dp(11));selectWordButton.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         selectWordButton.setContentDescription("Выбор слова");
         selectWordButton.setOnClickListener(v->{selecting=!selecting;normalChromeVisible=true;
-            updateSelectWordButton();refreshHighlight(index);applyFullscreenUi();});
+            // Enabling selection is NOT an implicit tap on an old word.
+            selectedWordActive=false;updateSelectWordButton();refreshHighlight(index);applyFullscreenUi();});
         LinearLayout.LayoutParams selectionLp=new LinearLayout.LayoutParams(dp(44),dp(44));selectionLp.leftMargin=dp(5);
         toolbar.addView(selectWordButton,Math.max(1,toolbar.getChildCount()-2),selectionLp);
         modeIcon=null;
@@ -455,12 +464,13 @@ public class ReaderActivity extends NavigationActivity {
         textList.addOnScrollListener(new RecyclerView.OnScrollListener(){
             @Override public void onScrollStateChanged(RecyclerView rv,int state){
                 if(state==RecyclerView.SCROLL_STATE_DRAGGING){
-                    chteicoTouch();userScrolling=true;followSuspended=true;tocPreviewGeneration++;
+                    chteicoTouch();userScrolling=true;manualViewportMovement=true;followSuspended=true;tocPreviewGeneration++;
                     if(mode==TTS)updateFloatingCaption();
                     if(mode==RSVP){stop();scrollWordAccumulator=0;}
                 }
                 if(state==RecyclerView.SCROLL_STATE_IDLE){
                     userScrolling=false;
+                    if(manualViewportMovement){manualViewportMovement=false;rememberVisibleViewport();}
                     if(mode==RSVP){scrollWordAccumulator=0;setRsvpContextVisible(!playing);}
                     saveLight(true);
                 }
@@ -480,9 +490,10 @@ public class ReaderActivity extends NavigationActivity {
                 // A dragged/flung viewport can lose the sentence after the finger is lifted.
                 // Check every scroll movement, not only the initial DRAGGING event.
                 if(followSuspended&&mode==TTS)updateFloatingCaption();
-                if(!userScrolling||restoringScroll||words.length==0)return;
-                if(mode!=RSVP||playing||!rsvpScrollWords)return;
-                stepRsvpByScroll(dy);
+                // Scrolling the book is viewport navigation in every mode.
+                // Even with the optional RSVP scroll control enabled, a chapter
+                // preview must not silently seek the active reading cursor.
+                // Selecting a new word requires a tap on that word.
             }
         });
         bottomBar=new FrameLayout(this);bottomBar.setBackgroundColor(Color.TRANSPARENT);
@@ -518,7 +529,8 @@ public class ReaderActivity extends NavigationActivity {
         speedPanel=null;
         updateModeUI();updatePlayButton();
         // Jump to the indexed chunk, not to the pixel position of an enormous TextView.
-        textList.post(()->{if(index<=0)layoutManager.scrollToPositionWithOffset(0,0);
+        textList.post(()->{if(viewportWord>=0)browseToWord(viewportWord);
+            else if(index<=0)layoutManager.scrollToPositionWithOffset(0,0);
             else ensureWordVisible(true);});
     }
     private class ChunkAdapter extends RecyclerView.Adapter<ChunkAdapter.Holder> {
@@ -562,7 +574,7 @@ public class ReaderActivity extends NavigationActivity {
                     span(new BackgroundColorSpan(0x66ffc94e),from,selectedEnd);
                     if(normalSelectText!=NO_COLOR)span(new ForegroundColorSpan(normalSelectText),from,selectedEnd);
                     if(normalSelectScale>100)span(new RelativeSizeSpan(normalSelectScale/100f),from,selectedEnd);
-                }else if(mode==NORMAL&&(selecting||selectedWordActive)){
+                }else if(mode==NORMAL&&selecting&&selectedWordActive){
                     if(normalSelectText!=NO_COLOR)span(new ForegroundColorSpan(normalSelectText),from,to);
                     if(normalSelectScale>100)span(new RelativeSizeSpan(normalSelectScale/100f),from,to);
                 }
@@ -584,7 +596,7 @@ public class ReaderActivity extends NavigationActivity {
             item.setClickable(true);
             item.setOnTouchListener((view,event)->{
                 boolean selectingWord=(mode==CURSOR)||(mode==NORMAL&&selecting)
-                    ||(mode==RSVP&&!playing&&!rsvpScrollWords)||(mode==TTS);
+                    ||(mode==RSVP&&!playing)||(mode==TTS);
                 boolean togglingChrome=false;
                 if(!selectingWord&&!togglingChrome)return false;
                 int eventType=event.getActionMasked();
@@ -613,6 +625,7 @@ public class ReaderActivity extends NavigationActivity {
                 int tapped=map.atCharacter(chunks.get(row).startChar+offset);
                 int old=index;
                 selectedWordActive=true;
+                abandonViewportPreview(); // Only an actual tap commits a new reading position.
                 if(mode==TTS){
                     selectTtsWord(tapped); // sentence selection only; dictionary selection happens in its Activity
                 }else index=tapped;
@@ -1008,9 +1021,13 @@ public class ReaderActivity extends NavigationActivity {
             }
         });
     }
+    private void abandonViewportPreview(){
+        tocPreviewGeneration++;
+        viewportWord=-1;followSuspended=false;userScrolling=false;manualViewportMovement=false;
+        if(prefs!=null&&!docUri.isEmpty())prefs.edit().remove("viewport:"+docUri).apply();
+    }
     private void returnToActiveWord(){
-        tocPreviewGeneration++; // an explicit return cancels an unfinished TOC preview
-        followSuspended=false;userScrolling=false;
+        abandonViewportPreview(); // Explicit Play or caption tap returns to the live cursor.
         if(ttsFloatingCaption!=null)ttsFloatingCaption.setVisibility(View.GONE);
         if(textList!=null)textList.post(()->ensureWordVisible(true));
     }
@@ -1045,7 +1062,7 @@ public class ReaderActivity extends NavigationActivity {
                 TextView entry=text(context,15);entry.setPadding(dp(8),dp(12),dp(8),dp(12));
                 matches.addView(entry,new LinearLayout.LayoutParams(-1,-2));
                 entry.setOnClickListener(v->{int previous=index;index=map.atCharacter(position);selectedWordActive=true;
-                    followSuspended=false;
+                    abandonViewportPreview();
                     refreshHighlight(previous);
                     updateProgress();ensureWordVisible(true);saveLight(true);dialog.dismiss();});
             }
@@ -1065,11 +1082,15 @@ public class ReaderActivity extends NavigationActivity {
      * the spoken word/index, Edge anchor, audio state and highlights intact.
      * The floating caption follows the speech while the viewport stays here.
      */
-    private void previewTocDuringPlayback(int word){
+    private void browseToWord(int word){
         if(textList==null||layoutManager==null||chunks==null||words.length==0)return;
+        // RSVP hides the text viewport during playback: show it for TOC browsing,
+        // but NEVER change the saved playing word until an explicit tap.
+        if(mode==RSVP&&playing)stop();
         int target=map.clamp(word),chunk=chunks.chunkForWord(target);
         final long generation=++tocPreviewGeneration;
-        followSuspended=true;userScrolling=false;restoringScroll=true;
+        viewportWord=target;followSuspended=true;userScrolling=false;restoringScroll=true;
+        if(prefs!=null&&!docUri.isEmpty())prefs.edit().putInt("viewport:"+docUri,target).apply();
         ReaderDiagnosticLog.event("NAVIGATION","TOC_VIEW_ONLY target="+target+
             " playing="+index+" chapter="+chapterForWord(target));
         layoutManager.scrollToPositionWithOffset(chunk+1,dp(108));
@@ -1078,7 +1099,7 @@ public class ReaderActivity extends NavigationActivity {
         textList.postOnAnimation(()->alignTocPreview(target,chunk,generation,0));
     }
     private void alignTocPreview(int target,int chunk,long generation,int attempt){
-        if(textList==null||layoutManager==null||chunks==null||mode!=TTS
+        if(textList==null||layoutManager==null||chunks==null
             ||generation!=tocPreviewGeneration||!followSuspended){restoringScroll=false;return;}
         RecyclerView.ViewHolder holder=textList.findViewHolderForAdapterPosition(chunk+1);
         if(!(holder instanceof ChunkAdapter.Holder)||
@@ -1108,15 +1129,33 @@ public class ReaderActivity extends NavigationActivity {
         ReaderDiagnosticLog.event("NAVIGATION","TOC_LANDED word="+target+" offset="+delta);
         updateFloatingCaption();
     }
-    private void showToc(){
-        UiNavigationSheet.showContents(this,chapters!=null&&chapters.size()>=3?chapters:BookChapterIndex.empty(),chunks,body,map,index,word->{
-            if(word<0||word>=words.length)return;
-            if(mode==TTS&&(ttsCurrentlyPlaying()||ttsPlaybackRequested())){
-                previewTocDuringPlayback(word);
-                return;
+    /** A genuine gesture can move the viewport but cannot seek the reading engine. */
+    private void rememberVisibleViewport(){
+        if(textList==null||layoutManager==null||chunks==null||words.length==0)return;
+        int row=layoutManager.findFirstVisibleItemPosition()-1;
+        if(row<0){viewportWord=0;
+            prefs.edit().putInt("viewport:"+docUri,0).apply();return;
+        }
+        if(row>=chunks.size())return;
+        int word=chunks.get(row).startWord;
+        RecyclerView.ViewHolder h=textList.findViewHolderForAdapterPosition(row+1);
+        if(h instanceof ChunkAdapter.Holder){
+            TextView v=((ChunkAdapter.Holder)h).value;
+            if(v!=null&&v.getLayout()!=null){
+                int offset=v.getLayout().getLineForVertical(Math.max(0,dp(98)-h.itemView.getTop()-v.getTotalPaddingTop()));
+                word=map.atCharacter(chunks.get(row).startChar+v.getLayout().getLineStart(offset));
             }
-            int previous=index;stop();index=word;selectedWordActive=true;
-            refreshHighlight(previous);updateProgress();ensureWordVisible(true);saveLight(true);
+        }
+        viewportWord=map.clamp(word);
+        if(prefs!=null&&!docUri.isEmpty())prefs.edit().putInt("viewport:"+docUri,viewportWord).apply();
+    }
+    private void showToc(){
+        UiNavigationSheet.showContents(this,chapters!=null&&chapters.size()>=3?chapters:BookChapterIndex.empty(),
+            chunks,body,map,viewportWord>=0?viewportWord:index,word->{
+            if(word<0||word>=words.length)return;
+            // TOC always browses the visible text. It never stops playback,
+            // selects the first sentence, touches index, or saves a new reading cursor.
+            browseToWord(word);
         });
     }
     private void setToolbarExpanded(boolean show){
@@ -1131,11 +1170,20 @@ public class ReaderActivity extends NavigationActivity {
         final long modeSelectedAt=SystemClock.elapsedRealtime();
         if(next==TTS)ReaderDiagnosticLog.event("READER_STARTUP","tts_mode_selected engine="+(ttsLocal?"local":"edge"));
         chteicoTouch();stop();int old=index,previousMode=mode;
-        if(previousMode==TTS)releaseTts();
+        // Speech has its own cursor. Switching modes must not overwrite the
+        // last manually selected word for ordinary reading/RSVP/cursor.
+        if(previousMode==TTS){saveLight(true);releaseTts();}
+        else if(next==TTS)saveLight(true);
+        if(previousMode==TTS && next!=TTS)
+            index=map.clamp(prefs.getInt("position:"+docUri,index));
+        else if(previousMode!=TTS && next==TTS)
+            index=map.clamp(prefs.getInt("tts_word:"+docUri,index));
         pendingTtsWord=-1;
-        mode=next;selecting=false;normalChromeVisible=false;toolbarExpanded=true;
+        mode=next;selecting=false;selectedWordActive=false;normalChromeVisible=false;toolbarExpanded=true;
         ReaderToolbarController.reset(toolbarStack);
-        updateModeUI();refreshHighlight(old);returnToActiveWord();saveLight(true);
+        updateModeUI();refreshHighlight(old);
+        if(!followSuspended)returnToActiveWord();
+        saveLight(true);
         if(mode==TTS){
             ReaderDiagnosticLog.event("READER_STARTUP","tts_ui_ready_ms="+
                 (SystemClock.elapsedRealtime()-modeSelectedAt));
@@ -1157,8 +1205,11 @@ public class ReaderActivity extends NavigationActivity {
         long now=SystemClock.elapsedRealtime();
         if(!force&&now-lastLightSave<4000)return;
         lastLightSave=now;
-        prefs.edit().putString("uri",docUri).putInt("position:"+docUri,index).putInt("index",index)
-            .putInt("reading_mode",mode).putBoolean("rsvp",mode==RSVP).putInt("wpm",wpm).apply();
+        SharedPreferences.Editor editor=prefs.edit().putString("uri",docUri)
+            .putInt("reading_mode",mode).putBoolean("rsvp",mode==RSVP).putInt("wpm",wpm);
+        if(mode==TTS)editor.putInt("tts_word:"+docUri,index);
+        else editor.putInt("position:"+docUri,index).putInt("index",index);
+        editor.apply();
     }
     private void save(){
         saveLight(true);
@@ -1173,13 +1224,14 @@ public class ReaderActivity extends NavigationActivity {
             }
             if(current==null)current=new org.json.JSONObject();
             current.put("uri",docUri);current.put("title",title);current.put("author",author);
-            current.put("index",index);current.put("progress",(index+1)*100/Math.max(1,words.length));
+            int libraryIndex=mode==TTS?prefs.getInt("position:"+docUri,index):index;
+            current.put("index",libraryIndex);current.put("progress",(libraryIndex+1)*100/Math.max(1,words.length));
             current.put("openedAt",System.currentTimeMillis());updated.put(current);
             prefs.edit().putString("library",updated.toString()).apply();
         }catch(Exception ignored){}
     }
     private void bookmark(){if(words.length==0)return;String key="bookmark:"+docUri;
-        Set<String> saved=new HashSet<>(prefs.getStringSet(key,Collections.emptySet()));saved.add(String.valueOf(index));
+        Set<String> saved=new HashSet<>(prefs.getStringSet(key,Collections.emptySet()));saved.add(String.valueOf(viewportWord>=0?viewportWord:index));
         prefs.edit().putStringSet(key,saved).apply();Toast.makeText(this,"Закладка добавлена",Toast.LENGTH_SHORT).show();
     }
     private void pick(){
@@ -1297,6 +1349,7 @@ public class ReaderActivity extends NavigationActivity {
     }
     private void selectTtsWord(int at){
         // A tap selects the sentence; the book's UI block is never reloaded.
+        abandonViewportPreview();
         index=map.clamp(at);
         SentenceChunks.Chunk sentence=SentenceChunks.forWord(ttsParts,index);
         if(sentence!=null)index=sentence.fromWord;

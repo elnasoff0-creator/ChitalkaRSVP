@@ -8,7 +8,7 @@ r=(src/'ReaderActivity.java').read_text()
 u=(src/'UnifiedBookSession.java').read_text()
 start=s[s.index('    private void restore(){'):s.index('    private void persist(){')]
 checks={
- 'version':"versionCode 12000; versionName '1.11.120-beta'" in (root/'app/build.gradle').read_text(),
+ 'version':"versionCode 12100; versionName '1.11.121-beta'" in (root/'app/build.gradle').read_text(),
  'restore uses structural keys only':'new Clip(part.fromWord,part.toWord,part.text,"")' in start,
  'restore never reads dictionary':'EdgeSpeechTextTransform' not in start and 'Options.read' not in start,
  'restore never stats every MP3':'.isFile()' not in start and 'getSharedPreferences' not in start,

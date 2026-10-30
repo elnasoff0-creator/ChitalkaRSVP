@@ -934,8 +934,6 @@ public class MainActivity extends NavigationActivity {
         top.addView(titles, new LinearLayout.LayoutParams(0, -2, 1));
         TextView mark = buttonish("⭐", softPanel(), fg, false); mark.setOnClickListener(v -> bookmark());
         top.addView(mark, new LinearLayout.LayoutParams(dp(54), dp(48)));
-        View more = iconButton(R.drawable.ic_settings, v -> settings());
-        top.addView(more, new LinearLayout.LayoutParams(dp(54), dp(48)));
         add(root, top);
 
         LinearLayout modeRow = row();
@@ -984,13 +982,9 @@ public class MainActivity extends NavigationActivity {
         speedPanel.addView(seek);
 
         LinearLayout footer = row();
-        TextView settingsAction = buttonish("Aa  Шрифт и размер", softPanel(), fg, false);
-        settingsAction.setOnClickListener(v -> settings());
-        footer.addView(settingsAction, new LinearLayout.LayoutParams(0, dp(46), 1));
         TextView wordsAction = buttonish("Показ слов", softPanel(), fg, false);
         wordsAction.setOnClickListener(v -> displayDialog());
         LinearLayout.LayoutParams wordsLp = new LinearLayout.LayoutParams(0, dp(46), 1);
-        wordsLp.leftMargin = dp(8);
         footer.addView(wordsAction, wordsLp);
         LinearLayout.LayoutParams footerLp = new LinearLayout.LayoutParams(-1, -2);
         footerLp.topMargin = dp(6);

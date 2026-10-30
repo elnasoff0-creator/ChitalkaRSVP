@@ -12,7 +12,7 @@ assert 'setScaleX(1f+' not in pet and 'ValueAnimator' not in pet
 assert 'frameDown?1.012f:1f' in pet and 'setPivotY(getHeight()*.84f)' in pet
 assert 'setTranslationY(-getHeight()' not in pet
 assert 'setBackground(shape(toolbarButtonColor,12))' in ref
-assert ref.count('setBackground(shape(toolbarButtonColor,12))')==2
+assert ref.count('setBackground(shape(toolbarButtonColor,12))')==1
 assert 'ReaderButtonColors.neutral(this,' in ref
 assert 'finishRewardGrid();' in ref
 assert 'int missing=(3-rewardCount%3)%3' in ref
@@ -20,5 +20,5 @@ assert 'LinearLayout.LayoutParams(0,dp(112),1f)' in ref
 assert 'rewardLine.addView(spacer,lp)' in ref
 # All incomplete rows reserve 3 slots, leaving 1/3 unused when only two exist.
 assert all((n+(3-n%3)%3)%3==0 for n in range(1,20))
-assert "versionCode 12000; versionName '1.11.120-beta'" in gradle
+assert "versionCode 12100; versionName '1.11.121-beta'" in gradle
 print('PASS: original v116 motion + 30% faster, rounded toolbar buttons, fixed three-column awards, unchanged version')

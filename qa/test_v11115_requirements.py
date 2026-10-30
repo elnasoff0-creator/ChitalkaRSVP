@@ -23,12 +23,12 @@ checks={
     '12. Only explicit return': 'if(!explicitReturn&&followSuspended)return;' in read and 'if(!ttsCurrentlyPlaying())returnToActiveWord()' in read,
     '13. Fast far/smooth near': 'Math.abs(delta)>textList.getHeight()*2' in read and 'textList.smoothScrollBy(0,delta)' in read,
     '14. RSVP highlight stays': 'new BackgroundColorSpan(0x66ffc94e)' in read and 'refreshHighlight(index); // The current word' in read,
-    '15. Recenter leaving RSVP': 'updateModeUI();refreshHighlight(old);returnToActiveWord();saveLight(true);' in read,
+    '15. Recenter leaving RSVP': 'if(!followSuspended)returnToActiveWord();' in read,
     '16. Emotion waves and haptics': 'emotionRays.burst()' in mini and 'petArea.performHapticFeedback' in mini and 'emotionTapWaves.burst()' in full and 'pet.performHapticFeedback' in full and 'ValueAnimator.ofFloat' in waves,
 }
 for title,ok in checks.items():
     print(('PASS' if ok else 'FAIL')+' '+title)
 assert all(checks.values()),'Some v1.11.115 requirements are missing'
-assert 'versionCode 12000' in (root/'app/build.gradle').read_text()
-assert "versionName '1.11.120-beta'" in (root/'app/build.gradle').read_text()
+assert 'versionCode 12100' in (root/'app/build.gradle').read_text()
+assert "versionName '1.11.121-beta'" in (root/'app/build.gradle').read_text()
 print('PASS 16/16 static requirement checks, versionName/versionCode')

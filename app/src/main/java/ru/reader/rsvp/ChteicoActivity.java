@@ -273,7 +273,8 @@ public final class ChteicoActivity extends NavigationActivity {
         TextView sub=text("Чтейцо сейчас отключено. Здесь сохраняются ваши достижения, а включить спутника можно в настройках.",14,false);
         sub.setGravity(Gravity.CENTER);hero.addView(sub);
         gap(hero,12);
-        hero.addView(button("Открыть настройки",()->startActivity(new Intent(this,SettingsActivity.class).putExtra("chteico_tab",true))));
+        TextView hint=text("Настройки питомца доступны в боковом меню.",13,false);
+        hint.setGravity(Gravity.CENTER);hero.addView(hint);
         addStatsCard();
         addRewardsCard();
     }
@@ -296,11 +297,6 @@ public final class ChteicoActivity extends NavigationActivity {
         back.setPadding(dp(10),dp(10),dp(10),dp(10));back.setOnClickListener(v->UniversalDrawer.show(this));
         top.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));
         View spacer=new View(this);top.addView(spacer,new LinearLayout.LayoutParams(0,dp(20),1));
-        ImageView settingsIcon=new ImageView(this);settingsIcon.setImageResource(R.drawable.ic_settings);
-        settingsIcon.setColorFilter(toolbarIconColor);
-        settingsIcon.setBackground(shape(toolbarButtonColor,12));
-        settingsIcon.setPadding(dp(10),dp(10),dp(10),dp(10));top.addView(settingsIcon,new LinearLayout.LayoutParams(dp(44),dp(44)));
-        settingsIcon.setOnClickListener(v->startActivity(new Intent(this,SettingsActivity.class).putExtra("chteico_tab",true)));
         root.addView(top);
         ScrollView scroll=new ScrollView(this);content=column();content.setPadding(dp(2),dp(5),dp(2),dp(3));scroll.addView(content);
         root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));

@@ -5,26 +5,26 @@ Android visual/transport behavior still needs a device test.
 from pathlib import Path
 src=Path(__file__).resolve().parents[1]/'app/src/main/java/ru/reader/rsvp/ReaderActivity.java'
 s=src.read_text(encoding='utf-8')
-start=s.index('private void previewTocDuringPlayback(int word)')
-end=s.index('private void setToolbarExpanded(', start)
+start=s.index('private void browseToWord(int word)')
+end=s.index('private void setToolbarExpanded(',start)
 part=s[start:end]
 preview=part[:part.index('private void showToc()')]
 toc=part[part.index('private void showToc()'):]
 checks={
-    'active TTS branch': 'if(mode==TTS&&(ttsCurrentlyPlaying()||ttsPlaybackRequested()))' in toc,
-    'preview does not change playback word': 'index=' not in preview and 'index++' not in preview,
-    'preview does not pause speech': 'stop()' not in preview and 'pause()' not in preview,
-    'preview does not seek TTS': 'setAnchor(' not in preview and 'localSelect(' not in preview,
-    'suspend follow after navigating': 'followSuspended=true;' in preview,
-    'jump to selected chapter': 'layoutManager.scrollToPositionWithOffset(chunk+1' in preview,
-    'align line inside containing chunk': 'map.starts[target]-chunks.get(chunk).startChar' in preview and 'layoutManager.scrollToPositionWithOffset(chunk+1,dp(108)-lineY)' in preview,
-    'caption updated after confirmed layout': 'updateFloatingCaption();' in preview and 'generation!=tocPreviewGeneration' in preview,
-    'active branch returns without running pause-navigation': 'previewTocDuringPlayback(word);\n                return;' in toc,
-    'paused navigation still works': 'int previous=index;stop();index=word;' in toc,
-    'normal TTS progress respects suspended follow': 'if(!followSuspended)ensureWordVisible(false)' in s,
-    'caption checks spoken sentence visibility': 'isActiveSentenceVisible()' in s[s.index('private void updateFloatingCaption()'):s.index('private void returnToActiveWord()')],
-    'version unchanged': '12000' in (src.parents[3]/'build.gradle').read_text() if (src.parents[3]/'build.gradle').exists() else True,
+ 'all modes browse with same method': 'browseToWord(word);' in toc,
+ 'browse does not change playing word': 'index=' not in preview,
+ 'browse does not pause speech': 'ttsPlayer.pause()' not in preview and 'ReaderTtsController.localSelect' not in preview,
+ 'browse never changes selected word': 'selectedWordActive=true' not in preview,
+ 'browse does not seek Edge': 'setAnchor(' not in preview,
+ 'suspend follow': 'followSuspended=true;' in preview,
+ 'viewport separate': 'viewportWord=target' in preview and 'viewport:' in preview,
+ 'jump to chapter': 'scrollToPositionWithOffset(chunk+1' in preview,
+ 'align inside block': 'map.starts[target]-chunks.get(chunk).startChar' in preview,
+ 'retry layout': 'postOnAnimation(()->alignTocPreview(' in preview,
+ 'TOC never stops player': 'stop();index=word;' not in toc,
+ 'caption respects viewport': 'updateFloatingCaption()' in preview,
+ 'manual selection commits': 'abandonViewportPreview()' in s,
+ 'version 121': "versionCode 12100" in (Path(__file__).resolve().parents[1]/'app/build.gradle').read_text(),
 }
-for name,ok in checks.items():
-    print(('PASS' if ok else 'FAIL'),name)
-if not all(checks.values()):raise SystemExit(1)
+for name,ok in checks.items():print(('PASS' if ok else 'FAIL'),name)
+assert all(checks.values())

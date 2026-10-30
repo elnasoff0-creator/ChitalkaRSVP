@@ -81,7 +81,6 @@ public final class DownloadActivity extends NavigationActivity {
         toolbarAction(toolbar,R.drawable.ic_search_audiobook,"Поиск аудиокниг",()->startActivity(new Intent(this,KvuheSearchActivity.class)));
         toolbarAction(toolbar,R.drawable.ic_import_link,"Импорт по ссылке",()->startActivity(new Intent(this,LinkDownloadActivity.class)));
         toolbarAction(toolbar,R.drawable.ic_autoload,"Подготовить книгу Edge",()->startActivity(new Intent(this,EdgeFullBookActivity.class)));
-        toolbarAction(toolbar,R.drawable.ic_settings,"Настройки загрузок",()->startActivity(new Intent(this,SettingsActivity.class).putExtra("audio_tab",true)));
         TextView heading=text("Загрузки",25,true);heading.setTypeface(Typeface.SERIF,Typeface.BOLD);
         LinearLayout.LayoutParams hl=new LinearLayout.LayoutParams(-1,-2);hl.topMargin=dp(14);root.addView(heading,hl);
         String[] currentFilters={"Все загрузки","В процессе","Аудиокниги","Edge TTS","По ссылке"};

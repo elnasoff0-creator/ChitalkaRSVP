@@ -1,0 +1,13 @@
+fix(reader): keep reading cursor independent from chapter browsing in all modes
+
+- TOC only changes viewport; active reading / RSVP / cursor / TTS index remains intact.
+- Align chapter start after RecyclerView layout, including paused TTS and RSVP.
+- Save viewport separately; restore it without overwriting active position.
+- Keep TTS cursor separate from normal reading when entering/leaving speech mode.
+- Normal-mode word highlight requires an actual tap while selection is enabled.
+- Allow explicit RSVP taps even with scroll-word navigation enabled.
+- Bookmark visible chapter while browsing.
+- Drawer switches Chteico title/icon to Statistics when pet is disabled.
+- Move Chteico reminder/notification controls into a bottom card below rewards.
+- Remove settings shortcuts from all toolbars, reader overflow, and secondary reader controls; keep drawer entry.
+- Bump version to 1.11.121-beta (12100).
