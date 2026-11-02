@@ -302,6 +302,13 @@ public final class ChteicoActivity extends NavigationActivity {
         root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         if(!ChteicoStore.enabled(this)){showDisabledSummary();return;}
         int stage=ChteicoStore.stage(this);
+        LinearLayout gameCard=card();gameCard.addView(text("Прыжки через книги",18,true));
+        gap(gameCard,6);
+        gameCard.addView(text("Бегай, перепрыгивай книги и получай немного опыта для Чтейца.",13,false));
+        gap(gameCard,9);
+        gameCard.addView(button("Играть",()->startActivity(new Intent(this,ChteicoRunnerActivity.class))));
+        gap(gameCard,6);
+        gameCard.addView(text("Рекорд: "+p.getInt("runner_best",0)+" · Опыт: "+p.getInt("runner_xp",0),12,false));
         LinearLayout hero=card();hero.setGravity(Gravity.CENTER_HORIZONTAL);
         LinearLayout nameRow=new LinearLayout(this);nameRow.setGravity(Gravity.CENTER);
         TextView name=text(ChteicoStore.petName(this),23,true);nameRow.addView(name);

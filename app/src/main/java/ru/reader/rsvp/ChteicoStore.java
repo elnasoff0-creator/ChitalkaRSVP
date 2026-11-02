@@ -171,13 +171,23 @@ public final class ChteicoStore {
         long seconds=Math.max(0,p.getLong("seconds_classic",0)-p.getLong("evo_marker_classic",0))
             +Math.max(0,p.getLong("seconds_speed",0)-p.getLong("evo_marker_speed",0))
             +Math.max(0,p.getLong("seconds_audio",0)-p.getLong("evo_marker_audio",0));
-        return Math.min(95,(int)(seconds*95/Math.max(1L,secondsTarget)));
+        int readingProgress=(int)(seconds*95/Math.max(1L,secondsTarget));
+        int gameBonus=Math.min(10,p.getInt("runner_xp",0)/30);
+        return Math.min(95,readingProgress+gameBonus);
     }
     public static int progress(Context c){SharedPreferences p=prefs(c);int st=stage(c);
         if(st==ADULT)return 100;
         if(st==EGG)return eggUnits(c)*100/8;
         if(st==CHICK)return stageProgress(p,3600L);
         return stageProgress(p,5400L);
+    }
+    /** Game experience is additional, small and capped; reading remains the main evolution driver. */
+    public static synchronized void addGameExperience(Context c,int experience,float distance){
+        SharedPreferences p=prefs(c);int gain=Math.max(0,Math.min(30,experience));
+        int total=p.getInt("runner_xp",0)+gain;
+        p.edit().putInt("runner_xp",total).putInt("runner_best",Math.max(p.getInt("runner_best",0),(int)distance))
+            .putLong("runner_distance",p.getLong("runner_distance",0)+(long)distance)
+            .putInt("runner_games",p.getInt("runner_games",0)+1).apply();
     }
     public static boolean developerUnlocked(Context c){return prefs(c).getBoolean("developer_unlocked",false);}    
     public static void unlockDeveloper(Context c){prefs(c).edit().putBoolean("developer_unlocked",true).apply();}

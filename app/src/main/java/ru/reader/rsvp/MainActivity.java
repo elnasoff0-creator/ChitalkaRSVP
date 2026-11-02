@@ -283,7 +283,7 @@ public class MainActivity extends NavigationActivity {
     int subduedText() { return ReadingThemeCycle.isDark(bg) ? 0xffbcb7b1 : 0xff9d948a; }
 
     int dp(int n) { return (int) (getResources().getDisplayMetrics().density * n + .5f); }
-    Typeface type() { return font == 1 ? Typeface.SERIF : font == 2 ? Typeface.MONOSPACE : Typeface.SANS_SERIF; }
+    Typeface type() { return ReaderFontLibrary.selected(this,prefs); }
     int accent() { return ReaderButtonColors.accent(this, 0xff9A5E40); }
     int panelColor() { return prefs.getInt("panel_color", ReadingThemeCycle.isDark(bg) ? 0xff2a2d33 : 0xfffff9f1); }
     int softPanel() { return ReadingThemeCycle.isDark(bg) ? 0xff333842 : 0xfff5ede2; }
@@ -427,6 +427,7 @@ public class MainActivity extends NavigationActivity {
         });
         // Keep one consistent separation between the text and audio groups.
         // Previously 12 + 16 + 12 dp were stacked here.
+        addComicSection(contentWrap);
         final int audioStart=contentWrap.getChildCount();
         java.util.ArrayList<AudioLibrary.Book> audioBooks=AudioLibrary.load(this);
         audioBooks = sortedAudioBooks(audioBooks);
@@ -1194,6 +1195,41 @@ public class MainActivity extends NavigationActivity {
             }).setNegativeButton("Отмена",null).show();
     }
 
+    private void importComicFolder(){
+        Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        startActivityForResult(intent,12211);
+    }
+    private void importComicArchive(){
+        Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        startActivityForResult(intent,12212);
+    }
+    private void showComicImportMenu(){
+        new SwipeDialogs.Builder(this).setTitle("Добавить в Комиксотеку")
+            .setItems(new String[]{"Папка с HTML-главами","Папка с изображениями","Архив CBZ / CBR"},(d,which)->{
+                if(which==2) importComicArchive(); else importComicFolder();
+            }).setNegativeButton("Отмена",null).show();
+    }
+    private void openComic(String uri){startActivity(new Intent(this,ComicReaderActivity.class).putExtra("comic_uri",uri));}
+    private void addComicSection(LinearLayout host){
+        ArrayList<ComicLibrary.Comic> comics=ComicLibrary.list(this);
+        add(host,gap(12));boolean expanded=prefs.getBoolean("comic_library_expanded",true);
+        TextView toggle=buttonish("Комиксотека ("+comics.size()+")  "+(expanded?"⌃":"⌄"),softPanel(),fg,true);
+        add(host,iconToggle(toggle,R.drawable.ic_comic_library));
+        LinearLayout detail=column();add(host,detail);detail.setVisibility(expanded?View.VISIBLE:View.GONE);
+        TextView addComic=buttonish("＋ Добавить комикс",panelColor(),fg,true);
+        add(detail,addComic);addComic.setOnClickListener(v->showComicImportMenu());
+        ComicLibrary.Comic last=null;for(ComicLibrary.Comic item:comics)if(item.opened>0&&(last==null||item.opened>last.opened))last=item;
+        if(last!=null){final String id=last.uri;TextView resume=buttonish("▶  Продолжить просмотр · "+last.title,accent(),0xffffffff,true);
+            add(detail,resume);resume.setOnClickListener(v->openComic(id));}
+        for(ComicLibrary.Comic item:comics){TextView entry=buttonish(item.title+"  ·  Глава "+(item.chapter+1),panelColor(),fg,false);
+            add(detail,entry);entry.setOnClickListener(v->openComic(item.uri));}
+        toggle.setOnClickListener(v->{boolean visible=detail.getVisibility()!=View.VISIBLE;detail.setVisibility(visible?View.VISIBLE:View.GONE);
+            prefs.edit().putBoolean("comic_library_expanded",visible).apply();toggle.setText("Комиксотека ("+comics.size()+")  "+(visible?"⌃":"⌄"));});
+    }
     void chooseAudioFolder(){
         new SwipeDialogs.Builder(this).setTitle("Аудиокнига из папки")
             .setItems(new String[]{"Одна папка — одна аудиокнига","Вложенные папки — отдельные аудиокниги"},(d,n)->{
@@ -1214,6 +1250,26 @@ public class MainActivity extends NavigationActivity {
 
     @Override protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
+        if(req==12211&&res==RESULT_OK&&data!=null&&data.getData()!=null){
+            Uri tree=data.getData();try{getContentResolver().takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}
+            ComicLibrary.Comic comic=new ComicLibrary.Comic();comic.uri=tree.toString();
+            androidx.documentfile.provider.DocumentFile root=androidx.documentfile.provider.DocumentFile.fromTreeUri(this,tree);
+            comic.title=root!=null&&root.getName()!=null?root.getName():"Комикс";
+            comic.kind="auto";
+            ComicLibrary.Comic old=ComicLibrary.find(this,comic.uri);
+            if(old!=null)comic=old;
+            ComicLibrary.save(this,comic);draw();return;
+        }
+        if(req==12212&&res==RESULT_OK&&data!=null&&data.getData()!=null){
+            Uri file=data.getData();try{getContentResolver().takePersistableUriPermission(file,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}
+            androidx.documentfile.provider.DocumentFile src=androidx.documentfile.provider.DocumentFile.fromSingleUri(this,file);
+            String name=src!=null&&src.getName()!=null?src.getName():"Комикс";
+            ComicLibrary.Comic comic=new ComicLibrary.Comic();comic.uri=file.toString();comic.title=ComicLibrary.stripExt(name);
+            comic.kind=name.toLowerCase(java.util.Locale.ROOT).endsWith(".cbr")||name.toLowerCase(java.util.Locale.ROOT).endsWith(".rar")?"cbr":"cbz";
+            ComicLibrary.Comic old=ComicLibrary.find(this,comic.uri);
+            if(old!=null)comic=old;
+            ComicLibrary.save(this,comic);draw();return;
+        }
         if (req == 8 && res == RESULT_OK && data != null && data.getData()!=null) {
             Uri tree=data.getData();
             try{getContentResolver().takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}

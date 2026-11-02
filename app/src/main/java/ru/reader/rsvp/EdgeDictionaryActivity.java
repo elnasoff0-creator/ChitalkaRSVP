@@ -30,6 +30,7 @@ public final class EdgeDictionaryActivity extends NavigationActivity {
     private LinearLayout entries;
     private EditText filter;
     private int ink,bg;
+    private boolean ignoredOnly=false,selectedFromSentence=false;
     private MediaPlayer preview;
     private EdgeTtsClient request;
     private File previewFile;
@@ -75,6 +76,12 @@ public final class EdgeDictionaryActivity extends NavigationActivity {
             if(blocked.length()>0)blocked.append('\n');blocked.append(item);}
         prefs.edit().putString(EdgeSpeechTextTransform.DICTIONARY,b.toString())
             .putString(EdgeSpeechTextTransform.IGNORED,blocked.toString()).apply();
+        // A return result exists only for the current selected sentence, not for generic edits.
+        if(selectedFromSentence&&!activeSentence.isEmpty()&&getIntent().hasExtra("dictionary_selected_word_index")){
+            Intent result=new Intent().putExtra("dictionary_selected_word_index",
+                getIntent().getIntExtra("dictionary_selected_word_index",0));
+            setResult(RESULT_OK,result);
+        }
     }
     private void render(){
         LinearLayout page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);
@@ -82,16 +89,32 @@ public final class EdgeDictionaryActivity extends NavigationActivity {
         LinearLayout bar=new LinearLayout(this);bar.setGravity(Gravity.CENTER_VERTICAL);page.addView(bar);
         ImageButton drawer=new ImageButton(this);drawer.setImageResource(R.drawable.ic_menu_lines);drawer.setColorFilter(ink);drawer.setBackground(fill(bg));
         bar.addView(drawer,new LinearLayout.LayoutParams(dp(44),dp(44)));drawer.setOnClickListener(v->UniversalDrawer.show(this));
-        TextView heading=label("Словарь MS Edge",20);bar.addView(heading,new LinearLayout.LayoutParams(0,-2,1));
+        TextView heading=label("Словарь Edge TTS",20);bar.addView(heading,new LinearLayout.LayoutParams(0,-2,1));
         // Symbols have their own entry action and a punctuation-friendly
         // keyboard; they are NOT restricted to dictionary word tokens.
-        Button addSymbols=new Button(this);addSymbols.setText("Знаки +");
+        Button addSymbols=new Button(this);addSymbols.setText("Символы +");
         addSymbols.setTextSize(12);addSymbols.setAllCaps(false);addSymbols.setTextColor(ink);
         bar.addView(addSymbols,new LinearLayout.LayoutParams(dp(90),dp(44)));
         addSymbols.setOnClickListener(v->editRule(-1,"","","",true));
-        Button addIgnored=new Button(this);addIgnored.setText("Игнорировать");
+        LinearLayout sections=new LinearLayout(this);sections.setPadding(0,dp(6),0,dp(6));page.addView(sections);
+        TextView wordsTab=label("Замены",15),ignoredTab=label("Игнорировать",15);
+        wordsTab.setGravity(Gravity.CENTER);ignoredTab.setGravity(Gravity.CENTER);
+        sections.addView(wordsTab,new LinearLayout.LayoutParams(0,dp(47),1));
+        sections.addView(ignoredTab,new LinearLayout.LayoutParams(0,dp(47),1));
+        Runnable updateTabs=()->{
+            wordsTab.setBackground(fill(!ignoredOnly?0x22b58963:0x11aaaaaa));
+            ignoredTab.setBackground(fill(ignoredOnly?0x22b58963:0x11aaaaaa));
+            showEntries();
+        };
+        wordsTab.setOnClickListener(v->{ignoredOnly=false;updateTabs.run();});
+        ignoredTab.setOnClickListener(v->{ignoredOnly=true;updateTabs.run();});
+        updateTabs.run();
+        Button addIgnored=new Button(this);addIgnored.setText("＋ Добавить исключение");
         addIgnored.setTextSize(12);addIgnored.setAllCaps(false);addIgnored.setTextColor(ink);
-        page.addView(addIgnored,new LinearLayout.LayoutParams(-1,dp(44)));
+        page.addView(addIgnored,new LinearLayout.LayoutParams(-1,dp(42)));
+        addIgnored.setVisibility(ignoredOnly?View.VISIBLE:View.GONE);
+        ignoredTab.setOnClickListener(v->{ignoredOnly=true;addIgnored.setVisibility(View.VISIBLE);updateTabs.run();});
+        wordsTab.setOnClickListener(v->{ignoredOnly=false;addIgnored.setVisibility(View.GONE);updateTabs.run();});
         addIgnored.setOnClickListener(v->editIgnored(-1));
         ImageButton add=new ImageButton(this);add.setImageResource(R.drawable.ic_plus);add.setColorFilter(ink);add.setBackground(fill(bg));
         bar.addView(add,new LinearLayout.LayoutParams(dp(44),dp(44)));add.setOnClickListener(v->editRule(-1,"","",""));
@@ -107,7 +130,7 @@ public final class EdgeDictionaryActivity extends NavigationActivity {
         String needle=filter==null?"":filter.getText().toString().toLowerCase(Locale.ROOT);
         if(rules.isEmpty()&&ignored.isEmpty()){TextView empty=label("Словарь пуст. Добавьте слово, замену знаков или игнорируемый текст.",15);
             empty.setPadding(12,22,12,22);entries.addView(empty);return;}
-        for(int i=0;i<rules.size();i++){int id=i;Rule r=rules.get(i);
+        if(!ignoredOnly)for(int i=0;i<rules.size();i++){int id=i;Rule r=rules.get(i);
             if(!r.word.toLowerCase(Locale.ROOT).contains(needle)&&!r.spoken.toLowerCase(Locale.ROOT).contains(needle))continue;
             LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(7),dp(7),dp(7),dp(7));
             TextView value=label(r.word+"  →  "+r.spoken+(r.context.isEmpty()?"":"\nКонтекст: "+r.context),15);
@@ -117,15 +140,17 @@ public final class EdgeDictionaryActivity extends NavigationActivity {
             listen.setOnClickListener(v->listen(r.spoken));
             ImageButton edit=new ImageButton(this);edit.setImageResource(R.drawable.ic_edit_name);edit.setColorFilter(ink);
             row.addView(edit,new LinearLayout.LayoutParams(dp(42),dp(42)));edit.setOnClickListener(v->editRule(id,r.word,r.context,r.spoken));
-            entries.addView(row,new LinearLayout.LayoutParams(-1,dp(r.context.isEmpty()?64:82)));
+            row.setBackground(fill(0x12b68b64));
+            LinearLayout.LayoutParams cardLp=new LinearLayout.LayoutParams(-1,dp(r.context.isEmpty()?68:90));
+            cardLp.bottomMargin=dp(6);entries.addView(row,cardLp);
             View divider=new View(this);divider.setBackgroundColor((ink&0x00ffffff)|0x22000000);
             entries.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));
         }
-        if(!ignored.isEmpty()){
+        if(ignoredOnly&&!ignored.isEmpty()){
             TextView section=label("ИГНОРИРОВАТЬ · не отправлять в Edge TTS",13);
             section.setPadding(dp(8),dp(14),0,dp(7));entries.addView(section);
         }
-        for(int i=0;i<ignored.size();i++){
+        if(ignoredOnly)for(int i=0;i<ignored.size();i++){
             int index=i;String item=ignored.get(i);
             if(!item.toLowerCase(Locale.ROOT).contains(needle))continue;
             LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
@@ -135,7 +160,8 @@ public final class EdgeDictionaryActivity extends NavigationActivity {
             label.setOnClickListener(v->editIgnored(index));
             ImageButton edit=new ImageButton(this);edit.setImageResource(R.drawable.ic_edit_name);edit.setColorFilter(ink);
             row.addView(edit,new LinearLayout.LayoutParams(dp(42),dp(42)));
-            edit.setOnClickListener(v->editIgnored(index));entries.addView(row);
+            edit.setOnClickListener(v->editIgnored(index));row.setBackground(fill(0x12b68b64));
+            LinearLayout.LayoutParams card=new LinearLayout.LayoutParams(-1,-2);card.bottomMargin=dp(7);entries.addView(row,card);
         }
     }
     private void editIgnored(int index){
@@ -217,9 +243,10 @@ public final class EdgeDictionaryActivity extends NavigationActivity {
         pane.addView(contextHelp);
         Button previewButton=new Button(this);previewButton.setText("▶ Прослушать");pane.addView(previewButton);
         previewButton.setOnClickListener(v->listen(pronunciation.getText().toString().trim()));
+        ScrollView dialogScroll=new ScrollView(this);dialogScroll.addView(pane);
         AlertDialog.Builder dlg=new AlertDialog.Builder(this).setTitle(symbols?
             (index<0?"Добавить знаки":"Редактировать знаки"):
-            (index<0?"Добавить слово":"Редактировать слово")).setView(pane)
+            (index<0?"Добавить слово":"Редактировать слово")).setView(dialogScroll)
             .setNegativeButton("Отмена",null).setPositiveButton("Сохранить",(d,w)->{
                 String o=original.getText().toString().trim(),s=pronunciation.getText().toString().trim(),c=contextInput.getText().toString().trim();
                 if(o.isEmpty()||s.isEmpty()||o.contains("=")||o.contains("|")||c.contains("=")||c.contains("|")||o.contains("\n")||s.contains("\n")){
@@ -232,6 +259,7 @@ public final class EdgeDictionaryActivity extends NavigationActivity {
     }
     /** The source sentence is passed by ReaderActivity; the book view does not need a dictionary selection span. */
     private void chooseWordFromSentence(EditText target){
+        selectedFromSentence=true;
         if(activeSentence.trim().isEmpty()){
             Toast.makeText(this,"Текущее предложение недоступно. Откройте словарь из книги.",Toast.LENGTH_LONG).show();
             return;

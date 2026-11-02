@@ -1,19 +1,9 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp" android:height="24dp"
-    android:viewportWidth="24" android:viewportHeight="24">
+<?xml version='1.0' encoding='UTF-8'?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
     <!-- Approved emblem: an open book nested inside a simple headphone arch. -->
-    <path android:fillColor="@android:color/transparent"
-        android:strokeColor="#FF30343D" android:strokeWidth="1.5"
-        android:strokeLineCap="round" android:strokeLineJoin="round"
-        android:pathData="M4.5,12 L4.5,9.5 C4.5,5.5 7.5,2.8 12,2.8 C16.5,2.8 19.5,5.5 19.5,9.5 L19.5,12"/>
+    <path android:fillColor="@android:color/transparent" android:strokeColor="#FF30343D" android:strokeWidth="1.5" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M 4.5 13.0659 L 4.5 10.5659 C 4.5 6.12319 7.5 3.33015 12 3.33015 C 16.5 3.33015 19.5 6.124 19.5 10.6159 L 19.5 13.1159"/>
     <!-- Rounded ear cups outside the book silhouette. -->
-    <path android:fillColor="@android:color/transparent"
-        android:strokeColor="#FF30343D" android:strokeWidth="1.5"
-        android:strokeLineCap="round" android:strokeLineJoin="round"
-        android:pathData="M4.5,10.3 C3.4,10.3 2.8,11.3 2.8,12.4 L2.8,16 C2.8,17.2 3.5,17.9 4.5,17.9 L5.8,17.9 L5.8,10.3 Z M19.5,10.3 C20.6,10.3 21.2,11.3 21.2,12.4 L21.2,16 C21.2,17.2 20.5,17.9 19.5,17.9 L18.2,17.9 L18.2,10.3 Z"/>
+    <path android:fillColor="@android:color/transparent" android:strokeColor="#FF30343D" android:strokeWidth="1.5" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M 3.22105 11.3659 C 2.12105 11.3659 1.52105 12.3659 1.52105 13.4659 L 1.52105 17.06591 C 1.52105 18.2659 2.22105 18.9659 3.22105 18.9659 L 4.52105 18.9659 L 4.52105 11.3659 Z M 20.77895 11.3659 C 21.87895 11.3659 22.47895 12.3659 22.47895 13.4659 L 22.47895 17.06591 C 22.47895 18.2659 21.77895 18.9659 20.77895 18.9659 L 19.47895 18.9659 L 19.47895 11.3659 Z"/>
     <!-- Open pages with a clean V-fold and visible paper edges. -->
-    <path android:fillColor="@android:color/transparent"
-        android:strokeColor="#FF30343D" android:strokeWidth="1.5"
-        android:strokeLineCap="round" android:strokeLineJoin="round"
-        android:pathData="M6.5,10.8 C8.4,10.1 10.4,10.6 12,11.9 C13.6,10.6 15.6,10.1 17.5,10.8 L17.5,18.8 C15.4,18 13.6,18.4 12,19.8 C10.4,18.4 8.6,18 6.5,18.8 Z M12,11.9 L12,19.8"/>
+    <path android:fillColor="@android:color/transparent" android:strokeColor="#FF30343D" android:strokeWidth="1.5" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M 6.5 9.70426 C 8.51171 8.23134 10.4 8.40426 12 9.70426 C 13.6 8.40426 16.24835 8.218 17.5 9.70426 L 17.5 19.02754 C 16.10365 18.0369 13.64242 18.05172 12 19.02754 C 10.18791 18.09414 8.04606 18.15677 6.5 19.02754 Z M 12 9.70426 L 12 19.02754 M 17.5 20.66985 L 6.5 20.66985"/>
 </vector>

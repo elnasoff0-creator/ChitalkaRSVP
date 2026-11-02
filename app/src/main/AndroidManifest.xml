@@ -38,6 +38,9 @@
         <receiver android:name=".ChteicoNotifications" android:exported="false">
             <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /></intent-filter>
         </receiver>
+        <activity android:name=".ChteicoRunnerActivity" android:exported="false" />
+        <activity android:name=".ComicReaderActivity" android:exported="false" />
+        <activity android:name=".BookmarksActivity" android:exported="false" />
         <activity android:name=".ReaderActivity" android:exported="false" />
         <activity android:name=".ActivityInfo" android:exported="false" />
         <activity android:name=".TtsVoiceActivity" android:exported="false" />

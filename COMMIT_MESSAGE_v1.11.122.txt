@@ -1,0 +1,10 @@
+v1.11.122-beta: expand Comic Library to CBZ/CBR and image folders
+
+- add Comic Library import menu for HTML folders, image folders, and CBZ/CBR archives
+- extend ComicLibrary model with source kind auto/html/images/cbz/cbr
+- support image-folder comics and natural page sorting
+- support CBZ/ZIP extraction into cache
+- support CBR/RAR extraction through junrar dependency
+- update ComicReaderActivity to serve pages from HTML, folder images, and extracted archives
+- add new VectorDrawable icon ic_comic_library and wire it to MainActivity
+- keep versionCode 12200 / versionName 1.11.122-beta unchanged

@@ -47,6 +47,39 @@ public class SettingsActivity extends NavigationActivity {
         load();draw();
     }
     int dp(int n){return (int)(getResources().getDisplayMetrics().density*n+.5f);}    
+    private void pickFont(){android.content.Intent pick=new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT);
+        pick.setType("*/*");pick.addCategory(android.content.Intent.CATEGORY_OPENABLE);
+        pick.putExtra(android.content.Intent.EXTRA_MIME_TYPES,new String[]{"font/ttf","font/otf","application/x-font-ttf","application/octet-stream"});
+        startActivityForResult(pick,12122);
+    }
+    @Override protected void onActivityResult(int request,int result,android.content.Intent data){
+        super.onActivityResult(request,result,data);
+        if(request!=12122||result!=RESULT_OK||data==null||data.getData()==null)return;
+        try{String name=ReaderFontLibrary.importFont(this,data.getData());prefs.edit().putString(ReaderFontLibrary.KEY,name).apply();draw();}
+        catch(Exception ex){android.widget.Toast.makeText(this,ex.getMessage(),android.widget.Toast.LENGTH_LONG).show();}
+    }
+    private void fontDialog(){
+        java.util.ArrayList<String> names=ReaderFontLibrary.names(this);
+        android.widget.ScrollView scroll=new android.widget.ScrollView(this);
+        android.widget.LinearLayout body=new android.widget.LinearLayout(this);body.setOrientation(1);
+        body.setPadding(dp(12),dp(6),dp(12),dp(6));scroll.addView(body);
+        android.app.AlertDialog dlg=new android.app.AlertDialog.Builder(this).setTitle("Выбрать шрифт")
+            .setView(scroll).setNegativeButton("Закрыть",null).create();
+        for(String name:names){android.widget.TextView choice=text(name+" · Аа Бб 123",17,false);
+            choice.setTypeface(ReaderFontLibrary.preview(this,name));
+            choice.setPadding(dp(14),dp(11),dp(14),dp(11));body.addView(choice);
+            choice.setOnClickListener(v->{prefs.edit().putString(ReaderFontLibrary.KEY,name).apply();dlg.dismiss();draw();});
+            if(!java.util.Arrays.asList(ReaderFontLibrary.NAMES).contains(name))choice.setOnLongClickListener(v->{
+                new android.app.AlertDialog.Builder(this).setTitle("Удалить шрифт?").setMessage(name)
+                    .setNegativeButton("Отмена",null).setPositiveButton("Удалить",(d,w)->{
+                        new java.io.File(ReaderFontLibrary.folder(this),name).delete();
+                        if(ReaderFontLibrary.choice(this,prefs).equals(name))prefs.edit().remove(ReaderFontLibrary.KEY).apply();
+                        dlg.dismiss();draw();
+                    }).show();return true;
+            });
+        }
+        dlg.show();
+    }
     void load(){bg=prefs.getInt("bg",0xfff3e7d5);fg=prefs.getInt("fg",0xff30221e);font=prefs.getInt("font",1);size=prefs.getInt("size",36);display=prefs.getInt("display",1);buttonColor=prefs.getInt("button_color",NO_COLOR);accentButtonColor=prefs.getInt("button_accent_color",NO_COLOR);}    
     void put(String k,int v){prefs.edit().putInt(k,v).apply();
         if("bg".equals(k)||"fg".equals(k))ReadingThemeCycle.saveCustom(prefs,bg,fg);
@@ -61,7 +94,7 @@ public class SettingsActivity extends NavigationActivity {
     GradientDrawable outlined(int color,int radius){GradientDrawable d=rounded(color,radius);d.setStroke(dp(1),0xff938475);return d;}
     int cardColor(){return contrast(bg)==Color.WHITE?0xff404348:0xfffff9f1;}
     int activeColor(){return accentButtonColor==NO_COLOR?0xffa26949:accentButtonColor;}
-    Typeface face(){return font==1?Typeface.SERIF:font==2?Typeface.MONOSPACE:Typeface.SANS_SERIF;}
+    Typeface face(){return ReaderFontLibrary.selected(this,prefs);}
     LinearLayout col(){LinearLayout l=new LinearLayout(this);l.setOrientation(1);return l;}
     TextView text(String str,int sp,boolean bold){TextView t=new TextView(this);t.setText(str);t.setTextSize(sp);t.setTextColor(contrast(bg));t.setTypeface(Typeface.DEFAULT,bold?Typeface.BOLD:Typeface.NORMAL);return t;}
     void gap(int height){View v=new View(this);list.addView(v,new LinearLayout.LayoutParams(-1,dp(height)));}
@@ -98,7 +131,8 @@ public class SettingsActivity extends NavigationActivity {
         if(currentTab==4){drawChteicoSettings();return;}
         preview=new TextView(this);preview.setText("Предпросмотр текста");preview.setGravity(Gravity.CENTER);preview.setLineSpacing(dp(5),1.18f);preview.setPadding(dp(19),dp(21),dp(19),dp(21));LinearLayout.LayoutParams previewLp=new LinearLayout.LayoutParams(-1,dp(90));previewLp.topMargin=dp(15);list.addView(preview,previewLp);applyPreview();
         header("Шрифт");
-        list.addView(action(fontNames[font]+"   ▾",()->new SwipeDialogs.Builder(this).setTitle("Выбор шрифта").setSingleChoiceItems(fontNames,font,(d,n)->{font=n;put("font",font);d.dismiss();draw();}).setNegativeButton("Отмена",null).show()));
+        list.addView(action(ReaderFontLibrary.choice(this,prefs)+"   ▾",this::fontDialog));
+        list.addView(action("＋ Добавить шрифт TTF / OTF",this::pickFont));
         gap(9);header("Размер шрифта");
         LinearLayout sizing=new LinearLayout(this);sizing.setGravity(Gravity.CENTER_VERTICAL);
         Button minus=new Button(this);minus.setText("−");minus.setOnClickListener(v->changeSize(-2));sizing.addView(minus,new LinearLayout.LayoutParams(dp(70),dp(54)));
@@ -556,6 +590,7 @@ public class SettingsActivity extends NavigationActivity {
     }
     void drawAudioSettings(){
         header("TTS");
+        audioToggle(R.drawable.ic_audio_timer,"Повторять предыдущее предложение","При продолжении TTS после паузы","tts_resume_previous_sentence",true);
         audioLink(R.drawable.ic_tts_engine,"Локальный голос","Установленные русские голоса Samsung, Google и других движков","Выбрать",()->startActivity(new Intent(this,TtsVoiceActivity.class)));
         audioToggle(R.drawable.ic_tts_autoplay,"Автовоспроизведение при касании","Начинать озвучку сразу после выбора предложения","tts_tap_autoplay",false);
         audioToggle(R.drawable.ic_tts_pause_trim,"Сокращение пауз между предложениями MS Edge","Сокращается только конечная тишина; MP3 и WordBoundary не изменяются","edge_trim_sentence_pause",true);

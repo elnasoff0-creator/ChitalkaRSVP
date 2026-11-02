@@ -1,0 +1,28 @@
+PROChitalka v1.11.122-beta CLEAN
+Updated archive QA summary
+
+Date: 2026-11-02
+Version code: 12200
+Version name: 1.11.122-beta
+
+Executed QA_RUN_v1.11.122.py
+Result: TOTAL 47 / PASS 47 / FAIL 0
+
+Additional validated deltas in this refreshed archive:
+- Comic Library import menu supports HTML folders, image folders, CBZ/CBR archives
+- ComicLibrary.java contains archive and image-folder handlers
+- ComicReaderActivity.java serves pages from folder images and extracted archives
+- ic_comic_library.xml is present and parseable
+- app/build.gradle contains com.github.junrar:junrar dependency
+
+Scope:
+- Java syntax parsing
+- XML/resource parsing
+- static assertions
+- desktop JVM checks
+
+Not covered in this environment:
+- Android APK assembly
+- runtime UI rendering on device
+- actual SAF picker behaviour on device
+- actual CBZ/CBR opening on device

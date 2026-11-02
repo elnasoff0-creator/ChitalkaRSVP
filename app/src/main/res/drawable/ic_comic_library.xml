@@ -1,0 +1,36 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Minimal comic-library icon: overlapping pages / panel sheets in a dark silhouette-contour style. -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FF30343D"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M6.5,5.5H15.5C16.6,5.5 17.5,6.4 17.5,7.5V18.0C17.5,19.1 16.6,20.0 15.5,20.0H6.5C5.4,20.0 4.5,19.1 4.5,18.0V7.5C4.5,6.4 5.4,5.5 6.5,5.5Z"/>
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FF30343D"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M8.5,4.0H17.5C18.6,4.0 19.5,4.9 19.5,6.0V16.5C19.5,17.6 18.6,18.5 17.5,18.5"/>
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FF30343D"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M7.5,9.0H14.5M7.5,12.0H14.5M7.5,15.0H12.0"/>
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FF30343D"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M14.0,13.2L16.1,14.3L14.0,15.4Z"/>
+</vector>

@@ -25,12 +25,15 @@ public class ReaderActivity extends NavigationActivity {
     private SharedPreferences prefs;
     private LinearLayout root,speedPanel,controls,toolbar,toolbarStack,toolbarWpm,modeRow,readingFrame;
     private View toolbarSpacer;
-    private TextView toolbarBookName;
+    private TextView toolbarBookName,toolbarChapterName;
+    private String lastAppliedFont="";
+    private boolean resumePreviousSentence=false;
     private FrameLayout bottomBar;
     private LinearLayout contentsAction;
     private ImageButton contentsIcon;
     private LinearLayout bookHeader;
     private BookChapterIndex chapters=BookChapterIndex.empty();
+    private BookChapterIndex actualChapters=BookChapterIndex.empty();
     private java.util.ArrayList<SentenceChunks.Chunk> ttsParts=new java.util.ArrayList<>();
     private int pendingTtsWord=-1;
     private long pendingTtsSelectedAt=0L;
@@ -270,7 +273,7 @@ public class ReaderActivity extends NavigationActivity {
         pauseParagraphPercent=Math.max(0,Math.min(400,prefs.getInt("pauseParagraphPercent",150)));
     }
     private int dp(int value){return (int)(getResources().getDisplayMetrics().density*value+.5f);}
-    private Typeface type(){return font==1?Typeface.SERIF:font==2?Typeface.MONOSPACE:Typeface.SANS_SERIF;}
+    private Typeface type(){return ReaderFontLibrary.selected(this,prefs);}
     private int panelColor(){return ReadingThemeCycle.isDark(bg)?0xff303238:0xfffff9f0;}
     private int buttonBg(){return buttonColor==NO_COLOR?panelColor():buttonColor;}
     private int accent(){return accentButtonColor==NO_COLOR?0xff915439:accentButtonColor;}
@@ -293,6 +296,7 @@ public class ReaderActivity extends NavigationActivity {
     private int modeDrawable(){return mode==NORMAL?R.drawable.ic_book:mode==RSVP?R.drawable.ic_mode_speedreading:mode==CURSOR?R.drawable.ic_mode_cursor:R.drawable.ic_microphone;}
 
     private void draw(){
+        lastAppliedFont=ReaderFontLibrary.choice(this,prefs);
         stop();
         sceneRoot=new FrameLayout(this);
         root=column();root.setPadding(0,0,0,0);root.setBackgroundColor(bg);
@@ -377,17 +381,25 @@ public class ReaderActivity extends NavigationActivity {
         LinearLayout.LayoutParams settingsLp=new LinearLayout.LayoutParams(dp(44),dp(44));settingsLp.leftMargin=dp(5);
         toolbar.addView(icon(R.drawable.ic_more_vertical,v->{
             ReaderSheets.overflow(this,mode==TTS,which->{if(which==0)bookmark();
-                    else if(mode==TTS&&which==1)chooseTtsVoice();
-                    else if(which==(mode==TTS?3:2))openEdgeDictionary();
-                    else if(which==(mode==TTS?4:3))showBookSearch();
+                    else if(which==1)showBookmarks();
+                    else if(mode==TTS&&which==2)chooseTtsVoice();
+                    else if(which==(mode==TTS?4:3))openEdgeDictionary();
+                    else if(which==(mode==TTS?5:4))showBookSearch();
                     else if(!docUri.isEmpty())startActivity(new Intent(this,EdgeChapterDownloadsActivity.class)
                         .putExtra("book_uri",docUri).putExtra("book_title",title));});
         }),settingsLp);
+        // The bookmark list is available via a dedicated toolbar/book menu action.
+        // A long press on the book title does not alter the active reading position.
         toolbarBookName=text("",13);
         toolbarBookName.setSingleLine(true);
         toolbarBookName.setEllipsize(TextUtils.TruncateAt.END);
         toolbarBookName.setPadding(dp(6),dp(4),dp(6),dp(3));
-        toolbarStack.addView(toolbarBookName,new LinearLayout.LayoutParams(-1,dp(25)));
+        toolbarBookName.setOnClickListener(v->showBookmarks());
+        toolbarStack.addView(toolbarBookName,new LinearLayout.LayoutParams(-1,dp(23)));
+        toolbarChapterName=text("",11);toolbarChapterName.setSingleLine(true);
+        toolbarChapterName.setEllipsize(TextUtils.TruncateAt.END);
+        toolbarChapterName.setPadding(dp(6),0,dp(6),dp(4));
+        toolbarStack.addView(toolbarChapterName,new LinearLayout.LayoutParams(-1,dp(19)));
         if(words.length==0){applySystemBars(false);
             TextView intro=text("EPUB · FB2 · HTML\n\nОткройте книгу, чтобы начать чтение.",20);
             intro.setPadding(dp(24),dp(24),dp(24),dp(24));add(root,intro);
@@ -410,6 +422,7 @@ public class ReaderActivity extends NavigationActivity {
         // The cover and metadata are adapter item 0, so they scroll with the book text.
         bookHeader.setVisibility(View.VISIBLE);
         if(toolbarBookName!=null)toolbarBookName.setText(title);
+        updateChapterTitle();
         modeRow=new LinearLayout(this);modeRow.setGravity(Gravity.CENTER_VERTICAL);
         progressView=text("",12);progressView.setGravity(Gravity.CENTER_VERTICAL);
         selectWordButton=new ImageView(this);selectWordButton.setImageResource(R.drawable.ic_select_word);
@@ -873,6 +886,15 @@ public class ReaderActivity extends NavigationActivity {
         wordView.setTextSize(size);wordView.setTypeface(type(),Typeface.BOLD);wordView.setText(span);
         if(focusLines!=null)focusLines.invalidate();updateProgress();
     }
+    private void updateChapterTitle(){
+        if(toolbarChapterName==null)return;
+        int at=viewportWord>=0?viewportWord:index;
+        int charAt=map.starts.length>0?map.starts[map.clamp(at)]:-1;
+        BookChapterIndex.Chapter shown=charAt>=0?actualChapters.atChar(charAt):null;
+        String name=shown==null?"":shown.title;
+        toolbarChapterName.setText(name);
+        toolbarChapterName.setVisibility(name.isEmpty()?View.GONE:View.VISIBLE);
+    }
     private int chapterForWord(int word){
         if(chapters==null||map.starts.length==0)return -1;
         int pos=map.starts[map.clamp(word)],result=-1;
@@ -1040,7 +1062,9 @@ public class ReaderActivity extends NavigationActivity {
                 intent.putExtra(EdgeDictionaryActivity.EXTRA_SENTENCE,
                     body.substring(Math.max(0,sentence.fromChar),Math.min(body.length(),sentence.toChar)));
         }
-        startActivity(intent);
+        if(!docUri.isEmpty())intent.putExtra("dictionary_book_uri",docUri)
+            .putExtra("dictionary_selected_word_index",map.clamp(index));
+        startActivityForResult(intent,12212);
     }
     private void showBookSearch(){
         if(body.isEmpty())return;
@@ -1089,7 +1113,7 @@ public class ReaderActivity extends NavigationActivity {
         if(mode==RSVP&&playing)stop();
         int target=map.clamp(word),chunk=chunks.chunkForWord(target);
         final long generation=++tocPreviewGeneration;
-        viewportWord=target;followSuspended=true;userScrolling=false;restoringScroll=true;
+        viewportWord=target;followSuspended=true;userScrolling=false;restoringScroll=true;updateChapterTitle();
         if(prefs!=null&&!docUri.isEmpty())prefs.edit().putInt("viewport:"+docUri,target).apply();
         ReaderDiagnosticLog.event("NAVIGATION","TOC_VIEW_ONLY target="+target+
             " playing="+index+" chapter="+chapterForWord(target));
@@ -1146,7 +1170,7 @@ public class ReaderActivity extends NavigationActivity {
                 word=map.atCharacter(chunks.get(row).startChar+v.getLayout().getLineStart(offset));
             }
         }
-        viewportWord=map.clamp(word);
+        viewportWord=map.clamp(word);updateChapterTitle();
         if(prefs!=null&&!docUri.isEmpty())prefs.edit().putInt("viewport:"+docUri,viewportWord).apply();
     }
     private void showToc(){
@@ -1230,9 +1254,16 @@ public class ReaderActivity extends NavigationActivity {
             prefs.edit().putString("library",updated.toString()).apply();
         }catch(Exception ignored){}
     }
-    private void bookmark(){if(words.length==0)return;String key="bookmark:"+docUri;
-        Set<String> saved=new HashSet<>(prefs.getStringSet(key,Collections.emptySet()));saved.add(String.valueOf(viewportWord>=0?viewportWord:index));
-        prefs.edit().putStringSet(key,saved).apply();Toast.makeText(this,"Закладка добавлена",Toast.LENGTH_SHORT).show();
+    private void bookmark(){if(words.length==0)return;int at=map.clamp(viewportWord>=0?viewportWord:index);
+        ReaderBookmarks.Item b=new ReaderBookmarks.Item();b.word=at;b.created=System.currentTimeMillis();
+        BookChapterIndex.Chapter current=actualChapters.atChar(map.starts[at]);
+        b.chapter=current==null?"":current.title;
+        b.excerpt=body.substring(Math.max(0,map.starts[at]-42),Math.min(body.length(),map.starts[at]+120)).replaceAll("\\s+"," ").trim();
+        b.title=b.chapter.isEmpty()?"Закладка":b.chapter;
+        ReaderBookmarks.add(this,docUri,b);Toast.makeText(this,"Закладка добавлена",Toast.LENGTH_SHORT).show();
+    }
+    private void showBookmarks(){if(docUri.isEmpty())return;startActivityForResult(new Intent(this,BookmarksActivity.class)
+        .putExtra("book_uri",docUri).putExtra("book_title",title),12210);
     }
     private void pick(){
         Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType("*/*");
@@ -1240,6 +1271,22 @@ public class ReaderActivity extends NavigationActivity {
         startActivityForResult(intent,7);
     }
     @Override protected void onActivityResult(int req,int result,Intent data){super.onActivityResult(req,result,data);
+        if(req==12212&&result==RESULT_OK&&data!=null&&ttsStreamer!=null&&words.length>0){
+            int selected=map.clamp(data.getIntExtra("dictionary_selected_word_index",index));
+            // New speech revision makes every affected clip's key change; old audio
+            // remains a historical cache, never reused for a modified dictionary.
+            ttsStreamer.refreshSelectedClip(selected);
+            cachedTimingKey="";cachedTimingWords=java.util.Collections.emptyList();
+            if(ttsPlayer!=null&&ttsPlayer.playRequested())ttsStreamer.ensurePlaySelection();
+            return;
+        }
+        if(req==12210&&result==RESULT_OK&&data!=null&&data.hasExtra("word_index")&&words.length>0){
+            int at=map.clamp(data.getIntExtra("word_index",0)),old=index;
+            abandonViewportPreview();selectedWordActive=true;
+            if(mode==TTS)selectTtsWord(at);else index=at;
+            refreshHighlight(old);updateProgress();saveLight(true);
+            browseToWord(at);return;
+        }
         if(req==7&&result==RESULT_OK&&data!=null&&data.getData()!=null){Uri uri=data.getData();
             try{getContentResolver().takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}
             load(uri,true);
@@ -1265,6 +1312,7 @@ public class ReaderActivity extends NavigationActivity {
                 long uiBegin=SystemClock.elapsedRealtime();
                 stop();title=loadedTitle;author=loadedAuthor==null?"":loadedAuthor;body=loadedText;
                 map=prepared;words=prepared.words;chunks=indexed;
+                actualChapters=parsedChapters==null?BookChapterIndex.empty():parsedChapters;
                 chapters=parsedChapters!=null&&parsedChapters.size()>=3?parsedChapters:BookChapterIndex.empty();
                 ttsParts=session.speechSegments;docUri=uri.toString();
                 prefs.edit().putString("book_title:"+docUri,title)
@@ -1339,7 +1387,20 @@ public class ReaderActivity extends NavigationActivity {
         return ttsPendingPlay||ttsPlayer!=null&&ttsPlayer.playRequested();
     }
     private void toggleTtsPlayback(){
-        if(!ttsCurrentlyPlaying())returnToActiveWord();
+        if(!ttsCurrentlyPlaying()){
+            if(resumePreviousSentence&&prefs.getBoolean("tts_resume_previous_sentence",true)&&ttsParts!=null){
+                int current=map.clamp(index),previous=current;
+                SentenceChunks.Chunk segment=SentenceChunks.forWord(ttsParts,current);
+                if(segment!=null){for(SentenceChunks.Chunk part:ttsParts){if(part.fromWord>=segment.fromWord)break;previous=part.fromWord;}}
+                if(previous!=current&&words.length>0){
+                    index=previous;
+                    if(ttsLocal)ReaderTtsController.localSelect(this,previous);
+                    else if(ttsStreamer!=null)ttsStreamer.setAnchor(previous,true);
+                }
+            }
+            resumePreviousSentence=false;
+            returnToActiveWord();
+        }else resumePreviousSentence=true;
         if(ttsLocal){ReaderTtsController.localPauseOrResume(this);
         }else if(ttsPlayer!=null){
             if(ttsPlayer.playRequested())ttsPlayer.pause();
@@ -1348,6 +1409,7 @@ public class ReaderActivity extends NavigationActivity {
         updatePlayButton();scheduleTtsUi();
     }
     private void selectTtsWord(int at){
+        resumePreviousSentence=false;
         // A tap selects the sentence; the book's UI block is never reloaded.
         abandonViewportPreview();
         index=map.clamp(at);
@@ -1631,7 +1693,7 @@ public class ReaderActivity extends NavigationActivity {
         if(root!=null&&words.length>0&&wantedMode!=oldMode){
             mode=oldMode;setMode(wantedMode);
         }
-        if(root!=null&&words.length>0&&(oldBg!=bg||oldFg!=fg||oldSize!=size||oldFont!=font||oldMode!=mode||oldPortion!=portion
+        if(root!=null&&words.length>0&&(!lastAppliedFont.equals(ReaderFontLibrary.choice(this,prefs))||oldBg!=bg||oldFg!=fg||oldSize!=size||oldFont!=font||oldMode!=mode||oldPortion!=portion
             ||oldCursorBg!=cursorBackground||oldCursorText!=cursorText||oldCursorScale!=cursorScale||oldNormalText!=normalSelectText
             ||oldNormalScale!=normalSelectScale||oldButton!=buttonColor||oldAccent!=accentButtonColor
             ||oldHighlightColor!=sentenceHighlightColor||oldHighlightOpacity!=sentenceHighlightOpacity||oldFocus!=focusColor||oldLineColor!=lineColor

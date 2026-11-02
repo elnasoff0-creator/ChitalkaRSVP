@@ -224,6 +224,9 @@ public final class EdgeFullBookService extends Service {
                 EdgeFullBookStore.progress(job,completed,count,null);
                 notifyProgress(job.title,completed,count);
             }
+            // Organize downloaded files by numbered chapter while leaving
+            // canonical hash-keyed cache paths valid for existing playback.
+            EdgeChapterLayout.publish(job,index,book.chapters,wordOffsets);
             if(EdgeFullBookStore.running(job)){
                 completed=EdgeFullBookStore.readyCount(job);
                 EdgeFullBookStore.progress(job,completed,count,null);

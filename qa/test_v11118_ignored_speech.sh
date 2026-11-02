@@ -66,10 +66,10 @@ assert '||shouldIgnore(clip)' in svc
 assert 'if(!shouldIgnore(candidate))' in svc
 assert 'if(speech.skipSynthesis())continue' in full
 assert 'if(result.transformation.skipSynthesis())' in full
-assert 'setText("Игнорировать")' in ui
+assert 'label("Игнорировать",15)' in ui
 assert 'Символьная замена перед Edge TTS. Например: ! → -.' in ui
 assert '*** → .' not in ui
 assert 'static final String IGNORED=' in t
-assert 'versionCode 12100' in (root/'app/build.gradle').read_text()
+assert 'versionCode 12200' in (root/'app/build.gradle').read_text()
 print('PASS: live/bulk WebSocket bypass, UI actions/example, version 118')
 PY

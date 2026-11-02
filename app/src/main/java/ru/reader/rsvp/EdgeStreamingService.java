@@ -501,6 +501,13 @@ public final class EdgeStreamingService extends Service {
         if(liveFor(target)!=null)return;
         startLive(target,true);
     }
+    /** Dictionary action: invalidate speech mapping, regenerate just selected clip,
+     * and preserve the serialized one-request Edge pipeline. */
+    public void refreshSelectedClip(int word){
+        refreshSettings();setAnchor(word,true);
+        idlePrefetchRequested=true;
+        warmCurrent();pump();
+    }
     public void refreshSettings(){
         // A different pronunciation rule changes both the transmitted text
         // and the MP3 identity. Rebuild the catalogue without deleting old files.
