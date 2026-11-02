@@ -16,3 +16,5 @@ Same-version refresh: comic reader gesture chrome and pinch zoom
 - feed scrolling down/up hides/reveals both bars with motion threshold
 - enable WebView native pinch-to-zoom (1..5x), ignore multi-touch in tap handling
 - add focused gesture/zoom source contracts and updated release QA
+
+Hotfix: propagate checked Exception from ComicLibrary.pagesForChapter through ComicReaderActivity.prepareImageAssets and add a regression check.

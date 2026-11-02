@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess,sys
 root=Path(__file__).resolve().parent
 focused=[
- 'check_java_syntax.sh','test_v11126_comic_gestures_zoom.py',
+ 'check_java_syntax.sh','test_v11126_compile_exception_fix.py','test_v11126_comic_gestures_zoom.py',
  'test_v11126_comics_timer.py','test_v11125_mangalib.py','test_v11124_assets.py',
  'test_v11123_features.py','test_v11122_features.py','test_v11121_navigation_settings.py',
  'test_v11120_lazy_startup.py','test_v11119_navigation_highlight_sleep.py',

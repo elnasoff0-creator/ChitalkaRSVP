@@ -257,7 +257,7 @@ public final class ComicReaderActivity extends NavigationActivity {
         }
         synchronized(currentAssets){ currentAssets.addAll(pages); }
     }
-    private void prepareImageAssets(ComicLibrary.Chapter chapter) throws java.io.IOException {
+    private void prepareImageAssets(ComicLibrary.Chapter chapter) throws Exception {
         ArrayList<PageAsset> pages=new ArrayList<>();
         ArrayList<String> imagePaths="mangalib_cbz".equals(chapter.type)
             ? MangaLibStorage.extractForReading(this,new File(chapter.imagePaths.get(0)))
