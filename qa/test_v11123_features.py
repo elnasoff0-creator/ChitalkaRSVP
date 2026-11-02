@@ -11,8 +11,8 @@ menu=source('DrawerMenuStore.java'); editor=source('DrawerEditorActivity.java')
 home=source('HomeSectionOrder.java'); pet=source('ChteicoActivity.java')
 runner=source('ChteicoRunnerActivity.java'); emotions=source('ChteicoEmotions.java')
 help=source('ActivityInfo.java')
-assert 'versionCode 12400' in (root/'app/build.gradle').read_text()
-assert "versionName '1.11.124-beta'" in (root/'app/build.gradle').read_text()
+assert 'versionCode 12600' in (root/'app/build.gradle').read_text()
+assert "versionName '1.11.126-beta'" in (root/'app/build.gradle').read_text()
 assert '.DrawerEditorActivity' in (root/'app/src/main/AndroidManifest.xml').read_text()
 assert 'for(String id:DrawerMenuStore.order(a))' in nav and 'DrawerMenuStore.visible(a,id)' in nav
 assert 'DrawerEditorActivity.class' in nav

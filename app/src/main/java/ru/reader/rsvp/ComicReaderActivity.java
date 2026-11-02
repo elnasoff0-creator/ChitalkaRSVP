@@ -1,17 +1,21 @@
 package ru.reader.rsvp;
 
 import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
+import android.os.Handler;
+import android.os.Looper;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-import android.widget.ArrayAdapter;
 import android.widget.LinearLayout;
-import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.documentfile.provider.DocumentFile;
@@ -31,30 +35,84 @@ import java.util.Locale;
 public final class ComicReaderActivity extends NavigationActivity {
     private static final class PageAsset { String relativePath; File localFile; String mime="image/*"; }
     private ComicLibrary.Comic comic; private ArrayList<ComicLibrary.Chapter> chapters=new ArrayList<>(); private WebView web;
-    private TextView chapterTitle; private Spinner modePicker; private int generation=0; private final ArrayList<PageAsset> currentAssets=new ArrayList<>();
+    private TextView chapterTitle, chapterInfo, comicHeading;private ImageView modeAction;
+    private LinearLayout toolbarOverlay, footerOverlay;
+    private boolean chromeVisible=true, gestureMoved=false, touchPinching=false;
+    private float gestureStartX, gestureStartY;
+    private long gestureStartedAt, lastReaderTouchAt;
+    private int feedScrollAccum=0;
+    private int generation=0;private final ArrayList<PageAsset> currentAssets=new ArrayList<>();
+    private final Handler tracker=new Handler(Looper.getMainLooper());private boolean tracking=false;
+    private final Runnable trackPosition=new Runnable(){@Override public void run(){
+        if(!tracking||web==null||isFinishing())return;
+        final int token=generation;
+        try{web.evaluateJavascript("positionInfo()",value->{
+            if(token!=generation||value==null||comic==null)return;
+            String[] parts=value.replace("\"","").split("\\|");
+            if(parts.length==2)try{
+                int page=Integer.parseInt(parts[0]),offset=Integer.parseInt(parts[1]);
+                int max; synchronized(currentAssets){max=currentAssets.size();}
+                comic.page=Math.max(0,Math.min(page,Math.max(0,max-1)));
+                comic.scroll=Math.max(0,offset);
+                updateChapterButton();
+            }catch(Exception ignored){}
+        });}catch(Exception ignored){}
+        tracker.postDelayed(this,600L);
+    }};
     private int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}    
 
     @Override public void onCreate(Bundle state){super.onCreate(state);
         String uri=getIntent().getStringExtra("comic_uri"); comic=ComicLibrary.find(this,uri==null?"":uri);
-        if(comic==null){finish();return;} chapters=ComicLibrary.chapters(this,comic);
-        LinearLayout main=new LinearLayout(this); main.setOrientation(LinearLayout.VERTICAL);
+        if(comic==null){finish();return;} chapters=ComicLibrary.chapters(this,comic);comic.chapterTotal=chapters.size();
+        FrameLayout main=new FrameLayout(this);
         int bg=getSharedPreferences("reader",0).getInt("bg",0xfff3e7d5), fg=getSharedPreferences("reader",0).getInt("fg",0xff30221e);
         main.setBackgroundColor(bg); setContentView(main); SafeSystemBars.matchBackground(this,bg);
 
-        LinearLayout toolbar=new LinearLayout(this); toolbar.setGravity(Gravity.CENTER_VERTICAL); main.addView(toolbar);
-        TextView back=button("‹",fg); toolbar.addView(back); back.setOnClickListener(v->finish());
-        TextView title=button(comic.title,fg); title.setSingleLine(true); title.setEllipsize(android.text.TextUtils.TruncateAt.END); toolbar.addView(title,new LinearLayout.LayoutParams(0,dp(50),1));
-        modePicker=new Spinner(this); modePicker.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"Постраничный","Вертикальный"}));
-        modePicker.setSelection(Math.max(0,Math.min(1,comic.mode))); toolbar.addView(modePicker,new LinearLayout.LayoutParams(dp(153),dp(50)));
-        modePicker.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){public void onNothingSelected(android.widget.AdapterView<?> p){} public void onItemSelected(android.widget.AdapterView<?> p,View v,int pos,long id){if(comic.mode!=pos){comic.mode=pos; comic.scroll=0; persist(); loadChapter();}}});
-
-        LinearLayout nav=new LinearLayout(this); nav.setGravity(Gravity.CENTER_VERTICAL); main.addView(nav);
-        TextView prev=button("‹",fg); nav.addView(prev); prev.setOnClickListener(v->navigate(-1));
-        chapterTitle=button("Оглавление ▾",fg); nav.addView(chapterTitle,new LinearLayout.LayoutParams(0,dp(45),1)); chapterTitle.setOnClickListener(v->contents());
-        TextView next=button("›",fg); nav.addView(next); next.setOnClickListener(v->navigate(1));
+        LinearLayout toolbar=new LinearLayout(this); toolbar.setGravity(Gravity.CENTER_VERTICAL);
+        toolbar.setPadding(dp(7),dp(3),dp(7),dp(3));toolbarOverlay=toolbar;
+        toolbar.setBackground(rounded((bg & 0x00ffffff) | 0xed000000,14));
+        ImageView drawer=toolIcon(R.drawable.ic_menu_lines,fg);
+        toolbar.addView(drawer,new LinearLayout.LayoutParams(dp(43),dp(43)));
+        drawer.setContentDescription("Открыть боковое меню");drawer.setOnClickListener(v->UniversalDrawer.show(this));
+        modeAction=toolIcon(comic.mode==0?R.drawable.ic_comic_mode_pages:R.drawable.ic_comic_mode_feed,fg);
+        modeAction.setBackground(rounded(0xffded0f0,12));
+        LinearLayout.LayoutParams modeLp=new LinearLayout.LayoutParams(dp(44),dp(44));modeLp.leftMargin=dp(5);toolbar.addView(modeAction,modeLp);
+        modeAction.setContentDescription(comic.mode==0?"Страницы":"Лента");
+        modeAction.setOnClickListener(v->UiNavigationSheet.showComicModes(this,comic.mode,n->{
+            if(n!=comic.mode){comic.mode=n;comic.scroll=0;feedScrollAccum=0;setChromeVisible(true);persist();updateModeIcon();loadChapter();}
+        }));
+        LinearLayout caption=new LinearLayout(this);caption.setOrientation(LinearLayout.VERTICAL);caption.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams captionLp=new LinearLayout.LayoutParams(0,-1,1);captionLp.leftMargin=dp(8);toolbar.addView(caption,captionLp);
+        comicHeading=button(comic.title,fg);comicHeading.setSingleLine(true);comicHeading.setTextSize(15);
+        comicHeading.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);
+        comicHeading.setEllipsize(android.text.TextUtils.TruncateAt.END);caption.addView(comicHeading,new LinearLayout.LayoutParams(-1,dp(24)));
+        chapterInfo=button("",fg);chapterInfo.setSingleLine(true);chapterInfo.setTextSize(11);chapterInfo.setAlpha(.75f);
+        chapterInfo.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);chapterInfo.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        caption.addView(chapterInfo,new LinearLayout.LayoutParams(-1,dp(20)));
 
         web=new WebView(this); web.setBackgroundColor(bg); web.getSettings().setJavaScriptEnabled(true); web.getSettings().setAllowFileAccess(false); web.getSettings().setAllowContentAccess(false);
         web.getSettings().setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        // Native WebView pinch zoom is enabled in both comic reading modes.
+        // Android handles scaling; the web content continues to handle page swipes/vertical scrolling.
+        web.getSettings().setSupportZoom(true);
+        web.getSettings().setBuiltInZoomControls(true);
+        web.getSettings().setDisplayZoomControls(false);
+        web.getSettings().setUseWideViewPort(true);
+        web.getSettings().setLoadWithOverviewMode(true);
+        web.setOnTouchListener((v,event)->handleReaderTouch(event));
+        web.setOnScrollChangeListener((v,scrollX,scrollY,oldX,oldY)->{
+            if(comic==null||comic.mode!=1||touchPinching)return;
+            // Ignore programmatic scroll restoration after changing chapters/modes.
+            if(android.os.SystemClock.uptimeMillis()-lastReaderTouchAt>900L)return;
+            int delta=scrollY-oldY;
+            if(Math.abs(delta)<dp(2))return;
+            if(feedScrollAccum!=0&&Integer.signum(delta)!=Integer.signum(feedScrollAccum))feedScrollAccum=0;
+            feedScrollAccum=Math.max(-dp(64),Math.min(dp(64),feedScrollAccum+delta));
+            if(Math.abs(feedScrollAccum)>=dp(14)){
+                setChromeVisible(feedScrollAccum<0);
+                feedScrollAccum=0;
+            }
+        });
         web.setWebViewClient(new WebViewClient(){
             @Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest req){return true;}
             @Override public WebResourceResponse shouldInterceptRequest(WebView view,WebResourceRequest request){
@@ -73,18 +131,89 @@ public final class ComicReaderActivity extends NavigationActivity {
                 return forbidden();
             }
         });
-        main.addView(web,new LinearLayout.LayoutParams(-1,0,1));
+        // The comic viewport fills the screen. Floating bars cannot resize it or reset scroll.
+        main.addView(web,new FrameLayout.LayoutParams(-1,-1));
+        LinearLayout footer=new LinearLayout(this);footer.setGravity(Gravity.CENTER_VERTICAL);
+        footerOverlay=footer;
+        footer.setPadding(dp(9),dp(5),dp(9),dp(5));
+        footer.setBackground(rounded((bg & 0x00ffffff) | 0xed000000,14));
+        chapterTitle=button("",fg);chapterTitle.setTextSize(14);chapterTitle.setGravity(Gravity.CENTER_VERTICAL);
+        chapterTitle.setBackground(rounded(0xffded0f0,14));chapterTitle.setPadding(dp(14),0,dp(14),0);
+        footer.addView(chapterTitle,new LinearLayout.LayoutParams(-1,dp(54)));
+        chapterTitle.setOnClickListener(v->contents());
+        FrameLayout.LayoutParams topParams=new FrameLayout.LayoutParams(-1,dp(58),Gravity.TOP);
+        topParams.setMargins(dp(7),dp(4),dp(7),0);
+        main.addView(toolbarOverlay,topParams);
+        FrameLayout.LayoutParams bottomParams=new FrameLayout.LayoutParams(-1,dp(64),Gravity.BOTTOM);
+        bottomParams.setMargins(dp(7),0,dp(7),dp(4));
+        main.addView(footerOverlay,bottomParams);
         loadChapter();
     }
 
+    /** ReaderActivity-like chrome: overlays leave the WebView viewport untouched. */
+    private void setChromeVisible(boolean show){
+        if(chromeVisible==show)return;
+        chromeVisible=show;
+        animateChrome(toolbarOverlay,show,-dp(70));
+        animateChrome(footerOverlay,show,dp(75));
+    }
+    private void animateChrome(View bar,boolean show,int offscreen){
+        if(bar==null)return;
+        bar.animate().cancel();bar.setTag(Boolean.valueOf(show));
+        bar.setVisibility(View.VISIBLE);
+        bar.animate().translationY(show?0:offscreen).alpha(show?1f:0f)
+            .setDuration(180L).withEndAction(()->{
+                if(Boolean.FALSE.equals(bar.getTag()))bar.setVisibility(View.INVISIBLE);
+            }).start();
+        bar.setClickable(show);
+    }
+    /** Return false so neither page swipes nor native pinch zoom are swallowed. */
+    private boolean handleReaderTouch(MotionEvent event){
+        final int action=event.getActionMasked();
+        lastReaderTouchAt=android.os.SystemClock.uptimeMillis();
+        if(action==MotionEvent.ACTION_DOWN){
+            gestureStartX=event.getX();gestureStartY=event.getY();
+            gestureStartedAt=android.os.SystemClock.uptimeMillis();
+            gestureMoved=false;touchPinching=false;
+        }else if(action==MotionEvent.ACTION_POINTER_DOWN || event.getPointerCount()>1){
+            touchPinching=true;gestureMoved=true;
+        }else if(action==MotionEvent.ACTION_MOVE){
+            if(Math.abs(event.getX()-gestureStartX)>dp(14)||
+                Math.abs(event.getY()-gestureStartY)>dp(14))gestureMoved=true;
+        }else if(action==MotionEvent.ACTION_UP){
+            if(comic!=null&&comic.mode==0&&!gestureMoved&&!touchPinching&&
+                android.os.SystemClock.uptimeMillis()-gestureStartedAt<350L){
+                // Page mode: tap toggles BOTH bars; swipe left/right stays in WebView.
+                setChromeVisible(!chromeVisible);
+            }
+            touchPinching=false;
+        }else if(action==MotionEvent.ACTION_CANCEL){touchPinching=false;gestureMoved=true;}
+        return false;
+    }
+
+    private android.graphics.drawable.Drawable rounded(int color,int radius){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(radius));return d;}
+    private ImageView toolIcon(int drawable,int fg){ImageView icon=new ImageView(this);icon.setImageResource(drawable);icon.setColorFilter(fg);icon.setPadding(dp(9),dp(9),dp(9),dp(9));return icon;}
+    private void updateModeIcon(){if(modeAction!=null){modeAction.setImageResource(comic.mode==0?R.drawable.ic_comic_mode_pages:R.drawable.ic_comic_mode_feed);modeAction.setContentDescription(comic.mode==0?"Режим Страницы":"Режим Лента");}}
+    private void updateChapterButton(){
+        if(chapterTitle==null||comic==null)return;
+        int total=chapters.size(),count; synchronized(currentAssets){count=currentAssets.size();}
+        comic.chapterTotal=total;comic.pageTotal=count;
+        String name=total>0?chapters.get(Math.max(0,Math.min(comic.chapter,total-1))).title:"Оглавление";
+        chapterTitle.setText("☷  Файл "+(total==0?0:comic.chapter+1)+"/"+total+"  ·  Изображение "+(count==0?0:comic.page+1)+"/"+count+"   ⌃");
+        if(chapterInfo!=null)chapterInfo.setText(name);
+    }
     private static WebResourceResponse forbidden(){return new WebResourceResponse("text/plain","UTF-8",new ByteArrayInputStream(new byte[0]));}
     private static DocumentFile lookup(DocumentFile root,String path){DocumentFile current=root; for(String part:path.split("/")){ if(part.isEmpty()||part.equals(".")) continue; if(part.equals("..")) return null; current=current.findFile(part); if(current==null) return null; } return current; }
     private static String guessMime(String path){String lower=path.toLowerCase(Locale.ROOT); if(lower.endsWith(".png")) return "image/png"; if(lower.endsWith(".webp")) return "image/webp"; if(lower.endsWith(".gif")) return "image/gif"; if(lower.endsWith(".bmp")) return "image/bmp"; if(lower.endsWith(".avif")) return "image/avif"; return "image/jpeg";}
     private TextView button(String text,int fg){TextView v=new TextView(this); v.setText(text); v.setTextColor(fg); v.setGravity(Gravity.CENTER); v.setTextSize(15); v.setPadding(dp(9),dp(7),dp(9),dp(7)); return v;}
     private void persist(){comic.opened=System.currentTimeMillis(); ComicLibrary.save(this,comic);}    
-    private void navigate(int delta){int target=comic.chapter+delta; if(target>=0&&target<chapters.size()){comic.chapter=target; comic.scroll=0; loadChapter();}}
-    private void contents(){String[] titles=new String[chapters.size()]; for(int i=0;i<chapters.size();i++) titles[i]=chapters.get(i).title;
-        new android.app.AlertDialog.Builder(this).setTitle("Оглавление").setSingleChoiceItems(titles,comic.chapter,(d,n)->{comic.chapter=n; comic.scroll=0; d.dismiss(); loadChapter();}).setNegativeButton("Закрыть",null).show();}
+    private void navigate(int delta){int target=comic.chapter+delta; if(target>=0&&target<chapters.size()){comic.chapter=target; comic.scroll=0;comic.page=0; loadChapter();}}
+    private void contents(){
+        String[] titles=new String[chapters.size()];int[] counts=new int[chapters.size()];
+        for(int i=0;i<chapters.size();i++){titles[i]=chapters.get(i).title;counts[i]=ComicLibrary.chapterPages(chapters.get(i));}
+        int pages; synchronized(currentAssets){pages=currentAssets.size();}
+        UiNavigationSheet.showComicChapters(this,titles,counts,comic.chapter,comic.page,pages,n->{comic.chapter=n;comic.page=0;comic.scroll=0;loadChapter();});
+    }
 
     private void loadChapter(){
         if(web==null) return;
@@ -93,12 +222,17 @@ public final class ComicReaderActivity extends NavigationActivity {
             web.loadData("<p style='padding:16px'>"+msg+"</p>","text/html","UTF-8");
             return;
         }
-        comic.chapter=Math.max(0,Math.min(comic.chapter,chapters.size()-1)); persist(); chapterTitle.setText(chapters.get(comic.chapter).title+" ▾");
-        final ComicLibrary.Chapter chapter=chapters.get(comic.chapter); final int token=++generation; final int previousScroll=comic.scroll; final int mode=comic.mode;
+        comic.chapter=Math.max(0,Math.min(comic.chapter,chapters.size()-1));persist();updateChapterButton();
+        final ComicLibrary.Chapter chapter=chapters.get(comic.chapter);final int token=++generation;
+        final int previousScroll=comic.scroll,previousPage=comic.page,mode=comic.mode;
         new Thread(() -> {
             try {
                 String content = buildChapterHtml(chapter, mode);
-                runOnUiThread(() -> { if(token!=generation||isFinishing()) return; web.loadDataWithBaseURL("https://comic.local/",content,"text/html","UTF-8",null); web.postDelayed(() -> web.evaluateJavascript("restore("+previousScroll+")",null),350); });
+                runOnUiThread(() -> {if(token!=generation||isFinishing())return;
+                    updateChapterButton();
+                    web.loadDataWithBaseURL("https://comic.local/",content,"text/html","UTF-8",null);
+                    web.postDelayed(()->{if(token==generation)web.evaluateJavascript("restore("+previousScroll+","+previousPage+")",null);},550);
+                });
             } catch(Exception e){ runOnUiThread(() -> Toast.makeText(this,"Ошибка открытия главы: "+e.getMessage(),Toast.LENGTH_LONG).show()); }
         },"comic-open").start();
     }
@@ -123,11 +257,15 @@ public final class ComicReaderActivity extends NavigationActivity {
         }
         synchronized(currentAssets){ currentAssets.addAll(pages); }
     }
-    private void prepareImageAssets(ComicLibrary.Chapter chapter){
+    private void prepareImageAssets(ComicLibrary.Chapter chapter) throws java.io.IOException {
         ArrayList<PageAsset> pages=new ArrayList<>();
-        for(String path:chapter.imagePaths){
+        ArrayList<String> imagePaths="mangalib_cbz".equals(chapter.type)
+            ? MangaLibStorage.extractForReading(this,new File(chapter.imagePaths.get(0)))
+            : ComicLibrary.pagesForChapter(this,comic,chapter);
+        chapter.pageCount=imagePaths.size();
+        for(String path:imagePaths){
             PageAsset asset=new PageAsset();
-            if("archive".equals(chapter.type)){ asset.localFile=new File(path); asset.mime=guessMime(path); }
+            if("archive".equals(chapter.type)||"archive_tree".equals(chapter.type)||"mangalib_cbz".equals(chapter.type)){ asset.localFile=new File(path); asset.mime=guessMime(path); }
             else { asset.relativePath=path; asset.mime=guessMime(path); }
             pages.add(asset);
         }
@@ -135,20 +273,38 @@ public final class ComicReaderActivity extends NavigationActivity {
     }
     private String renderCurrentAssets(int mode){
         StringBuilder html=new StringBuilder();
-        html.append("<html><head><meta name='viewport' content='width=device-width, initial-scale=1, user-scalable=yes'>");
+        html.append("<html><head><meta name='viewport' content='width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=5, user-scalable=yes'>");
         html.append("<style>html,body{margin:0;padding:0;background:#fff}img{display:block;margin:0 auto;image-rendering:auto;}");
-        if(mode==0) html.append("#pages{display:flex;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;width:100vw;height:100vh}img{width:100vw;height:100vh;object-fit:contain;flex-shrink:0;scroll-snap-align:start}");
+        if(mode==0) html.append("#pages{display:flex;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;width:100vw;height:100vh;-webkit-overflow-scrolling:touch}img{width:100vw;height:100vh;object-fit:contain;flex-shrink:0;scroll-snap-align:start}");
         else html.append("#pages{display:block}img{width:100%;height:auto}");
         html.append("</style></head><body><div id='pages'>");
         synchronized(currentAssets){ for(int i=0;i<currentAssets.size();i++) html.append("<img loading='lazy' src='https://comic.local/page/").append(i).append("'>"); }
         html.append("</div><script>");
-        html.append("function position(){return (").append(mode==0?"document.getElementById('pages').scrollLeft":"window.scrollY").append(").toString()}");
-        html.append("function restore(n){if(").append(mode).append("===0){document.getElementById('pages').scrollLeft=n;}else{window.scrollTo(0,n);}}");
-        if(mode==0) html.append("document.body.onclick=function(e){var p=document.getElementById('pages');p.scrollBy({left:e.clientX<innerWidth*.30?-innerWidth:innerWidth,behavior:'smooth'});};");
+        html.append("function pictures(){return document.getElementById('pages').getElementsByTagName('img')}");
+        html.append("function page(){var images=pictures();if(!images.length)return 0;");
+        if(mode==0)html.append("var el=document.getElementById('pages');return Math.min(images.length-1,Math.round(el.scrollLeft/Math.max(1,el.clientWidth)))");
+        else html.append("var y=window.scrollY+window.innerHeight*.25;var result=0;for(var i=0;i<images.length;i++){if(images[i].offsetTop<=y)result=i;else break;}return result");
+        html.append("}");
+        html.append("function positionInfo(){var n=page();var v=");
+        html.append(mode==0?"document.getElementById('pages').scrollLeft":"window.scrollY");
+        html.append(";return n+'|'+Math.round(v)}");
+        html.append("function restore(offset,index){var imgs=pictures();if(!imgs.length)return;var n=Math.max(0,Math.min(index,imgs.length-1));");
+        if(mode==0)html.append("var el=document.getElementById('pages');el.scrollLeft=n*el.clientWidth;");
+        else html.append("window.scrollTo(0,offset>0?offset:imgs[n].offsetTop);");
+        html.append("}");
+        // Page swipes remain native; an ACTION_UP without movement toggles the floating chrome.
         html.append("</script></body></html>");
         return html.toString();
     }
 
-    @Override protected void onPause(){ if(web!=null){ try{ web.evaluateJavascript("position()", value -> { try{ comic.scroll=Integer.parseInt(value.replace("\"","")); persist(); }catch(Exception ignored){} }); }catch(Exception ignored){} } super.onPause(); }
-    @Override protected void onDestroy(){ if(web!=null){ web.stopLoading(); web.destroy(); } super.onDestroy(); }
+    @Override protected void onResume(){super.onResume();tracking=true;tracker.removeCallbacks(trackPosition);tracker.postDelayed(trackPosition,600);}
+    @Override protected void onPause(){
+        tracking=false;tracker.removeCallbacks(trackPosition);
+        if(web!=null){try{web.evaluateJavascript("positionInfo()",value->{try{
+            String[] parts=value.replace("\"","").split("\\|");
+            comic.page=Integer.parseInt(parts[0]);comic.scroll=Integer.parseInt(parts[1]);persist();
+        }catch(Exception ignored){}});}catch(Exception ignored){}}
+        super.onPause();
+    }
+    @Override protected void onDestroy(){tracker.removeCallbacks(trackPosition);if(web!=null){web.stopLoading();web.destroy();}super.onDestroy();}
 }

@@ -154,6 +154,60 @@ final class UiNavigationSheet {
         }
         sh.show();
     }
+    /** Comic mode chooser: same active-card treatment as ReaderActivity, from the bottom. */
+    static void showComicModes(Activity a,int current,IndexChoice choose){
+        Sheet sh=sheet(a,"Режим просмотра");
+        int fg=a.getSharedPreferences("reader",0).getInt("fg",0xff30221e);
+        int bg=ReaderButtonColors.neutral(a,0xfffff9f0);
+        String[] titles={"Страницы","Лента"};
+        String[] info={"Постраничное перелистывание","Непрерывная вертикальная прокрутка"};
+        int[] icons={R.drawable.ic_comic_mode_pages,R.drawable.ic_comic_mode_feed};
+        for(int i=0;i<2;i++){
+            final int n=i;LinearLayout row=new LinearLayout(a);row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(a,16),dp(a,12),dp(a,16),dp(a,12));
+            row.setBackground(shape(a,i==current?0xffd9c6ef:bg,15));
+            LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,dp(a,70));rp.bottomMargin=dp(a,8);sh.content.addView(row,rp);
+            ImageView symbol=new ImageView(a);symbol.setImageResource(icons[i]);symbol.setColorFilter(fg);
+            row.addView(symbol,new LinearLayout.LayoutParams(dp(a,27),dp(a,27)));
+            LinearLayout labels=new LinearLayout(a);labels.setOrientation(LinearLayout.VERTICAL);labels.setPadding(dp(a,14),0,0,0);
+            row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
+            labels.addView(label(a,titles[i],17,fg));TextView sub=label(a,info[i],12,fg);sub.setAlpha(.72f);labels.addView(sub);
+            if(current==i)row.addView(label(a,"✓",20,0xff7050a8));
+            row.setOnClickListener(v->{sh.dialog.dismiss();choose.onSelect(n);});
+        }
+        sh.show();
+    }
+
+    /** Comic chapter/file chooser: bottom sheet with chapter count and current-page context. */
+    static void showComicChapters(Activity a,String[] chapterNames,int[] pageCounts,int selected,int page,int pages,IndexChoice choose){
+        Sheet sh=sheet(a,"Оглавление · файл "+(selected+1)+"/"+chapterNames.length);
+        int ink=a.getSharedPreferences("reader",0).getInt("fg",0xff30221e);
+        TextView counter=label(a,"Изображение "+Math.max(1,page+1)+" из "+Math.max(0,pages),13,ink);
+        counter.setPadding(dp(a,4),0,0,dp(a,12));sh.content.addView(counter);
+        RecyclerView list=new RecyclerView(a);list.setLayoutManager(new LinearLayoutManager(a));list.setItemAnimator(null);
+        list.setAdapter(new RecyclerView.Adapter<RecyclerView.ViewHolder>(){
+            @Override public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup parent,int type){
+                LinearLayout row=new LinearLayout(a);row.setOrientation(LinearLayout.VERTICAL);
+                row.setPadding(dp(a,13),dp(a,10),dp(a,13),dp(a,10));
+                TextView top=label(a,"",16,ink);top.setMaxLines(2);top.setEllipsize(android.text.TextUtils.TruncateAt.END);row.addView(top);
+                TextView sub=label(a,"",12,ink);sub.setAlpha(.75f);row.addView(sub);
+                return new RecyclerView.ViewHolder(row){};
+            }
+            @Override public void onBindViewHolder(RecyclerView.ViewHolder holder,int pos){
+                LinearLayout row=(LinearLayout)holder.itemView;
+                ((TextView)row.getChildAt(0)).setText((pos+1)+". "+chapterNames[pos]);
+                int count=pos<pageCounts.length?pageCounts[pos]:-1;
+                ((TextView)row.getChildAt(1)).setText(count>=0?"Изображений: "+count:"Изображения будут подсчитаны при открытии");
+                row.setBackground(shape(a,pos==selected?0xffd9c6ef:Color.TRANSPARENT,12));
+                row.setOnClickListener(v->{sh.dialog.dismiss();choose.onSelect(pos);});
+            }
+            @Override public int getItemCount(){return chapterNames.length;}
+        });
+        int available=(int)(a.getResources().getDisplayMetrics().heightPixels*.56f);
+        sh.content.addView(list,new LinearLayout.LayoutParams(-1,Math.min(dp(a,480),Math.max(dp(a,120),available))));
+        sh.show();if(chapterNames.length>0)list.scrollToPosition(Math.max(0,selected-2));
+    }
+
     /** Bottom control sheets use the same dialog, animation and swipe as Contents. */
     static void showBottomForm(Activity a,String heading,View form,Runnable done){
         Sheet sh=sheet(a,heading);

@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ComponentName;
 import android.content.Intent;
+import android.net.Uri;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.graphics.Color;
@@ -79,19 +80,20 @@ public final class DownloadActivity extends NavigationActivity {
         back.setOnClickListener(v->UniversalDrawer.show(this));
         toolbar.addView(new View(this),new LinearLayout.LayoutParams(0,dp(1),1));
         toolbarAction(toolbar,R.drawable.ic_search_audiobook,"Поиск аудиокниг",()->startActivity(new Intent(this,KvuheSearchActivity.class)));
+        toolbarAction(toolbar,R.drawable.ic_manga_search,"Поиск манги · MangaLib",()->startActivity(new Intent(this,MangaLibSearchActivity.class)));
         toolbarAction(toolbar,R.drawable.ic_import_link,"Импорт по ссылке",()->startActivity(new Intent(this,LinkDownloadActivity.class)));
         toolbarAction(toolbar,R.drawable.ic_autoload,"Подготовить книгу Edge",()->startActivity(new Intent(this,EdgeFullBookActivity.class)));
         TextView heading=text("Загрузки",25,true);heading.setTypeface(Typeface.SERIF,Typeface.BOLD);
         LinearLayout.LayoutParams hl=new LinearLayout.LayoutParams(-1,-2);hl.topMargin=dp(14);root.addView(heading,hl);
-        String[] currentFilters={"Все загрузки","В процессе","Аудиокниги","Edge TTS","По ссылке"};
-        TextView filterSelect=center(currentFilters[Math.max(0,Math.min(filter,4))]+"  ▾",16);
+        String[] currentFilters={"Все загрузки","В процессе","Аудиокниги","Edge TTS","По ссылке","Манга"};
+        TextView filterSelect=center(currentFilters[Math.max(0,Math.min(filter,5))]+"  ▾",16);
         filterSelect.setGravity(Gravity.CENTER_VERTICAL|Gravity.CENTER_HORIZONTAL);
         filterSelect.setBackground(bg(ReaderButtonColors.neutral(this,PANEL),15));
         filterSelect.setTextColor(ReaderButtonColors.contrastingText(ReaderButtonColors.neutral(this,PANEL)));
         LinearLayout.LayoutParams fl=new LinearLayout.LayoutParams(-1,dp(49));fl.topMargin=dp(14);root.addView(filterSelect,fl);
         filterSelect.setOnClickListener(v->{
             PopupMenu menu=new PopupMenu(this,filterSelect);
-            String[] names={"Все загрузки","В процессе","Аудиокниги","Edge TTS","По ссылке"};
+            String[] names={"Все загрузки","В процессе","Аудиокниги","Edge TTS","По ссылке","Манга"};
             for(int i=0;i<names.length;i++){final int ix=i;menu.getMenu().add(names[i]).setOnMenuItemClickListener(item->{
                 filter=ix;filterSelect.setText(names[ix]+"  ▾");getSharedPreferences("reader",0).edit().putInt(FILTER_KEY,ix).apply();showCachedFilter();return true;});}
             menu.getMenu().add(1,101,99,"Удалить скачанные файлы")
@@ -218,6 +220,7 @@ public final class DownloadActivity extends NavigationActivity {
             if(filter==2&&!DownloadsRepository.AUDIO.equals(item.type))continue;
             if(filter==3&&!DownloadsRepository.EDGE.equals(item.type))continue;
             if(filter==4&&!DownloadsRepository.LINK.equals(item.type))continue;
+            if(filter==5&&!DownloadsRepository.MANGA.equals(item.type))continue;
             (item.ready?ready:unfinished).add(item);
         }
         if(!unfinished.isEmpty()){
@@ -238,6 +241,13 @@ public final class DownloadActivity extends NavigationActivity {
         main.postDelayed(this::refresh,250);
     }
     private void open(DownloadsRepository.Item item){
+        if(DownloadsRepository.MANGA.equals(item.type)){
+            if(item.ready){ComicLibrary.Comic c=ComicLibrary.find(this,item.bookUri);
+                if(c!=null)startActivity(new Intent(this,ComicReaderActivity.class).putExtra("comic_uri",c.uri));
+                else startActivity(new Intent(this,MangaLibSearchActivity.class));
+            }else startActivity(new Intent(this,MangaLibSearchActivity.class).putExtra("mangalib_query",item.source));
+            return;
+        }
         if(DownloadsRepository.LINK.equals(item.type)){startActivity(new Intent(this,LinkDownloadDetailsActivity.class).putExtra(DirectLinkDownloadService.EXTRA_ID,item.link.id));}
         else if(DownloadsRepository.EDGE.equals(item.type)){
             openEdgeChapters(item);
@@ -375,6 +385,27 @@ public final class DownloadActivity extends NavigationActivity {
         },"download-bulk-cleanup").start();
     }
     private void menu(View anchor,DownloadsRepository.Item item){
+        if(DownloadsRepository.MANGA.equals(item.type)){
+            PopupMenu p=new PopupMenu(this,anchor);
+            p.getMenu().add(0,1,0,"Открыть мангу / повторить поиск").setOnMenuItemClickListener(m->{open(item);return true;});
+            if(item.ready)p.getMenu().add(0,3,1,"Экспортировать CBZ в папку телефона").setOnMenuItemClickListener(m->{
+                MangaLibStorage.Job job=MangaLibStorage.find(this,item.id.substring("manga:".length()));
+                if(job==null||!new File(job.file).isFile())return true;
+                getSharedPreferences("reader",0).edit().putString("mangalib_export_pending",job.file).apply();
+                Intent save=new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                save.addCategory(Intent.CATEGORY_OPENABLE);save.setType("application/zip");
+                save.putExtra(Intent.EXTRA_TITLE,new File(job.file).getName());
+                startActivityForResult(save,12520);return true;
+            });
+            if(!item.ready)p.getMenu().add(0,2,2,"Отменить очередь MangaLib").setOnMenuItemClickListener(m->{
+                androidx.work.WorkManager.getInstance(this).cancelUniqueWork("mangalib_serial_downloads");
+                for(MangaLibStorage.Job j:MangaLibStorage.jobs(this))if("running".equals(j.status)||"queued".equals(j.status)){
+                    j.status="cancelled";MangaLibStorage.put(this,j);
+                }
+                refresh();return true;
+            });
+            p.show();return;
+        }
         if(DownloadsRepository.LINK.equals(item.type)){
             PopupMenu p=new PopupMenu(this,anchor);
             p.getMenu().add(0,1,0,"Список файлов");p.getMenu().add(0,2,1,"Добавить MP3 в библиотеку");
@@ -434,13 +465,13 @@ public final class DownloadActivity extends NavigationActivity {
             LinearLayout top=new LinearLayout(DownloadActivity.this);top.setGravity(Gravity.TOP);card.addView(top);
             FrameLayout coverFrame=new FrameLayout(DownloadActivity.this);coverFrame.setBackground(bg(0xffe7d7c7,12));
             top.addView(coverFrame,new LinearLayout.LayoutParams(dp(item.ready?75:92),dp(item.ready?106:124)));
-            TextView placeholder=text("♫",27,true);placeholder.setGravity(Gravity.CENTER);coverFrame.addView(placeholder,new FrameLayout.LayoutParams(-1,-1));
+            TextView placeholder=text(DownloadsRepository.MANGA.equals(item.type)?"▣":"♫",27,true);placeholder.setGravity(Gravity.CENTER);coverFrame.addView(placeholder,new FrameLayout.LayoutParams(-1,-1));
             ImageView cover=new ImageView(DownloadActivity.this);cover.setScaleType(ImageView.ScaleType.CENTER_CROP);coverFrame.addView(cover,new FrameLayout.LayoutParams(-1,-1));
             CoverImageLoader.show(cover,item.cover,DownloadsRepository.EDGE.equals(item.type));
             LinearLayout detail=new LinearLayout(DownloadActivity.this);detail.setOrientation(LinearLayout.VERTICAL);
             LinearLayout.LayoutParams d=new LinearLayout.LayoutParams(0,-2,1);d.leftMargin=dp(12);top.addView(detail,d);
             TextView title=text(item.title,17,true);title.setTypeface(Typeface.SERIF,Typeface.BOLD);title.setMaxLines(2);detail.addView(title);
-            TextView type=text(DownloadsRepository.LINK.equals(item.type)?"↓ По ссылке":DownloadsRepository.EDGE.equals(item.type)?"▥ Edge TTS":"▤ Аудиокнига",12,false);type.setTextColor(ACCENT);
+            TextView type=text(DownloadsRepository.LINK.equals(item.type)?"↓ По ссылке":DownloadsRepository.EDGE.equals(item.type)?"▥ Edge TTS":DownloadsRepository.MANGA.equals(item.type)?"▣ Манга · MangaLib":"▤ Аудиокнига",12,false);type.setTextColor(ACCENT);
             LinearLayout.LayoutParams tagParams=new LinearLayout.LayoutParams(-2,-2);tagParams.topMargin=dp(5);detail.addView(type,tagParams);
             TextView info=text(item.description,12,false);info.setTextColor(MUTED);
             LinearLayout.LayoutParams il=new LinearLayout.LayoutParams(-1,-2);il.topMargin=dp(6);detail.addView(info,il);
@@ -466,6 +497,27 @@ public final class DownloadActivity extends NavigationActivity {
         TextView control(String caption){TextView b=center(caption,13);b.setBackground(bg(0xfff1e4d7,12));b.setTextColor(INK);return b;}
         @Override public int getItemCount(){return rows.size();}
         final class Holder extends RecyclerView.ViewHolder{Holder(View v){super(v);}}
+    }
+    @Override protected void onActivityResult(int request,int result,Intent data){
+        super.onActivityResult(request,result,data);
+        if(request!=12520||result!=RESULT_OK||data==null||data.getData()==null)return;
+        String path=getSharedPreferences("reader",0).getString("mangalib_export_pending","");
+        getSharedPreferences("reader",0).edit().remove("mangalib_export_pending").apply();
+        Uri destination=data.getData();
+        new Thread(()->{
+            try{
+                File source=new File(path);
+                String root=MangaLibStorage.root(getApplicationContext()).getCanonicalPath()+File.separator;
+                if(!source.getCanonicalPath().startsWith(root)||!source.isFile()||!source.getName().endsWith(".cbz"))
+                    throw new java.io.IOException("Недопустимый CBZ");
+                try(java.io.InputStream in=new java.io.FileInputStream(source);
+                    java.io.OutputStream out=getContentResolver().openOutputStream(destination,"w")){
+                    if(out==null)throw new java.io.IOException("Не удалось открыть папку назначения");
+                    byte[] buffer=new byte[8192];int n;while((n=in.read(buffer))!=-1)out.write(buffer,0,n);
+                }
+                runOnUiThread(()->Toast.makeText(this,"CBZ сохранён в выбранную папку",Toast.LENGTH_LONG).show());
+            }catch(Exception e){runOnUiThread(()->Toast.makeText(this,"Экспорт CBZ: "+e.getMessage(),Toast.LENGTH_LONG).show());}
+        },"mangalib-export-cbz").start();
     }
     @Override public void onBackPressed(){BackNavigation.back(this);}
 }

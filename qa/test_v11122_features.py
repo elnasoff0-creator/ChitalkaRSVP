@@ -22,11 +22,11 @@ comic_reader=(p/'ComicReaderActivity.java').read_text()
 comic_library=(p/'ComicLibrary.java').read_text()
 main=(p/'MainActivity.java').read_text()
 assert 'ComicLibrary.chapters' in comic_reader
-assert '"Постраничный","Вертикальный"' in comic_reader
+assert "UiNavigationSheet.showComicModes" in comic_reader and "UiNavigationSheet.showComicChapters" in comic_reader
 assert 'Комиксотека' in main
 assert 'ComicLibrary.save(this,comic)' in main
-assert 'Архив CBZ / CBR' in main
-assert 'importComicArchive' in main
+assert 'Папка с архивами CBZ / CBR' in main
+assert 'importComicFolder' in main and 'Папка с архивами CBZ / CBR' in main
 assert 'isArchiveName' in comic_library
 assert 'extractCbz' in comic_library and 'extractCbr' in comic_library
 assert (r/'app/src/main/res/drawable/ic_comic_library.xml').exists()
@@ -45,5 +45,5 @@ for stage in ['chick','reader','adult']:
   im=Image.open(f);assert im.width<=64 and im.height<=64 and im.mode=='RGBA'
 for i in range(1,6):
  f=folder/f'chteico_book_{i}.png';assert f.exists()
-assert 'versionCode 12400' in (r/'app/build.gradle').read_text()
+assert 'versionCode 12600' in (r/'app/build.gradle').read_text()
 print('PASS 122: icons, manifest, reader, bookmarks, font picker, comics, dictionary revision, chapter layout, runner sprites')

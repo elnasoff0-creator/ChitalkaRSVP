@@ -1250,31 +1250,44 @@ public class MainActivity extends NavigationActivity {
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
         startActivityForResult(intent,12211);
     }
-    private void importComicArchive(){
-        Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("*/*");
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-        startActivityForResult(intent,12212);
-    }
     private void showComicImportMenu(){
         new SwipeDialogs.Builder(this).setTitle("Добавить в Комиксотеку")
-            .setItems(new String[]{"Папка с HTML-главами","Папка с изображениями","Архив CBZ / CBR"},(d,which)->{
-                if(which==2) importComicArchive(); else importComicFolder();
+            .setItems(new String[]{"Папка с HTML-главами","Папка с изображениями","Папка с архивами CBZ / CBR"},(d,which)->{
+                importComicFolder();
             }).setNegativeButton("Отмена",null).show();
     }
     private void openComic(String uri){startActivity(new Intent(this,ComicReaderActivity.class).putExtra("comic_uri",uri));}
+    /** One series per folder, with a cover and a resume card like the book/audio sections. */
     private void addComicSection(LinearLayout host){
         ArrayList<ComicLibrary.Comic> comics=ComicLibrary.list(this);
         add(host,gap(12));boolean expanded=prefs.getBoolean("comic_library_expanded",true);
         TextView toggle=buttonish("Комиксотека ("+comics.size()+")  "+(expanded?"⌃":"⌄"),softPanel(),fg,true);
         add(host,iconToggle(toggle,R.drawable.ic_comic_library));
         LinearLayout detail=column();add(host,detail);detail.setVisibility(expanded?View.VISIBLE:View.GONE);
-        ComicLibrary.Comic last=null;for(ComicLibrary.Comic item:comics)if(item.opened>0&&(last==null||item.opened>last.opened))last=item;
-        if(last!=null){final String id=last.uri;TextView resume=buttonish("▶  Продолжить просмотр · "+last.title,accent(),0xffffffff,true);
-            add(detail,resume);resume.setOnClickListener(v->openComic(id));}
-        for(ComicLibrary.Comic item:comics){TextView entry=buttonish(item.title+"  ·  Глава "+(item.chapter+1),panelColor(),fg,false);
-            add(detail,entry);entry.setOnClickListener(v->openComic(item.uri));}
+        ComicLibrary.Comic last=null;for(ComicLibrary.Comic c:comics)if(c.opened>0&&(last==null||c.opened>last.opened))last=c;
+        if(last!=null){
+            ComicLibrary.Comic active=last;
+            TextView resumeTitle=buttonish("Продолжить просмотр",softPanel(),fg,true);add(detail,resumeTitle);
+            LinearLayout card=new LinearLayout(this);card.setGravity(Gravity.CENTER_VERTICAL);
+            card.setPadding(dp(10),dp(10),dp(10),dp(10));card.setBackground(shape(panelColor(),14));
+            LinearLayout.LayoutParams cardLp=new LinearLayout.LayoutParams(-1,-2);cardLp.bottomMargin=dp(8);detail.addView(card,cardLp);
+            ImageView cover=new ImageView(this);cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            cover.setImageResource(R.drawable.ic_comic_library);
+            card.addView(cover,new LinearLayout.LayoutParams(dp(78),dp(110)));
+            LinearLayout text=column();text.setPadding(dp(12),0,0,0);card.addView(text,new LinearLayout.LayoutParams(0,-2,1));
+            TextView name=buttonish(active.title,panelColor(),fg,true);name.setMaxLines(2);
+            text.addView(name);
+            TextView details=buttonish("Файл "+(active.chapter+1)+"/"+active.chapterTotal+" · изображение "+(active.page+1)+"/"+active.pageTotal,panelColor(),fg,false);
+            text.addView(details);TextView action=buttonish("▶ Продолжить",accent(),0xffffffff,true);text.addView(action);
+            card.setOnClickListener(v->openComic(active.uri));action.setOnClickListener(v->openComic(active.uri));
+            new Thread(()->{try{android.graphics.Bitmap image=ComicCovers.cover(this,active);
+                if(image!=null)runOnUiThread(()->{if(!isFinishing()&&cover.getParent()!=null)cover.setImageBitmap(image);});
+            }catch(Exception ignored){}},"comic-cover").start();
+        }
+        for(ComicLibrary.Comic item:comics){
+            TextView entry=buttonish(item.title+"  ·  Файл "+(item.chapter+1)+" · изображение "+(item.page+1),panelColor(),fg,false);
+            add(detail,entry);entry.setOnClickListener(v->openComic(item.uri));
+        }
         toggle.setOnClickListener(v->{boolean visible=detail.getVisibility()!=View.VISIBLE;detail.setVisibility(visible?View.VISIBLE:View.GONE);
             prefs.edit().putBoolean("comic_library_expanded",visible).apply();toggle.setText("Комиксотека ("+comics.size()+")  "+(visible?"⌃":"⌄"));});
     }
@@ -1306,16 +1319,12 @@ public class MainActivity extends NavigationActivity {
             comic.kind="auto";
             ComicLibrary.Comic old=ComicLibrary.find(this,comic.uri);
             if(old!=null)comic=old;
-            ComicLibrary.save(this,comic);draw();return;
-        }
-        if(req==12212&&res==RESULT_OK&&data!=null&&data.getData()!=null){
-            Uri file=data.getData();try{getContentResolver().takePersistableUriPermission(file,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}
-            androidx.documentfile.provider.DocumentFile src=androidx.documentfile.provider.DocumentFile.fromSingleUri(this,file);
-            String name=src!=null&&src.getName()!=null?src.getName():"Комикс";
-            ComicLibrary.Comic comic=new ComicLibrary.Comic();comic.uri=file.toString();comic.title=ComicLibrary.stripExt(name);
-            comic.kind=name.toLowerCase(java.util.Locale.ROOT).endsWith(".cbr")||name.toLowerCase(java.util.Locale.ROOT).endsWith(".rar")?"cbr":"cbz";
-            ComicLibrary.Comic old=ComicLibrary.find(this,comic.uri);
-            if(old!=null)comic=old;
+            if(root==null||!root.isDirectory()){
+                Toast.makeText(this,"Выберите папку комикса",Toast.LENGTH_LONG).show();return;
+            }
+            if(ComicLibrary.chapters(this,comic).isEmpty()){
+                Toast.makeText(this,"В папке нет HTML, изображений или архивов CBZ/CBR",Toast.LENGTH_LONG).show();return;
+            }
             ComicLibrary.save(this,comic);draw();return;
         }
         if (req == 8 && res == RESULT_OK && data != null && data.getData()!=null) {

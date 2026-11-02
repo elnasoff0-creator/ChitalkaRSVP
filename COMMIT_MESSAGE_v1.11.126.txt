@@ -1,0 +1,18 @@
+v1.11.126-beta CLEAN: comic reader controls, archive-folder library and sleep timer centering
+
+- Add top UniversalDrawer button and active icon-only mode action to ComicReaderActivity
+- Replace Spinner with bottom choice sheet for Страницы / Лента
+- Add active bottom chapters button, indexed image progress and bottom contents sheet
+- Treat a selected CBZ/CBR folder as one comic, each archive as one chapter
+- Preserve old single-archive entries and MangaLib downloaded CBZ series
+- Add async cached cover from the first image of the first archive and resume card
+- Center sleep timer icons with no counter in ReaderActivity and AudioPlayerActivity
+- Bump versionCode 12600, versionName 1.11.126-beta
+
+
+Same-version refresh: comic reader gesture chrome and pinch zoom
+- change comic reader layout to overlay top and bottom controls above full-size WebView
+- tap to toggle both bars in Pages mode; left/right swipe retains page navigation
+- feed scrolling down/up hides/reveals both bars with motion threshold
+- enable WebView native pinch-to-zoom (1..5x), ignore multi-touch in tap handling
+- add focused gesture/zoom source contracts and updated release QA

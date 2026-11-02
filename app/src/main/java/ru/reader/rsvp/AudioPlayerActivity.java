@@ -130,12 +130,12 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         speedGroup.setOnClickListener(v->speedMenu());speedGroup.setContentDescription("Скорость");
         LinearLayout.LayoutParams speedLp=new LinearLayout.LayoutParams(dp(44),dp(44));speedLp.leftMargin=dp(5);
         top.addView(speedGroup,speedLp);
-        LinearLayout timerGroup=new LinearLayout(this);timerGroup.setOrientation(LinearLayout.VERTICAL);
-        timerGroup.setGravity(Gravity.CENTER);timerGroup.setBackground(bg(neutralColor(),15));
+        FrameLayout timerGroup=new FrameLayout(this);timerGroup.setBackground(bg(neutralColor(),15));
         ImageView timerIcon=new ImageView(this);timerIcon.setImageResource(R.drawable.ic_sleep_timer);
-        timerIcon.setColorFilter(TEXT);timerGroup.addView(timerIcon,new LinearLayout.LayoutParams(dp(23),dp(23)));
+        timerIcon.setColorFilter(TEXT);timerGroup.addView(timerIcon);
         timerValue=label("",11);timerValue.setGravity(Gravity.CENTER);timerValue.setSingleLine(true);timerValue.setVisibility(View.GONE);
-        timerGroup.addView(timerValue,new LinearLayout.LayoutParams(-1,dp(17)));
+        timerGroup.addView(timerValue,new FrameLayout.LayoutParams(-1,dp(17),Gravity.BOTTOM));
+        SleepTimerBadge.layout(timerGroup,timerIcon,timerValue,false,23);
         timerGroup.setOnClickListener(v->sleepMenu());timerGroup.setContentDescription("Таймер сна");
         timerAction=timerGroup;
         LinearLayout.LayoutParams timerLp=new LinearLayout.LayoutParams(dp(44),dp(44));timerLp.leftMargin=dp(5);
@@ -501,7 +501,13 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
             if(timerValue!=null){
                 String counter=remaining>0?((remaining+59999L)/60000L)+"м":chapterMode?"Гл":"";
                 setTextIfDifferent(timerValue,counter);
-                timerValue.setVisibility(counter.isEmpty()?View.GONE:View.VISIBLE);
+                if(timerAction instanceof FrameLayout){
+                    FrameLayout badge=(FrameLayout)timerAction;
+                    for(int i=0;i<badge.getChildCount();i++)if(badge.getChildAt(i) instanceof ImageView){
+                        SleepTimerBadge.layout(badge,(ImageView)badge.getChildAt(i),timerValue,!counter.isEmpty(),23);
+                        break;
+                    }
+                }
                 timerAction.setContentDescription(counter.isEmpty()?"Таймер сна выключен":
                     "Таймер сна: осталось "+counter+(chapterMode?" до конца главы":""));
             }

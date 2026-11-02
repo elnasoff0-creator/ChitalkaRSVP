@@ -20,7 +20,7 @@ import java.util.Set;
 
 /** Read-only projection of two INDEPENDENT downloader stores. Never copies downloaded MP3. */
 final class DownloadsRepository {
-    static final String AUDIO="audiobook",EDGE="edge",LINK="direct_link";
+    static final String AUDIO="audiobook",EDGE="edge",LINK="direct_link",MANGA="mangalib";
     static final String HIDDEN_EDGE="hidden_edge_downloads_v1";
     static final class Item {
         String type="",id="",title="",cover="",source="",bookUri="",status="",description="";
@@ -147,6 +147,16 @@ final class DownloadsRepository {
         ArrayList<Item> all=new ArrayList<>();
         for(BookImportManager.Job j:BookImportManager.load(ctx))all.add(fromAudio(ctx,j));
         for(LinkDownloadStore.Batch b:LinkDownloadStore.load(ctx))all.add(fromLink(b));
+        for(MangaLibStorage.Job j:MangaLibStorage.jobs(ctx)){
+            Item item=new Item();item.type=MANGA;item.id="manga:"+j.id();
+            item.title=j.series;item.bookUri=MangaLibStorage.comicUri(j.slug);item.source=j.slug;
+            item.description=j.chapter+" · Страниц: "+j.done+"/"+j.total;
+            item.done=j.done;item.total=j.total;item.ready="complete".equals(j.status);
+            item.running="running".equals(j.status)||"queued".equals(j.status);
+            item.failed="failed".equals(j.status)||"blocked".equals(j.status);
+            item.status=item.ready?"CBZ готов":item.failed?("Ошибка: "+j.error):item.running?"Скачивается":"Ожидает";
+            all.add(item);
+        }
         HashMap<String,JSONObject> index=new HashMap<>();
         try{
             JSONArray books=new JSONArray(ctx.getSharedPreferences("reader",0).getString("library","[]"));

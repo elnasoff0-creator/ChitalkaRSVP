@@ -11,7 +11,7 @@ java=r/'app/src/main/java/ru/reader/rsvp'
 assets=r/'app/src/main/res/drawable-nodpi'
 drawable=r/'app/src/main/res/drawable'
 manifest=(r/'app/build.gradle').read_text()
-assert 'versionCode 12400' in manifest and "versionName '1.11.124-beta'" in manifest
+assert 'versionCode 12600' in manifest and "versionName '1.11.126-beta'" in manifest
 for name in ('ic_reward_audio10','ic_tts_pause_trim','ic_comic_library',
              'ic_edge_dictionary','ic_chteico_game','ic_drawer_comic','ic_tab_music'):
     path=drawable/f'{name}.xml'

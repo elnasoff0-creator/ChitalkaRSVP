@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <!-- Vertically stacked reading panels, as in the supplied screen. -->
+    <path android:fillColor="@android:color/transparent" android:strokeColor="#FF30343D" android:strokeWidth="1.7" android:strokeLineJoin="round" android:strokeLineCap="round" android:pathData="M5.2,3.7H18.8V9.4H5.2Z M5.2,14.6H18.8V20.3H5.2Z"/>
+    <path android:fillColor="@android:color/transparent" android:strokeColor="#FF30343D" android:strokeWidth="1.6" android:strokeLineCap="round" android:pathData="M5.2,12H18.8"/>
+</vector>

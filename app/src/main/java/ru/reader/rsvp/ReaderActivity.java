@@ -344,14 +344,17 @@ public class ReaderActivity extends NavigationActivity {
         toolbarVoiceAction.setContentDescription("Голос озвучивания");
         LinearLayout.LayoutParams voiceLp=new LinearLayout.LayoutParams(dp(44),dp(44));voiceLp.leftMargin=dp(5);
         // Voice selection lives in the overflow menu; retain its handler for compatibility.
-        LinearLayout sleepBadge=new LinearLayout(this);sleepBadge.setOrientation(LinearLayout.VERTICAL);
-        sleepBadge.setGravity(Gravity.CENTER);sleepBadge.setBackground(shape(buttonBg(),12));
+        FrameLayout sleepBadge=new FrameLayout(this);
+        sleepBadge.setBackground(shape(buttonBg(),12));
         ImageView sleepIcon=new ImageView(this);sleepIcon.setImageResource(R.drawable.ic_sleep_timer);
         sleepIcon.setColorFilter(contrast(buttonBg()));
-        sleepBadge.addView(sleepIcon,new LinearLayout.LayoutParams(dp(22),dp(22)));
+        sleepBadge.addView(sleepIcon);
         toolbarSleepValue=text("",11);toolbarSleepValue.setGravity(Gravity.CENTER);
         toolbarSleepValue.setSingleLine(true);toolbarSleepValue.setTextColor(contrast(buttonBg()));
-        sleepBadge.addView(toolbarSleepValue,new LinearLayout.LayoutParams(-1,dp(16)));
+        FrameLayout.LayoutParams sleepCounterLp=new FrameLayout.LayoutParams(-1,dp(16),Gravity.BOTTOM);
+        sleepBadge.addView(toolbarSleepValue,sleepCounterLp);
+        toolbarSleepValue.setVisibility(View.GONE);
+        SleepTimerBadge.layout(sleepBadge,sleepIcon,toolbarSleepValue,false,22);
         sleepBadge.setOnClickListener(v->chooseTtsSleep());sleepBadge.setContentDescription("Таймер сна");
         toolbarSleepAction=sleepBadge;
         LinearLayout.LayoutParams sleepLp=new LinearLayout.LayoutParams(dp(44),dp(44));sleepLp.leftMargin=dp(5);
@@ -1638,8 +1641,13 @@ public class ReaderActivity extends NavigationActivity {
             if(toolbarSleepAction!=null)toolbarSleepAction.setContentDescription(label.isEmpty()?"Таймер сна выключен":
                 "Таймер сна, осталось "+label+(chapter>=0?" до конца главы":""));
         }
-        int visibility=label.isEmpty()?View.INVISIBLE:View.VISIBLE;
-        if(toolbarSleepValue.getVisibility()!=visibility)toolbarSleepValue.setVisibility(visibility);
+        if(toolbarSleepAction instanceof FrameLayout){
+            FrameLayout badge=(FrameLayout)toolbarSleepAction;
+            for(int i=0;i<badge.getChildCount();i++)if(badge.getChildAt(i) instanceof ImageView){
+                SleepTimerBadge.layout(badge,(ImageView)badge.getChildAt(i),toolbarSleepValue,!label.isEmpty(),22);
+                break;
+            }
+        }
     }
     private void chooseTtsSleep(){
         if(mode!=TTS)return;
