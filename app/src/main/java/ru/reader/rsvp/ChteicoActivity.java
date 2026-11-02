@@ -277,6 +277,7 @@ public final class ChteicoActivity extends NavigationActivity {
         hint.setGravity(Gravity.CENTER);hero.addView(hint);
         addStatsCard();
         addRewardsCard();
+        addGameStatistics();
     }
     private void show(){
         if(pendingSpeechHide!=null){ui.removeCallbacks(pendingSpeechHide);pendingSpeechHide=null;}
@@ -302,13 +303,6 @@ public final class ChteicoActivity extends NavigationActivity {
         root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         if(!ChteicoStore.enabled(this)){showDisabledSummary();return;}
         int stage=ChteicoStore.stage(this);
-        LinearLayout gameCard=card();gameCard.addView(text("Прыжки через книги",18,true));
-        gap(gameCard,6);
-        gameCard.addView(text("Бегай, перепрыгивай книги и получай немного опыта для Чтейца.",13,false));
-        gap(gameCard,9);
-        gameCard.addView(button("Играть",()->startActivity(new Intent(this,ChteicoRunnerActivity.class))));
-        gap(gameCard,6);
-        gameCard.addView(text("Рекорд: "+p.getInt("runner_best",0)+" · Опыт: "+p.getInt("runner_xp",0),12,false));
         LinearLayout hero=card();hero.setGravity(Gravity.CENTER_HORIZONTAL);
         LinearLayout nameRow=new LinearLayout(this);nameRow.setGravity(Gravity.CENTER);
         TextView name=text(ChteicoStore.petName(this),23,true);nameRow.addView(name);
@@ -316,6 +310,15 @@ public final class ChteicoActivity extends NavigationActivity {
             TextView edit=text("  ✎",21,false);edit.setContentDescription("Назвать питомца");edit.setOnClickListener(v->askName());nameRow.addView(edit);
             name.setOnClickListener(v->askName());
         }
+        ImageView gameButton=new ImageView(this);
+        gameButton.setImageResource(R.drawable.ic_chteico_game);
+        gameButton.setColorFilter(fg);
+        gameButton.setBackground(shape(ReadingThemeCycle.isDark(bg)?0xff444349:0xfff0e6dc,12));
+        gameButton.setPadding(dp(10),dp(10),dp(10),dp(10));
+        gameButton.setContentDescription("Играть в Прыжки через книги");
+        LinearLayout.LayoutParams gameButtonLp=new LinearLayout.LayoutParams(dp(43),dp(43));gameButtonLp.leftMargin=dp(10);
+        nameRow.addView(gameButton,gameButtonLp);
+        gameButton.setOnClickListener(v->startActivity(new Intent(this,ChteicoRunnerActivity.class)));
         hero.addView(nameRow);gap(hero,8);
         FrameLayout petFrame=new FrameLayout(this);
         // Keep the original 248x247dp pet; reclaim unused speech space above it.
@@ -386,6 +389,18 @@ public final class ChteicoActivity extends NavigationActivity {
         progressLabel=text(progressText(stage),13,false);progressLabel.setGravity(Gravity.CENTER);hero.addView(progressLabel);
         addStatsCard();
         addRewardsCard();
+        addGameStatistics();
+    }
+    private void addGameStatistics(){
+        LinearLayout panel=card();panel.addView(text("Статистика игры",18,true));gap(panel,9);
+        LinearLayout first=new LinearLayout(this);
+        stat(first,"Рекорд",p.getInt("runner_best",0)+" м");
+        stat(first,"Всего",p.getLong("runner_distance",0)+" м");
+        panel.addView(first);
+        LinearLayout second=new LinearLayout(this);
+        stat(second,"Забегов",String.valueOf(p.getInt("runner_games",0)));
+        stat(second,"Игровой опыт",p.getInt("runner_xp",0)+" XP");
+        panel.addView(second);
     }
     private void statistics(){new SwipeDialogs.Builder(this).setTitle("Книжная статистика")
         .setMessage("Книг открыто: "+p.getInt("opened_books_count",0)+"\nПрочитано: "+p.getInt("finished_books_count",0)

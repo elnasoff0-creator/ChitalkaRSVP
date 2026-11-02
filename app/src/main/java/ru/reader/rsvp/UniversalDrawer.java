@@ -82,18 +82,15 @@ final class UniversalDrawer {
         brand.setTextColor(fg);brand.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
         branding.addView(brand);list.addView(branding);
         separator(a,list,fg,18,10);
-        // Exactly the eight entries and the same drawable resources as the original MainActivity drawer.
-        item(a,list,fg,R.drawable.ic_home,"Главный экран",()->home(a));
-        item(a,list,fg,R.drawable.ic_book,"Чтение",()->reading(a));
-        item(a,list,fg,R.drawable.ic_microphone,"Аудиокнига",()->audiobook(a));
-        item(a,list,fg,R.drawable.ic_downloads,"Загрузки",()->open(a,DownloadActivity.class));
-        boolean companionEnabled=ChteicoStore.enabled(a);
-        item(a,list,fg,companionEnabled?R.drawable.ic_chteico_nav:R.drawable.ic_stats_nav,
-            companionEnabled?"Чтейцо":"Статистика",()->open(a,ChteicoActivity.class));
-        separator(a,list,fg,14,10);
-        item(a,list,fg,R.drawable.ic_settings,"Настройки",()->open(a,SettingsActivity.class));
-        item(a,list,fg,R.drawable.ic_web_update,"Обновление",()->new UpdateManager(a).checkVersion());
-        item(a,list,fg,R.drawable.ic_info_help,"Справка",()->open(a,ActivityInfo.class));
+        // Customizable drawer: persistent IDs, names, visibility, order, and working routes.
+        for(String id:DrawerMenuStore.order(a)){
+            if(!DrawerMenuStore.visible(a,id))continue;
+            if("settings".equals(id))separator(a,list,fg,12,8);
+            final String route=id;
+            item(a,list,fg,DrawerMenuStore.icon(id,a),DrawerMenuStore.name(a,id),()->navigate(a,route));
+        }
+        separator(a,list,fg,12,7);
+        item(a,list,fg,R.drawable.ic_edit_name,"Редактировать",()->open(a,DrawerEditorActivity.class));
 
         scroll.post(()->{
             if(OPEN.get(a)!=session||session.closing)return;
@@ -156,35 +153,76 @@ final class UniversalDrawer {
         i.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP);
         a.startActivity(i);
     }
-    private static void reading(Activity a){
-        if(a instanceof ReaderActivity){((ReaderActivity)a).openReadingFromDrawer();return;}
-        String uri=a.getSharedPreferences("reader",0).getString("uri","");
-        if(uri==null||uri.isEmpty()){
-            if(a instanceof MainActivity)((MainActivity)a).pick();
-            else{
-                Toast.makeText(a,"Выберите книгу на главном экране",Toast.LENGTH_SHORT).show();
-                home(a);
-            }
-            return;
+    private static void navigate(Activity a,String id){
+        switch(id){
+            case "home":home(a);return;
+            case "reading":reading(a);return;
+            case "audio":audiobook(a);return;
+            case "comic":comic(a);return;
+            case "downloads":open(a,DownloadActivity.class);return;
+            case "pet":open(a,ChteicoActivity.class);return;
+            case "settings":open(a,SettingsActivity.class);return;
+            case "update":new UpdateManager(a).checkVersion();return;
+            case "help":open(a,ActivityInfo.class);return;
         }
+    }
+    private static void mainImport(Activity a,String kind){
+        if(a instanceof MainActivity){((MainActivity)a).showDrawerImport(kind);return;}
+        Intent i=new Intent(a,MainActivity.class).putExtra("drawer_action",kind);
+        i.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        a.startActivity(i);
+    }
+    private static boolean canOpen(Activity a,String source){
+        if(source==null||source.isEmpty())return false;
+        try(java.io.InputStream in=a.getContentResolver().openInputStream(android.net.Uri.parse(source))){return in!=null;}
+        catch(Exception e){return false;}
+    }
+    private static void reading(Activity a){
+        SharedPreferences p=a.getSharedPreferences("reader",0);
+        String uri=p.getString("uri","");
+        java.util.ArrayList<String> ids=new java.util.ArrayList<>();
+        try{
+            org.json.JSONArray entries=new org.json.JSONArray(p.getString("library","[]"));
+            for(int i=0;i<entries.length();i++){
+                org.json.JSONObject entry=entries.optJSONObject(i);
+                if(entry!=null&&!entry.optString("uri","").isEmpty())ids.add(entry.optString("uri"));
+            }
+        }catch(Exception ignored){}
+        if(ids.isEmpty()){mainImport(a,"book");return;}
+        if(!ids.contains(uri)||!canOpen(a,uri)){
+            uri="";for(String candidate:ids)if(canOpen(a,candidate)){uri=candidate;break;}
+        }
+        if(uri.isEmpty()){mainImport(a,"book");return;}
+        if(a instanceof ReaderActivity&&uri.equals(p.getString("uri",""))){((ReaderActivity)a).openReadingFromDrawer();return;}
         Intent i=new Intent(a,ReaderActivity.class).putExtra("book_uri",uri).putExtra("reading_mode_override",0);
         a.startActivity(i);
     }
     private static void audiobook(Activity a){
-        if(a instanceof AudioPlayerActivity)return;
-        SharedPreferences p=a.getSharedPreferences("reader",0);
-        String id=p.getString("audio_last_book","");
-        if(id!=null&&!id.isEmpty()){
-            for(AudioLibrary.Book b:AudioLibrary.load(a)){
-                if(id.equals(b.id)){
-                    a.startActivity(new Intent(a,AudioPlayerActivity.class).putExtra("audio_book_id",id));
-                    return;
-                }
-            }
+        java.util.ArrayList<AudioLibrary.Book> books=AudioLibrary.load(a);
+        if(books.isEmpty()){mainImport(a,"audio");return;}
+        String last=a.getSharedPreferences("reader",0).getString("audio_last_book","");
+        AudioLibrary.Book selected=null;
+        for(AudioLibrary.Book book:books){
+            if(book.uris.isEmpty()||!canOpen(a,book.uris.get(0)))continue;
+            if(selected==null||book.id.equals(last))selected=book;
+            if(book.id.equals(last))break;
         }
-        if(a instanceof MainActivity){((MainActivity)a).openLastMedia();return;}
-        // AudioPlayerActivity offers audiobook selection if there is no last book.
-        a.startActivity(new Intent(a,AudioPlayerActivity.class));
+        if(selected==null){mainImport(a,"audio");return;}
+        a.startActivity(new Intent(a,AudioPlayerActivity.class).putExtra("audio_book_id",selected.id));
+    }
+    private static void comic(Activity a){
+        java.util.ArrayList<ComicLibrary.Comic> comics=ComicLibrary.list(a);
+        if(comics.isEmpty()){mainImport(a,"comic");return;}
+        ComicLibrary.Comic selected=null;
+        for(ComicLibrary.Comic c:comics){
+            try{
+                androidx.documentfile.provider.DocumentFile f=ComicLibrary.isArchiveKind(c.kind)?ComicLibrary.single(a,c):ComicLibrary.tree(a,c);
+                if(f==null||!f.exists())continue;
+            }catch(Exception ignored){continue;}
+            if(selected==null||c.opened>selected.opened)selected=c;
+        }
+        if(selected==null){mainImport(a,"comic");return;}
+        a.startActivity(new Intent(a,ComicReaderActivity.class).putExtra("comic_uri",selected.uri));
     }
 
     /** Captures only an intentional horizontal swipe, leaves vertical menu scrolling intact. */

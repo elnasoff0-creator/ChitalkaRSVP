@@ -23,12 +23,12 @@ checks={
 '30. dictionary gets current sentence':'EdgeDictionaryActivity.EXTRA_SENTENCE' in reader and 'chooseWordFromSentence(original)' in dictact and 'Словарь MS Edge' in sheets,
 '31. whole-book search':'haystack.indexOf(needle,offset)' in reader and 'Поиск по книге' in sheets,
 '32. shared left drawer':'class UniversalDrawer' in nav and 'UniversalDrawer.show(this)' in reader and 'UniversalDrawer.show(this)' in rd('AudioPlayerActivity.java'),
-'33. drawer home, no Library or AudioLibrary': '"Главный экран"' in nav and 'UniversalDrawer.show(this)' in main and '"Библиотека"' not in nav and '"Аудиотека"' not in nav,
+'33. drawer home, no Library or AudioLibrary': '"Главный экран"' in rd('DrawerMenuStore.java') and 'UniversalDrawer.show(this)' in main and '"Библиотека"' not in nav and '"Аудиотека"' not in nav,
 '34. library/audio toggles and icons':'iconToggle(bookToggle,R.drawable.ic_audio_chapters)' in main and 'iconToggle(toggle,R.drawable.ic_audiotheque)' in main,
 }
 for k,v in checks.items():print(('PASS' if v else 'FAIL')+' '+k)
 assert all(checks.values()),'Missing 1.11.116 feature static evidence'
 manifest=(root/'app/src/main/AndroidManifest.xml').read_text()
 assert '.EdgeDictionaryActivity' in manifest
-assert "versionName '1.11.122-beta'" in (root/'app/build.gradle').read_text()
+assert "versionName '1.11.123-beta'" in (root/'app/build.gradle').read_text()
 print('PASS: 18/18 feature-source assertions + manifest/version')

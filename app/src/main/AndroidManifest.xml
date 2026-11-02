@@ -34,6 +34,7 @@
         <activity android:name=".EdgeDictionaryActivity" android:exported="false" />
         <activity android:name=".SettingsActivity" android:exported="false" />
         <activity android:name=".ReaderLogActivity" android:exported="false" />
+        <activity android:name=".DrawerEditorActivity" android:exported="false" />
         <activity android:name=".ChteicoActivity" android:exported="false" />
         <receiver android:name=".ChteicoNotifications" android:exported="false">
             <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /></intent-filter>

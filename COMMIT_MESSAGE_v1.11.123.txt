@@ -1,0 +1,12 @@
+v1.11.123-beta CLEAN: editable home/drawer, intelligent resume navigation, Chteico runner upgrades
+
+- separate vertical pet scroll from horizontal emotion swipes
+- add Comic drawer route and context-based last-item resume/import for reading, audio, comics
+- introduce DrawerMenuStore and DrawerEditorActivity (rename/reorder/hide/restore)
+- centralize Comic import under MainActivity plus menu
+- introduce six-section MainActivity edit mode with long-press activation, drag handles, hide/restore, migration
+- add contour XML gamepad icon next to pet name; move game stats below achievements
+- move game instructions to ActivityInfo help
+- use cream 260dp game card with larger pet/book sprites
+- implement hold-to-jump and +30% gravity (1365dp/s2; cap 90dp)
+- preserve user library, cache, and progression data; versionCode 12300

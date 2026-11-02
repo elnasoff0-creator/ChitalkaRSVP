@@ -20,5 +20,5 @@ assert 'LinearLayout.LayoutParams(0,dp(112),1f)' in ref
 assert 'rewardLine.addView(spacer,lp)' in ref
 # All incomplete rows reserve 3 slots, leaving 1/3 unused when only two exist.
 assert all((n+(3-n%3)%3)%3==0 for n in range(1,20))
-assert "versionCode 12200; versionName '1.11.122-beta'" in gradle
+assert "versionCode 12300; versionName '1.11.123-beta'" in gradle
 print('PASS: original v116 motion + 30% faster, rounded toolbar buttons, fixed three-column awards, unchanged version')

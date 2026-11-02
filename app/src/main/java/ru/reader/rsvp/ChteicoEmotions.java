@@ -6,7 +6,7 @@ import android.view.View;
 import android.view.ViewConfiguration;
 import java.util.Random;
 
-/** Tap opens; system-duration long press starts drag; direction-independent swipe reacts. */
+/** Tap opens; system-duration long press starts drag; horizontal-only swipe reacts; vertical gestures scroll. */
 final class ChteicoEmotions {
     private static final String[] FACES={"(~‿^)","(♡‿♡)","(＾▽＾)","(◕‿◕)"};
     private static final Random RANDOM=new Random();
@@ -24,7 +24,7 @@ final class ChteicoEmotions {
         final int longMs=ViewConfiguration.getLongPressTimeout();
         view.setClickable(true);
         view.setOnTouchListener(new View.OnTouchListener(){
-            float x,y;boolean moved,dragging,down;
+            float x,y;boolean moved,dragging,down,horizontal,vertical;
             final Runnable triggerLong=()->{
                 if(!down||moved||dragging)return;
                 dragging=true;
@@ -36,23 +36,26 @@ final class ChteicoEmotions {
             @Override public boolean onTouch(View v,MotionEvent e){
                 switch(e.getActionMasked()){
                     case MotionEvent.ACTION_DOWN:
-                        x=e.getX();y=e.getY();moved=false;dragging=false;down=true;
-                        // The Home ScrollView must not steal vertical pet swipes.
-                        if(v.getParent()!=null)v.getParent().requestDisallowInterceptTouchEvent(true);
+                        x=e.getX();y=e.getY();moved=false;dragging=false;down=true;horizontal=false;vertical=false;
+                        // Allow the containing ScrollView to intercept vertical drags.
                         v.removeCallbacks(triggerLong);
                         if(drag!=null||longTap!=null)v.postDelayed(triggerLong,longMs);
                         return true;
                     case MotionEvent.ACTION_MOVE:
                         if(!down)return true;
-                        if(!moved&&Math.hypot(e.getX()-x,e.getY()-y)>slop){
+                        float dx=e.getX()-x,dy=e.getY()-y;
+                        if(!moved&&Math.hypot(dx,dy)>slop){
                             moved=true;v.removeCallbacks(triggerLong);
+                            horizontal=Math.abs(dx)>Math.abs(dy)*1.25f;
+                            vertical=!horizontal;
+                            if(horizontal&&v.getParent()!=null)v.getParent().requestDisallowInterceptTouchEvent(true);
                         }
-                        return true;
+                        return !vertical;
                     case MotionEvent.ACTION_UP:
                         v.removeCallbacks(triggerLong);down=false;
                         if(v.getParent()!=null)v.getParent().requestDisallowInterceptTouchEvent(false);
                         if(dragging)return true;
-                        if(moved){if(pet!=null)pet.run();}
+                        if(horizontal){if(pet!=null)pet.run();}
                         else {v.performClick();if(tap!=null)tap.run();}
                         return true;
                     case MotionEvent.ACTION_CANCEL:

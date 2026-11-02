@@ -149,6 +149,23 @@ public class MainActivity extends NavigationActivity {
             prefs.edit().putLong("update_last_check", System.currentTimeMillis()).apply();
             new UpdateManager(this).check(true);
         }
+        consumeDrawerAction(getIntent());
+    }
+
+    @Override protected void onNewIntent(Intent intent){
+        super.onNewIntent(intent);setIntent(intent);consumeDrawerAction(intent);
+    }
+    private void consumeDrawerAction(Intent intent){
+        if(intent==null)return;
+        String action=intent.getStringExtra("drawer_action");
+        if(action==null)return;
+        intent.removeExtra("drawer_action");
+        handler.post(()->showDrawerImport(action));
+    }
+    void showDrawerImport(String kind){
+        if("book".equals(kind))pick();
+        else if("audio".equals(kind))chooseAudioFolder();
+        else if("comic".equals(kind))showComicImportMenu();
     }
 
     void loadPrefs() {
@@ -323,6 +340,7 @@ public class MainActivity extends NavigationActivity {
     private ScrollView homeScroll;
     private boolean touchingScreen, pendingCoverRefresh;
     private int savedHomeScrollY;
+    private boolean homeEditing=false;
     private static final int TOOLBAR_SIZE_DP=44;
     private static final int TOOLBAR_GAP_DP=5;
     private static final int COVER_CORNER_DP=14;
@@ -348,13 +366,15 @@ public class MainActivity extends NavigationActivity {
         homeScroll=scroll;
         scroll.setFillViewport(true);
         scroll.addView(contentWrap, new ScrollView.LayoutParams(-1, -2));
+        contentWrap.setClickable(true);
+        contentWrap.setOnLongClickListener(v->{enterHomeEditing();return true;});
         final int restoreY=savedHomeScrollY;
         scroll.post(()->{if(homeScroll==scroll)scroll.scrollTo(0,restoreY);});
 
         LinearLayout top = row();
         View hamburger = iconButton(R.drawable.ic_menu_lines, v -> openDrawer());
         top.addView(hamburger,new LinearLayout.LayoutParams(dp(TOOLBAR_SIZE_DP),dp(TOOLBAR_SIZE_DP)));
-        TextView titleView = text("", 23, true);
+        TextView titleView = text(homeEditing?"Редактирование":"", 23, true);
         titleView.setTypeface(Typeface.SERIF, Typeface.BOLD);
         top.addView(titleView, new LinearLayout.LayoutParams(0, -2, 1));
         View search = iconButton(R.drawable.ic_search, v -> showLibrarySearch());
@@ -376,6 +396,20 @@ public class MainActivity extends NavigationActivity {
         // Keep the navigation buttons above the scrolling library. A toolbar
         // inside ScrollView can miss clicks while the library is flinging.
         root.addView(top,new LinearLayout.LayoutParams(-1,dp(TOOLBAR_SIZE_DP)));
+        if(homeEditing){
+            LinearLayout commands=row();commands.setGravity(Gravity.CENTER_VERTICAL);
+            TextView addBlock=buttonish("＋ Добавить элемент",softPanel(),fg,true);
+            commands.addView(addBlock,new LinearLayout.LayoutParams(0,dp(46),1));
+            addBlock.setOnClickListener(v->chooseHiddenHomeBlock());
+            TextView reset=buttonish("Сброс",softPanel(),fg,true);commands.addView(reset);
+            reset.setOnClickListener(v->new SwipeDialogs.Builder(this).setTitle("Стандартный главный экран")
+                .setMessage("Восстановить порядок и видимость всех элементов?")
+                .setPositiveButton("Восстановить",(d,w)->{HomeSectionOrder.reset(prefs);draw();})
+                .setNegativeButton("Отмена",null).show());
+            TextView done=buttonish("Готово",accent(),Color.WHITE,true);commands.addView(done);
+            done.setOnClickListener(v->{homeEditing=false;draw();});
+            root.addView(commands);
+        }
         root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
 
         add(contentWrap, gap(10));
@@ -390,6 +424,7 @@ public class MainActivity extends NavigationActivity {
             add(contentWrap, empty);
         }
 
+        final int libraryStart=contentWrap.getChildCount();
         final ArrayList<BookMeta> sortedBooks = sortedLibraryBooks();
         boolean bookExpanded=prefs.getBoolean("book_library_expanded",false);
         add(contentWrap,gap(12));
@@ -427,11 +462,14 @@ public class MainActivity extends NavigationActivity {
         });
         // Keep one consistent separation between the text and audio groups.
         // Previously 12 + 16 + 12 dp were stacked here.
+        final int comicStart=contentWrap.getChildCount();
         addComicSection(contentWrap);
         final int audioStart=contentWrap.getChildCount();
+        final int[] audioLibraryStart={audioStart};
         java.util.ArrayList<AudioLibrary.Book> audioBooks=AudioLibrary.load(this);
         audioBooks = sortedAudioBooks(audioBooks);
         if(audioBooks.isEmpty()){
+            audioLibraryStart[0]=contentWrap.getChildCount();
             boolean audioExpanded=prefs.getBoolean("audio_library_expanded",false);
             TextView audioToggle=buttonish("Аудиотека (0)  "+(audioExpanded?"⌃":"⌄"),softPanel(),fg,true);
             add(contentWrap,gap(12));add(contentWrap,iconToggle(audioToggle,R.drawable.ic_audiotheque));
@@ -468,6 +506,7 @@ public class MainActivity extends NavigationActivity {
             recentInfo.addView(continueAudio,resumeLp);
             recentCard.setOnClickListener(v->openAudioBook(lastBook.id));
             add(contentWrap,recentCard);
+            audioLibraryStart[0]=contentWrap.getChildCount();
             add(contentWrap,gap(12));
             boolean expanded=prefs.getBoolean("audio_library_expanded",false);
             TextView toggle=buttonish("Аудиотека ("+audioBooks.size()+")  "+(expanded?"⌃":"⌄"),softPanel(),fg,true);
@@ -601,10 +640,12 @@ public class MainActivity extends NavigationActivity {
             ChteicoEmotions.attach(petArea,
                 ()->{boolean wake=ChteicoEmotions.isSleeping();if(wake)ChteicoEmotions.wake();
                     bubble.removeCallbacks(dismissEmotion);startActivity(new Intent(this,ChteicoActivity.class).putExtra("wake_pet",wake));},
-                null,showEmotion,HomeSectionOrder::startPetDrag);
+                this::enterHomeEditing,showEmotion,v->enterHomeEditing());
             contentWrap.addView(petArea,areaLp);
         }
-        HomeSectionOrder.apply(this,contentWrap,readingStart,audioStart,petStart,prefs);
+        HomeSectionOrder.apply(this,contentWrap,
+            new int[]{readingStart,libraryStart,comicStart,audioStart,audioLibraryStart[0],petStart,contentWrap.getChildCount()},
+            prefs,homeEditing);
         // Navigation moved to the accessible left drawer.
     }
 
@@ -1163,6 +1204,17 @@ public class MainActivity extends NavigationActivity {
         if(!touchingScreen&&!UniversalDrawer.isOpen(this))handler.postDelayed(this::refreshCoverAfterIdle,180);
     }
     void openDrawer(){UniversalDrawer.show(this);}
+    void enterHomeEditing(){if(screen!=0||homeEditing)return;homeEditing=true;draw();}
+    private void chooseHiddenHomeBlock(){
+        java.util.ArrayList<String> hidden=new java.util.ArrayList<>();
+        for(String id:HomeSectionOrder.order(prefs))if(!HomeSectionOrder.visible(prefs,id))hidden.add(id);
+        if(hidden.isEmpty()){new SwipeDialogs.Builder(this).setTitle("Добавить элемент")
+            .setMessage("Все доступные элементы уже на главном экране.").setPositiveButton("Понятно",null).show();return;}
+        String[] options=new String[hidden.size()];for(int i=0;i<options.length;i++)options[i]=HomeSectionOrder.title(hidden.get(i));
+        new SwipeDialogs.Builder(this).setTitle("Добавить элемент")
+            .setItems(options,(d,index)->{HomeSectionOrder.visible(prefs,hidden.get(index),true);draw();})
+            .setNegativeButton("Отмена",null).show();
+    }
 
     void openLastMedia(){
         String mode=prefs.getString("last_media_kind","");
@@ -1186,12 +1238,10 @@ public class MainActivity extends NavigationActivity {
 
     void showAddMenu(){
         new SwipeDialogs.Builder(this).setTitle("Добавить")
-            .setItems(new String[]{"Книгу","Аудиокнигу"},(dialog,choice)->{
-                new SwipeDialogs.Builder(this).setTitle(choice==0?"Добавить книгу":"Добавить аудиокнигу")
-                    .setItems(new String[]{choice==0?"Выбрать файл":"Выбрать папку"},(d,index)->{
-                        if(choice==0)pick();
-                        else chooseAudioFolder();
-                    }).setNegativeButton("Отмена",null).show();
+            .setItems(new String[]{"Книгу","Аудиокнигу","Комикс"},(dialog,choice)->{
+                if(choice==0)pick();
+                else if(choice==1)chooseAudioFolder();
+                else showComicImportMenu();
             }).setNegativeButton("Отмена",null).show();
     }
 
@@ -1220,8 +1270,6 @@ public class MainActivity extends NavigationActivity {
         TextView toggle=buttonish("Комиксотека ("+comics.size()+")  "+(expanded?"⌃":"⌄"),softPanel(),fg,true);
         add(host,iconToggle(toggle,R.drawable.ic_comic_library));
         LinearLayout detail=column();add(host,detail);detail.setVisibility(expanded?View.VISIBLE:View.GONE);
-        TextView addComic=buttonish("＋ Добавить комикс",panelColor(),fg,true);
-        add(detail,addComic);addComic.setOnClickListener(v->showComicImportMenu());
         ComicLibrary.Comic last=null;for(ComicLibrary.Comic item:comics)if(item.opened>0&&(last==null||item.opened>last.opened))last=item;
         if(last!=null){final String id=last.uri;TextView resume=buttonish("▶  Продолжить просмотр · "+last.title,accent(),0xffffffff,true);
             add(detail,resume);resume.setOnClickListener(v->openComic(id));}

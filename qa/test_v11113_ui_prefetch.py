@@ -7,7 +7,7 @@ assert 'ViewConfiguration.getLongPressTimeout()' in em
 assert 'view.postDelayed' not in em and 'v.postDelayed(triggerLong,longMs)' in em
 assert 'view.performHapticFeedback' in em and 'drag.start(view)' in em
 assert em.index('view.performHapticFeedback')<em.index('drag.start(view)')
-assert 'if(moved){if(pet!=null)pet.run();}' in em
+assert 'if(horizontal){if(pet!=null)pet.run();}' in em and 'vertical=!horizontal' in em
 assert 'else {v.performClick();if(tap!=null)tap.run();}' in em
 assert 'vibrate(v)' not in em
 assert 'new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL)' in main
@@ -32,5 +32,5 @@ assert 'prefetchIssued>=EdgeSpeechQueue.MAX_PREFETCH' in service
 assert 'pending++;prefetchIssued++' in service
 assert 'activeLeases' in (s/'EdgeWebSocketPool.java').read_text()
 assert 'buffering_duration_ms' in (s/'EdgePlaybackService.java').read_text()
-assert 'versionName \'1.11.122-beta\'' in (r/'app/build.gradle').read_text()
+assert 'versionName \'1.11.123-beta\'' in (r/'app/build.gradle').read_text()
 print('PASS: new long-hold/tap/swipe separation; haptic only drag; wrap bubbles, white-black adaptive icon outlines, bounded prefetch and diagnostic instrumentation')

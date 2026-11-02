@@ -11,7 +11,7 @@ open_toc=r[r.index('private void showToc()'):r.index('private void setToolbarExp
 preview=r[r.index('private void browseToWord('):r.index('private void showToc()')]
 mode=r[r.index('private void setMode('):r.index('private void chteicoTouch(')]
 checks={
- 'version 12200': "versionCode 12200; versionName '1.11.122-beta'" in (src/'app/build.gradle').read_text(),
+ 'version 12200': "versionCode 12300; versionName '1.11.123-beta'" in (src/'app/build.gradle').read_text(),
  'TOC only navigates viewport': 'browseToWord(word);' in open_toc and 'stop()' not in open_toc and 'index=' not in open_toc,
  'all modes use same TOC path':'if(mode==TTS&&(ttsCurrentlyPlaying()' not in open_toc,
  'does not select first sentence': 'selectedWordActive=true' not in open_toc,
@@ -28,9 +28,9 @@ checks={
  'RSVP tap works with scroll-word option':'(mode==RSVP&&!playing)||(mode==TTS)' in r,
  'select toggle clears stale word':'selectedWordActive=false;updateSelectWordButton()' in r,
  'bookmark uses visible chapter':'viewportWord>=0?viewportWord:index' in r,
- 'drawer disabled companion name':'companionEnabled?"Чтейцо":"Статистика"' in drawer,
- 'drawer disabled companion icon':'companionEnabled?R.drawable.ic_chteico_nav:R.drawable.ic_stats_nav' in drawer,
- 'settings only in drawer':'item(a,list,fg,R.drawable.ic_settings,"Настройки"' in drawer,
+ 'drawer disabled companion name':'ChteicoStore.enabled(c)?"Чтейцо":"Статистика"' in (p/'DrawerMenuStore.java').read_text(),
+ 'drawer disabled companion icon':'ChteicoStore.enabled(c)?R.drawable.ic_chteico_nav:R.drawable.ic_stats_nav' in (p/'DrawerMenuStore.java').read_text(),
+ 'settings only in drawer':'DrawerMenuStore.icon(id,a)' in drawer and 'DrawerMenuStore.name(a,id)' in drawer,
  'no settings in reader overflow':'"Настройки"' not in sheets,
  'no toolbar settings in audio': 'R.drawable.ic_settings' not in audio,
  'no toolbar settings in download':'R.drawable.ic_settings' not in download,

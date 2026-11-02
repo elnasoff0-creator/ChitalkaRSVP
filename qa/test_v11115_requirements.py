@@ -29,6 +29,6 @@ checks={
 for title,ok in checks.items():
     print(('PASS' if ok else 'FAIL')+' '+title)
 assert all(checks.values()),'Some v1.11.115 requirements are missing'
-assert 'versionCode 12200' in (root/'app/build.gradle').read_text()
-assert "versionName '1.11.122-beta'" in (root/'app/build.gradle').read_text()
+assert 'versionCode 12300' in (root/'app/build.gradle').read_text()
+assert "versionName '1.11.123-beta'" in (root/'app/build.gradle').read_text()
 print('PASS 16/16 static requirement checks, versionName/versionCode')

@@ -33,9 +33,9 @@ assert 'ReadingThemeCycle.isDark(bg)' in main
 assert 'ReadingThemeCycle.isDark(bg)' in (s/'ChteicoActivity.java').read_text()
 assert 'forceNightWhenSleeping && sleeping' in pet and 'ReadingThemeCycle.isDark(bg)' in pet
 assert 'ChteicoEmotions.attach(petArea,' in main
-assert 'null,showEmotion,HomeSectionOrder::startPetDrag' in main
+assert 'this::enterHomeEditing,showEmotion,v->enterHomeEditing()' in main
 assert 'ViewConfiguration.getLongPressTimeout()' in em and 'drag.start(view)' in em
 assert 'android.view.HapticFeedbackConstants.LONG_PRESS' in em
 assert 'new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL)' in main
-assert "versionName '1.11.122-beta'" in (r/'app/build.gradle').read_text()
+assert "versionName '1.11.123-beta'" in (r/'app/build.gradle').read_text()
 print('PASS toolbar placement, cycling, custom theme persistence, dark contrast, spinner visibility, revised gestures, tight bubble and version')

@@ -52,7 +52,7 @@ print('PASS: v1.11.99 no UI scan, cached Edge index, four-mode Reader, stable mi
 has('SleepTimerSheet.java','Конец главы','setOnLongClickListener','Пользовательский','remainingMillis','10080')
 has('AudioPlaybackService.java','sleepChaptersRemaining','getChapterSleepRemainingMillis','audio_sleep_chapter_count')
 has('ReaderActivity.java','chapterEndAfter','SleepTimerSheet.open(this','GradientDrawable.Orientation.TOP_BOTTOM','if(mode==RSVP&&playing)return;')
-has('HomeSectionOrder.java','home_section_order','startDragAndDrop','ACTION_DROP','prefs.edit().putString')
+has('HomeSectionOrder.java','home_section_order','startDragAndDrop','ACTION_DROP','setOrder(prefs,order)')
 has('MainActivity.java','HomeSectionOrder.apply','panel_color','ChteicoEmotions.attach','ChteicoEmotions.sleep')
 has('UniversalDrawer.java','R.drawable.ic_launcher_foreground','branding.addView(logo')
 has('ChteicoPetView.java','setSleeping(boolean','if(!attached||sleeping)return;')
