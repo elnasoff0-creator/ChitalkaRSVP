@@ -1,3 +1,13 @@
+ПРОЧиталка v1.11.124-beta CLEAN — QA RESULTS
+Date: 2026-11-02
+Version: 1.11.124-beta (12400)
+TOTAL 49 PASS 49 FAIL 0
+
+Scope: Java source syntax parsing, XML validation, resource and static feature checks, Java desktop/JVM behavioral tests.
+Runtime Android Gradle compilation/APK: NOT VERIFIED (Android SDK absent).
+Device UI/game physics behavior: NOT VERIFIED.
+
+Detailed per-test result:
 PASS check_edge_serial_playback.sh
 PASS check_edge_speech_groups.sh
 PASS check_java_syntax.sh
@@ -46,5 +56,4 @@ PASS test_v11120_lazy_startup.py
 PASS test_v11121_navigation_settings.py
 PASS test_v11122_features.py
 PASS test_v11123_features.py
-TOTAL 48 PASS 48 FAIL 0
-Scope: Java syntax, XML/resources, static assertions, desktop JVM tests. No Android SDK or device rendering.
+PASS test_v11124_assets.py

@@ -39,7 +39,7 @@ final class DrawerMenuStore {
         for(String id:DEFAULT)edit.remove("drawer_name_v123_"+id);edit.apply();}
     static int icon(String id,Context c){switch(id){
         case "home":return R.drawable.ic_home;case "reading":return R.drawable.ic_book;
-        case "audio":return R.drawable.ic_microphone;case "comic":return R.drawable.ic_comic_library;
+        case "audio":return R.drawable.ic_tab_music;case "comic":return R.drawable.ic_drawer_comic;
         case "downloads":return R.drawable.ic_downloads;
         case "pet":return ChteicoStore.enabled(c)?R.drawable.ic_chteico_nav:R.drawable.ic_stats_nav;
         case "settings":return R.drawable.ic_settings;case "update":return R.drawable.ic_web_update;

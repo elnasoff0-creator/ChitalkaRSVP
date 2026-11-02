@@ -1,36 +1,7 @@
 <?xml version='1.0' encoding='UTF-8'?>
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp"
-    android:height="24dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24">
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
     <!-- Minimal comic-library icon: overlapping pages / panel sheets in a dark silhouette-contour style. -->
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#FF30343D"
-        android:strokeWidth="1.5"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M6.5,5.5H15.5C16.6,5.5 17.5,6.4 17.5,7.5V18.0C17.5,19.1 16.6,20.0 15.5,20.0H6.5C5.4,20.0 4.5,19.1 4.5,18.0V7.5C4.5,6.4 5.4,5.5 6.5,5.5Z"/>
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#FF30343D"
-        android:strokeWidth="1.5"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M8.5,4.0H17.5C18.6,4.0 19.5,4.9 19.5,6.0V16.5C19.5,17.6 18.6,18.5 17.5,18.5"/>
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#FF30343D"
-        android:strokeWidth="1.5"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M7.5,9.0H14.5M7.5,12.0H14.5M7.5,15.0H12.0"/>
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#FF30343D"
-        android:strokeWidth="1.5"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M14.0,13.2L16.1,14.3L14.0,15.4Z"/>
+    <path android:fillColor="@android:color/transparent" android:strokeColor="#FF30343D" android:strokeWidth="1.5" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M 6.5 2.36678 L 17.5 2.36678 C 18.6 2.36678 19.5 2.36678 19.5 3.51842 Q 19.5 16.57111 19.5 20.60883 Q 19.5 21.63322 17.5 21.63322 L 6.59369 21.63322 C 5.49369 21.63322 4.59369 20.73322 4.59369 19.63322 L 4.5 4.36678 C 4.5 3.26678 5.4 2.36678 6.5 2.36678 Z"/>
+    <path android:fillColor="@android:color/transparent" android:strokeColor="#FF30343D" android:strokeWidth="1.5" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M 7.30045 7.47545 C 7.30045 5.25015 10.50655 5.25015 10.50655 7.47545 M 7.30045 7.47545 C 7.30045 9.70943 10.50655 9.53477 10.50655 7.47545 M 4.59369 19.63322 C 4.86376 19.09593 4.59369 18.02134 6.5 18.02134 L 12.63395 18.02134"/>
+    <path android:fillColor="@android:color/transparent" android:strokeColor="#FF30343D" android:strokeWidth="1.5" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M 9.4102 18.02134 Q 14.50667 10.93687 15.29855 10.93687 Q 16.05013 10.93687 19.5 15.38397 L 19.5 18.02134 Z"/>
 </vector>

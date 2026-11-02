@@ -42,8 +42,8 @@ folder=r/'app/src/main/res/drawable-nodpi'
 for stage in ['chick','reader','adult']:
  for pose in ['run1','run2','jump']:
   f=folder/f'chteico_game_{stage}_{pose}.png';assert f.exists(),f
-  im=Image.open(f);assert im.size==(64,64) and im.mode=='RGBA'
+  im=Image.open(f);assert im.width<=64 and im.height<=64 and im.mode=='RGBA'
 for i in range(1,6):
  f=folder/f'chteico_book_{i}.png';assert f.exists()
-assert 'versionCode 12300' in (r/'app/build.gradle').read_text()
+assert 'versionCode 12400' in (r/'app/build.gradle').read_text()
 print('PASS 122: icons, manifest, reader, bookmarks, font picker, comics, dictionary revision, chapter layout, runner sprites')

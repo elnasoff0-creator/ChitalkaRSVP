@@ -34,5 +34,5 @@ assert 'activeSentence=getIntent().getStringExtra(EXTRA_SENTENCE)' in dictionary
 ET.parse(root/'app/src/main/res/drawable/ic_audiotheque.xml')
 xml=(root/'app/src/main/res/drawable/ic_audiotheque.xml').read_text()
 assert '<vector' in xml and 'android:pathData' in xml and 'strokeColor' in xml
-assert "versionCode 12300; versionName '1.11.123-beta'" in (root/'app/build.gradle').read_text()
+assert "versionCode 12400; versionName '1.11.124-beta'" in (root/'app/build.gradle').read_text()
 print('PASS: no swipe-open, sentence-aware overlay, stable lists, restored pet animation, dictionary sentence picker, audiotheque vector, unchanged version')

@@ -24,7 +24,7 @@ checks={
  'TOC never stops player': 'stop();index=word;' not in toc,
  'caption respects viewport': 'updateFloatingCaption()' in preview,
  'manual selection commits': 'abandonViewportPreview()' in s,
- 'version 121': "versionCode 12300" in (Path(__file__).resolve().parents[1]/'app/build.gradle').read_text(),
+ 'version 121': "versionCode 12400" in (Path(__file__).resolve().parents[1]/'app/build.gradle').read_text(),
 }
 for name,ok in checks.items():print(('PASS' if ok else 'FAIL'),name)
 assert all(checks.values())

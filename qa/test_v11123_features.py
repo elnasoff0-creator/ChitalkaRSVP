@@ -11,8 +11,8 @@ menu=source('DrawerMenuStore.java'); editor=source('DrawerEditorActivity.java')
 home=source('HomeSectionOrder.java'); pet=source('ChteicoActivity.java')
 runner=source('ChteicoRunnerActivity.java'); emotions=source('ChteicoEmotions.java')
 help=source('ActivityInfo.java')
-assert 'versionCode 12300' in (root/'app/build.gradle').read_text()
-assert "versionName '1.11.123-beta'" in (root/'app/build.gradle').read_text()
+assert 'versionCode 12400' in (root/'app/build.gradle').read_text()
+assert "versionName '1.11.124-beta'" in (root/'app/build.gradle').read_text()
 assert '.DrawerEditorActivity' in (root/'app/src/main/AndroidManifest.xml').read_text()
 assert 'for(String id:DrawerMenuStore.order(a))' in nav and 'DrawerMenuStore.visible(a,id)' in nav
 assert 'DrawerEditorActivity.class' in nav
@@ -40,7 +40,7 @@ icon=root/'app/src/main/res/drawable/ic_chteico_game.xml'
 assert icon.exists();ET.parse(icon)
 assert '0xfffff9f2' in runner and 'dp(260)' in runner
 assert 'stage==1?72:stage==2?88:108' in runner
-assert 'random.nextInt(49)' in runner and 'dp(90)' in runner
+assert 'bookHeights' in runner and 'dp(90)' in runner
 assert 'dp(1365)*dt' in runner and 'dp(1254)*active' in runner
 assert 'holdSeconds<.240f' in runner
 for hold in (0,0.08,0.16,0.24):

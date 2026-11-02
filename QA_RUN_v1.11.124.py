@@ -12,7 +12,7 @@ def run(path):
         return path.name,p.returncode,p.stdout[-1400:],p.stderr[-1400:]
     except subprocess.TimeoutExpired:
         return path.name,124,'','Timed out after 65s'
-with ThreadPoolExecutor(max_workers=3) as pool:
+with ThreadPoolExecutor(max_workers=2) as pool:
     results=sorted((f.result() for f in as_completed([pool.submit(run,x) for x in scripts])))
 lines=[]
 for name,code,out,err in results:
@@ -23,6 +23,6 @@ passed=sum(code==0 for _,code,_,_ in results)
 lines.append(f'TOTAL {len(results)} PASS {passed} FAIL {len(results)-passed}')
 lines.append('Scope: Java syntax, XML/resources, static assertions, desktop JVM tests. No Android SDK or device rendering.')
 report='\n'.join(lines)+'\n'
-(root/'QA_RESULTS_v1.11.123.txt').write_text(report)
+(root/'QA_RESULTS_v1.11.124.txt').write_text(report)
 print(report)
 sys.exit(0 if passed==len(results) else 1)

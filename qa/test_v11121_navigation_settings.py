@@ -11,7 +11,7 @@ open_toc=r[r.index('private void showToc()'):r.index('private void setToolbarExp
 preview=r[r.index('private void browseToWord('):r.index('private void showToc()')]
 mode=r[r.index('private void setMode('):r.index('private void chteicoTouch(')]
 checks={
- 'version 12200': "versionCode 12300; versionName '1.11.123-beta'" in (src/'app/build.gradle').read_text(),
+ 'version 12200': "versionCode 12400; versionName '1.11.124-beta'" in (src/'app/build.gradle').read_text(),
  'TOC only navigates viewport': 'browseToWord(word);' in open_toc and 'stop()' not in open_toc and 'index=' not in open_toc,
  'all modes use same TOC path':'if(mode==TTS&&(ttsCurrentlyPlaying()' not in open_toc,
  'does not select first sentence': 'selectedWordActive=true' not in open_toc,
