@@ -6,7 +6,7 @@ versionName = 1.11.127-beta
 versionCode = 12700
 
 Проверка: python3 QA_RUN_v1.11.127.py
-Результат: PASS 11/11 групп.
+Результат HOTFIX: PASS 12/12 групп (включая новый тест связывания метода).
 
   1. PASS. JavaSourceSyntaxCheck: проверен синтаксис 129 .java.
      ВАЖНО: синтаксический парсер НЕ выполняет компиляцию с Android SDK.
@@ -49,3 +49,25 @@ versionCode = 12700
 Пакет CLEAN:
 - Полные исходники, ресурсы, Gradle-конфигурация, QA и docs v127.
 - Без APK, временных patch-скриптов, .bak и старых release-документов.
+
+
+HOTFIX: сбой сборки GitHub Actions, обнаружен 03.11.2026
+=======================================================
+Симптом CI:
+  EdgeStreamingService.java:255: invalid method reference
+  player.setResumeSelection(this::rewindOnResume);
+  cannot find symbol: method rewindOnResume()
+
+Причина: `this` находится внутри анонимного ServiceConnection, а метод
+         объявлен у внешнего EdgeStreamingService.
+Фикс:   player.setResumeSelection(EdgeStreamingService.this::rewindOnResume);
+
+Регрессия:
+  PASS: исходник содержит квалифицированную ссылку и не содержит старую.
+  PASS: JDK 17 javac компилирует аналогичную привязку в анонимном классе.
+  PASS: java вызывает callback ровно один раз на экземпляре внешнего сервиса.
+  PASS: основной QA_RUN: 12/12 групп (129 Java-синтаксиса и остальные тесты).
+
+Полная Gradle-сборка: НЕ ПРОВОДИЛАСЬ (Android SDK/Gradle нет в окружении).
+Рекомендуемая CI-команда: gradle --no-daemon :app:assembleRelease --stacktrace
+Версия: v1.11.127-beta / versionCode 12700 (без изменений).

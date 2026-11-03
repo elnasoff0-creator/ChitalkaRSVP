@@ -252,7 +252,7 @@ public final class EdgeStreamingService extends Service {
         @Override public void onServiceConnected(ComponentName n,IBinder b){
             player=((EdgePlaybackService.LocalBinder)b).getService();
             player.addListener(listener);
-            player.setResumeSelection(this::rewindOnResume);
+            player.setResumeSelection(EdgeStreamingService.this::rewindOnResume);
             if(!bookUri.isEmpty())player.prepareBook("edge:"+bookUri);
             // Service and player can bind in either order. Warm exactly one clip,
             // only when TTS is active and the user has not pressed Play.

@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parent
 COMMANDS = [
     ('Java parser (syntax, no Android type checking)', ['bash', 'qa/check_java_syntax.sh']),
     ('Release-127 source contracts, Java percent calculation, XML', [sys.executable, 'qa/test_v11127_main_libraries_tts.py']),
+    ('Compile hotfix: Edge resume callback qualified method reference', [sys.executable, 'qa/test_v11127_edge_resume_binding.py']),
     ('ReaderActivity matched ComicReaderActivity chrome', [sys.executable, 'qa/test_v11126_comic_reader_style.py']),
     ('Comics page/feed gesture and zoom', [sys.executable, 'qa/test_v11126_comic_gestures_zoom.py']),
     ('Previous compilation hotfix contract', [sys.executable, 'qa/test_v11126_compile_exception_fix.py']),

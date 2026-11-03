@@ -1,5 +1,45 @@
 # ПРОЧиталка v1.11.127-beta CLEAN — полная расшифровка
 
+## HOTFIX: устранена ошибка GitHub Actions `:app:compileReleaseJavaWithJavac`
+
+**Источник ошибки:** `EdgeStreamingService.java`, строка 255 в предыдущем релизном архиве.
+В обработчике подключения `playbackConnection = new ServiceConnection(){...}` выражение
+`this::rewindOnResume` ссылалось на экземпляр анонимного `ServiceConnection`,
+у которого нет метода `rewindOnResume()`. Метод существует в самом `EdgeStreamingService`.
+
+**Исправление (ровно одно изменение в функциональных исходниках):**
+
+```java
+// Было:
+player.setResumeSelection(this::rewindOnResume);
+// Теперь:
+player.setResumeSelection(EdgeStreamingService.this::rewindOnResume);
+```
+
+Именно квалификация внешнего класса корректно привязывает callback интерфейса
+`EdgePlaybackService.ResumeSelection` к `private void rewindOnResume()`.
+Сохраняются условие `tts_resume_previous_sentence`, вызов при настоящем возобновлении
+после паузы, выбор предыдущего предложения и общее управление через MediaSession,
+гарнитуру, уведомление и экранные кнопки; логика не переписывалась.
+
+**Дополнительная защита:** создан тест `qa/test_v11127_edge_resume_binding.py`,
+который сверяет исходник и реально компилирует JDK-17 пример с анонимным
+`ServiceConnection`, квалифицированной ссылкой на метод и однократным callback.
+Он включён в `QA_RUN_v1.11.127.py`.
+
+**Версия не повышалась:** `versionName = 1.11.127-beta`, `versionCode = 12700`.
+Ни интерфейс библиотек, ни прогресс комиксов, ни ReaderActivity/ComicReaderActivity
+не менялись в этом hotfix.
+
+**Проверка:** 12/12 локальных QA-групп PASS (ранее 11/11).
+**Ограничение:** полноценный Android/Gradle `assembleRelease` в локальном контейнере
+недоступен, поэтому статус GitHub Actions после hotfix необходимо проверить
+повторным запуском workflow. Если появятся новые ошибки Javac, их следует
+рассматривать по новому логу.
+
+---
+
+
 **Тип выпуска:** исходники Android Java, CLEAN.  
 **База:** `v1.11.126-beta CLEAN READER-STYLE` (включая исправление компиляции `ComicReaderActivity.pagesForChapter`).  
 **Версия:** `versionName '1.11.127-beta'`, `versionCode 12700`.  
