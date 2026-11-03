@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Version 1.11.127 release contracts. Source assertions plus real JVM math tests.
+"""Regression contracts originally introduced in 1.11.127. Source assertions plus real JVM math tests.
 Not a replacement for Gradle/Javac Android build or on-device testing.
 """
 from pathlib import Path
@@ -10,7 +10,7 @@ read=lambda name:(src/(name+'.java')).read_text(encoding='utf-8')
 main=read('MainActivity');home=read('HomeSectionOrder');comic=read('ComicLibrary');viewer=read('ComicReaderActivity')
 local=read('AudioPlaybackService');edge=read('EdgePlaybackService');stream=read('EdgeStreamingService');reader=read('ReaderActivity')
 checks={
-    'versionName / versionCode':"versionCode 12700; versionName '1.11.127-beta'" in (root/'app/build.gradle').read_text(),
+    'versionName / versionCode':"versionCode 12800; versionName '1.11.128-beta'" in (root/'app/build.gradle').read_text(),
     'seven home sections': '"comicContinue","comic"' in home and 'if(bounds.length!=8)' in home,
     'migration preserves order': 'int location=result.indexOf("comic")' in home,
     'comics resume separated': 'addComicContinue(contentWrap)' in main and main.index('addComicContinue(contentWrap)')<main.index('addComicSection(contentWrap)'),
@@ -47,7 +47,7 @@ checks={
     'Edge live WordBoundary': 'liveWords(clip)' in stream and 'EdgeWordTimings.at(timing,ms)' in stream,
     'Reader removed UI-only rewind': 'resumePreviousSentence' not in reader and 'ReaderTtsController.localPauseOrResume(this)' in reader,
     'comic reader gestures unchanged': 'setChromeVisible(!chromeVisible)' in viewer and 'setBuiltInZoomControls(true)' in viewer,
-    'comic reader style unchanged': 'ReaderToolbarController.reveal(toolbarOverlay,show,98)' in viewer,
+    'comic reader style unchanged': 'ReaderToolbarController.reveal(toolbarOverlay,show,64)' in viewer,
 }
 for name,passed in checks.items():
     if not passed:raise AssertionError('FAIL '+name)

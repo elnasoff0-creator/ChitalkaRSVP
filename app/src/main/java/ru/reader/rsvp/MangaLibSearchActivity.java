@@ -63,10 +63,21 @@ public final class MangaLibSearchActivity extends NavigationActivity {
         executor.execute(()->{
             try{
                 String slug=MangaLibApi.slugFromLink(q);
-                if(!slug.isEmpty()){MangaLibApi.Title t=new MangaLibApi.Title(slug,slug,"");runOnUiThread(()->{if(token==generation)loadChapters(t);});return;}
-                List<MangaLibApi.Title> found=new MangaLibApi().search(q);
+                if(!slug.isEmpty()){
+                    MangaLibApi api=new MangaLibApi();
+                    MangaLibApi.Title t;
+                    try{t=api.titleBySlug(slug);}catch(Exception ignored){
+                        // A metadata error must not prevent trying the public chapter endpoint.
+                        t=new MangaLibApi.Title(slug,slug,"");
+                    }
+                    final MangaLibApi.Title selected=t;
+                    runOnUiThread(()->{if(token==generation&&!isFinishing())loadChapters(selected);});return;
+                }
+                String searchQuery=MangaLibApi.queryFromLink(q);
+                if(searchQuery.isEmpty())throw new java.io.IOException("Ссылка MangaLib не содержит названия или идентификатора произведения");
+                List<MangaLibApi.Title> found=new MangaLibApi().search(searchQuery);
                 runOnUiThread(()->{if(token!=generation||isFinishing())return;
-                    message.setText(found.isEmpty()?"Ничего не найдено":"Найдено: "+found.size()+" · MangaLib");list.removeAllViews();
+                    message.setText(found.isEmpty()?"По запросу ничего не найдено. Проверьте название или ссылку MangaLib":"Найдено: "+found.size()+" · MangaLib");list.removeAllViews();
                     for(MangaLibApi.Title t:found)addRow(t.title+"\n"+t.slug,()->loadChapters(t));
                 });
             }catch(Exception e){runOnUiThread(()->{if(token==generation)showError("Поиск: "+e.getMessage());});}

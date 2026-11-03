@@ -495,9 +495,6 @@ public class MainActivity extends NavigationActivity {
             final AudioLibrary.Book lastBook=recent;
             
             LinearLayout recentCard=column();recentCard.setBackground(shape(panelColor(),22));pad(recentCard,14);
-            TextView recentHeading=text(HomeSectionOrder.title(prefs,"audioContinue"),15,true);
-            LinearLayout.LayoutParams recentHeadingLp=new LinearLayout.LayoutParams(-1,-2);
-            recentHeadingLp.bottomMargin=dp(6);recentCard.addView(recentHeading,recentHeadingLp);
             LinearLayout recentBody=row();recentBody.setGravity(Gravity.CENTER_VERTICAL);recentCard.addView(recentBody);
             recentBody.addView(audioCover(lastBook,88),new LinearLayout.LayoutParams(dp(88),dp(88)));
             LinearLayout recentInfo=column();LinearLayout.LayoutParams ri=new LinearLayout.LayoutParams(0,-2,1);ri.leftMargin=dp(12);recentBody.addView(recentInfo,ri);
@@ -730,9 +727,6 @@ public class MainActivity extends NavigationActivity {
 
     View continueCard(BookMeta m) {
         LinearLayout wrapper=column();
-        TextView section=text(HomeSectionOrder.title(prefs,"continue"),15,true);
-        LinearLayout.LayoutParams headerLp=new LinearLayout.LayoutParams(-1,-2);headerLp.bottomMargin=dp(6);
-        wrapper.addView(section,headerLp);
         LinearLayout card=row();
         card.setBackground(shape(panelColor(),22));
         pad(card,10);
@@ -1280,12 +1274,17 @@ public class MainActivity extends NavigationActivity {
         return result;
     }
     private View comicCover(ComicLibrary.Comic comic,int width,int height){
-        ImageView cover=new ImageView(this);cover.setImageResource(R.drawable.ic_comic_library);
+        FrameLayout frame=new FrameLayout(this);
+        frame.setBackground(shape(panelColor(),COVER_CORNER_DP));
+        frame.setClipToOutline(true);
+        ImageView cover=new ImageView(this);
+        cover.setImageResource(R.drawable.ic_comic_library);
         cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        frame.addView(cover,new FrameLayout.LayoutParams(-1,-1));
         new Thread(()->{try{android.graphics.Bitmap bitmap=ComicCovers.cover(this,comic);
             if(bitmap!=null)runOnUiThread(()->{if(!isFinishing()&&cover.getParent()!=null)cover.setImageBitmap(bitmap);});
         }catch(Exception ignored){}} ,"comic-cover").start();
-        return cover;
+        return frame;
     }
     private void addComicContinue(LinearLayout host){
         ArrayList<ComicLibrary.Comic> all=ComicLibrary.list(this);
@@ -1293,10 +1292,8 @@ public class MainActivity extends NavigationActivity {
         if(recent==null)return;
         add(host,gap(12));
         LinearLayout card=column();card.setBackground(shape(panelColor(),22));pad(card,14);
-        TextView sectionName=text(HomeSectionOrder.title(prefs,"comicContinue"),16,true);
-        card.addView(sectionName);
         LinearLayout content=row();content.setGravity(Gravity.CENTER_VERTICAL);card.addView(content);
-        content.addView(comicCover(recent,82,106),new LinearLayout.LayoutParams(dp(82),dp(106)));
+        content.addView(comicCover(recent,88,88),new LinearLayout.LayoutParams(dp(88),dp(88)));
         LinearLayout info=column();LinearLayout.LayoutParams detailLp=new LinearLayout.LayoutParams(0,-2,1);
         detailLp.leftMargin=dp(12);content.addView(info,detailLp);
         TextView name=text(recent.title,17,true);name.setMaxLines(2);name.setEllipsize(TextUtils.TruncateAt.END);info.addView(name);

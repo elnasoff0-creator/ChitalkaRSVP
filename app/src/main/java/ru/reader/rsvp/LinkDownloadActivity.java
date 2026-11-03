@@ -81,6 +81,11 @@ public final class LinkDownloadActivity extends NavigationActivity {
             getSharedPreferences("reader",0).edit().putString("direct_last_tree",selected.toString()).putString("direct_last_tree_label",treeLabel).apply();
         }catch(Exception ex){chosenTree=null;folderLabel.setText("Невозможно получить доступ к папке: "+ex.getMessage());}}}
     private void analyze(){String input=links.getText().toString().trim();if(input.isEmpty()){status.setText("Введите HTTPS-ссылки на MP3, FB2 или EPUB");return;}
+        // A MangaLib title URL is NOT a direct file. Route it to chapter selection/CBZ import.
+        if(!input.contains("\n")&&MangaLibApi.isTitleLink(input)){
+            startActivity(new Intent(this,MangaLibSearchActivity.class).putExtra("mangalib_query",input));
+            return;
+        }
         String[] lines=input.split("\\r?\\n");if(lines.length>100){status.setText("Не более 100 ссылок за один раз");return;}
         analyze.setEnabled(false);discovered.clear();checkboxes.clear();previewArea.removeAllViews();download.setVisibility(View.GONE);status.setText("Проверяем ссылки…");
         new Thread(()->{ArrayList<LinkDownloadStore.Entry> found=new ArrayList<>();ArrayList<String> errors=new ArrayList<>();HashSet<String> seen=new HashSet<>();

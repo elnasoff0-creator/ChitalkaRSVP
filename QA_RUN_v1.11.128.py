@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline, reproducible smoke/regression checks for 1.11.127 source tree.
+"""Offline, reproducible smoke/regression checks for 1.11.128 source tree.
 Requires Python 3, javac, java and /bin/bash. NOT an Android Gradle build.
 Historical QA files that hardcode versionCode 12600 are not a release gate.
 """
@@ -9,11 +9,14 @@ import sys
 
 ROOT = Path(__file__).resolve().parent
 COMMANDS = [
+    ('Release v1.11.128 version metadata', [sys.executable, 'qa/test_v11128_release_metadata.py']),
     ('Java parser (syntax, no Android type checking)', ['bash', 'qa/check_java_syntax.sh']),
+    ('UI updates + MangaLib link parsing (Javac + JVM)', [sys.executable, 'qa/test_v11127_ui_mangalib_hotfix.py']),
     ('Release-127 source contracts, Java percent calculation, XML', [sys.executable, 'qa/test_v11127_main_libraries_tts.py']),
     ('Compile hotfix: Edge resume callback qualified method reference', [sys.executable, 'qa/test_v11127_edge_resume_binding.py']),
     ('ReaderActivity matched ComicReaderActivity chrome', [sys.executable, 'qa/test_v11126_comic_reader_style.py']),
     ('Comics page/feed gesture and zoom', [sys.executable, 'qa/test_v11126_comic_gestures_zoom.py']),
+    ('Comic feed: tap-only toolbar and bottom panel', [sys.executable, 'qa/test_v11127_feed_tap_only.py']),
     ('Previous compilation hotfix contract', [sys.executable, 'qa/test_v11126_compile_exception_fix.py']),
     ('TTS sentence chunk boundaries', ['bash', 'qa/check_sentence_chunks.sh']),
     ('Edge sentence seeking', ['bash', 'qa/test_edge_sentence_seek.sh']),
@@ -28,7 +31,7 @@ for title, cmd in COMMANDS:
     process = subprocess.run(cmd, cwd=ROOT)
     if process.returncode:
         failed.append(title)
-print(f'\nRELEASE v1.11.127: {len(COMMANDS)-len(failed)}/{len(COMMANDS)} groups PASS',flush=True)
+print(f'\nRELEASE v1.11.128: {len(COMMANDS)-len(failed)}/{len(COMMANDS)} groups PASS',flush=True)
 if failed:
     for item in failed: print('FAIL:', item)
     sys.exit(1)

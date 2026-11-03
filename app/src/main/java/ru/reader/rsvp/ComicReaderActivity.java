@@ -40,8 +40,7 @@ public final class ComicReaderActivity extends NavigationActivity {
     private LinearLayout toolbarOverlay; private FrameLayout footerOverlay;
     private boolean chromeVisible=true, gestureMoved=false, touchPinching=false;
     private float gestureStartX, gestureStartY;
-    private long gestureStartedAt, lastReaderTouchAt;
-    private int feedScrollAccum=0;
+    private long gestureStartedAt;
     private int generation=0;private final ArrayList<PageAsset> currentAssets=new ArrayList<>();
     private final Handler tracker=new Handler(Looper.getMainLooper());private boolean tracking=false;
     private final Runnable trackPosition=new Runnable(){@Override public void run(){
@@ -78,18 +77,14 @@ public final class ComicReaderActivity extends NavigationActivity {
         SafeSystemBars.install(this);
         SafeSystemBars.matchBackground(this,bg);
 
-        // The toolbar is the same three-row fading overlay as ReaderActivity:
-        // navigation buttons, book title, chapter title. It never resizes the WebView.
+        // Floating controls are independent chips, like ReaderActivity's chapter-statistics pill.
+        // No gradient and no second/third rows below the toolbar; the WebView remains full screen.
         LinearLayout toolbarStack=new LinearLayout(this);
         toolbarStack.setOrientation(LinearLayout.VERTICAL);toolbarOverlay=toolbarStack;
-        int opaque=bg|0xff000000;
-        GradientDrawable toolbarFade=new GradientDrawable(
-            GradientDrawable.Orientation.TOP_BOTTOM,
-            new int[]{opaque,(bg&0x00ffffff)|0xb0000000,(bg&0x00ffffff)});
-        toolbarStack.setBackground(toolbarFade);
-        toolbarStack.setPadding(dp(5),0,dp(5),dp(5));
+        toolbarStack.setBackgroundColor(Color.TRANSPARENT);
+        toolbarStack.setPadding(dp(5),dp(3),dp(5),dp(3));
         LinearLayout toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);
-        toolbarStack.addView(toolbar,new LinearLayout.LayoutParams(-1,dp(44)));
+        toolbarStack.addView(toolbar,new LinearLayout.LayoutParams(-1,dp(50)));
         ImageView drawer=toolIcon(R.drawable.ic_menu_lines,neutralInk);
         drawer.setBackground(rounded(neutral,12));
         toolbar.addView(drawer,new LinearLayout.LayoutParams(dp(44),dp(44)));
@@ -100,22 +95,27 @@ public final class ComicReaderActivity extends NavigationActivity {
         modeLp.leftMargin=dp(5);toolbar.addView(modeAction,modeLp);
         modeAction.setContentDescription(comic.mode==0?"Страницы":"Лента");
         modeAction.setOnClickListener(v->UiNavigationSheet.showComicModes(this,comic.mode,n->{
-            if(n!=comic.mode){comic.mode=n;comic.scroll=0;feedScrollAccum=0;setChromeVisible(true);persist();updateModeIcon();loadChapter();}
+            if(n!=comic.mode){comic.mode=n;comic.scroll=0;setChromeVisible(true);persist();updateModeIcon();loadChapter();}
         }));
-        View toolbarSpacer=new View(this);
-        toolbar.addView(toolbarSpacer,new LinearLayout.LayoutParams(0,dp(1),1));
-
-        comicHeading=button(comic.title,fg);
+        // Title and current file sit to the RIGHT of the two icons, ON ONE neutral chip.
+        LinearLayout titleChip=new LinearLayout(this);
+        titleChip.setOrientation(LinearLayout.VERTICAL);
+        titleChip.setGravity(Gravity.CENTER_VERTICAL);
+        titleChip.setPadding(dp(10),dp(3),dp(9),dp(3));
+        titleChip.setBackground(rounded(neutral,13));
+        LinearLayout.LayoutParams titleLp=new LinearLayout.LayoutParams(0,dp(50),1);
+        titleLp.leftMargin=dp(6);toolbar.addView(titleChip,titleLp);
+        comicHeading=button(comic.title,neutralInk);
         comicHeading.setTextSize(13);comicHeading.setSingleLine(true);
         comicHeading.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);
-        comicHeading.setPadding(dp(6),dp(4),dp(6),dp(3));
+        comicHeading.setPadding(0,0,0,0);
         comicHeading.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        toolbarStack.addView(comicHeading,new LinearLayout.LayoutParams(-1,dp(23)));
-        chapterInfo=button("",fg);chapterInfo.setTextSize(11);chapterInfo.setSingleLine(true);
+        titleChip.addView(comicHeading,new LinearLayout.LayoutParams(-1,dp(24)));
+        chapterInfo=button("",neutralInk);chapterInfo.setTextSize(11);chapterInfo.setSingleLine(true);
         chapterInfo.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);
-        chapterInfo.setPadding(dp(6),0,dp(6),dp(4));
+        chapterInfo.setPadding(0,0,0,0);
         chapterInfo.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        toolbarStack.addView(chapterInfo,new LinearLayout.LayoutParams(-1,dp(19)));
+        titleChip.addView(chapterInfo,new LinearLayout.LayoutParams(-1,dp(17)));
 
         web=new WebView(this); web.setBackgroundColor(bg); web.getSettings().setJavaScriptEnabled(true); web.getSettings().setAllowFileAccess(false); web.getSettings().setAllowContentAccess(false);
         web.getSettings().setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW);
@@ -127,19 +127,7 @@ public final class ComicReaderActivity extends NavigationActivity {
         web.getSettings().setUseWideViewPort(true);
         web.getSettings().setLoadWithOverviewMode(true);
         web.setOnTouchListener((v,event)->handleReaderTouch(event));
-        web.setOnScrollChangeListener((v,scrollX,scrollY,oldX,oldY)->{
-            if(comic==null||comic.mode!=1||touchPinching)return;
-            // Ignore programmatic scroll restoration after changing chapters/modes.
-            if(android.os.SystemClock.uptimeMillis()-lastReaderTouchAt>900L)return;
-            int delta=scrollY-oldY;
-            if(Math.abs(delta)<dp(2))return;
-            if(feedScrollAccum!=0&&Integer.signum(delta)!=Integer.signum(feedScrollAccum))feedScrollAccum=0;
-            feedScrollAccum=Math.max(-dp(64),Math.min(dp(64),feedScrollAccum+delta));
-            if(Math.abs(feedScrollAccum)>=dp(14)){
-                setChromeVisible(feedScrollAccum<0);
-                feedScrollAccum=0;
-            }
-        });
+        // Feed scrolling only moves pages; both floating panels toggle by a short tap.
         web.setWebViewClient(new WebViewClient(){
             @Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest req){return true;}
             @Override public WebResourceResponse shouldInterceptRequest(WebView view,WebResourceRequest request){
@@ -206,7 +194,7 @@ public final class ComicReaderActivity extends NavigationActivity {
     private void setChromeVisible(boolean show){
         if(chromeVisible==show)return;
         chromeVisible=show;
-        ReaderToolbarController.reveal(toolbarOverlay,show,98);
+        ReaderToolbarController.reveal(toolbarOverlay,show,64);
         animateChrome(footerOverlay,show,dp(82));
     }
     private void animateChrome(View bar,boolean show,int offscreen){
@@ -222,7 +210,6 @@ public final class ComicReaderActivity extends NavigationActivity {
     /** Return false so neither page swipes nor native pinch zoom are swallowed. */
     private boolean handleReaderTouch(MotionEvent event){
         final int action=event.getActionMasked();
-        lastReaderTouchAt=android.os.SystemClock.uptimeMillis();
         if(action==MotionEvent.ACTION_DOWN){
             gestureStartX=event.getX();gestureStartY=event.getY();
             gestureStartedAt=android.os.SystemClock.uptimeMillis();
@@ -233,9 +220,10 @@ public final class ComicReaderActivity extends NavigationActivity {
             if(Math.abs(event.getX()-gestureStartX)>dp(14)||
                 Math.abs(event.getY()-gestureStartY)>dp(14))gestureMoved=true;
         }else if(action==MotionEvent.ACTION_UP){
-            if(comic!=null&&comic.mode==0&&!gestureMoved&&!touchPinching&&
+            if(comic!=null&&!gestureMoved&&!touchPinching&&
                 android.os.SystemClock.uptimeMillis()-gestureStartedAt<350L){
-                // Page mode: tap toggles BOTH bars; swipe left/right stays in WebView.
+                // In BOTH modes a short single-finger tap toggles both overlays.
+                // Horizontal swipes, vertical feed scroll and two-finger pinch remain native.
                 setChromeVisible(!chromeVisible);
             }
             touchPinching=false;
