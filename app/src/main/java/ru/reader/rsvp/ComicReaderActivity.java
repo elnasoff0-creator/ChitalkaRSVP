@@ -1,6 +1,7 @@
 package ru.reader.rsvp;
 
 import android.graphics.Color;
+import android.content.SharedPreferences;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
 import android.os.Looper;
@@ -36,7 +37,7 @@ public final class ComicReaderActivity extends NavigationActivity {
     private static final class PageAsset { String relativePath; File localFile; String mime="image/*"; }
     private ComicLibrary.Comic comic; private ArrayList<ComicLibrary.Chapter> chapters=new ArrayList<>(); private WebView web;
     private TextView chapterTitle, chapterInfo, comicHeading;private ImageView modeAction;
-    private LinearLayout toolbarOverlay, footerOverlay;
+    private LinearLayout toolbarOverlay; private FrameLayout footerOverlay;
     private boolean chromeVisible=true, gestureMoved=false, touchPinching=false;
     private float gestureStartX, gestureStartY;
     private long gestureStartedAt, lastReaderTouchAt;
@@ -65,30 +66,56 @@ public final class ComicReaderActivity extends NavigationActivity {
         String uri=getIntent().getStringExtra("comic_uri"); comic=ComicLibrary.find(this,uri==null?"":uri);
         if(comic==null){finish();return;} chapters=ComicLibrary.chapters(this,comic);comic.chapterTotal=chapters.size();
         FrameLayout main=new FrameLayout(this);
-        int bg=getSharedPreferences("reader",0).getInt("bg",0xfff3e7d5), fg=getSharedPreferences("reader",0).getInt("fg",0xff30221e);
-        main.setBackgroundColor(bg); setContentView(main); SafeSystemBars.matchBackground(this,bg);
+        SharedPreferences prefs=getSharedPreferences("reader",0);
+        int bg=prefs.getInt("bg",0xfff3e7d5), fg=prefs.getInt("fg",0xff30221e);
+        final int neutral=ReaderButtonColors.neutral(this,
+            ReadingThemeCycle.isDark(bg)?0xff303238:0xfffff9f0);
+        final int accent=ReaderButtonColors.accent(this,0xff915439);
+        final int neutralInk=ReaderButtonColors.contrastingText(neutral);
+        final int accentInk=ReaderButtonColors.contrastingText(accent);
+        main.setBackgroundColor(bg);setContentView(main);
+        // Match ReaderActivity's edge-to-edge content and system-bar treatment.
+        SafeSystemBars.install(this);
+        SafeSystemBars.matchBackground(this,bg);
 
-        LinearLayout toolbar=new LinearLayout(this); toolbar.setGravity(Gravity.CENTER_VERTICAL);
-        toolbar.setPadding(dp(7),dp(3),dp(7),dp(3));toolbarOverlay=toolbar;
-        toolbar.setBackground(rounded((bg & 0x00ffffff) | 0xed000000,14));
-        ImageView drawer=toolIcon(R.drawable.ic_menu_lines,fg);
-        toolbar.addView(drawer,new LinearLayout.LayoutParams(dp(43),dp(43)));
+        // The toolbar is the same three-row fading overlay as ReaderActivity:
+        // navigation buttons, book title, chapter title. It never resizes the WebView.
+        LinearLayout toolbarStack=new LinearLayout(this);
+        toolbarStack.setOrientation(LinearLayout.VERTICAL);toolbarOverlay=toolbarStack;
+        int opaque=bg|0xff000000;
+        GradientDrawable toolbarFade=new GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            new int[]{opaque,(bg&0x00ffffff)|0xb0000000,(bg&0x00ffffff)});
+        toolbarStack.setBackground(toolbarFade);
+        toolbarStack.setPadding(dp(5),0,dp(5),dp(5));
+        LinearLayout toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);
+        toolbarStack.addView(toolbar,new LinearLayout.LayoutParams(-1,dp(44)));
+        ImageView drawer=toolIcon(R.drawable.ic_menu_lines,neutralInk);
+        drawer.setBackground(rounded(neutral,12));
+        toolbar.addView(drawer,new LinearLayout.LayoutParams(dp(44),dp(44)));
         drawer.setContentDescription("Открыть боковое меню");drawer.setOnClickListener(v->UniversalDrawer.show(this));
-        modeAction=toolIcon(comic.mode==0?R.drawable.ic_comic_mode_pages:R.drawable.ic_comic_mode_feed,fg);
-        modeAction.setBackground(rounded(0xffded0f0,12));
-        LinearLayout.LayoutParams modeLp=new LinearLayout.LayoutParams(dp(44),dp(44));modeLp.leftMargin=dp(5);toolbar.addView(modeAction,modeLp);
+        modeAction=toolIcon(comic.mode==0?R.drawable.ic_comic_mode_pages:R.drawable.ic_comic_mode_feed,accentInk);
+        modeAction.setBackground(rounded(accent,12));
+        LinearLayout.LayoutParams modeLp=new LinearLayout.LayoutParams(dp(44),dp(44));
+        modeLp.leftMargin=dp(5);toolbar.addView(modeAction,modeLp);
         modeAction.setContentDescription(comic.mode==0?"Страницы":"Лента");
         modeAction.setOnClickListener(v->UiNavigationSheet.showComicModes(this,comic.mode,n->{
             if(n!=comic.mode){comic.mode=n;comic.scroll=0;feedScrollAccum=0;setChromeVisible(true);persist();updateModeIcon();loadChapter();}
         }));
-        LinearLayout caption=new LinearLayout(this);caption.setOrientation(LinearLayout.VERTICAL);caption.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams captionLp=new LinearLayout.LayoutParams(0,-1,1);captionLp.leftMargin=dp(8);toolbar.addView(caption,captionLp);
-        comicHeading=button(comic.title,fg);comicHeading.setSingleLine(true);comicHeading.setTextSize(15);
+        View toolbarSpacer=new View(this);
+        toolbar.addView(toolbarSpacer,new LinearLayout.LayoutParams(0,dp(1),1));
+
+        comicHeading=button(comic.title,fg);
+        comicHeading.setTextSize(13);comicHeading.setSingleLine(true);
         comicHeading.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);
-        comicHeading.setEllipsize(android.text.TextUtils.TruncateAt.END);caption.addView(comicHeading,new LinearLayout.LayoutParams(-1,dp(24)));
-        chapterInfo=button("",fg);chapterInfo.setSingleLine(true);chapterInfo.setTextSize(11);chapterInfo.setAlpha(.75f);
-        chapterInfo.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);chapterInfo.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        caption.addView(chapterInfo,new LinearLayout.LayoutParams(-1,dp(20)));
+        comicHeading.setPadding(dp(6),dp(4),dp(6),dp(3));
+        comicHeading.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        toolbarStack.addView(comicHeading,new LinearLayout.LayoutParams(-1,dp(23)));
+        chapterInfo=button("",fg);chapterInfo.setTextSize(11);chapterInfo.setSingleLine(true);
+        chapterInfo.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);
+        chapterInfo.setPadding(dp(6),0,dp(6),dp(4));
+        chapterInfo.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        toolbarStack.addView(chapterInfo,new LinearLayout.LayoutParams(-1,dp(19)));
 
         web=new WebView(this); web.setBackgroundColor(bg); web.getSettings().setJavaScriptEnabled(true); web.getSettings().setAllowFileAccess(false); web.getSettings().setAllowContentAccess(false);
         web.getSettings().setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW);
@@ -133,29 +160,54 @@ public final class ComicReaderActivity extends NavigationActivity {
         });
         // The comic viewport fills the screen. Floating bars cannot resize it or reset scroll.
         main.addView(web,new FrameLayout.LayoutParams(-1,-1));
-        LinearLayout footer=new LinearLayout(this);footer.setGravity(Gravity.CENTER_VERTICAL);
-        footerOverlay=footer;
-        footer.setPadding(dp(9),dp(5),dp(9),dp(5));
-        footer.setBackground(rounded((bg & 0x00ffffff) | 0xed000000,14));
-        chapterTitle=button("",fg);chapterTitle.setTextSize(14);chapterTitle.setGravity(Gravity.CENTER_VERTICAL);
-        chapterTitle.setBackground(rounded(0xffded0f0,14));chapterTitle.setPadding(dp(14),0,dp(14),0);
-        footer.addView(chapterTitle,new LinearLayout.LayoutParams(-1,dp(54)));
-        chapterTitle.setOnClickListener(v->contents());
-        FrameLayout.LayoutParams topParams=new FrameLayout.LayoutParams(-1,dp(58),Gravity.TOP);
-        topParams.setMargins(dp(7),dp(4),dp(7),0);
+        // The bottom panel shares ReaderActivity's transparent 74dp overlay and
+        // its left chapter chip: neutral rounded pill, accent 42x44dp list button.
+        FrameLayout footer=new FrameLayout(this);footerOverlay=footer;
+        footer.setBackgroundColor(Color.TRANSPARENT);
+        LinearLayout chaptersAction=new LinearLayout(this);
+        chaptersAction.setGravity(Gravity.CENTER_VERTICAL);
+        chaptersAction.setBackground(rounded(neutral,13));
+        chaptersAction.setOnClickListener(v->contents());
+        chaptersAction.setContentDescription("Оглавление комикса и позиция страницы");
+        FrameLayout.LayoutParams chipLp=new FrameLayout.LayoutParams(
+            Math.max(dp(105),(getResources().getDisplayMetrics().widthPixels/2)-dp(74)),
+            dp(54),Gravity.LEFT|Gravity.CENTER_VERTICAL);
+        footer.addView(chaptersAction,chipLp);
+        ImageView contentsIcon=toolIcon(R.drawable.ic_list_audio,accentInk);
+        contentsIcon.setBackground(rounded(accent,12));
+        chaptersAction.addView(contentsIcon,new LinearLayout.LayoutParams(dp(42),dp(44)));
+        // Only one click listener is needed: the whole chip, including its icon, is clickable.
+        chapterTitle=button("",neutralInk);
+        chapterTitle.setTextSize(10);chapterTitle.setGravity(Gravity.CENTER);
+        chapterTitle.setPadding(dp(3),0,dp(3),0);
+        chapterTitle.setMaxLines(2);
+        chapterTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        chaptersAction.addView(chapterTitle,new LinearLayout.LayoutParams(0,dp(52),1));
+        FrameLayout.LayoutParams topParams=new FrameLayout.LayoutParams(-1,-2,Gravity.TOP);
+        topParams.setMargins(dp(8),0,dp(8),0);
         main.addView(toolbarOverlay,topParams);
-        FrameLayout.LayoutParams bottomParams=new FrameLayout.LayoutParams(-1,dp(64),Gravity.BOTTOM);
-        bottomParams.setMargins(dp(7),0,dp(7),dp(4));
+        FrameLayout.LayoutParams bottomParams=new FrameLayout.LayoutParams(-1,dp(74),Gravity.BOTTOM);
+        bottomParams.setMargins(dp(8),0,dp(8),dp(8));
         main.addView(footerOverlay,bottomParams);
         loadChapter();
+        new Thread(()->{ComicLibrary.indexCounts(getApplicationContext(),comic);
+            runOnUiThread(()->{
+                if(isFinishing()||comic==null)return;
+                ComicLibrary.Comic current=ComicLibrary.find(this,comic.uri);
+                if(current!=null&&!current.pageCounts.isEmpty()){
+                    comic.pageCounts=new ArrayList<>(current.pageCounts);
+                    updateChapterButton();
+                }
+            });
+        },"comic-index").start();
     }
 
     /** ReaderActivity-like chrome: overlays leave the WebView viewport untouched. */
     private void setChromeVisible(boolean show){
         if(chromeVisible==show)return;
         chromeVisible=show;
-        animateChrome(toolbarOverlay,show,-dp(70));
-        animateChrome(footerOverlay,show,dp(75));
+        ReaderToolbarController.reveal(toolbarOverlay,show,98);
+        animateChrome(footerOverlay,show,dp(82));
     }
     private void animateChrome(View bar,boolean show,int offscreen){
         if(bar==null)return;
@@ -192,15 +244,21 @@ public final class ComicReaderActivity extends NavigationActivity {
     }
 
     private android.graphics.drawable.Drawable rounded(int color,int radius){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(radius));return d;}
-    private ImageView toolIcon(int drawable,int fg){ImageView icon=new ImageView(this);icon.setImageResource(drawable);icon.setColorFilter(fg);icon.setPadding(dp(9),dp(9),dp(9),dp(9));return icon;}
+    private ImageView toolIcon(int drawable,int fg){ImageView icon=new ImageView(this);icon.setImageResource(drawable);icon.setColorFilter(fg);icon.setPadding(dp(10),dp(10),dp(10),dp(10));return icon;}
     private void updateModeIcon(){if(modeAction!=null){modeAction.setImageResource(comic.mode==0?R.drawable.ic_comic_mode_pages:R.drawable.ic_comic_mode_feed);modeAction.setContentDescription(comic.mode==0?"Режим Страницы":"Режим Лента");}}
     private void updateChapterButton(){
         if(chapterTitle==null||comic==null)return;
         int total=chapters.size(),count; synchronized(currentAssets){count=currentAssets.size();}
-        comic.chapterTotal=total;comic.pageTotal=count;
+        comic.chapterTotal=total;
+        if(count>0){
+            comic.pageTotal=count;
+            while(comic.pageCounts.size()<total)comic.pageCounts.add(-1);
+            if(comic.chapter>=0&&comic.chapter<comic.pageCounts.size())comic.pageCounts.set(comic.chapter,count);
+        }
         String name=total>0?chapters.get(Math.max(0,Math.min(comic.chapter,total-1))).title:"Оглавление";
-        chapterTitle.setText("☷  Файл "+(total==0?0:comic.chapter+1)+"/"+total+"  ·  Изображение "+(count==0?0:comic.page+1)+"/"+count+"   ⌃");
-        if(chapterInfo!=null)chapterInfo.setText(name);
+        int fileNumber=total==0?0:comic.chapter+1;
+        chapterTitle.setText(fileNumber+"/"+total+" · Стр "+(comic.page+1)+(comic.pageTotal>0?"/"+comic.pageTotal:""));
+        if(chapterInfo!=null)chapterInfo.setText("Файл "+fileNumber+"/"+total+" · "+name);
     }
     private static WebResourceResponse forbidden(){return new WebResourceResponse("text/plain","UTF-8",new ByteArrayInputStream(new byte[0]));}
     private static DocumentFile lookup(DocumentFile root,String path){DocumentFile current=root; for(String part:path.split("/")){ if(part.isEmpty()||part.equals(".")) continue; if(part.equals("..")) return null; current=current.findFile(part); if(current==null) return null; } return current; }
@@ -222,7 +280,10 @@ public final class ComicReaderActivity extends NavigationActivity {
             web.loadData("<p style='padding:16px'>"+msg+"</p>","text/html","UTF-8");
             return;
         }
-        comic.chapter=Math.max(0,Math.min(comic.chapter,chapters.size()-1));persist();updateChapterButton();
+        comic.chapter=Math.max(0,Math.min(comic.chapter,chapters.size()-1));
+        synchronized(currentAssets){currentAssets.clear();}
+        comic.pageTotal=comic.chapter<comic.pageCounts.size()?Math.max(0,comic.pageCounts.get(comic.chapter)):0;
+        persist();updateChapterButton();
         final ComicLibrary.Chapter chapter=chapters.get(comic.chapter);final int token=++generation;
         final int previousScroll=comic.scroll,previousPage=comic.page,mode=comic.mode;
         new Thread(() -> {

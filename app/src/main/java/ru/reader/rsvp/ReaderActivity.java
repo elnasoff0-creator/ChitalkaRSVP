@@ -27,7 +27,6 @@ public class ReaderActivity extends NavigationActivity {
     private View toolbarSpacer;
     private TextView toolbarBookName,toolbarChapterName;
     private String lastAppliedFont="";
-    private boolean resumePreviousSentence=false;
     private FrameLayout bottomBar;
     private LinearLayout contentsAction;
     private ImageButton contentsIcon;
@@ -1390,20 +1389,9 @@ public class ReaderActivity extends NavigationActivity {
         return ttsPendingPlay||ttsPlayer!=null&&ttsPlayer.playRequested();
     }
     private void toggleTtsPlayback(){
-        if(!ttsCurrentlyPlaying()){
-            if(resumePreviousSentence&&prefs.getBoolean("tts_resume_previous_sentence",true)&&ttsParts!=null){
-                int current=map.clamp(index),previous=current;
-                SentenceChunks.Chunk segment=SentenceChunks.forWord(ttsParts,current);
-                if(segment!=null){for(SentenceChunks.Chunk part:ttsParts){if(part.fromWord>=segment.fromWord)break;previous=part.fromWord;}}
-                if(previous!=current&&words.length>0){
-                    index=previous;
-                    if(ttsLocal)ReaderTtsController.localSelect(this,previous);
-                    else if(ttsStreamer!=null)ttsStreamer.setAnchor(previous,true);
-                }
-            }
-            resumePreviousSentence=false;
-            returnToActiveWord();
-        }else resumePreviousSentence=true;
+        // Rewind is owned by the playback services, not the on-screen button.
+        // This also covers Bluetooth/headset and MediaSession commands.
+        if(!ttsCurrentlyPlaying())returnToActiveWord();
         if(ttsLocal){ReaderTtsController.localPauseOrResume(this);
         }else if(ttsPlayer!=null){
             if(ttsPlayer.playRequested())ttsPlayer.pause();
@@ -1412,7 +1400,6 @@ public class ReaderActivity extends NavigationActivity {
         updatePlayButton();scheduleTtsUi();
     }
     private void selectTtsWord(int at){
-        resumePreviousSentence=false;
         // A tap selects the sentence; the book's UI block is never reloaded.
         abandonViewportPreview();
         index=map.clamp(at);

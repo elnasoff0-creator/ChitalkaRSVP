@@ -23,17 +23,98 @@ import java.util.zip.ZipInputStream;
 final class ComicLibrary {
     static final class Comic {
         String uri="",title="",kind="auto";int chapter=0,mode=1,scroll=0,page=0,chapterTotal=0,pageTotal=0;long opened=0;
-        JSONObject json(){JSONObject o=new JSONObject();try{o.put("uri",uri).put("title",title).put("kind",kind).put("chapter",chapter).put("mode",mode).put("scroll",scroll).put("opened",opened);}catch(Exception ignored){}return o;}
-        static Comic read(JSONObject o){Comic c=new Comic();c.uri=o.optString("uri","");c.title=o.optString("title","");c.kind=o.optString("kind","auto");c.chapter=o.optInt("chapter",0);c.mode=o.optInt("mode",1);c.scroll=o.optInt("scroll",0);c.page=o.optInt("page",0);c.chapterTotal=o.optInt("chapterTotal",0);c.pageTotal=o.optInt("pageTotal",0);c.opened=o.optLong("opened",0);return c;}
+        ArrayList<Integer> pageCounts=new ArrayList<>();
+        int progressPercent(){return ComicProgressMath.percent(pageCounts,chapter,page,chapterTotal);}
+        String compactProgress(){
+            int files=chapterTotal,number=files>0?Math.min(files,chapter+1):chapter+1;
+            int pages=pageTotal>0?pageTotal:(chapter>=0&&chapter<pageCounts.size()?pageCounts.get(chapter):0);
+            String progress=(files>0?number+"/"+files:"Файл "+number)+" · Стр "+(page+1)+(pages>0?"/"+pages:"");
+            int percent=progressPercent();return progress+(percent>=0?" · "+percent+"%":"");
+        }
+        JSONObject json(){JSONObject o=new JSONObject();try{o.put("uri",uri).put("title",title).put("kind",kind).put("chapter",chapter).put("mode",mode).put("scroll",scroll).put("page",page).put("chapterTotal",chapterTotal)
+            .put("pageTotal",pageTotal).put("opened",opened);
+            JSONArray counts=new JSONArray();for(Integer count:pageCounts)counts.put(count);o.put("pageCounts",counts);}catch(Exception ignored){}return o;}
+        static Comic read(JSONObject o){Comic c=new Comic();c.uri=o.optString("uri","");c.title=o.optString("title","");c.kind=o.optString("kind","auto");c.chapter=o.optInt("chapter",0);c.mode=o.optInt("mode",1);c.scroll=o.optInt("scroll",0);c.page=o.optInt("page",0);c.chapterTotal=o.optInt("chapterTotal",0);c.pageTotal=o.optInt("pageTotal",0);c.opened=o.optLong("opened",0);JSONArray counts=o.optJSONArray("pageCounts");
+            if(counts!=null)for(int i=0;i<counts.length();i++)c.pageCounts.add(counts.optInt(i,-1));return c;}
     }
     static final class Chapter {
         String title="";String type="html";DocumentFile htmlFile,archiveFile;int pageCount=-1;ArrayList<String> imagePaths=new ArrayList<>();
     }
 
     static ArrayList<Comic> list(Context c){ArrayList<Comic> out=new ArrayList<>();try{JSONArray arr=new JSONArray(c.getSharedPreferences("reader",0).getString("comics_v1","[]"));for(int i=0;i<arr.length();i++){JSONObject o=arr.optJSONObject(i);if(o!=null)out.add(Comic.read(o));}}catch(Exception ignored){}return out;}
-    static void save(Context c,Comic comic){ArrayList<Comic> all=list(c);for(int i=0;i<all.size();i++)if(all.get(i).uri.equals(comic.uri)){all.set(i,comic);write(c,all);return;}all.add(comic);write(c,all);}
-    static void write(Context c,ArrayList<Comic> all){JSONArray a=new JSONArray();for(Comic item:all)a.put(item.json());c.getSharedPreferences("reader",0).edit().putString("comics_v1",a.toString()).apply();}
+    static synchronized void save(Context c,Comic comic){ArrayList<Comic> all=list(c);for(int i=0;i<all.size();i++)if(all.get(i).uri.equals(comic.uri)){
+            Comic previous=all.get(i);
+            if(comic.pageCounts.isEmpty()&&!previous.pageCounts.isEmpty())comic.pageCounts.addAll(previous.pageCounts);
+            else if(previous.pageCounts.size()==comic.pageCounts.size())for(int j=0;j<previous.pageCounts.size();j++)
+                if(comic.pageCounts.get(j)<=0&&previous.pageCounts.get(j)>0)comic.pageCounts.set(j,previous.pageCounts.get(j));
+            all.set(i,comic);write(c,all);return;
+        }all.add(comic);write(c,all);}
+    static synchronized void write(Context c,ArrayList<Comic> all){JSONArray a=new JSONArray();for(Comic item:all)a.put(item.json());c.getSharedPreferences("reader",0).edit().putString("comics_v1",a.toString()).apply();}
     static Comic find(Context c,String uri){for(Comic item:list(c))if(item.uri.equals(uri))return item;return null;}
+
+    static synchronized void remove(Context c,String uri){ArrayList<Comic> all=list(c);
+        for(int i=all.size()-1;i>=0;i--)if(uri.equals(all.get(i).uri))all.remove(i);
+        write(c,all);
+    }
+    /** Populate each archive's image count on a background thread, never on MainActivity's UI thread. */
+    static void indexCounts(Context context,Comic comic){
+        ArrayList<Chapter> chapters=chapters(context,comic);if(chapters.isEmpty())return;
+        ArrayList<Integer> indexed=new ArrayList<>();
+        for(int i=0;i<chapters.size();i++){
+            Chapter ch=chapters.get(i);
+            int count=i<comic.pageCounts.size()?comic.pageCounts.get(i):-1;
+            if(count<=0){
+                try{
+                    if("archive_tree".equals(ch.type)&&ch.archiveFile!=null)
+                        count=countArchive(context,ch.archiveFile.getUri(),safeName(ch.archiveFile));
+                    else if("mangalib_cbz".equals(ch.type)&&!ch.imagePaths.isEmpty())
+                        count=countLocalCbz(new File(ch.imagePaths.get(0)));
+                    else if("html".equals(ch.type)&&ch.htmlFile!=null){
+                        try(InputStream in=context.getContentResolver().openInputStream(ch.htmlFile.getUri())){
+                            if(in!=null){byte[] data=new byte[8*1024*1024];int n=0,k;
+                                while(n<data.length&&(k=in.read(data,n,data.length-n))>0)n+=k;
+                                String html=new String(data,0,n,java.nio.charset.StandardCharsets.UTF_8);
+                                java.util.regex.Matcher images=Pattern.compile("(?i)<img\\b").matcher(html);
+                                count=0;while(images.find())count++;
+                            }
+                        }
+                    }else count=chapterPages(ch);
+                }catch(Exception ignored){count=-1;}
+            }
+            indexed.add(count>0?count:-1);
+        }
+        synchronized(ComicLibrary.class){
+            Comic latest=find(context,comic.uri);if(latest==null)return;
+            latest.pageCounts=indexed;latest.chapterTotal=chapters.size();
+            if(latest.chapter>=0&&latest.chapter<indexed.size()&&indexed.get(latest.chapter)>0)
+                latest.pageTotal=indexed.get(latest.chapter);
+            save(context,latest);
+        }
+    }
+    private static int countLocalCbz(File path)throws Exception{
+        if(!path.isFile())return -1;
+        int count=0;try(java.util.zip.ZipFile zip=new java.util.zip.ZipFile(path)){
+            java.util.Enumeration<? extends ZipEntry> entries=zip.entries();while(entries.hasMoreElements()){
+                ZipEntry entry=entries.nextElement();if(!entry.isDirectory()&&isImageName(entry.getName()))count++;
+            }
+        }return count;
+    }
+    private static int countArchive(Context context,Uri uri,String name)throws Exception{
+        File temp=File.createTempFile("comic_count_",name.toLowerCase(Locale.ROOT).endsWith(".cbr")?".rar":".zip",context.getCacheDir());
+        try{
+            try(InputStream in=context.getContentResolver().openInputStream(uri);OutputStream out=new FileOutputStream(temp)){
+                if(in==null)throw new java.io.IOException("Недоступный файл");byte[] buffer=new byte[8192];int n;long bytes=0;
+                while((n=in.read(buffer))!=-1){bytes+=n;if(bytes>850_000_000L)throw new java.io.IOException("Архив слишком большой");out.write(buffer,0,n);}
+            }
+            if(name.toLowerCase(Locale.ROOT).matches(".*\\.(cbr|rar)$")){
+                com.github.junrar.Archive rar=new com.github.junrar.Archive(temp);
+                try{int count=0;for(com.github.junrar.rarfile.FileHeader h:rar.getFileHeaders())
+                    if(!h.isDirectory()&&isImageName(h.getFileName()))count++;return count;
+                }finally{rar.close();}
+            }
+            return countLocalCbz(temp);
+        }finally{temp.delete();}
+    }
 
     static DocumentFile tree(Context c,Comic item){try{return DocumentFile.fromTreeUri(c,Uri.parse(item.uri));}catch(Exception e){return null;}}
     static DocumentFile single(Context c,Comic item){try{return DocumentFile.fromSingleUri(c,Uri.parse(item.uri));}catch(Exception e){return null;}}

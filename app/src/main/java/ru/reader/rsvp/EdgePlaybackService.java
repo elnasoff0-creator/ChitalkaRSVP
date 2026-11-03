@@ -40,6 +40,11 @@ import java.util.ArrayList;
  */
 @UnstableApi
 public final class EdgePlaybackService extends Service {
+    /** Called synchronously on user Play, before resuming sound from MediaSession or UI. */
+    public interface ResumeSelection { void rewindToPreviousSentence(); }
+    private ResumeSelection resumeSelection;
+    private boolean rewindAfterUserPause;
+    public void setResumeSelection(ResumeSelection callback){resumeSelection=callback;}
     public interface Listener {
         void onTrackChanged(int startWord, int endWord, String key, boolean completedPrevious);
         void onPlaybackStateChanged();
@@ -363,11 +368,12 @@ public final class EdgePlaybackService extends Service {
         long value=player.getDuration();
         return value==androidx.media3.common.C.TIME_UNSET||value<0?0:value;
     }
+    public File currentTrackFile(){int i=trackIndex();return i>=0&&i<tracks.size()?tracks.get(i).file:null;}
     public String currentKey() {
         int i=trackIndex();return i<0||i>=tracks.size()?"":tracks.get(i).key;
     }
     public void clearQueue() {
-        requestedPlay=false;requestedPlayAtMs=0;
+        rewindAfterUserPause=false;requestedPlay=false;requestedPlayAtMs=0;
         playbackError="";
         armedSeekKey="";armedSeekMs=0;
         // Preserve the shared sleep deadline while changing book or voice.
@@ -382,7 +388,7 @@ public final class EdgePlaybackService extends Service {
     }
     /** Seek to a different sentence. Keep an active sleep timer unchanged. */
     public void clearTracksForSelection() {
-        requestedPlay=false;requestedPlayAtMs=0;
+        rewindAfterUserPause=false;requestedPlay=false;requestedPlayAtMs=0;
         playbackError="";
         armedSeekKey="";armedSeekMs=0;
         player.stop();player.clearMediaItems();tracks.clear();
@@ -506,6 +512,11 @@ public final class EdgePlaybackService extends Service {
     }
     /** Explicit Play is the only user action which requests audible sound. */
     public void play() {
+        if(!requestedPlay && rewindAfterUserPause){
+            rewindAfterUserPause=false;
+            if(getSharedPreferences("reader",0).getBoolean("tts_resume_previous_sentence",true)
+                    &&resumeSelection!=null)resumeSelection.rewindToPreviousSentence();
+        }
         if (!focus.acquire()) { requestedPlay=false;notifyState();return; }
         if(!requestedPlay)requestedPlayAtMs=android.os.SystemClock.elapsedRealtime();
         requestedPlay=true;
@@ -527,6 +538,7 @@ public final class EdgePlaybackService extends Service {
         notifyState();
     }
     public void pause() {
+        if(requestedPlay)rewindAfterUserPause=true;
         if(ttsSleepClock!=null)ttsSleepClock.freeze();
         requestedPlay=false;requestedPlayAtMs=0;
         player.pause();
@@ -536,6 +548,7 @@ public final class EdgePlaybackService extends Service {
         notifyState();
     }
     public void stopAudio() {
+        rewindAfterUserPause=false;
         if(ttsSleepClock!=null)ttsSleepClock.freeze();
         requestedPlay=false;requestedPlayAtMs=0;
         player.pause();

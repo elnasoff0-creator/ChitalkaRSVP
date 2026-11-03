@@ -252,6 +252,7 @@ public final class EdgeStreamingService extends Service {
         @Override public void onServiceConnected(ComponentName n,IBinder b){
             player=((EdgePlaybackService.LocalBinder)b).getService();
             player.addListener(listener);
+            player.setResumeSelection(this::rewindOnResume);
             if(!bookUri.isEmpty())player.prepareBook("edge:"+bookUri);
             // Service and player can bind in either order. Warm exactly one clip,
             // only when TTS is active and the user has not pressed Play.
@@ -568,6 +569,36 @@ public final class EdgeStreamingService extends Service {
             if(job.request!=null)job.request.cancel();
             // No partial MP3 is ever stored by the new engine.
         }
+    }
+    /** Shared MediaSession/headset/UI resume rule, invoked before ExoPlayer starts. */
+    private void rewindOnResume(){
+        if(!bookReady||player==null||sentenceParts.isEmpty())return;
+        int current=Math.max(0,player.currentStartWord());
+        Clip clip=clipAt(current);
+        if(clip!=null){
+            File source=player.currentTrackFile();
+            java.util.List<EdgeWordTimings.Word> timing=source!=null&&source.isFile()
+                ?EdgeWordTimings.read(source,clip.text):liveWords(clip);
+            long ms=player.positionMs();
+            int mark=EdgeWordTimings.at(timing,ms);
+            if(mark<0){
+                // If paused in punctuation/silence, use the last word whose start
+                // has actually been reached; do not jump back to the whole MP3 block.
+                for(int j=timing.size()-1;j>=0;j--)if(timing.get(j).startMs<=ms){mark=j;break;}
+            }
+            if(mark>=0&&mark<timing.size()){
+                int sourceChar=charForWord(current)+timing.get(mark).from;
+                current=wordForChar(sourceChar);
+            }
+        }
+        SentenceChunks.Chunk active=SentenceChunks.forWord(sentenceParts,current);
+        if(active==null)return;
+        int previous=active.fromWord;
+        for(SentenceChunks.Chunk part:sentenceParts){
+            if(part.fromWord>=active.fromWord)break;
+            previous=part.fromWord;
+        }
+        setAnchor(previous,true);
     }
     public void setAnchor(int word,boolean selected){
         if(!bookReady){
@@ -1032,6 +1063,7 @@ public final class EdgeStreamingService extends Service {
         });
     }
     @Override public void onDestroy(){
+        if(player!=null)player.setResumeSelection(null);
         main.removeCallbacks(idleExpiry);
         main.removeCallbacks(saveIndex);
         persistNow(); // Last selected sentence / interrupted work survives process shutdown.

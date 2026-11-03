@@ -131,7 +131,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     // Keep the intended offset while MediaPlayer is preparing/seeking, so a background
     // shutdown can never overwrite saved progress with its temporary 00:00 position.
     private int preparedPosition=0;
-    private boolean playerReady=false, seekPending=false, rewindOnNextPlay=false;
+    private boolean playerReady=false, seekPending=false, rewindOnNextPlay=false, ttsRewindOnNextPlay=false;
     private boolean playAfterSeek=false, playWhenPrepared=false;
     private boolean userPausedWhilePreparing=false;
     private long pendingRelativeWhilePreparing=0;
@@ -194,7 +194,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
           if(ttsSleepClock!=null)ttsSleepClock.reload();
           ttsSleepEndWord=getSharedPreferences("reader",0).getInt(PlaybackSleepCountdown.TTS_CHAPTER_KEY,-1);
           interruptedByExternalAudio=false;if(active)saveProgress(); if(tts!=null)tts.stop();resetLocalSession(); title="Загрузка книги…";currentBook=intent.getStringExtra("bookUri");ChteicoStore.openAudio(this,currentBook);final String source=currentBook;
-          ttsMode=true;active=true;paused=true;ttsStartRequested=false;releasePlayer();
+          ttsMode=true;active=true;paused=true;ttsStartRequested=false;ttsRewindOnNextPlay=false;releasePlayer();
           getSharedPreferences("reader",0).edit().putString("last_media_kind","text").apply();
           new Thread(()->{try{UnifiedBookSession session=UnifiedBookSession.open(this,Uri.parse(source));
           BookLoader.Book book=session.book;handler.post(()->{if(!ttsMode||!source.equals(currentBook))return;
@@ -218,7 +218,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
                 boolean auto=getSharedPreferences("reader",0).getBoolean("tts_tap_autoplay",false);
                 if(!paused)pausePlayback();
                 ttsPosition=chunkForWord(target);
-                pendingLocalSeek=0;
+                ttsRewindOnNextPlay=false;pendingLocalSeek=0;
                 resetLocalSession();
                 saveProgress();notifyState();
                 if(auto)resume();
@@ -393,6 +393,15 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     private void resume(){
         interruptedByExternalAudio=false;
         if(ttsMode){
+            // All play sources (Activity, notification, lock screen and headset)
+            // enter through resume(), so a paused sentence rewinds exactly once.
+            boolean rewind=ttsRewindOnNextPlay;
+            ttsRewindOnNextPlay=false;
+            if(rewind&&getSharedPreferences("reader",0).getBoolean("tts_resume_previous_sentence",true)
+                    &&!chunks.isEmpty()){
+                ttsPosition=Math.max(0,ttsPosition-1);
+                resetLocalSession();saveProgress();startTts();return;
+            }
             if(ttsAudio!=null&&localPlayingIndex==ttsPosition){
                 if(audioFocus.acquire()){try{ttsAudio.start();paused=false;}catch(Exception e){releaseLocalAudio();startTts();}notifyState();}
             }else startTts();return;
@@ -413,6 +422,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         playWhenPrepared=false;playAfterSeek=false;
         boolean wasPlaying=!paused;
         if(ttsMode){
+            if(wasPlaying)ttsRewindOnNextPlay=true;
             ttsStartRequested=false;
             if(ttsAudio!=null){try{ttsAudio.pause();}catch(Exception ignored){} }
             else if(tts!=null){tts.stop();localPending.clear();}paused=true;
@@ -442,7 +452,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         return Math.max(0,Math.min(100,segment*100/Math.max(1,playlist.size())));
     }
     private void seekTo(int pos){
-        if(ttsMode){ttsPosition=Math.max(0,Math.min(chunks.size()-1,pos));resetLocalSession();if(!paused)startTts();}
+        if(ttsMode){ttsRewindOnNextPlay=false;ttsPosition=Math.max(0,Math.min(chunks.size()-1,pos));resetLocalSession();if(!paused)startTts();}
         else if(player!=null){
             int wanted=Math.max(0,Math.min(duration,pos));preparedPosition=wanted;
             if(playerReady){

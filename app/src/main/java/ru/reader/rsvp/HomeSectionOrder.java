@@ -16,7 +16,7 @@ import java.util.HashSet;
 
 /** Independent home cards and editing-only drag handles; migrates old three section order. */
 final class HomeSectionOrder {
-    static final String[] IDS={"continue","library","comic","audioContinue","audioLibrary","pet"};
+    static final String[] IDS={"continue","library","comicContinue","comic","audioContinue","audioLibrary","pet"};
     private static final String KEY="home_section_order_v123",HIDDEN="home_sections_hidden_v123";
     private HomeSectionOrder(){}
     private static int dp(Activity a,int n){return (int)(n*a.getResources().getDisplayMetrics().density+.5f);}
@@ -32,6 +32,11 @@ final class HomeSectionOrder {
                     case "pet":addUnique(result,"pet");break;}
             }
         }else for(String id:saved.split(","))if(valid(id)&&!result.contains(id))result.add(id);
+        // Insert the new resume card immediately before its library without resetting prior order.
+        if(!result.contains("comicContinue")){
+            int location=result.indexOf("comic");
+            result.add(location>=0?location:result.size(),"comicContinue");
+        }
         for(String id:IDS)if(!result.contains(id))result.add(id);
         return result;
     }
@@ -40,15 +45,33 @@ final class HomeSectionOrder {
     static HashSet<String> hidden(SharedPreferences p){return new HashSet<>(p.getStringSet(HIDDEN,new HashSet<>()));}
     static boolean visible(SharedPreferences p,String id){return !hidden(p).contains(id);}
     static void visible(SharedPreferences p,String id,boolean value){HashSet<String> items=hidden(p);if(value)items.remove(id);else items.add(id);p.edit().putStringSet(HIDDEN,items).apply();}
-    static void reset(SharedPreferences p){p.edit().remove(KEY).remove(HIDDEN).remove("home_section_order").apply();}
+    static void reset(SharedPreferences p){SharedPreferences.Editor e=p.edit().remove(KEY).remove(HIDDEN).remove("home_section_order");
+        for(String id:IDS)e.remove("home_section_title:"+id);
+        e.apply();}
     static String title(String id){switch(id){case "continue":return "Продолжить чтение";case "library":return "Библиотека";
-        case "comic":return "Комиксотека";case "audioContinue":return "Продолжить аудиокнигу";
+        case "comicContinue":return "Продолжить комикс";case "comic":return "Комиксотека";case "audioContinue":return "Продолжить аудиокнигу";
         case "audioLibrary":return "Аудиотека";case "pet":return "Мини-Чтейцо";default:return id;}}
 
+    static String title(SharedPreferences p,String id){
+        String name=p.getString("home_section_title:"+id,"").trim();return name.isEmpty()?title(id):name;
+    }
+    static void rename(MainActivity a,SharedPreferences prefs,String id){
+        android.widget.EditText input=new android.widget.EditText(a);
+        input.setSingleLine(true);input.setText(title(prefs,id));input.selectAll();
+        input.setPadding(dp(a,18),dp(a,12),dp(a,18),dp(a,12));
+        new SwipeDialogs.Builder(a).setTitle("Название блока").setView(input)
+            .setNegativeButton("Отмена",null)
+            .setNeutralButton("По умолчанию",(d,w)->{prefs.edit().remove("home_section_title:"+id).apply();a.draw();})
+            .setPositiveButton("Сохранить",(d,w)->{
+                String next=input.getText().toString().trim();
+                if(next.isEmpty()){android.widget.Toast.makeText(a,"Название не может быть пустым",android.widget.Toast.LENGTH_SHORT).show();return;}
+                prefs.edit().putString("home_section_title:"+id,next).apply();a.draw();
+            }).show();
+    }
     static void apply(MainActivity activity, LinearLayout parent, int[] bounds, SharedPreferences prefs, boolean editing){
-        if(bounds.length!=7)return;
+        if(bounds.length!=8)return;
         ArrayList<View> all=new ArrayList<>();for(int i=0;i<parent.getChildCount();i++)all.add(parent.getChildAt(i));
-        if(bounds[0]<0||bounds[6]>all.size())return;
+        if(bounds[0]<0||bounds[7]>all.size())return;
         parent.removeAllViews();
         for(int i=0;i<bounds[0];i++)parent.addView(all.get(i));
         HashMap<String,LinearLayout> groups=new HashMap<>();
@@ -64,8 +87,13 @@ final class HomeSectionOrder {
                 GradientDrawable bg=new GradientDrawable();bg.setColor(0xffe7daf3);bg.setCornerRadius(dp(activity,12));actions.setBackground(bg);
                 TextView grip=new TextView(activity);grip.setText("⠿");grip.setTextSize(25);grip.setGravity(Gravity.CENTER);grip.setTextColor(0xff30221e);
                 actions.addView(grip,new LinearLayout.LayoutParams(dp(activity,42),dp(activity,43)));
-                TextView label=new TextView(activity);label.setText(title(id));label.setTextColor(0xff30221e);label.setTextSize(15);label.setTypeface(null,1);
+                TextView label=new TextView(activity);label.setText(title(prefs,id));label.setTextColor(0xff30221e);label.setTextSize(15);label.setTypeface(null,1);
                 actions.addView(label,new LinearLayout.LayoutParams(0,-2,1));
+                TextView rename=new TextView(activity);rename.setText("✎");rename.setTextColor(0xff30221e);
+                rename.setTextSize(22);rename.setGravity(Gravity.CENTER);
+                rename.setContentDescription("Переименовать "+title(prefs,id));
+                actions.addView(rename,new LinearLayout.LayoutParams(dp(activity,42),dp(activity,43)));
+                rename.setOnClickListener(v->rename(activity,prefs,id));
                 TextView hide=new TextView(activity);hide.setText("✕");hide.setTextColor(0xff30221e);hide.setTextSize(20);hide.setGravity(Gravity.CENTER);
                 actions.addView(hide,new LinearLayout.LayoutParams(dp(activity,42),dp(activity,43)));
                 hide.setOnClickListener(v->{visible(prefs,id,false);activity.draw();});

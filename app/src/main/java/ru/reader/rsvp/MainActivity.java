@@ -341,6 +341,8 @@ public class MainActivity extends NavigationActivity {
     private boolean touchingScreen, pendingCoverRefresh;
     private int savedHomeScrollY;
     private boolean homeEditing=false;
+    /** One background metadata pass per comic in this Activity; failed SAF items do not loop. */
+    private final HashSet<String> comicIndexAttempted=new HashSet<>();
     private static final int TOOLBAR_SIZE_DP=44;
     private static final int TOOLBAR_GAP_DP=5;
     private static final int COVER_CORNER_DP=14;
@@ -428,7 +430,7 @@ public class MainActivity extends NavigationActivity {
         final ArrayList<BookMeta> sortedBooks = sortedLibraryBooks();
         boolean bookExpanded=prefs.getBoolean("book_library_expanded",false);
         add(contentWrap,gap(12));
-        TextView bookToggle=buttonish("Библиотека ("+library.size()+")  "+(bookExpanded?"⌃":"⌄"),softPanel(),fg,true);
+        TextView bookToggle=buttonish(HomeSectionOrder.title(prefs,"library")+" ("+library.size()+")  "+(bookExpanded?"⌃":"⌄"),softPanel(),fg,true);
         add(contentWrap,iconToggle(bookToggle,R.drawable.ic_audio_chapters));
         LinearLayout bookDetails=column();
         add(contentWrap,bookDetails);
@@ -458,10 +460,12 @@ public class MainActivity extends NavigationActivity {
             prefs.edit().putBoolean("book_library_expanded",opening).apply();
             if(opening)buildBooks.run();
             bookDetails.setVisibility(opening?View.VISIBLE:View.GONE);
-            bookToggle.setText("Библиотека ("+library.size()+")  "+(opening?"⌃":"⌄"));
+            bookToggle.setText(HomeSectionOrder.title(prefs,"library")+" ("+library.size()+")  "+(opening?"⌃":"⌄"));
         });
         // Keep one consistent separation between the text and audio groups.
         // Previously 12 + 16 + 12 dp were stacked here.
+        final int comicContinueStart=contentWrap.getChildCount();
+        addComicContinue(contentWrap);
         final int comicStart=contentWrap.getChildCount();
         addComicSection(contentWrap);
         final int audioStart=contentWrap.getChildCount();
@@ -471,7 +475,7 @@ public class MainActivity extends NavigationActivity {
         if(audioBooks.isEmpty()){
             audioLibraryStart[0]=contentWrap.getChildCount();
             boolean audioExpanded=prefs.getBoolean("audio_library_expanded",false);
-            TextView audioToggle=buttonish("Аудиотека (0)  "+(audioExpanded?"⌃":"⌄"),softPanel(),fg,true);
+            TextView audioToggle=buttonish(HomeSectionOrder.title(prefs,"audioLibrary")+" (0)  "+(audioExpanded?"⌃":"⌄"),softPanel(),fg,true);
             add(contentWrap,gap(12));add(contentWrap,iconToggle(audioToggle,R.drawable.ic_audiotheque));
             TextView emptyAudio=text("Здесь появятся добавленные аудиокниги.",14,false);
             add(contentWrap,emptyAudio);
@@ -480,7 +484,7 @@ public class MainActivity extends NavigationActivity {
                 boolean opening=emptyAudio.getVisibility()!=View.VISIBLE;
                 prefs.edit().putBoolean("audio_library_expanded",opening).apply();
                 emptyAudio.setVisibility(opening?View.VISIBLE:View.GONE);
-                audioToggle.setText("Аудиотека (0)  "+(opening?"⌃":"⌄"));
+                audioToggle.setText(HomeSectionOrder.title(prefs,"audioLibrary")+" (0)  "+(opening?"⌃":"⌄"));
             });
         }
         if(!audioBooks.isEmpty()){
@@ -491,6 +495,9 @@ public class MainActivity extends NavigationActivity {
             final AudioLibrary.Book lastBook=recent;
             
             LinearLayout recentCard=column();recentCard.setBackground(shape(panelColor(),22));pad(recentCard,14);
+            TextView recentHeading=text(HomeSectionOrder.title(prefs,"audioContinue"),15,true);
+            LinearLayout.LayoutParams recentHeadingLp=new LinearLayout.LayoutParams(-1,-2);
+            recentHeadingLp.bottomMargin=dp(6);recentCard.addView(recentHeading,recentHeadingLp);
             LinearLayout recentBody=row();recentBody.setGravity(Gravity.CENTER_VERTICAL);recentCard.addView(recentBody);
             recentBody.addView(audioCover(lastBook,88),new LinearLayout.LayoutParams(dp(88),dp(88)));
             LinearLayout recentInfo=column();LinearLayout.LayoutParams ri=new LinearLayout.LayoutParams(0,-2,1);ri.leftMargin=dp(12);recentBody.addView(recentInfo,ri);
@@ -509,7 +516,7 @@ public class MainActivity extends NavigationActivity {
             audioLibraryStart[0]=contentWrap.getChildCount();
             add(contentWrap,gap(12));
             boolean expanded=prefs.getBoolean("audio_library_expanded",false);
-            TextView toggle=buttonish("Аудиотека ("+audioBooks.size()+")  "+(expanded?"⌃":"⌄"),softPanel(),fg,true);
+            TextView toggle=buttonish(HomeSectionOrder.title(prefs,"audioLibrary")+" ("+audioBooks.size()+")  "+(expanded?"⌃":"⌄"),softPanel(),fg,true);
             add(contentWrap,iconToggle(toggle,R.drawable.ic_audiotheque));
             LinearLayout audioDetails=column();add(contentWrap,audioDetails);
             audioDetails.setVisibility(expanded?View.VISIBLE:View.GONE);
@@ -532,9 +539,10 @@ public class MainActivity extends NavigationActivity {
                     String detailLine = finished ? "Завершено · 100% прослушано" : "Глава "+(Math.min(saved+1, Math.max(1, ab.uris.size())))+" из "+ab.uris.size()+" · "+listenedPercent+"% прослушано";
                     TextView detail=text(detailLine,12,false);detail.setTextColor(finished ? subduedText() : faintText());info.addView(detail);
                     LinearLayout.LayoutParams audioInfoLp=new LinearLayout.LayoutParams(0,dp(82),1);audioInfoLp.leftMargin=dp(10);r.addView(info,audioInfoLp);
-                    TextView play=buttonish(finished ? "↺" : "▶",accent(),0xffffffff,true);pad(play,11,8,11,8);play.setOnClickListener(v->openAudioBook(ab.id));
-                    r.addView(play);
+                    View more=iconButton(android.R.drawable.ic_menu_more,v->audioMenu(ab));
+                    r.addView(more,new LinearLayout.LayoutParams(dp(38),dp(42)));
                     r.setOnClickListener(v->openAudioBook(ab.id));
+                    r.setOnLongClickListener(v->true);
                     audioList.addView(r);
                     if(i!=displayAudioBooks.size()-1)audioList.addView(divider());
                 }
@@ -547,7 +555,7 @@ public class MainActivity extends NavigationActivity {
                 prefs.edit().putBoolean("audio_library_expanded",opening).apply();
                 if(opening)buildAudio.run();
                 audioDetails.setVisibility(opening?View.VISIBLE:View.GONE);
-                toggle.setText("Аудиотека ("+audioCount+")  "+(opening?"⌃":"⌄"));
+                toggle.setText(HomeSectionOrder.title(prefs,"audioLibrary")+" ("+audioCount+")  "+(opening?"⌃":"⌄"));
             });
         }
         final int petStart=contentWrap.getChildCount();
@@ -641,10 +649,13 @@ public class MainActivity extends NavigationActivity {
                 ()->{boolean wake=ChteicoEmotions.isSleeping();if(wake)ChteicoEmotions.wake();
                     bubble.removeCallbacks(dismissEmotion);startActivity(new Intent(this,ChteicoActivity.class).putExtra("wake_pet",wake));},
                 this::enterHomeEditing,showEmotion,v->enterHomeEditing());
+            TextView miniHeading=text(HomeSectionOrder.title(prefs,"pet"),14,true);
+            miniHeading.setGravity(Gravity.CENTER_HORIZONTAL);
+            contentWrap.addView(miniHeading,new LinearLayout.LayoutParams(-1,-2));
             contentWrap.addView(petArea,areaLp);
         }
         HomeSectionOrder.apply(this,contentWrap,
-            new int[]{readingStart,libraryStart,comicStart,audioStart,audioLibraryStart[0],petStart,contentWrap.getChildCount()},
+            new int[]{readingStart,libraryStart,comicContinueStart,comicStart,audioStart,audioLibraryStart[0],petStart,contentWrap.getChildCount()},
             prefs,homeEditing);
         // Navigation moved to the accessible left drawer.
     }
@@ -718,6 +729,10 @@ public class MainActivity extends NavigationActivity {
     }
 
     View continueCard(BookMeta m) {
+        LinearLayout wrapper=column();
+        TextView section=text(HomeSectionOrder.title(prefs,"continue"),15,true);
+        LinearLayout.LayoutParams headerLp=new LinearLayout.LayoutParams(-1,-2);headerLp.bottomMargin=dp(6);
+        wrapper.addView(section,headerLp);
         LinearLayout card=row();
         card.setBackground(shape(panelColor(),22));
         pad(card,10);
@@ -743,7 +758,7 @@ public class MainActivity extends NavigationActivity {
         info.addView(foot);
         card.addView(info,infoLp);
         card.setOnClickListener(v->openBook(m.uri,false,true));
-        return card;
+        wrapper.addView(card);return wrapper;
     }
 
     View audioCover(AudioLibrary.Book b,int side){
@@ -798,6 +813,7 @@ public class MainActivity extends NavigationActivity {
         View more=iconButton(android.R.drawable.ic_menu_more,v->bookMenu(m));
         row.addView(more,new LinearLayout.LayoutParams(dp(38),dp(42)));
         row.setOnClickListener(v->openBook(m.uri,false,true));
+        row.setOnLongClickListener(v->true); // Only the explicit ⋮ menu opens actions.
         return row;
     }
 
@@ -1210,7 +1226,7 @@ public class MainActivity extends NavigationActivity {
         for(String id:HomeSectionOrder.order(prefs))if(!HomeSectionOrder.visible(prefs,id))hidden.add(id);
         if(hidden.isEmpty()){new SwipeDialogs.Builder(this).setTitle("Добавить элемент")
             .setMessage("Все доступные элементы уже на главном экране.").setPositiveButton("Понятно",null).show();return;}
-        String[] options=new String[hidden.size()];for(int i=0;i<options.length;i++)options[i]=HomeSectionOrder.title(hidden.get(i));
+        String[] options=new String[hidden.size()];for(int i=0;i<options.length;i++)options[i]=HomeSectionOrder.title(prefs,hidden.get(i));
         new SwipeDialogs.Builder(this).setTitle("Добавить элемент")
             .setItems(options,(d,index)->{HomeSectionOrder.visible(prefs,hidden.get(index),true);draw();})
             .setNegativeButton("Отмена",null).show();
@@ -1257,39 +1273,125 @@ public class MainActivity extends NavigationActivity {
             }).setNegativeButton("Отмена",null).show();
     }
     private void openComic(String uri){startActivity(new Intent(this,ComicReaderActivity.class).putExtra("comic_uri",uri));}
-    /** One series per folder, with a cover and a resume card like the book/audio sections. */
+    /** The comic resume card lives OUTSIDE the collapsible library and can be independently moved/hidden. */
+    private ComicLibrary.Comic lastComic(ArrayList<ComicLibrary.Comic> all){
+        ComicLibrary.Comic result=null;
+        for(ComicLibrary.Comic c:all)if(c.opened>0&&(result==null||c.opened>result.opened))result=c;
+        return result;
+    }
+    private View comicCover(ComicLibrary.Comic comic,int width,int height){
+        ImageView cover=new ImageView(this);cover.setImageResource(R.drawable.ic_comic_library);
+        cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        new Thread(()->{try{android.graphics.Bitmap bitmap=ComicCovers.cover(this,comic);
+            if(bitmap!=null)runOnUiThread(()->{if(!isFinishing()&&cover.getParent()!=null)cover.setImageBitmap(bitmap);});
+        }catch(Exception ignored){}} ,"comic-cover").start();
+        return cover;
+    }
+    private void addComicContinue(LinearLayout host){
+        ArrayList<ComicLibrary.Comic> all=ComicLibrary.list(this);
+        ComicLibrary.Comic recent=lastComic(all);
+        if(recent==null)return;
+        add(host,gap(12));
+        LinearLayout card=column();card.setBackground(shape(panelColor(),22));pad(card,14);
+        TextView sectionName=text(HomeSectionOrder.title(prefs,"comicContinue"),16,true);
+        card.addView(sectionName);
+        LinearLayout content=row();content.setGravity(Gravity.CENTER_VERTICAL);card.addView(content);
+        content.addView(comicCover(recent,82,106),new LinearLayout.LayoutParams(dp(82),dp(106)));
+        LinearLayout info=column();LinearLayout.LayoutParams detailLp=new LinearLayout.LayoutParams(0,-2,1);
+        detailLp.leftMargin=dp(12);content.addView(info,detailLp);
+        TextView name=text(recent.title,17,true);name.setMaxLines(2);name.setEllipsize(TextUtils.TruncateAt.END);info.addView(name);
+        TextView progress=text(recent.compactProgress(),12,false);progress.setTextColor(faintText());info.addView(progress);
+        TextView go=buttonish("▶ Продолжить",accent(),Color.WHITE,true);
+        LinearLayout.LayoutParams goLp=new LinearLayout.LayoutParams(-2,dp(44));goLp.topMargin=dp(8);
+        info.addView(go,goLp);go.setOnClickListener(v->openComic(recent.uri));card.setOnClickListener(v->openComic(recent.uri));
+        add(host,card);
+    }
     private void addComicSection(LinearLayout host){
         ArrayList<ComicLibrary.Comic> comics=ComicLibrary.list(this);
         add(host,gap(12));boolean expanded=prefs.getBoolean("comic_library_expanded",true);
-        TextView toggle=buttonish("Комиксотека ("+comics.size()+")  "+(expanded?"⌃":"⌄"),softPanel(),fg,true);
+        String label=HomeSectionOrder.title(prefs,"comic");
+        TextView toggle=buttonish(label+" ("+comics.size()+")  "+(expanded?"⌃":"⌄"),softPanel(),fg,true);
         add(host,iconToggle(toggle,R.drawable.ic_comic_library));
-        LinearLayout detail=column();add(host,detail);detail.setVisibility(expanded?View.VISIBLE:View.GONE);
-        ComicLibrary.Comic last=null;for(ComicLibrary.Comic c:comics)if(c.opened>0&&(last==null||c.opened>last.opened))last=c;
-        if(last!=null){
-            ComicLibrary.Comic active=last;
-            TextView resumeTitle=buttonish("Продолжить просмотр",softPanel(),fg,true);add(detail,resumeTitle);
-            LinearLayout card=new LinearLayout(this);card.setGravity(Gravity.CENTER_VERTICAL);
-            card.setPadding(dp(10),dp(10),dp(10),dp(10));card.setBackground(shape(panelColor(),14));
-            LinearLayout.LayoutParams cardLp=new LinearLayout.LayoutParams(-1,-2);cardLp.bottomMargin=dp(8);detail.addView(card,cardLp);
-            ImageView cover=new ImageView(this);cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            cover.setImageResource(R.drawable.ic_comic_library);
-            card.addView(cover,new LinearLayout.LayoutParams(dp(78),dp(110)));
-            LinearLayout text=column();text.setPadding(dp(12),0,0,0);card.addView(text,new LinearLayout.LayoutParams(0,-2,1));
-            TextView name=buttonish(active.title,panelColor(),fg,true);name.setMaxLines(2);
-            text.addView(name);
-            TextView details=buttonish("Файл "+(active.chapter+1)+"/"+active.chapterTotal+" · изображение "+(active.page+1)+"/"+active.pageTotal,panelColor(),fg,false);
-            text.addView(details);TextView action=buttonish("▶ Продолжить",accent(),0xffffffff,true);text.addView(action);
-            card.setOnClickListener(v->openComic(active.uri));action.setOnClickListener(v->openComic(active.uri));
-            new Thread(()->{try{android.graphics.Bitmap image=ComicCovers.cover(this,active);
-                if(image!=null)runOnUiThread(()->{if(!isFinishing()&&cover.getParent()!=null)cover.setImageBitmap(image);});
-            }catch(Exception ignored){}},"comic-cover").start();
+        LinearLayout details=column();add(host,details);details.setVisibility(expanded?View.VISIBLE:View.GONE);
+        final boolean[] built={false};
+        Runnable build=()->{
+            if(built[0])return;built[0]=true;
+            if(comics.isEmpty()){
+                TextView empty=text("Здесь появятся добавленные комиксы.",14,false);pad(empty,16);
+                add(details,empty);return;
+            }
+            LinearLayout list=column();list.setBackground(shape(panelColor(),22));
+            for(int i=0;i<comics.size();i++){
+                ComicLibrary.Comic item=comics.get(i);
+                LinearLayout line=row();line.setGravity(Gravity.CENTER_VERTICAL);pad(line,8,7,8,7);
+                line.addView(comicCover(item,80,105),new LinearLayout.LayoutParams(dp(80),dp(105)));
+                LinearLayout info=column();LinearLayout.LayoutParams infoLp=new LinearLayout.LayoutParams(0,dp(105),1);
+                infoLp.setMargins(dp(10),0,dp(5),0);line.addView(info,infoLp);
+                TextView title=text(item.title,16,true);title.setMaxLines(2);
+                title.setEllipsize(TextUtils.TruncateAt.END);info.addView(title);
+                TextView progress=text(item.compactProgress(),12,false);
+                progress.setTextColor(faintText());info.addView(progress);
+                View more=iconButton(android.R.drawable.ic_menu_more,v->comicMenu(item));
+                line.addView(more,new LinearLayout.LayoutParams(dp(38),dp(42)));
+                line.setOnClickListener(v->openComic(item.uri));
+                line.setOnLongClickListener(v->true);
+                list.addView(line);
+                if(i<comics.size()-1)list.addView(divider());
+            }
+            add(details,gap(8));add(details,list);
+        };
+        if(expanded)build.run();
+        toggle.setOnClickListener(v->{boolean show=details.getVisibility()!=View.VISIBLE;
+            prefs.edit().putBoolean("comic_library_expanded",show).apply();
+            if(show)build.run();details.setVisibility(show?View.VISIBLE:View.GONE);
+            toggle.setText(HomeSectionOrder.title(prefs,"comic")+" ("+comics.size()+")  "+(show?"⌃":"⌄"));
+        });
+        // Archive page totals are indexed in the background; do not unzip on the UI thread.
+        boolean incomplete=false;
+        for(ComicLibrary.Comic item:comics)
+            if(item.chapterTotal==0||item.pageCounts.size()!=item.chapterTotal||item.progressPercent()<0){incomplete=true;break;}
+        if(incomplete){
+            ArrayList<ComicLibrary.Comic> missing=new ArrayList<>();
+            for(ComicLibrary.Comic item:comics){
+                if(item.chapterTotal>0&&item.progressPercent()>=0)continue;
+                if(comicIndexAttempted.add(item.uri))missing.add(item);
+            }
+            if(!missing.isEmpty())new Thread(()->{
+                for(ComicLibrary.Comic item:missing)
+                    ComicLibrary.indexCounts(getApplicationContext(),item);
+                runOnUiThread(()->{if(!isFinishing()&&screen==0&&!homeEditing&&!touchingScreen)draw();});
+            },"comic-count-index").start();
         }
-        for(ComicLibrary.Comic item:comics){
-            TextView entry=buttonish(item.title+"  ·  Файл "+(item.chapter+1)+" · изображение "+(item.page+1),panelColor(),fg,false);
-            add(detail,entry);entry.setOnClickListener(v->openComic(item.uri));
-        }
-        toggle.setOnClickListener(v->{boolean visible=detail.getVisibility()!=View.VISIBLE;detail.setVisibility(visible?View.VISIBLE:View.GONE);
-            prefs.edit().putBoolean("comic_library_expanded",visible).apply();toggle.setText("Комиксотека ("+comics.size()+")  "+(visible?"⌃":"⌄"));});
+    }
+    private void confirmForget(String title,Runnable remove){
+        new SwipeDialogs.Builder(this).setTitle("Убрать из библиотеки?")
+            .setMessage("«"+title+"» будет убрано из списка ПРОЧиталки. Файлы на устройстве сохранятся.")
+            .setPositiveButton("Убрать",(d,w)->remove.run())
+            .setNegativeButton("Отмена",null).show();
+    }
+    private void audioMenu(AudioLibrary.Book book){
+        new SwipeDialogs.Builder(this).setTitle(book.name)
+            .setItems(new String[]{"Открыть / Продолжить","Сделать текущей","Убрать из библиотеки"},(d,which)->{
+                if(which==0)openAudioBook(book.id);
+                else if(which==1){prefs.edit().putString("audio_last_book",book.id).apply();draw();}
+                else confirmForget(book.name,()->{
+                    ArrayList<AudioLibrary.Book> all=AudioLibrary.load(this);
+                    all.removeIf(item->book.id.equals(item.id));AudioLibrary.save(this,all);
+                    if(book.id.equals(prefs.getString("audio_last_book",""))){
+                        SharedPreferences.Editor e=prefs.edit();
+                        e.putString("audio_last_book",all.isEmpty()?"":all.get(0).id);e.apply();
+                    }
+                    draw();
+                });
+            }).show();
+    }
+    private void comicMenu(ComicLibrary.Comic item){
+        new SwipeDialogs.Builder(this).setTitle(item.title)
+            .setItems(new String[]{"Открыть / Продолжить","Сделать текущей","Убрать из библиотеки"},(d,which)->{
+                if(which==0)openComic(item.uri);
+                else if(which==1){item.opened=System.currentTimeMillis();ComicLibrary.save(this,item);draw();}
+                else confirmForget(item.title,()->{ComicLibrary.remove(this,item.uri);draw();});
+            }).show();
     }
     void chooseAudioFolder(){
         new SwipeDialogs.Builder(this).setTitle("Аудиокнига из папки")
@@ -1555,7 +1657,7 @@ public class MainActivity extends NavigationActivity {
     }
 
     void bookMenu(BookMeta m) {
-        String[] items = {"Открыть", "Сделать текущей", "Удалить из библиотеки"};
+        String[] items = {"Открыть / Продолжить", "Сделать текущей", "Убрать из библиотеки"};
         new SwipeDialogs.Builder(this)
                 .setTitle(m.title)
                 .setItems(items, (d, which) -> {
@@ -1567,13 +1669,17 @@ public class MainActivity extends NavigationActivity {
                         Toast.makeText(this, "Книга отмечена как текущая", Toast.LENGTH_SHORT).show();
                         draw();
                     } else if (which == 2) {
-                        library.remove(m);
-                        EdgeBookStorage.removeBook(this, m.uri);
-                        if (m.uri.equals(currentUri)) {
-                            currentUri = ""; body = ""; title = ""; author = ""; words = new String[0]; wordStarts = new int[0]; screen = 0;
-                        }
-                        saveAll();
-                        draw();
+                        confirmForget(m.title,()->{
+                            library.remove(m);
+                            if(m.uri.equals(currentUri)){
+                                // A removed entry must never be shown as the current book.
+                                // Prefer another registered book; do not touch any source files.
+                                currentUri=library.isEmpty()?"":library.get(0).uri;
+                                body="";title="";author="";
+                                words=new String[0];wordStarts=new int[0];screen=0;
+                            }
+                            saveAll();draw();
+                        });
                     }
                 }).show();
     }

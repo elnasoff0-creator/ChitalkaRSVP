@@ -4,7 +4,7 @@ from pathlib import Path
 s=(Path(__file__).resolve().parents[1]/'app/src/main/java/ru/reader/rsvp/ComicReaderActivity.java').read_text()
 checks={
     'overlay root preserves full WebView viewport':'FrameLayout main=new FrameLayout(this)' in s and 'main.addView(web,new FrameLayout.LayoutParams(-1,-1))' in s,
-    'both bars overlay and animate':'main.addView(toolbarOverlay,topParams)' in s and 'main.addView(footerOverlay,bottomParams)' in s and 'animateChrome(toolbarOverlay,show' in s and 'animateChrome(footerOverlay,show' in s,
+    'both bars overlay and animate':'main.addView(toolbarOverlay,topParams)' in s and 'main.addView(footerOverlay,bottomParams)' in s and 'ReaderToolbarController.reveal(toolbarOverlay,show,98)' in s and 'animateChrome(footerOverlay,show' in s,
     'short tap toggles chrome only in page mode':'comic.mode==0&&!gestureMoved&&!touchPinching' in s and 'setChromeVisible(!chromeVisible)' in s,
     'swipe still routed to WebView':'return false;' in s and 'scroll-snap-type:x mandatory' in s,
     'old page click navigation removed':'document.body.onclick' not in s,
