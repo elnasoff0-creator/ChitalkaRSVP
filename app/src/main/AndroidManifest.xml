@@ -27,7 +27,6 @@
         <activity android:name=".KvuheSeriesActivity" android:exported="false" />
         <service android:name=".AudioPlaybackService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <activity android:name=".AudioPlayerActivity" android:exported="false" />
-        <service android:name=".ComicOcrSpeechService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <service android:name=".EdgePlaybackService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <service android:name=".EdgeFullBookService" android:exported="false" android:foregroundServiceType="dataSync" />
         <activity android:name=".EdgeFullBookActivity" android:exported="false" />
