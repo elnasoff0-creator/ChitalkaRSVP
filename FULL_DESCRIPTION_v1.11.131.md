@@ -1,8 +1,21 @@
-# ПРОЧиталка v1.11.131-beta CLEAN — полная техническая расшифровка
+# ПРОЧиталка v1.11.131-beta CLEAN HOTFIX — полная техническая расшифровка
 
 **Исходная версия:** v1.11.130-beta CLEAN  
 **Текущая версия:** `versionName '1.11.131-beta'`, `versionCode 13100`  
 **Формат поставки:** полный Android Java-проект и исходники XML, без APK.
+
+## HOTFIX — устранение ошибок `:app:compileReleaseJavaWithJavac`
+
+**Источник:** лог GitHub Actions сборки v1.11.131-beta, строка 1246 и 1271 `ReaderActivity.java`.
+
+**Причина:** в двух вызовах `UnifiedReadingProgress.save(Context, String, int, int, String, boolean)` параметр `chapter` требовал текстовое имя (`String`), но передавался `chapterForWord(index)` / `chapterForWord(libraryIndex)`, которые возвращают `int` (порядковый индекс главы). Java не допускает такое неявное преобразование, поэтому release-компиляция завершалась двумя ошибками `incompatible types: int cannot be converted to String`.
+
+**Исправление:** в `ReaderActivity.java` введён `chapterTitleForWord(int): String`. Он сопоставляет индекс слова с оглавлением `actualChapters` и возвращает название главы, а при отсутствии названия — `Глава N` по существующему числовому индексу; если глава не определена, возвращает пустую строку. Оба вызова `UnifiedReadingProgress.save` теперь передают именно этот текст, не изменяя тип и назначение `chapterForWord(int)` для остальных потребителей.
+
+**Регрессионная защита:** добавлен `qa/test_v11131_progress_chapter_types.py`, который извлекает **реальные методы и оба вызова** из `ReaderActivity.java`, компилирует их посредством `javac` с типизированной сигнатурой `save` и проверяет строковые названия глав, смену главы и запасной вариант подписи. Тест включён в `QA_RUN_v1.11.131.py`; локальный прогон — **13/13 PASS**. Отдельно сохранена проверка типизации новых классов на Android API-заглушках.
+
+**Важно:** в исходниках Android-приложения изменён только `ReaderActivity.java`. `versionName=1.11.131-beta`, `versionCode=13100` и вся остальная функциональность сохранены. Полную сборку Android `assembleRelease` в текущей среде выполнить нельзя (отсутствуют Gradle и Android SDK); её должен подтвердить GitHub Actions.
+
 
 ## 1. Акцентная кнопка добавления в MainActivity
 

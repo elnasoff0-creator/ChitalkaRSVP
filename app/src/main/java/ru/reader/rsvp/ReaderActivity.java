@@ -915,6 +915,16 @@ public class ReaderActivity extends NavigationActivity {
         for(int i=0;i<chapters.size();i++)if(chapters.get(i).startChar<=pos)result=i;
         return result;
     }
+    /** Human-readable chapter label for the shared reading cursor.
+     * chapterForWord() is an int TOC index, not a title to store in library metadata.
+     */
+    private String chapterTitleForWord(int word){
+        if(map.starts.length==0)return "";
+        BookChapterIndex.Chapter chapter=actualChapters.atChar(map.starts[map.clamp(word)]);
+        if(chapter!=null&&chapter.title!=null&&!chapter.title.trim().isEmpty())return chapter.title;
+        int chapterIndex=chapterForWord(word);
+        return chapterIndex>=0?"Глава "+(chapterIndex+1):"";
+    }
     private boolean isActiveWordVisible(){
         if(textList==null||layoutManager==null||chunks==null||words.length==0)return false;
         int c=chunks.chunkForWord(map.clamp(index));
@@ -1243,7 +1253,7 @@ public class ReaderActivity extends NavigationActivity {
             .putInt("reading_mode",mode).putBoolean("rsvp",mode==RSVP).putInt("wpm",wpm);
         editor.apply();
         if(!docUri.isEmpty()&&words.length>0)
-            UnifiedReadingProgress.save(this,docUri,index,words.length,chapterForWord(index),false);
+            UnifiedReadingProgress.save(this,docUri,index,words.length,chapterTitleForWord(index),false);
     }
     private void save(){
         saveLight(true);
@@ -1268,7 +1278,7 @@ public class ReaderActivity extends NavigationActivity {
             current.put("openedAt",System.currentTimeMillis());updated.put(current);
             prefs.edit().putString("library",updated.toString()).apply();
             UnifiedReadingProgress.save(this,docUri,libraryIndex,words.length,
-                chapterForWord(libraryIndex),true);
+                chapterTitleForWord(libraryIndex),true);
         }catch(Exception ignored){}
     }
     private void bookmark(){if(words.length==0)return;int at=map.clamp(viewportWord>=0?viewportWord:index);

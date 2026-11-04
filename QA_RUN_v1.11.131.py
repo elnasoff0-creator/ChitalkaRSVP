@@ -5,6 +5,7 @@ import subprocess,sys
 root=Path(__file__).resolve().parent
 steps=[
  ('v1.11.131 feature contracts',[sys.executable,'qa/test_v11131_features.py']),
+ ('ReaderActivity unified progress chapter type regression',[sys.executable,'qa/test_v11131_progress_chapter_types.py']),
  ('133 Java sources syntax',['bash','qa/check_java_syntax.sh']),
  ('True sentence segmentation and TTS pause history',['bash','-c','tmp=$(mktemp -d); trap "rm -rf $tmp" EXIT; javac -encoding UTF-8 -d "$tmp" app/src/main/java/ru/reader/rsvp/SentenceChunks.java app/src/main/java/ru/reader/rsvp/SentenceIndex.java app/src/main/java/ru/reader/rsvp/TtsSentenceHistory.java qa/TestSentenceIndex130.java && java -cp "$tmp" ru.reader.rsvp.TestSentenceIndex130']),
  ('TTS chunk size and text breaks',['bash','qa/check_sentence_chunks.sh']),
