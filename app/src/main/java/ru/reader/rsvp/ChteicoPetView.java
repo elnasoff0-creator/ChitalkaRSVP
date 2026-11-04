@@ -50,6 +50,13 @@ public final class ChteicoPetView extends ImageView {
         }
     };
 
+    /** The game reuses the exact UI mascot VectorDrawable frames, not PNG copies. */
+    public static int gameFrameResource(int stage,int branch,boolean up){
+        int s=Math.max(0,Math.min(FRAMES.length-1,stage-ChteicoStore.CHICK));
+        int b=Math.max(0,Math.min(2,branch-ChteicoStore.CLASSIC));
+        return FRAMES[s][b][up?0:1];
+    }
+
     private final Runnable cycle=new Runnable(){@Override public void run(){
         if(!attached||sleeping)return;
         int stage=ChteicoStore.stage(getContext());

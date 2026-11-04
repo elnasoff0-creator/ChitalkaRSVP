@@ -185,6 +185,9 @@ public final class EdgeStreamingService extends Service {
     private final Runnable refreshReady=new Runnable(){@Override public void run(){
         if(destroyed)return;
         if(bookReady&&directory!=null&&active)pump(); // ready offline files only
+        if(active&&bookReady&&player!=null&&player.isPlaying()&&offsets.size()>0)
+            UnifiedReadingProgress.save(EdgeStreamingService.this,bookUri,
+                currentSpeechWord(),offsets.size(),currentSharedChapter(currentSpeechWord()),true);
         main.postDelayed(this,2500);
     }};
     private final BroadcastReceiver switchReceiver=new BroadcastReceiver(){
@@ -221,7 +224,10 @@ public final class EdgeStreamingService extends Service {
                         start!=clipAt(selectedSeekWord).start)return;
                 if(completedPrevious)for(Clip c:archive)if(c.end==start)c.played=true;
                 selectedOverrides.removeIf(c->start>=c.end);
-                anchorWord=start;persist();pump();
+                anchorWord=start;
+                UnifiedReadingProgress.save(EdgeStreamingService.this,bookUri,start,offsets.size(),
+                    currentSharedChapter(start),true);
+                persist();pump();
             });
         }
         /** A playlist with no queued next file reaches STATE_ENDED. Continue
@@ -1042,6 +1048,11 @@ public final class EdgeStreamingService extends Service {
         ReaderDiagnosticLog.event("READER_STARTUP","edge_restore_end_ms="+
             (SystemClock.elapsedRealtime()-started)+" segments="+archive.size());
     }
+    private String currentSharedChapter(int at){
+        if(chapters==null||chapters.size()==0)return "";
+        BookChapterIndex.Chapter chapter=chapters.atChar(charForWord(at));
+        return chapter==null?"":chapter.title;
+    }
     private void persist(){
         if(directory==null||destroyed)return;
         // Debounce user seeks, download progress and track transitions. The entire
@@ -1051,6 +1062,9 @@ public final class EdgeStreamingService extends Service {
     }
     private void persistNow(){
         if(directory==null)return;
+        if(player!=null&&player.playRequested()&&bookReady)
+            UnifiedReadingProgress.save(this,bookUri,currentSpeechWord(),offsets.size(),
+                currentSharedChapter(currentSpeechWord()),true);
         JSONArray data=new JSONArray();
         try{for(Clip c:archive){
             if(c.key.isEmpty())continue; // unopened fragments need no MP3 manifest record

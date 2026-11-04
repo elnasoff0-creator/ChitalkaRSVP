@@ -127,6 +127,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     private final ArrayList<Integer> chunkWordPositions=new ArrayList<>();
     private final ArrayList<Integer> ttsChunkCharPositions=new ArrayList<>();
     private int ttsWordCount=0;
+    private BookChapterIndex sharedTtsChapters=BookChapterIndex.empty();
     private PlaybackSleepCountdown ttsSleepClock,audiobookSleepClock;
     private boolean sleepAtChapterEnd=false;
     private int sleepChaptersRemaining=1;
@@ -155,6 +156,8 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
             boolean audible=audiblePlayback();
             if(!ttsMode&&audible){saveProgress();ChteicoStore.tickAudio(AudioPlaybackService.this,bookId,1);}
             if(ttsMode&&audible){
+                UnifiedReadingProgress.save(AudioPlaybackService.this,currentBook,
+                    currentSpokenTtsWord(),ttsWordCount,currentSpokenChapter(),true);
                 ChteicoStore.tickAudio(AudioPlaybackService.this,currentBook,1);
                 android.content.SharedPreferences t=getSharedPreferences("reader",0);
                 t.edit().putLong("tts_listened_seconds:"+currentBook,
@@ -539,6 +542,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         sentenceIndex=SentenceIndex.fromText(session.book.text);
         sentenceHistory.bind(sentenceIndex);
         ttsWordCount=session.ttsWordPositions.size();
+        sharedTtsChapters=session.book.chapters==null?BookChapterIndex.empty():session.book.chapters;
         for(SentenceChunks.Chunk part:parts){
             chunks.add(part.text);
             chunkWordPositions.add(part.fromWord);
@@ -548,8 +552,9 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     }
     private void saveTtsReadingPosition(android.content.SharedPreferences.Editor e){
         if(currentBook==null||currentBook.isEmpty())return;
-        int at=chunkWordPositions.isEmpty()?0:chunkWordPositions.get(Math.max(0,Math.min(ttsPosition,chunkWordPositions.size()-1)));
+        int at=currentSpokenTtsWord();
         e.putInt("tts_word:"+currentBook,at);
+        UnifiedReadingProgress.save(this,currentBook,at,ttsWordCount,currentSpokenChapter(),false);
         try {
             android.content.SharedPreferences prefs=getSharedPreferences("reader",0);
             org.json.JSONArray arr=new org.json.JSONArray(prefs.getString("library","[]"));
@@ -679,6 +684,11 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
             }
         }
         return new int[]{base,base+chunk.length()};
+    }
+    private String currentSpokenChapter(){
+        if(sharedTtsChapters==null||sharedTtsChapters.size()==0)return "";
+        BookChapterIndex.Chapter chapter=sharedTtsChapters.atChar(currentTtsWordRange()[0]);
+        return chapter==null?"":chapter.title;
     }
     private int currentSpokenTtsWord(){
         int[] range=currentTtsWordRange();

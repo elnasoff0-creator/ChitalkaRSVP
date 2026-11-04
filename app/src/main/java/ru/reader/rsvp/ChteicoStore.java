@@ -172,7 +172,7 @@ public final class ChteicoStore {
             +Math.max(0,p.getLong("seconds_speed",0)-p.getLong("evo_marker_speed",0))
             +Math.max(0,p.getLong("seconds_audio",0)-p.getLong("evo_marker_audio",0));
         int readingProgress=(int)(seconds*95/Math.max(1L,secondsTarget));
-        int gameBonus=Math.min(10,p.getInt("runner_xp",0)/30);
+        int gameBonus=Math.min(10,(p.getInt("runner_xp",0)+p.getInt("flyer_xp",0))/30);
         return Math.min(95,readingProgress+gameBonus);
     }
     public static int progress(Context c){SharedPreferences p=prefs(c);int st=stage(c);
@@ -188,6 +188,15 @@ public final class ChteicoStore {
         p.edit().putInt("runner_xp",total).putInt("runner_best",Math.max(p.getInt("runner_best",0),(int)distance))
             .putLong("runner_distance",p.getLong("runner_distance",0)+(long)distance)
             .putInt("runner_games",p.getInt("runner_games",0)+1).apply();
+    }
+    /** "Летун" is unlocked at Reader stage; existing Runner records are retained. */
+    public static synchronized void addFlyerGameExperience(Context c,int experience,float distance){
+        SharedPreferences p=prefs(c);
+        int gain=Math.max(0,Math.min(30,experience));
+        p.edit().putInt("flyer_xp",p.getInt("flyer_xp",0)+gain)
+            .putInt("flyer_best",Math.max(p.getInt("flyer_best",0),(int)distance))
+            .putLong("flyer_distance",p.getLong("flyer_distance",0)+(long)distance)
+            .putInt("flyer_games",p.getInt("flyer_games",0)+1).apply();
     }
     public static boolean developerUnlocked(Context c){return prefs(c).getBoolean("developer_unlocked",false);}    
     public static void unlockDeveloper(Context c){prefs(c).edit().putBoolean("developer_unlocked",true).apply();}

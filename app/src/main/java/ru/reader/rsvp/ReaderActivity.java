@@ -221,14 +221,15 @@ public class ReaderActivity extends NavigationActivity {
                 if(o!=null&&docUri.equals(o.optString("uri"))){index=o.optInt("index",index);break;}
             }
         }catch(Exception ignored){}
-        index=prefs.getInt("position:"+docUri,index);
+        index=UnifiedReadingProgress.read(prefs,docUri,prefs.getInt("position:"+docUri,index));
         // The speech cursor is restored only after any explicit mode override.
         if(getIntent().getBooleanExtra("reset",false))index=0;
         int requestedMode=getIntent().getIntExtra("reading_mode_override",-1);
         if(requestedMode>=0&&requestedMode<=TTS){mode=requestedMode;
             prefs.edit().putInt("reading_mode",requestedMode).apply();}
+        // All reading engines restore one canonical book position.
         if(mode==TTS&&!getIntent().getBooleanExtra("reset",false))
-            index=prefs.getInt("tts_word:"+docUri,index);
+            index=UnifiedReadingProgress.read(prefs,docUri,index);
         if(getIntent().hasExtra("tts_mode_local")){
             ttsLocal=getIntent().getBooleanExtra("tts_mode_local",ttsLocal);
             prefs.edit().putBoolean("tts_last_local",ttsLocal).apply();
@@ -1207,14 +1208,10 @@ public class ReaderActivity extends NavigationActivity {
         final long modeSelectedAt=SystemClock.elapsedRealtime();
         if(next==TTS)ReaderDiagnosticLog.event("READER_STARTUP","tts_mode_selected engine="+(ttsLocal?"local":"edge"));
         chteicoTouch();stop();int old=index,previousMode=mode;
-        // Speech has its own cursor. Switching modes must not overwrite the
-        // last manually selected word for ordinary reading/RSVP/cursor.
+        // Switching modes reuses the same book cursor for all reading engines.
         if(previousMode==TTS){saveLight(true);releaseTts();}
         else if(next==TTS)saveLight(true);
-        if(previousMode==TTS && next!=TTS)
-            index=map.clamp(prefs.getInt("position:"+docUri,index));
-        else if(previousMode!=TTS && next==TTS)
-            index=map.clamp(prefs.getInt("tts_word:"+docUri,index));
+        index=map.clamp(UnifiedReadingProgress.read(prefs,docUri,index));
         pendingTtsWord=-1;
         mode=next;selecting=false;selectedWordActive=false;normalChromeVisible=false;toolbarExpanded=true;
         ReaderToolbarController.reset(toolbarStack);
@@ -1244,9 +1241,9 @@ public class ReaderActivity extends NavigationActivity {
         lastLightSave=now;
         SharedPreferences.Editor editor=prefs.edit().putString("uri",docUri)
             .putInt("reading_mode",mode).putBoolean("rsvp",mode==RSVP).putInt("wpm",wpm);
-        if(mode==TTS)editor.putInt("tts_word:"+docUri,index);
-        else editor.putInt("position:"+docUri,index).putInt("index",index);
         editor.apply();
+        if(!docUri.isEmpty()&&words.length>0)
+            UnifiedReadingProgress.save(this,docUri,index,words.length,chapterForWord(index),false);
     }
     private void save(){
         saveLight(true);
@@ -1261,7 +1258,7 @@ public class ReaderActivity extends NavigationActivity {
             }
             if(current==null)current=new org.json.JSONObject();
             current.put("uri",docUri);current.put("title",title);current.put("author",author);
-            int libraryIndex=mode==TTS?prefs.getInt("position:"+docUri,index):index;
+            int libraryIndex=UnifiedReadingProgress.read(prefs,docUri,index);
             current.put("index",libraryIndex);current.put("wordCount",words.length);
             current.put("progress",(libraryIndex+1)*100/Math.max(1,words.length));
             if(map.starts.length>0){
@@ -1270,6 +1267,8 @@ public class ReaderActivity extends NavigationActivity {
             }
             current.put("openedAt",System.currentTimeMillis());updated.put(current);
             prefs.edit().putString("library",updated.toString()).apply();
+            UnifiedReadingProgress.save(this,docUri,libraryIndex,words.length,
+                chapterForWord(libraryIndex),true);
         }catch(Exception ignored){}
     }
     private void bookmark(){if(words.length==0)return;int at=map.clamp(viewportWord>=0?viewportWord:index);
@@ -1529,6 +1528,7 @@ public class ReaderActivity extends NavigationActivity {
         }
         if(active&&actual>=0&&actual<words.length&&actual!=index){
             int old=index;index=actual;refreshHighlight(old);updateProgress();
+            saveLight(false);
             // A manual drag owns the viewport until overlay, mode return, or Play.
             if(!followSuspended)ensureWordVisible(false);
         }

@@ -221,6 +221,7 @@ public class MainActivity extends NavigationActivity {
                     m.wordCount=words.length;
         m.index = index;
         m.wordCount = words.length;
+        UnifiedReadingProgress.save(this,currentUri,index,words.length,m.chapter,false);
         m.scroll = normalY;
         m.chapter = findChapterForIndex(index);
         if (m.excerpt.isEmpty()) m.excerpt = excerptAroundIndex(index);
@@ -402,6 +403,14 @@ public class MainActivity extends NavigationActivity {
         LinearLayout.LayoutParams themeLp=new LinearLayout.LayoutParams(dp(TOOLBAR_SIZE_DP),dp(TOOLBAR_SIZE_DP));
         themeLp.leftMargin=dp(TOOLBAR_GAP_DP);top.addView(themeButton,themeLp);
         View importBtn = iconButton(R.drawable.ic_plus, v -> showAddMenu());
+        int addAccent=accent();
+        importBtn.setBackground(shape(addAccent,16));
+        if(importBtn instanceof LinearLayout){
+            LinearLayout iconShell=(LinearLayout)importBtn;
+            if(iconShell.getChildCount()>0 && iconShell.getChildAt(0) instanceof ImageView)
+                ((ImageView)iconShell.getChildAt(0)).setColorFilter(ReaderButtonColors.contrastingText(addAccent));
+        }
+        importBtn.setContentDescription("Добавить книгу, аудиокнигу или комикс");
         LinearLayout.LayoutParams importLp=new LinearLayout.LayoutParams(dp(TOOLBAR_SIZE_DP),dp(TOOLBAR_SIZE_DP));
         importLp.leftMargin=dp(TOOLBAR_GAP_DP);
         top.addView(importBtn,importLp);
@@ -767,11 +776,13 @@ public class MainActivity extends NavigationActivity {
         return button;
     }
     private String readingResumeStats(BookMeta m){
-        String chapter=m.chapter==null||m.chapter.trim().isEmpty()?"Глава не указана":m.chapter.trim();
-        int current=Math.max(1,m.index+1);
-        int total=m.wordCount>0?m.wordCount:(currentUri.equals(m.uri)?words.length:0);
+        String chapter=prefs.getString("book_shared_chapter:"+m.uri,m.chapter==null?"":m.chapter).trim();
+        if(chapter.isEmpty())chapter="Глава не указана";
+        int current=Math.max(1,UnifiedReadingProgress.read(prefs,m.uri,m.index)+1);
+        int total=prefs.getInt("book_words:"+m.uri,m.wordCount>0?m.wordCount:(currentUri.equals(m.uri)?words.length:0));
         String position=total>0?"Поз. "+Math.min(current,total)+"/"+total:"Поз. "+current;
-        return chapter+" · "+position+" · "+Math.max(0,Math.min(100,m.progress))+"%";
+        int percent=total>0?(int)Math.min(100,(long)current*100/total):Math.max(0,Math.min(100,m.progress));
+        return chapter+" · "+position+" · "+percent+"%";
     }
     View continueCard(BookMeta m) {
         LinearLayout card=row();card.setGravity(Gravity.CENTER_VERTICAL);
@@ -1536,7 +1547,7 @@ public class MainActivity extends NavigationActivity {
                     BookMeta m = meta(currentUri);
                     if (m == null) { m = new BookMeta(); m.uri = currentUri; library.add(0, m); }
                     if (reset) { index = 0; normalY = 0; }
-                    else { index = m.index; normalY = m.scroll; }
+                    else { index = UnifiedReadingProgress.read(prefs,currentUri,m.index); normalY = m.scroll; }
                     m.title = title;
                     m.author = author;
                     m.excerpt = excerptAroundIndex(index);

@@ -33,6 +33,8 @@ public final class ChteicoActivity extends NavigationActivity {
     private TextView progressLabel;
     private ChteicoPetView pet;
     private int bg,fg,accent;
+    private ChteicoMiniGameView activeMiniGame;
+    private FrameLayout activePetFrame;
     private SharedPreferences p;
     private boolean firstResume=true;
     private TextView speechBubble;
@@ -48,7 +50,7 @@ public final class ChteicoActivity extends NavigationActivity {
         if(wake)ChteicoEmotions.wake();show();
         if(wake)ui.postDelayed(()->showSpeech(ChteicoEmotions.stroke(),2750),120);
     }
-    @Override protected void onResume(){super.onResume();if(firstResume)firstResume=false;else show();}
+    @Override protected void onResume(){super.onResume();if(firstResume)firstResume=false;else if(activeMiniGame==null)show();}
     private GradientDrawable shape(int color,int radius){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(radius));return d;}
     private int contrast(int c){return (.299*Color.red(c)+.587*Color.green(c)+.114*Color.blue(c))<135?Color.WHITE:0xff30221e;}
     private TextView text(String s,int sp,boolean bold){TextView t=new TextView(this);t.setText(s);t.setTextSize(sp);t.setTextColor(fg);if(bold)t.setTypeface(Typeface.DEFAULT,Typeface.BOLD);return t;}
@@ -201,7 +203,46 @@ public final class ChteicoActivity extends NavigationActivity {
         };
         ui.postDelayed(pendingSpeechHide,durationMs);
     }
-    @Override protected void onDestroy(){if(pendingSpeechHide!=null)ui.removeCallbacks(pendingSpeechHide);if(sleepAnimation!=null)ui.removeCallbacks(sleepAnimation);super.onDestroy();}
+    @Override protected void onPause(){if(activeMiniGame!=null)activeMiniGame.pauseClock();super.onPause();}
+    @Override protected void onDestroy(){if(activeMiniGame!=null)activeMiniGame.stopClock();if(pendingSpeechHide!=null)ui.removeCallbacks(pendingSpeechHide);if(sleepAnimation!=null)ui.removeCallbacks(sleepAnimation);super.onDestroy();}
+    /** Both games live inside the existing pet card and never launch an Activity. */
+    private void showGameChoices(FrameLayout petFrame){
+        int stage=ChteicoStore.stage(this);
+        String[] choices={"Бегун"+(stage<ChteicoStore.CHICK?" — откроется с Чтенчика":""),
+                "Летун"+(stage<ChteicoStore.READER?" — откроется с Чтенца":"")};
+        new SwipeDialogs.Builder(this).setTitle("Игры Чтейцо")
+            .setItems(choices,(d,which)->{
+                if(which==0&&stage<ChteicoStore.CHICK || which==1&&stage<ChteicoStore.READER){
+                    android.widget.Toast.makeText(this,which==0?"Бегун откроется с Чтенчика":"Летун откроется с Чтенца",android.widget.Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                openMiniGame(petFrame,which==0?ChteicoMiniGameView.RUNNER:ChteicoMiniGameView.FLYER);
+            }).show();
+    }
+    private void openMiniGame(FrameLayout frame,int mode){
+        if(frame==null)return;
+        if(activeMiniGame!=null){activeMiniGame.stopClock();frame.removeView(activeMiniGame);activeMiniGame=null;}
+        if(pendingSpeechHide!=null){ui.removeCallbacks(pendingSpeechHide);pendingSpeechHide=null;}
+        if(sleepAnimation!=null){ui.removeCallbacks(sleepAnimation);sleepAnimation=null;}
+        frame.animate().cancel();
+        for(int i=0;i<frame.getChildCount();i++)frame.getChildAt(i).setVisibility(View.INVISIBLE);
+        activePetFrame=frame;
+        ChteicoMiniGameView mini=new ChteicoMiniGameView(this,mode,()->closeMiniGame());
+        activeMiniGame=mini;
+        mini.setBackground(shape(ReadingThemeCycle.isDark(bg)?0xff373538:0xfffff9f2,18));
+        frame.addView(mini,new FrameLayout.LayoutParams(-1,-1));
+        int from=frame.getLayoutParams().height,to=dp(305);
+        ValueAnimator animator=ValueAnimator.ofInt(from,to);animator.setDuration(260);
+        animator.addUpdateListener(a->{if(activeMiniGame!=mini)return;
+            android.view.ViewGroup.LayoutParams params=frame.getLayoutParams();params.height=(int)a.getAnimatedValue();frame.setLayoutParams(params);});
+        animator.start();
+    }
+    private void closeMiniGame(){
+        if(activeMiniGame==null)return;
+        activeMiniGame.stopClock();activeMiniGame=null;activePetFrame=null;
+        // Recreate the original card with its speech, pet and updated game statistics.
+        show();
+    }
     private String progressText(int stage){
         if(stage==ChteicoStore.ADULT)return "С вами настоящий книжный друг";
         return "До следующей эволюции: "+ChteicoStore.progress(this)+"%";
@@ -282,6 +323,7 @@ public final class ChteicoActivity extends NavigationActivity {
     private void show(){
         if(pendingSpeechHide!=null){ui.removeCallbacks(pendingSpeechHide);pendingSpeechHide=null;}
         if(speechContainer!=null)speechContainer.animate().cancel();
+        if(activeMiniGame!=null){activeMiniGame.stopClock();activeMiniGame=null;activePetFrame=null;}
         speechContainer=null;speechBubble=null;
         SharedPreferences settings=getSharedPreferences("reader",MODE_PRIVATE);
         bg=settings.getInt("bg",0xfff3e7d5);fg=contrast(bg);accent=ReaderButtonColors.accent(this,0xff915439);
@@ -315,14 +357,15 @@ public final class ChteicoActivity extends NavigationActivity {
         gameButton.setColorFilter(fg);
         gameButton.setBackground(shape(ReadingThemeCycle.isDark(bg)?0xff444349:0xfff0e6dc,12));
         gameButton.setPadding(dp(10),dp(10),dp(10),dp(10));
-        gameButton.setContentDescription("Играть в Прыжки через книги");
+        gameButton.setContentDescription("Выбрать игру: Бегун или Летун");
         LinearLayout.LayoutParams gameButtonLp=new LinearLayout.LayoutParams(dp(43),dp(43));gameButtonLp.leftMargin=dp(10);
         nameRow.addView(gameButton,gameButtonLp);
-        gameButton.setOnClickListener(v->startActivity(new Intent(this,ChteicoRunnerActivity.class)));
+        // The selection handler is attached below, once the pet frame exists.
         hero.addView(nameRow);gap(hero,8);
         FrameLayout petFrame=new FrameLayout(this);
         // Keep the original 248x247dp pet; reclaim unused speech space above it.
         hero.addView(petFrame,new LinearLayout.LayoutParams(-1,dp(260)));
+        gameButton.setOnClickListener(v->showGameChoices(petFrame));
         FrameLayout.LayoutParams spriteLayout=new FrameLayout.LayoutParams(dp(248),dp(247),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);
         pet=new ChteicoPetView(this);petFrame.addView(pet,spriteLayout);
         // Draw rays over the whole card width; restrict taps to the pet itself.
@@ -401,6 +444,10 @@ public final class ChteicoActivity extends NavigationActivity {
         stat(second,"Забегов",String.valueOf(p.getInt("runner_games",0)));
         stat(second,"Игровой опыт",p.getInt("runner_xp",0)+" XP");
         panel.addView(second);
+        LinearLayout third=new LinearLayout(this);
+        stat(third,"Летун — рекорд",p.getInt("flyer_best",0)+" м");
+        stat(third,"Летун — полётов",String.valueOf(p.getInt("flyer_games",0)));
+        panel.addView(third);
     }
     private void statistics(){new SwipeDialogs.Builder(this).setTitle("Книжная статистика")
         .setMessage("Книг открыто: "+p.getInt("opened_books_count",0)+"\nПрочитано: "+p.getInt("finished_books_count",0)

@@ -1,0 +1,33 @@
+ПРОЧиталка v1.11.131-beta CLEAN — QA RESULTS
+Date: 2026-11-04
+versionCode: 13100
+
+OFFLINE QA: 12 / 12 PASS
+Release contract checks: 30 / 30 PASS
+Java syntax: 133 files PASS (compiler parser; no Android type validation)
+Android XML parse: 113 files PASS
+Drawable references: 95 resolved / 0 missing
+New classes type checks: ChteicoMiniGameView and UnifiedReadingProgress PASS (Android API stand-ins)
+
+Confirmed from source:
+- MainActivity add (+) uses accent fill and theme-aware icon contrast.
+- Shared word/chapter/percent cursor used by Reader, Main and TTS services.
+- Legacy independent cursors migrated using last active reading mode.
+- Two games embedded in ChteicoActivity pet container, stage-gated.
+- 9 old pet game sprite PNGs + 5 book PNGs removed.
+- XML book vectors exist; old runner activity and manifest entry removed.
+- Existing runner records retained, flyer records separate.
+- TTS sentence segmentation, Edge seek, audio focus and comic gestures regressed.
+
+NOT VERIFIED:
+- Android Gradle release assembly / APK, because Android SDK and Gradle are not installed.
+- Device gestures, rendering, animation frame rates, vector scaling and UI lifecycle.
+- Real local/Edge TTS WordBoundary timing while backgrounded.
+- Real performance and exact saved position with EPUB/FB2 and all TTS engines.
+
+Reproduce local checks:
+python QA_RUN_v1.11.131.py
+bash qa/typecheck_131_new_classes.sh
+
+For Android CI:
+gradle --no-daemon :app:assembleRelease --stacktrace
