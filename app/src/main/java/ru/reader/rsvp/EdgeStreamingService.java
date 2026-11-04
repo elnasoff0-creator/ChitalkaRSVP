@@ -79,7 +79,7 @@ public final class EdgeStreamingService extends Service {
     }
     private String revision(){
         if(speechOptions==null){
-            speechOptions=EdgeSpeechTextTransform.Options.read(getSharedPreferences("reader",0));
+            speechOptions=EdgeDictionaryStore.get(this).options();
             speechRevision=speechOptions.fingerprint()+"|"+voice()+"|"+rate();
         }
         return speechRevision;
@@ -528,7 +528,7 @@ public final class EdgeStreamingService extends Service {
     public void refreshSettings(){
         // A different pronunciation rule changes both the transmitted text
         // and the MP3 identity. Rebuild the catalogue without deleting old files.
-        String requested=EdgeSpeechTextTransform.Options.read(getSharedPreferences("reader",0)).fingerprint()
+        String requested=EdgeDictionaryStore.get(this).options().fingerprint()
             +"|"+voice()+"|"+rate();
         if(speechOptions!=null&&!requested.equals(speechRevision)){
             choose(null,null);return;
