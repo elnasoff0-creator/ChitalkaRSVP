@@ -47,6 +47,8 @@ public final class EdgePlaybackService extends Service {
     void setSentenceNavigation(SentenceNavigation callback){sentenceNavigation=callback;}
     private ResumeSelection resumeSelection;
     private boolean rewindAfterUserPause;
+    private Runnable pauseSelection;
+    public void setPauseSelection(Runnable callback){pauseSelection=callback;}
     public void setResumeSelection(ResumeSelection callback){resumeSelection=callback;}
     public interface Listener {
         void onTrackChanged(int startWord, int endWord, String key, boolean completedPrevious);
@@ -558,7 +560,10 @@ public final class EdgePlaybackService extends Service {
     }
     public void pause() {
         pausedForTelephone=false;
-        if(requestedPlay)rewindAfterUserPause=true;
+        if(requestedPlay){
+            if(pauseSelection!=null)pauseSelection.run();
+            rewindAfterUserPause=true;
+        }
         if(ttsSleepClock!=null)ttsSleepClock.freeze();
         requestedPlay=false;requestedPlayAtMs=0;
         player.pause();

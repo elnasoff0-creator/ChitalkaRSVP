@@ -345,9 +345,14 @@ public class ReaderActivity extends NavigationActivity {
         toolbarBookName.setBackground(shape(buttonBg(),12));
         toolbarBookName.setTextColor(contrast(buttonBg()));
         toolbarBookName.setOnClickListener(v->showBookmarks());
-        toolbar.addView(toolbarBookName,new LinearLayout.LayoutParams(0,dp(44),1));
-        // Layout measurement used to work with the spacer; title now occupies that slot.
-        toolbarSpacer=toolbarBookName;
+        // The title and chapter share one line BELOW the row of toolbar actions.
+        // Keep a flexible spacer in the button row for stable right alignment.
+        View titleSpacer=new View(this);
+        toolbar.addView(titleSpacer,new LinearLayout.LayoutParams(0,dp(44),1));
+        toolbarSpacer=titleSpacer;
+        LinearLayout.LayoutParams titleLp=new LinearLayout.LayoutParams(-1,dp(42));
+        titleLp.topMargin=dp(6);
+        toolbarStack.addView(toolbarBookName,titleLp);
         LinearLayout.LayoutParams bookmarkLp=new LinearLayout.LayoutParams(dp(44),dp(44));bookmarkLp.leftMargin=dp(5);
         // Bookmarks moved to overflow menu.
         toolbarEngineAction=icon(ttsLocal?R.drawable.ic_android_tts:R.drawable.ic_edge_tts,v->chooseTtsEngine());
@@ -577,7 +582,7 @@ public class ReaderActivity extends NavigationActivity {
                     if(cursorText!=NO_COLOR)span(new ForegroundColorSpan(cursorText),from,to);
                     if(cursorScale>100)span(new RelativeSizeSpan(cursorScale/100f),from,to);
                 }else if(mode==TTS){
-                    SentenceChunks.Chunk sentence=SentenceChunks.forWord(ttsParts,first);
+                    SentenceChunks.Chunk sentence=ttsSentenceIndex.atWordRange(first);
                     if(sentence!=null){
                         int sentenceFrom=Math.max(0,sentence.fromChar-c.startChar);
                         int sentenceTo=Math.min(content.length(),sentence.toChar-c.startChar);
@@ -980,7 +985,7 @@ public class ReaderActivity extends NavigationActivity {
      */
     private boolean isActiveSentenceVisible(){
         if(textList==null||layoutManager==null||chunks==null||words.length==0)return false;
-        SentenceChunks.Chunk sentence=SentenceChunks.forWord(ttsParts,map.clamp(index));
+        SentenceChunks.Chunk sentence=ttsSentenceIndex.atWordRange(map.clamp(index));
         if(sentence==null)return isActiveWordVisible();
         int topLimit=dp(88),bottomLimit=textList.getHeight()-dp(96);
         if(bottomLimit<=topLimit)return isActiveWordVisible();
@@ -1012,7 +1017,7 @@ public class ReaderActivity extends NavigationActivity {
         if(mode!=TTS||!followSuspended||!ttsCurrentlyPlaying()||words.length==0||isActiveSentenceVisible()){
             ttsFloatingCaption.setVisibility(View.GONE);return;
         }
-        SentenceChunks.Chunk part=SentenceChunks.forWord(ttsParts,map.clamp(index));
+        SentenceChunks.Chunk part=ttsSentenceIndex.atWordRange(map.clamp(index));
         if(part==null){String text=words[map.clamp(index)];
             if(!text.equals(lastCaptionText)){lastCaptionText=text;ttsFloatingCaption.setText(text);}}
         else{
@@ -1065,7 +1070,7 @@ public class ReaderActivity extends NavigationActivity {
         Intent intent=new Intent(this,EdgeDictionaryActivity.class);
         // Load the currently spoken/last selected sentence, not a separately highlighted word.
         if(words.length>0){
-            SentenceChunks.Chunk sentence=SentenceChunks.forWord(ttsParts,map.clamp(index));
+            SentenceChunks.Chunk sentence=ttsSentenceIndex.atWordRange(map.clamp(index));
             if(sentence!=null&&sentence.toChar>sentence.fromChar)
                 intent.putExtra(EdgeDictionaryActivity.EXTRA_SENTENCE,
                     body.substring(Math.max(0,sentence.fromChar),Math.min(body.length(),sentence.toChar)));
@@ -1193,7 +1198,7 @@ public class ReaderActivity extends NavigationActivity {
     private void setToolbarExpanded(boolean show){
         if(toolbarExpanded==show)return;
         toolbarExpanded=show;
-        ReaderToolbarController.reveal(toolbarStack,show,87);
+        ReaderToolbarController.reveal(toolbarStack,show,106);
     }
     /** Switch back to ordinary reading without losing the current word or book. */
     void openReadingFromDrawer(){setMode(NORMAL);}
@@ -1257,7 +1262,12 @@ public class ReaderActivity extends NavigationActivity {
             if(current==null)current=new org.json.JSONObject();
             current.put("uri",docUri);current.put("title",title);current.put("author",author);
             int libraryIndex=mode==TTS?prefs.getInt("position:"+docUri,index):index;
-            current.put("index",libraryIndex);current.put("progress",(libraryIndex+1)*100/Math.max(1,words.length));
+            current.put("index",libraryIndex);current.put("wordCount",words.length);
+            current.put("progress",(libraryIndex+1)*100/Math.max(1,words.length));
+            if(map.starts.length>0){
+                BookChapterIndex.Chapter chapter=actualChapters.atChar(map.starts[map.clamp(libraryIndex)]);
+                if(chapter!=null)current.put("chapter",chapter.title);
+            }
             current.put("openedAt",System.currentTimeMillis());updated.put(current);
             prefs.edit().putString("library",updated.toString()).apply();
         }catch(Exception ignored){}
@@ -1326,7 +1336,7 @@ public class ReaderActivity extends NavigationActivity {
                 map=prepared;words=prepared.words;chunks=indexed;
                 actualChapters=parsedChapters==null?BookChapterIndex.empty():parsedChapters;
                 chapters=parsedChapters!=null&&parsedChapters.size()>=3?parsedChapters:BookChapterIndex.empty();
-                ttsParts=session.speechSegments;ttsSentenceIndex=SentenceIndex.fromChunks(ttsParts);docUri=uri.toString();
+                ttsParts=session.speechSegments;ttsSentenceIndex=SentenceIndex.fromText(loadedText);docUri=uri.toString();
                 prefs.edit().putString("book_title:"+docUri,title)
                     .putString("book_author:"+docUri,author)
                     .putInt("book_words:"+docUri,words.length).apply();
@@ -1493,7 +1503,7 @@ public class ReaderActivity extends NavigationActivity {
         }
         boolean active=ttsCurrentlyPlaying();
         if(pendingTtsWord>=0){
-            SentenceChunks.Chunk target=SentenceChunks.forWord(ttsParts,pendingTtsWord);
+            SentenceChunks.Chunk target=ttsSentenceIndex.atWordRange(pendingTtsWord);
             if(target!=null&&actual>=target.fromWord&&actual<target.toWord)pendingTtsWord=-1;
             else{
                 EdgeStreamingService.Clip activeClip=ttsStreamer==null?null:ttsStreamer.currentClip();

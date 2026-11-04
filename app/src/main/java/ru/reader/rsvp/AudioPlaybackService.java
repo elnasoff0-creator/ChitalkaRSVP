@@ -96,6 +96,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     private PlaybackAudioFocus audioFocus;
     private Intent preparedSwitch; // OPEN while another source is playing: defer changing its session.
     private SentenceIndex sentenceIndex=SentenceIndex.fromText("");
+    private final TtsSentenceHistory sentenceHistory=new TtsSentenceHistory();
     private boolean pausedForTelephone=false;
     private MediaSession mediaSession;
     private android.graphics.Bitmap playbackCover;
@@ -252,7 +253,8 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
                 // No seek to an arbitrary word: navigate to the start of its sentence.
                 boolean auto=getSharedPreferences("reader",0).getBoolean("tts_tap_autoplay",false);
                 if(!paused)pausePlayback();
-                ttsPosition=chunkForWord(target);
+                ttsPosition=chunkForWord(sentenceIndex.beginning(target));
+                sentenceHistory.manuallySelect(target);
                 ttsRewindOnNextPlay=false;pendingLocalSeek=0;
                 resetLocalSession();
                 saveProgress();notifyState();
@@ -436,8 +438,10 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
             ttsRewindOnNextPlay=false;
             if(rewind&&getSharedPreferences("reader",0).getBoolean("tts_resume_previous_sentence",true)
                     &&!chunks.isEmpty()){
-                // Resume from the BEGINNING of the paused sentence, not the preceding one.
-                ttsPosition=Math.max(0,Math.min(chunks.size()-1,ttsPosition));
+                // Resume from the previously confirmed REAL sentence.
+                int target=sentenceHistory.previousOnResume(currentSpokenTtsWord());
+                ttsPosition=chunkForWord(target);
+                pendingLocalSeek=0;sentenceHistory.manuallySelect(target);
                 resetLocalSession();saveProgress();startTts();return;
             }
             if(ttsAudio!=null&&localPlayingIndex==ttsPosition){
@@ -457,7 +461,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     private void pauseForTelephone(){
         if(paused)return;
         pausedForTelephone=true;
-        if(ttsMode){ttsRewindOnNextPlay=true;ttsStartRequested=false;
+        if(ttsMode){sentenceHistory.capturePause(currentSpokenTtsWord());ttsRewindOnNextPlay=true;ttsStartRequested=false;
             if(ttsAudio!=null){try{ttsAudio.pause();}catch(Exception ignored){}}
             else if(tts!=null)tts.stop();
         }else if(player!=null){try{if(player.isPlaying())player.pause();}catch(Exception ignored){}}
@@ -473,7 +477,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         playWhenPrepared=false;playAfterSeek=false;
         boolean wasPlaying=!paused;
         if(ttsMode){
-            if(wasPlaying)ttsRewindOnNextPlay=true;
+            if(wasPlaying){sentenceHistory.capturePause(currentSpokenTtsWord());ttsRewindOnNextPlay=true;}
             ttsStartRequested=false;
             if(ttsAudio!=null){try{ttsAudio.pause();}catch(Exception ignored){} }
             else if(tts!=null){tts.stop();localPending.clear();}paused=true;
@@ -520,8 +524,9 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         saveProgress();notifyState();
     }
     private void jump(int change){if(ttsMode){
-        int word=chunkWordPositions.isEmpty()?0:chunkWordPositions.get(Math.max(0,Math.min(ttsPosition,chunkWordPositions.size()-1)));
+        int word=currentSpokenTtsWord();
         int nextWord=change<0?sentenceIndex.previous(word):sentenceIndex.next(word);
+        sentenceHistory.manuallySelect(nextWord);
         seekTo(chunkForWord(nextWord));return;}if(change>0){if(segment+1<playlist.size()){segment++;prepareAudio(0,!paused);}else seekTo(getPosition()+30000);}else {if(getPosition()>15000)seekTo(getPosition()-15000);else if(segment>0){segment--;prepareAudio(0,!paused);}else seekTo(0);}}
     private int chunkForWord(int wordIndex){
         if(chunkWordPositions.isEmpty())return 0;
@@ -531,7 +536,8 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     private void makeChunks(UnifiedBookSession session){
         chunks.clear();chunkWordPositions.clear();ttsChunkCharPositions.clear();
         java.util.ArrayList<SentenceChunks.Chunk> parts=session.speechSegments;
-        sentenceIndex=SentenceIndex.fromChunks(parts);
+        sentenceIndex=SentenceIndex.fromText(session.book.text);
+        sentenceHistory.bind(sentenceIndex);
         ttsWordCount=session.ttsWordPositions.size();
         for(SentenceChunks.Chunk part:parts){
             chunks.add(part.text);
@@ -551,6 +557,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
                 org.json.JSONObject item=arr.optJSONObject(i);
                 if(item!=null && currentBook.equals(item.optString("uri"))){
                     item.put("index",at);
+                    item.put("wordCount",ttsWordCount);
                     item.put("progress",ttsWordCount<=0?0:Math.min(100,(int)((long)(at+1)*100/ttsWordCount)));
                     item.put("openedAt",System.currentTimeMillis());
                     e.putString("library",arr.toString());
@@ -575,6 +582,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
             pausePlayback();return;
         }
         if(paused||tts==null||ttsPosition>=chunks.size()){paused=true;notifyState();return;}
+        sentenceHistory.observe(getTtsAnchorWord());
         playLocalFile(ttsPosition);saveProgress();
     }
     @Override public void onInit(int status){ttsReady=status==TextToSpeech.SUCCESS;if(ttsReady){
@@ -671,6 +679,10 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
             }
         }
         return new int[]{base,base+chunk.length()};
+    }
+    private int currentSpokenTtsWord(){
+        int[] range=currentTtsWordRange();
+        return sentenceIndex.size()>0?sentenceIndex.wordAtChar(range[0]):getTtsAnchorWord();
     }
     public int getTtsAnchorWord(){return chunkWordPositions.isEmpty()?0:chunkWordPositions.get(Math.max(0,Math.min(ttsPosition,chunkWordPositions.size()-1)));}
     public int getTtsTotalWords(){return ttsWordCount;}

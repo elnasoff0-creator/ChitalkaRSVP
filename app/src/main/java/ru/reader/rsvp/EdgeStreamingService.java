@@ -55,6 +55,7 @@ public final class EdgeStreamingService extends Service {
     private final ArrayList<Integer> offsets=new ArrayList<>();
     private final ArrayList<SentenceChunks.Chunk> sentenceParts=new ArrayList<>();
     private SentenceIndex sentenceIndex=SentenceIndex.fromText("");
+    private final TtsSentenceHistory sentenceHistory=new TtsSentenceHistory();
     private int cachedSavedPercent=0;
     private boolean calculatingCoverage=false;
     private long lastCoverageCheck=0;
@@ -255,6 +256,7 @@ public final class EdgeStreamingService extends Service {
             player=((EdgePlaybackService.LocalBinder)b).getService();
             player.addListener(listener);
             player.setResumeSelection(EdgeStreamingService.this::rewindOnResume);
+            player.setPauseSelection(EdgeStreamingService.this::capturePausedSentence);
             player.setSentenceNavigation(EdgeStreamingService.this::navigateSentence);
             if(!bookUri.isEmpty())player.prepareBook("edge:"+bookUri);
             // Service and player can bind in either order. Warm exactly one clip,
@@ -407,7 +409,7 @@ public final class EdgeStreamingService extends Service {
         archive.clear();byStart.clear();pendingStarts.clear();priorityStart=-1;
         selectedOverrides.clear();selectedSeekWord=-1;deferredSelectedWord=-1;
         prefetchForStart=-1;prefetchIssued=0;
-        offsets.clear();sentenceParts.clear();sentenceIndex=SentenceIndex.fromText("");bookText="";chapters=BookChapterIndex.empty();directory=null;error="";
+        offsets.clear();sentenceParts.clear();sentenceIndex=SentenceIndex.fromText("");sentenceHistory.bind(sentenceIndex);bookText="";chapters=BookChapterIndex.empty();directory=null;error="";
         if(player!=null)player.prepareBook("edge:"+uri);
         changed();
         final String requested=uri;
@@ -427,7 +429,7 @@ public final class EdgeStreamingService extends Service {
                 DownloadsRepository.storeEdgeMeta(bookDir,requested,name,positions.size());
                 main.post(()->{
                     if(destroyed||!requested.equals(bookUri))return;
-                    bookText=raw;title=name;chapters=parsedChapters;offsets.addAll(positions);sentenceParts.addAll(newParts);sentenceIndex=SentenceIndex.fromChunks(newParts);directory=dir;
+                    bookText=raw;title=name;chapters=parsedChapters;offsets.addAll(positions);sentenceParts.addAll(newParts);sentenceIndex=SentenceIndex.fromText(raw);sentenceHistory.bind(sentenceIndex);directory=dir;
                     bookReady=!offsets.isEmpty();restore();
                     // Recovery is pure disk I/O. It must never delay the first frame.
                     io.execute(()->{
@@ -594,18 +596,26 @@ public final class EdgeStreamingService extends Service {
                 current=wordForChar(sourceChar);
             }
         }
+        if(sentenceIndex.size()>0)sentenceHistory.observe(current);
         return current;
     }
-    /** MediaSession/headset/UI resume always starts the CURRENT sentence at its beginning. */
+    /** Playback's pause boundary records the sentence seen in WordBoundary/highlighting. */
+    private void capturePausedSentence(){
+        if(bookReady&&sentenceIndex.size()>0)sentenceHistory.capturePause(currentSpeechWord());
+    }
+    /** Resume one complete real sentence before the paused one, not one MP3 clip. */
     private void rewindOnResume(){
         if(!bookReady||player==null||sentenceIndex.size()==0)return;
-        setAnchor(sentenceIndex.beginning(currentSpeechWord()),true);
+        int target=sentenceHistory.previousOnResume(currentSpeechWord());
+        sentenceHistory.manuallySelect(target);
+        setAnchor(target,true);
     }
     /** Previous/next commands from UI, MediaSession, headset and notification. */
     private void navigateSentence(int direction){
         if(!bookReady||sentenceIndex.size()==0)return;
         int position=currentSpeechWord();
         int target=direction<0?sentenceIndex.previous(position):sentenceIndex.next(position);
+        sentenceHistory.manuallySelect(target);
         setAnchor(target,true);
     }
     /** Called only on explicit PLAY in the newly opened reader. */
@@ -627,7 +637,8 @@ public final class EdgeStreamingService extends Service {
             return;
         }
         int requested=Math.max(0,Math.min(offsets.size()-1,word));
-        if(selected)ReaderDiagnosticLog.event("NAVIGATION","PLAY_TARGET selected_word="+requested+" source=manual");
+        if(selected){sentenceHistory.manuallySelect(requested);
+            ReaderDiagnosticLog.event("NAVIGATION","PLAY_TARGET selected_word="+requested+" source=manual");}
         if(!selected){anchorWord=requested;persist();pump();return;}
         Clip base=baseClipAt(requested);
         if(base==null)return;
@@ -1083,7 +1094,7 @@ public final class EdgeStreamingService extends Service {
         });
     }
     @Override public void onDestroy(){
-        if(player!=null){player.setResumeSelection(null);player.setSentenceNavigation(null);}
+        if(player!=null){player.setResumeSelection(null);player.setSentenceNavigation(null);player.setPauseSelection(null);}
         main.removeCallbacks(idleExpiry);
         main.removeCallbacks(saveIndex);
         persistNow(); // Last selected sentence / interrupted work survives process shutdown.

@@ -47,6 +47,7 @@ public class MainActivity extends NavigationActivity {
         String chapter = "";
         String format = "";
         int progress = 0;
+        int wordCount = 0;
         int index = 0;
         int scroll = 0;
         long openedAt = 0L;
@@ -61,6 +62,7 @@ public class MainActivity extends NavigationActivity {
                 o.put("chapter", chapter);
                 o.put("format", format);
                 o.put("progress", progress);
+                o.put("wordCount", wordCount);
                 o.put("index", index);
                 o.put("scroll", scroll);
                 o.put("openedAt", openedAt);
@@ -78,6 +80,7 @@ public class MainActivity extends NavigationActivity {
             m.chapter = o.optString("chapter", "");
             m.format = o.optString("format", "");
             m.progress = o.optInt("progress", 0);
+            m.wordCount = o.optInt("wordCount", 0);
             m.index = o.optInt("index", 0);
             m.scroll = o.optInt("scroll", 0);
             m.openedAt = o.optLong("openedAt", 0L);
@@ -215,9 +218,11 @@ public class MainActivity extends NavigationActivity {
         m.title = title.isEmpty() ? m.title : title;
         m.author = author == null ? "" : author;
         m.progress = words.length == 0 ? 0 : Math.max(0, Math.min(100, (index + 1) * 100 / Math.max(1, words.length)));
+                    m.wordCount=words.length;
         m.index = index;
+        m.wordCount = words.length;
         m.scroll = normalY;
-        if (m.chapter.isEmpty()) m.chapter = findChapterForIndex(index);
+        m.chapter = findChapterForIndex(index);
         if (m.excerpt.isEmpty()) m.excerpt = excerptAroundIndex(index);
         if (m.format.isEmpty()) m.format = extensionFromUri(currentUri);
         m.openedAt = System.currentTimeMillis();
@@ -362,7 +367,7 @@ public class MainActivity extends NavigationActivity {
 
 
     void drawHome() {
-        root.setPadding(dp(12), dp(23), dp(12), dp(8));
+        root.setPadding(dp(12), 0, dp(12), dp(8));
         LinearLayout contentWrap = column();
         ScrollView scroll = new ScrollView(this);
         homeScroll=scroll;
@@ -418,7 +423,9 @@ public class MainActivity extends NavigationActivity {
             done.setOnClickListener(v->{homeEditing=false;draw();});
             LinearLayout.LayoutParams commandLp=new LinearLayout.LayoutParams(-1,-2);commandLp.topMargin=dp(8);commandLp.bottomMargin=dp(12);root.addView(commands,commandLp);
         }
-        root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        LinearLayout.LayoutParams scrollLp=new LinearLayout.LayoutParams(-1,0,1);
+        if(!homeEditing)scrollLp.topMargin=dp(12);
+        root.addView(scroll,scrollLp);
 
         // External section spacing is owned by HomeSectionOrder: no leading spacer.
 
@@ -436,8 +443,8 @@ public class MainActivity extends NavigationActivity {
         final int libraryStart=contentWrap.getChildCount();
         final ArrayList<BookMeta> sortedBooks = sortedLibraryBooks();
         boolean bookExpanded=prefs.getBoolean("book_library_expanded",false);
-        TextView bookToggle=buttonish(HomeSectionOrder.title(prefs,"library")+" ("+library.size()+")  "+(bookExpanded?"⌃":"⌄"),softPanel(),fg,true);
-        add(contentWrap,iconToggle(bookToggle,R.drawable.ic_audio_chapters));
+        TextView bookToggle=buttonish(HomeSectionOrder.title(prefs,"library")+" ("+library.size()+")  ",softPanel(),fg,true);
+        add(contentWrap,iconToggle(bookToggle,R.drawable.ic_audio_chapters,bookExpanded));
         LinearLayout bookDetails=column();
         add(contentWrap,bookDetails);
         bookDetails.setVisibility(bookExpanded?View.VISIBLE:View.GONE);
@@ -466,7 +473,8 @@ public class MainActivity extends NavigationActivity {
             prefs.edit().putBoolean("book_library_expanded",opening).apply();
             if(opening)buildBooks.run();
             bookDetails.setVisibility(opening?View.VISIBLE:View.GONE);
-            bookToggle.setText(HomeSectionOrder.title(prefs,"library")+" ("+library.size()+")  "+(opening?"⌃":"⌄"));
+            setLibraryArrow(bookToggle,opening);
+            bookToggle.setText(HomeSectionOrder.title(prefs,"library")+" ("+library.size()+")  ");
         });
         // Keep one consistent separation between the text and audio groups.
         // Previously 12 + 16 + 12 dp were stacked here.
@@ -481,8 +489,8 @@ public class MainActivity extends NavigationActivity {
         if(audioBooks.isEmpty()){
             audioLibraryStart[0]=contentWrap.getChildCount();
             boolean audioExpanded=prefs.getBoolean("audio_library_expanded",false);
-            TextView audioToggle=buttonish(HomeSectionOrder.title(prefs,"audioLibrary")+" (0)  "+(audioExpanded?"⌃":"⌄"),softPanel(),fg,true);
-            add(contentWrap,iconToggle(audioToggle,R.drawable.ic_audiotheque));
+            TextView audioToggle=buttonish(HomeSectionOrder.title(prefs,"audioLibrary")+" (0)  ",softPanel(),fg,true);
+            add(contentWrap,iconToggle(audioToggle,R.drawable.ic_audiotheque,audioExpanded));
             TextView emptyAudio=text("Здесь появятся добавленные аудиокниги.",14,false);
             add(contentWrap,emptyAudio);
             emptyAudio.setVisibility(audioExpanded?View.VISIBLE:View.GONE);
@@ -490,7 +498,8 @@ public class MainActivity extends NavigationActivity {
                 boolean opening=emptyAudio.getVisibility()!=View.VISIBLE;
                 prefs.edit().putBoolean("audio_library_expanded",opening).apply();
                 emptyAudio.setVisibility(opening?View.VISIBLE:View.GONE);
-                audioToggle.setText(HomeSectionOrder.title(prefs,"audioLibrary")+" (0)  "+(opening?"⌃":"⌄"));
+                setLibraryArrow(audioToggle,opening);
+                audioToggle.setText(HomeSectionOrder.title(prefs,"audioLibrary")+" (0)  ");
             });
         }
         if(!audioBooks.isEmpty()){
@@ -504,22 +513,21 @@ public class MainActivity extends NavigationActivity {
             LinearLayout recentBody=row();recentBody.setGravity(Gravity.CENTER_VERTICAL);recentCard.addView(recentBody);
             recentBody.addView(audioCover(lastBook,88),new LinearLayout.LayoutParams(dp(88),dp(88)));
             LinearLayout recentInfo=column();LinearLayout.LayoutParams ri=new LinearLayout.LayoutParams(0,-2,1);ri.leftMargin=dp(12);recentBody.addView(recentInfo,ri);
-            TextView name=text(lastBook.name,18,true);name.setMaxLines(2);name.setEllipsize(TextUtils.TruncateAt.END);name.setSingleLine(false);recentInfo.addView(name);
+            TextView name=text(lastBook.name,17,true);name.setMaxLines(2);name.setEllipsize(TextUtils.TruncateAt.END);name.setSingleLine(false);recentInfo.addView(name);
             int chapter=Math.min(Math.max(0,prefs.getInt("audio_segment:"+lastBook.id,0)),Math.max(0,lastBook.chapters.size()-1));
-            String chapterName=lastBook.chapters.isEmpty()?"":lastBook.chapters.get(chapter);
             int listenProgress = audioProgress(lastBook);
-            TextView pos=text("Глава "+(chapter+1)+" из "+lastBook.uris.size()+" · "+chapterName+" · "+listenProgress+"%",13,false);
+            long audioMillis=Math.max(0,prefs.getInt("audio_pos:"+lastBook.id,0));
+            long seconds=audioMillis/1000L;
+            String audioPosition=(seconds/60)+":"+String.format(Locale.ROOT,"%02d",seconds%60);
+            TextView pos=text("Глава "+(chapter+1)+"/"+Math.max(1,lastBook.uris.size())+" · "+audioPosition+" · "+listenProgress+"%",12,false);
             pos.setSingleLine(true);pos.setEllipsize(TextUtils.TruncateAt.END);pos.setTextColor(listenProgress >= 100 ? subduedText() : faintText());recentInfo.addView(pos);
-            TextView continueAudio=buttonish(listenProgress >= 100 ? "↺  Слушать снова" : "▶  Продолжить",accent(),0xffffffff,true);
-            continueAudio.setOnClickListener(v->openAudioBook(lastBook.id,true));
-            LinearLayout.LayoutParams resumeLp=new LinearLayout.LayoutParams(-2,dp(44));resumeLp.topMargin=dp(8);
-            recentInfo.addView(continueAudio,resumeLp);
+            addResumeButton(recentInfo,()->openAudioBook(lastBook.id,true),listenProgress>=100?"Слушать снова":"Продолжить");
             recentCard.setOnClickListener(v->openAudioBook(lastBook.id));
             add(contentWrap,recentCard);
             audioLibraryStart[0]=contentWrap.getChildCount();
             boolean expanded=prefs.getBoolean("audio_library_expanded",false);
-            TextView toggle=buttonish(HomeSectionOrder.title(prefs,"audioLibrary")+" ("+audioBooks.size()+")  "+(expanded?"⌃":"⌄"),softPanel(),fg,true);
-            add(contentWrap,iconToggle(toggle,R.drawable.ic_audiotheque));
+            TextView toggle=buttonish(HomeSectionOrder.title(prefs,"audioLibrary")+" ("+audioBooks.size()+")  ",softPanel(),fg,true);
+            add(contentWrap,iconToggle(toggle,R.drawable.ic_audiotheque,expanded));
             LinearLayout audioDetails=column();add(contentWrap,audioDetails);
             audioDetails.setVisibility(expanded?View.VISIBLE:View.GONE);
             final int audioCount=audioBooks.size();
@@ -541,7 +549,7 @@ public class MainActivity extends NavigationActivity {
                     String detailLine = finished ? "Завершено · 100% прослушано" : "Глава "+(Math.min(saved+1, Math.max(1, ab.uris.size())))+" из "+ab.uris.size()+" · "+listenedPercent+"% прослушано";
                     TextView detail=text(detailLine,12,false);detail.setTextColor(finished ? subduedText() : faintText());info.addView(detail);
                     LinearLayout.LayoutParams audioInfoLp=new LinearLayout.LayoutParams(0,dp(82),1);audioInfoLp.leftMargin=dp(10);r.addView(info,audioInfoLp);
-                    View more=iconButton(android.R.drawable.ic_menu_more,v->audioMenu(ab));
+                    View more=itemMenuButton(v->audioMenu(ab));
                     r.addView(more,new LinearLayout.LayoutParams(dp(38),dp(42)));
                     r.setOnClickListener(v->openAudioBook(ab.id));
                     r.setOnLongClickListener(v->true);
@@ -557,7 +565,8 @@ public class MainActivity extends NavigationActivity {
                 prefs.edit().putBoolean("audio_library_expanded",opening).apply();
                 if(opening)buildAudio.run();
                 audioDetails.setVisibility(opening?View.VISIBLE:View.GONE);
-                toggle.setText(HomeSectionOrder.title(prefs,"audioLibrary")+" ("+audioCount+")  "+(opening?"⌃":"⌄"));
+                setLibraryArrow(toggle,opening);
+                toggle.setText(HomeSectionOrder.title(prefs,"audioLibrary")+" ("+audioCount+")  ");
             });
         }
         final int petStart=contentWrap.getChildCount();
@@ -663,15 +672,31 @@ public class MainActivity extends NavigationActivity {
         // Navigation moved to the accessible left drawer.
     }
 
-    private LinearLayout iconToggle(TextView toggle,int iconId){
+    private LinearLayout iconToggle(TextView toggle,int iconId,boolean expanded){
         LinearLayout row=row();row.setGravity(Gravity.CENTER_VERTICAL);
         row.setBackground(shape(softPanel(),14));
         ImageView image=new ImageView(this);image.setImageResource(iconId);image.setColorFilter(fg);
         LinearLayout.LayoutParams iconLp=new LinearLayout.LayoutParams(dp(27),dp(27));iconLp.leftMargin=dp(13);
         row.addView(image,iconLp);
         toggle.setBackgroundColor(Color.TRANSPARENT);
-        row.addView(toggle,new LinearLayout.LayoutParams(0,-2,1));
+        row.addView(toggle,new LinearLayout.LayoutParams(0,dp(48),1));
+        // Keep the original circular filled triangle for expanding a whole library.
+        // Only individual book/audio/comic actions use the vertical three-dot icon.
+        ImageView arrow=new ImageView(this);arrow.setImageResource(R.drawable.ic_library_triangle_down);
+        arrow.setColorFilter(fg);
+        arrow.setBackground(shape(panelColor(),50));
+        arrow.setPadding(dp(8),dp(8),dp(8),dp(8));
+        arrow.setRotation(expanded?180f:0f);
+        arrow.setContentDescription("Развернуть или свернуть библиотеку");
+        LinearLayout.LayoutParams arrowLp=new LinearLayout.LayoutParams(dp(32),dp(32));
+        arrowLp.rightMargin=dp(10);row.addView(arrow,arrowLp);
+        toggle.setTag(arrow);
+        arrow.setOnClickListener(v->toggle.performClick());
         row.setOnClickListener(v->toggle.performClick());return row;
+    }
+    private void setLibraryArrow(TextView toggle,boolean expanded){
+        Object arrow=toggle.getTag();
+        if(arrow instanceof ImageView)((ImageView)arrow).setRotation(expanded?180f:0f);
     }
     View gap(int n) { TextView t = new TextView(this); t.setHeight(dp(n)); return t; }
     View divider() { View v = new View(this); v.setBackgroundColor(ReadingThemeCycle.isDark(bg) ? 0xff3a3d43 : 0xffede4d8); v.setLayoutParams(new LinearLayout.LayoutParams(-1, dp(1))); return v; }
@@ -731,34 +756,36 @@ public class MainActivity extends NavigationActivity {
         return t;
     }
 
+    /** All three resume cards share the original compact book Continue button. */
+    private TextView addResumeButton(LinearLayout info,Runnable action,String label){
+        TextView button=buttonish(label,accent(),Color.WHITE,true);
+        button.setTextSize(12);
+        pad(button,8,6,8,6);
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,-2);
+        lp.topMargin=dp(8);info.addView(button,lp);
+        button.setOnClickListener(v->action.run());
+        return button;
+    }
+    private String readingResumeStats(BookMeta m){
+        String chapter=m.chapter==null||m.chapter.trim().isEmpty()?"Глава не указана":m.chapter.trim();
+        int current=Math.max(1,m.index+1);
+        int total=m.wordCount>0?m.wordCount:(currentUri.equals(m.uri)?words.length:0);
+        String position=total>0?"Поз. "+Math.min(current,total)+"/"+total:"Поз. "+current;
+        return chapter+" · "+position+" · "+Math.max(0,Math.min(100,m.progress))+"%";
+    }
     View continueCard(BookMeta m) {
-        LinearLayout wrapper=column();
-        LinearLayout card=row();
-        card.setBackground(shape(panelColor(),22));
-        pad(card,10);
-        card.addView(coverView(m.title,m.uri),new LinearLayout.LayoutParams(dp(104),dp(104)));
-        LinearLayout info=column();
-        LinearLayout.LayoutParams infoLp=new LinearLayout.LayoutParams(0,dp(112),1);
-        infoLp.setMargins(dp(10),0,0,0);
-        TextView name=text(m.title,17,true);
-        name.setMaxLines(1);name.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout card=row();card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setBackground(shape(panelColor(),22));pad(card,14);
+        card.addView(coverView(m.title,m.uri),new LinearLayout.LayoutParams(dp(88),dp(88)));
+        LinearLayout info=column();LinearLayout.LayoutParams infoLp=new LinearLayout.LayoutParams(0,-2,1);
+        infoLp.leftMargin=dp(12);card.addView(info,infoLp);
+        TextView name=text(m.title,17,true);name.setMaxLines(2);name.setEllipsize(TextUtils.TruncateAt.END);
         info.addView(name);
-        TextView excerpt=text(shorten(m.excerpt,145),13,false);
-        excerpt.setTextColor(faintText());excerpt.setMaxLines(3);
-        excerpt.setEllipsize(TextUtils.TruncateAt.END);
-        info.addView(excerpt,new LinearLayout.LayoutParams(-1,0,1));
-        LinearLayout foot=row();
-        TextView progress=text(m.progress+"%",13,true);
-        foot.addView(progress,new LinearLayout.LayoutParams(0,-2,1));
-        TextView resume=buttonish("Продолжить",accent(),0xffffffff,true);
-        resume.setTextSize(12);
-        pad(resume,8,6,8,6);
-        resume.setOnClickListener(v->openBook(m.uri,false,true));
-        foot.addView(resume);
-        info.addView(foot);
-        card.addView(info,infoLp);
+        TextView progress=text(readingResumeStats(m),12,false);progress.setTextColor(faintText());
+        progress.setMaxLines(2);progress.setEllipsize(TextUtils.TruncateAt.END);info.addView(progress);
+        addResumeButton(info,()->openBook(m.uri,false,true),"Продолжить");
         card.setOnClickListener(v->openBook(m.uri,false,true));
-        wrapper.addView(card);return wrapper;
+        return card;
     }
 
     View audioCover(AudioLibrary.Book b,int side){
@@ -810,7 +837,7 @@ public class MainActivity extends NavigationActivity {
         percent.setTextColor(finished ? subduedText() : faintText());
         info.addView(percent);
         row.addView(info,infoLp);
-        View more=iconButton(android.R.drawable.ic_menu_more,v->bookMenu(m));
+        View more=itemMenuButton(v->bookMenu(m));
         row.addView(more,new LinearLayout.LayoutParams(dp(38),dp(42)));
         row.setOnClickListener(v->openBook(m.uri,false,true));
         row.setOnLongClickListener(v->true); // Only the explicit ⋮ menu opens actions.
@@ -960,6 +987,18 @@ public class MainActivity extends NavigationActivity {
         return item;
     }
 
+    /** Unframed vertical overflow at the end of each library item. */
+    View itemMenuButton(View.OnClickListener click){
+        ImageView button=new ImageView(this);
+        button.setImageResource(R.drawable.ic_more_vertical);
+        button.setColorFilter(fg);
+        button.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        button.setPadding(dp(7),dp(9),dp(7),dp(9));
+        button.setContentDescription("Действия с произведением");
+        button.setClickable(true);button.setFocusable(true);
+        button.setOnClickListener(click);
+        return button;
+    }
     View iconButton(int drawable, View.OnClickListener click) {return iconButton(drawable,click,false);}
     View iconButton(int drawable, View.OnClickListener click, boolean keepVectorColor) {
         LinearLayout shell = row();
@@ -1303,17 +1342,16 @@ public class MainActivity extends NavigationActivity {
         detailLp.leftMargin=dp(12);content.addView(info,detailLp);
         TextView name=text(recent.title,17,true);name.setMaxLines(2);name.setEllipsize(TextUtils.TruncateAt.END);info.addView(name);
         TextView progress=text(recent.compactProgress(),12,false);progress.setTextColor(faintText());info.addView(progress);
-        TextView go=buttonish("▶ Продолжить",accent(),Color.WHITE,true);
-        LinearLayout.LayoutParams goLp=new LinearLayout.LayoutParams(-2,dp(44));goLp.topMargin=dp(8);
-        info.addView(go,goLp);go.setOnClickListener(v->openComic(recent.uri));card.setOnClickListener(v->openComic(recent.uri));
+        addResumeButton(info,()->openComic(recent.uri),"Продолжить");
+        card.setOnClickListener(v->openComic(recent.uri));
         add(host,card);
     }
     private void addComicSection(LinearLayout host){
         ArrayList<ComicLibrary.Comic> comics=ComicLibrary.list(this);
         boolean expanded=prefs.getBoolean("comic_library_expanded",true);
         String label=HomeSectionOrder.title(prefs,"comic");
-        TextView toggle=buttonish(label+" ("+comics.size()+")  "+(expanded?"⌃":"⌄"),softPanel(),fg,true);
-        add(host,iconToggle(toggle,R.drawable.ic_comic_library));
+        TextView toggle=buttonish(label+" ("+comics.size()+")  ",softPanel(),fg,true);
+        add(host,iconToggle(toggle,R.drawable.ic_comic_library,expanded));
         LinearLayout details=column();add(host,details);details.setVisibility(expanded?View.VISIBLE:View.GONE);
         final boolean[] built={false};
         Runnable build=()->{
@@ -1333,7 +1371,7 @@ public class MainActivity extends NavigationActivity {
                 title.setEllipsize(TextUtils.TruncateAt.END);info.addView(title);
                 TextView progress=text(item.compactProgress(),12,false);
                 progress.setTextColor(faintText());info.addView(progress);
-                View more=iconButton(android.R.drawable.ic_menu_more,v->comicMenu(item));
+                View more=itemMenuButton(v->comicMenu(item));
                 line.addView(more,new LinearLayout.LayoutParams(dp(38),dp(42)));
                 line.setOnClickListener(v->openComic(item.uri));
                 line.setOnLongClickListener(v->true);
@@ -1346,7 +1384,8 @@ public class MainActivity extends NavigationActivity {
         toggle.setOnClickListener(v->{boolean show=details.getVisibility()!=View.VISIBLE;
             prefs.edit().putBoolean("comic_library_expanded",show).apply();
             if(show)build.run();details.setVisibility(show?View.VISIBLE:View.GONE);
-            toggle.setText(HomeSectionOrder.title(prefs,"comic")+" ("+comics.size()+")  "+(show?"⌃":"⌄"));
+            setLibraryArrow(toggle,show);
+            toggle.setText(HomeSectionOrder.title(prefs,"comic")+" ("+comics.size()+")  ");
         });
         // Archive page totals are indexed in the background; do not unzip on the UI thread.
         boolean incomplete=false;
@@ -1504,6 +1543,7 @@ public class MainActivity extends NavigationActivity {
                     m.chapter = findChapterForIndex(index);
                     m.format = extensionFromUri(uriString);
                     m.progress = words.length == 0 ? 0 : Math.max(0, Math.min(100, (index + 1) * 100 / Math.max(1, words.length)));
+                    m.wordCount=words.length;
                     bringFirst(m);
                     if (switchToReader) screen = 1;
                     saveAll();
