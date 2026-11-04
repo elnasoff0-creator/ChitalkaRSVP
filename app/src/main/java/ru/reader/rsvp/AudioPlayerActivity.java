@@ -84,7 +84,11 @@ public class AudioPlayerActivity extends NavigationActivity {
         if(primary)playIcon=icon;
         return cell;
     }
-    void command(String action){startService(new Intent(this,AudioPlaybackService.class).setAction(action));handler.postDelayed(this::refresh,150);}
+    void command(String action){
+        Intent intent=new Intent(this,AudioPlaybackService.class).setAction(action);
+        if(selected!=null)intent.putExtra("bookId",selected.id);
+        startService(intent);handler.postDelayed(this::refresh,150);
+    }
     @Override public void onCreate(Bundle b){super.onCreate(b);bookUri=getIntent().getStringExtra("book_uri");if(bookUri==null||bookUri.isEmpty())bookUri=getSharedPreferences("reader",0).getString("uri","");String id=getIntent().getStringExtra("audio_book_id");if(id!=null)for(AudioLibrary.Book item:AudioLibrary.load(this))if(id.equals(item.id)){selected=item;break;}if(getIntent().getBooleanExtra("count_usage",false)&&selected!=null)bumpAudioUsage(selected.id);
         if(getIntent().getBooleanExtra("start_tts",false)&&!bookUri.isEmpty()){
             startActivity(new Intent(this,ReaderActivity.class).putExtra("reading_mode_override",3)
@@ -233,12 +237,16 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
                     if(k==0)command(AudioPlaybackService.PREV);
                     else if(k==2)command(AudioPlaybackService.NEXT);
                     else {AudioPlaybackService service=AudioPlaybackService.instance;
-                        command(service!=null&&!service.isPaused()?AudioPlaybackService.PAUSE:AudioPlaybackService.PLAY);}
+                        command(service!=null&&!service.isPaused()&&selected!=null&&
+                            !service.isTtsMode()&&selected.id.equals(service.getBookId())?
+                            AudioPlaybackService.PAUSE:AudioPlaybackService.PLAY);}
                 }else{
                     if(k==0)changeChapter(-1);
                     else if(k==6)changeChapter(1);
                     else if(k==3){AudioPlaybackService service=AudioPlaybackService.instance;
-                        command(service!=null&&!service.isPaused()?AudioPlaybackService.PAUSE:AudioPlaybackService.PLAY);}
+                        command(service!=null&&!service.isPaused()&&selected!=null&&
+                            !service.isTtsMode()&&selected.id.equals(service.getBookId())?
+                            AudioPlaybackService.PAUSE:AudioPlaybackService.PLAY);}
                     else jump(offsets[k]);
                 }
             });
@@ -484,8 +492,19 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         AudioPlaybackService service=AudioPlaybackService.instance;
         if(title==null||playIcon==null)return;
         if(service==null){playIcon.setImageResource(R.drawable.ic_play);playIcon.setColorFilter(Color.WHITE);return;}
-        playIcon.setImageResource(service.isPaused()?R.drawable.ic_play:R.drawable.ic_pause);
+        boolean selectedPlaying=selected!=null&&!service.isTtsMode()&&selected.id.equals(service.getBookId());
+        playIcon.setImageResource(!selectedPlaying||service.isPaused()?R.drawable.ic_play:R.drawable.ic_pause);
         playIcon.setColorFilter(Color.WHITE);
+        if(selected!=null&&!selectedPlaying){
+            // A different audible source keeps its own timeline; this screen shows
+            // the selected book, which remains silent until its Play is pressed.
+            setTextIfDifferent(title,selected.name);
+            if(overallTime!=null)setTextIfDifferent(overallTime,"Нажмите Play для продолжения");
+            if(overallRemaining!=null)setTextIfDifferent(overallRemaining,"");
+            if(overallPercent!=null)setTextIfDifferent(overallPercent,"");
+            if(totalProgress!=null){totalProgress.setEnabled(false);totalProgress.setProgress(0);}
+            return;
+        }
         if(speedValue!=null){if(service.isTtsMode())setTextIfDifferent(speedValue,String.valueOf(TtsWpm.get(this)));
             else {float rate=service.getSpeed();setTextIfDifferent(speedValue,(rate==(int)rate?Integer.toString((int)rate):Float.toString(rate))+"×");}}
         if(timerAction!=null){
@@ -521,7 +540,7 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
             returnToAudioCover();
             if(selected==null && !service.getBookId().isEmpty())for(AudioLibrary.Book item:AudioLibrary.load(this))if(item.id.equals(service.getBookId())){selected=item;updateCover();break;}
         }
-        setTextIfDifferent(title, service.getTitle());
+        setTextIfDifferent(title,selected!=null&&!selectedPlaying?selected.name:service.getTitle());
         // Speed is displayed in the toolbar; no redundant book-type/speed subtitle.
         if(chapterPicker!=null)chapterPicker.setContentDescription(service.isTtsMode()?"Выбрать фрагмент":"Глава "+(service.getSegment()+1)+". Выбрать главу");
         int d=service.getDuration(), position=service.getPosition(), segments=Math.max(1,service.getChapterCount());

@@ -369,7 +369,7 @@ public class MainActivity extends NavigationActivity {
         scroll.setFillViewport(true);
         scroll.addView(contentWrap, new ScrollView.LayoutParams(-1, -2));
         contentWrap.setClickable(true);
-        contentWrap.setOnLongClickListener(v->{enterHomeEditing();return true;});
+        contentWrap.setOnLongClickListener(v->{if(!MenuEditPrefs.longPress(this))return false;enterHomeEditing();return true;});
         final int restoreY=savedHomeScrollY;
         scroll.post(()->{if(homeScroll==scroll)scroll.scrollTo(0,restoreY);});
 
@@ -383,6 +383,12 @@ public class MainActivity extends NavigationActivity {
         LinearLayout.LayoutParams searchLp=new LinearLayout.LayoutParams(dp(TOOLBAR_SIZE_DP),dp(TOOLBAR_SIZE_DP));
         searchLp.leftMargin=dp(TOOLBAR_GAP_DP);
         top.addView(search,searchLp);
+        if(!MenuEditPrefs.longPress(this)){
+            View editHome=iconButton(R.drawable.ic_edit_name,v->enterHomeEditing());
+            editHome.setContentDescription("Редактировать главный экран");
+            LinearLayout.LayoutParams editLp=new LinearLayout.LayoutParams(dp(TOOLBAR_SIZE_DP),dp(TOOLBAR_SIZE_DP));
+            editLp.leftMargin=dp(TOOLBAR_GAP_DP);top.addView(editHome,editLp);
+        }
         View themeButton=iconButton(ReadingThemeCycle.icon(prefs),v->{
             ReadingThemeCycle.next(prefs);bg=prefs.getInt("bg",bg);fg=prefs.getInt("fg",fg);
             saveAll();draw();
@@ -401,20 +407,21 @@ public class MainActivity extends NavigationActivity {
         if(homeEditing){
             LinearLayout commands=row();commands.setGravity(Gravity.CENTER_VERTICAL);
             TextView addBlock=buttonish("＋ Добавить элемент",softPanel(),fg,true);
-            commands.addView(addBlock,new LinearLayout.LayoutParams(0,dp(46),1));
+            LinearLayout.LayoutParams addLp=new LinearLayout.LayoutParams(0,dp(46),1);commands.addView(addBlock,addLp);
             addBlock.setOnClickListener(v->chooseHiddenHomeBlock());
-            TextView reset=buttonish("Сброс",softPanel(),fg,true);commands.addView(reset);
+            TextView reset=buttonish("Сброс",softPanel(),fg,true);LinearLayout.LayoutParams resetLp=new LinearLayout.LayoutParams(-2,dp(46));resetLp.leftMargin=dp(8);commands.addView(reset,resetLp);
             reset.setOnClickListener(v->new SwipeDialogs.Builder(this).setTitle("Стандартный главный экран")
                 .setMessage("Восстановить порядок и видимость всех элементов?")
                 .setPositiveButton("Восстановить",(d,w)->{HomeSectionOrder.reset(prefs);draw();})
                 .setNegativeButton("Отмена",null).show());
-            TextView done=buttonish("Готово",accent(),Color.WHITE,true);commands.addView(done);
+            TextView done=buttonish("Готово",accent(),Color.WHITE,true);LinearLayout.LayoutParams doneLp=new LinearLayout.LayoutParams(-2,dp(46));doneLp.leftMargin=dp(8);commands.addView(done,doneLp);
             done.setOnClickListener(v->{homeEditing=false;draw();});
-            root.addView(commands);
+            LinearLayout.LayoutParams commandLp=new LinearLayout.LayoutParams(-1,-2);commandLp.topMargin=dp(8);commandLp.bottomMargin=dp(12);root.addView(commands,commandLp);
         }
         root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
 
-        add(contentWrap, gap(10));
+        // External section spacing is owned by HomeSectionOrder: no leading spacer.
+
         final int readingStart=contentWrap.getChildCount();
 
         if (!currentUri.isEmpty() && meta(currentUri) != null) add(contentWrap, continueCard(meta(currentUri)));
@@ -429,7 +436,6 @@ public class MainActivity extends NavigationActivity {
         final int libraryStart=contentWrap.getChildCount();
         final ArrayList<BookMeta> sortedBooks = sortedLibraryBooks();
         boolean bookExpanded=prefs.getBoolean("book_library_expanded",false);
-        add(contentWrap,gap(12));
         TextView bookToggle=buttonish(HomeSectionOrder.title(prefs,"library")+" ("+library.size()+")  "+(bookExpanded?"⌃":"⌄"),softPanel(),fg,true);
         add(contentWrap,iconToggle(bookToggle,R.drawable.ic_audio_chapters));
         LinearLayout bookDetails=column();
@@ -476,7 +482,7 @@ public class MainActivity extends NavigationActivity {
             audioLibraryStart[0]=contentWrap.getChildCount();
             boolean audioExpanded=prefs.getBoolean("audio_library_expanded",false);
             TextView audioToggle=buttonish(HomeSectionOrder.title(prefs,"audioLibrary")+" (0)  "+(audioExpanded?"⌃":"⌄"),softPanel(),fg,true);
-            add(contentWrap,gap(12));add(contentWrap,iconToggle(audioToggle,R.drawable.ic_audiotheque));
+            add(contentWrap,iconToggle(audioToggle,R.drawable.ic_audiotheque));
             TextView emptyAudio=text("Здесь появятся добавленные аудиокниги.",14,false);
             add(contentWrap,emptyAudio);
             emptyAudio.setVisibility(audioExpanded?View.VISIBLE:View.GONE);
@@ -511,7 +517,6 @@ public class MainActivity extends NavigationActivity {
             recentCard.setOnClickListener(v->openAudioBook(lastBook.id));
             add(contentWrap,recentCard);
             audioLibraryStart[0]=contentWrap.getChildCount();
-            add(contentWrap,gap(12));
             boolean expanded=prefs.getBoolean("audio_library_expanded",false);
             TextView toggle=buttonish(HomeSectionOrder.title(prefs,"audioLibrary")+" ("+audioBooks.size()+")  "+(expanded?"⌃":"⌄"),softPanel(),fg,true);
             add(contentWrap,iconToggle(toggle,R.drawable.ic_audiotheque));
@@ -645,7 +650,8 @@ public class MainActivity extends NavigationActivity {
             ChteicoEmotions.attach(petArea,
                 ()->{boolean wake=ChteicoEmotions.isSleeping();if(wake)ChteicoEmotions.wake();
                     bubble.removeCallbacks(dismissEmotion);startActivity(new Intent(this,ChteicoActivity.class).putExtra("wake_pet",wake));},
-                this::enterHomeEditing,showEmotion,v->enterHomeEditing());
+                ()->{if(MenuEditPrefs.longPress(this))enterHomeEditing();},showEmotion,
+                v->{if(MenuEditPrefs.longPress(this))enterHomeEditing();});
             TextView miniHeading=text(HomeSectionOrder.title(prefs,"pet"),14,true);
             miniHeading.setGravity(Gravity.CENTER_HORIZONTAL);
             contentWrap.addView(miniHeading,new LinearLayout.LayoutParams(-1,-2));
@@ -1290,7 +1296,6 @@ public class MainActivity extends NavigationActivity {
         ArrayList<ComicLibrary.Comic> all=ComicLibrary.list(this);
         ComicLibrary.Comic recent=lastComic(all);
         if(recent==null)return;
-        add(host,gap(12));
         LinearLayout card=column();card.setBackground(shape(panelColor(),22));pad(card,14);
         LinearLayout content=row();content.setGravity(Gravity.CENTER_VERTICAL);card.addView(content);
         content.addView(comicCover(recent,88,88),new LinearLayout.LayoutParams(dp(88),dp(88)));
@@ -1305,7 +1310,7 @@ public class MainActivity extends NavigationActivity {
     }
     private void addComicSection(LinearLayout host){
         ArrayList<ComicLibrary.Comic> comics=ComicLibrary.list(this);
-        add(host,gap(12));boolean expanded=prefs.getBoolean("comic_library_expanded",true);
+        boolean expanded=prefs.getBoolean("comic_library_expanded",true);
         String label=HomeSectionOrder.title(prefs,"comic");
         TextView toggle=buttonish(label+" ("+comics.size()+")  "+(expanded?"⌃":"⌄"),softPanel(),fg,true);
         add(host,iconToggle(toggle,R.drawable.ic_comic_library));

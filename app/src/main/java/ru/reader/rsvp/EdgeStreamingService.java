@@ -54,6 +54,7 @@ public final class EdgeStreamingService extends Service {
     private final Runnable saveIndex=this::persistNow;
     private final ArrayList<Integer> offsets=new ArrayList<>();
     private final ArrayList<SentenceChunks.Chunk> sentenceParts=new ArrayList<>();
+    private SentenceIndex sentenceIndex=SentenceIndex.fromText("");
     private int cachedSavedPercent=0;
     private boolean calculatingCoverage=false;
     private long lastCoverageCheck=0;
@@ -166,6 +167,7 @@ public final class EdgeStreamingService extends Service {
 
     private final ArrayList<Observer> observers=new ArrayList<>();
     private String bookUri="",title="",bookText="",error="";
+    private String pendingBookUri="";private int pendingBookWord=0;
     // Set before failing a live buffer so Media3's generic I/O error cannot
     // accidentally surface the same HTTP 429 as a user-visible Toast.
     private volatile boolean lastHttp429;
@@ -253,6 +255,7 @@ public final class EdgeStreamingService extends Service {
             player=((EdgePlaybackService.LocalBinder)b).getService();
             player.addListener(listener);
             player.setResumeSelection(EdgeStreamingService.this::rewindOnResume);
+            player.setSentenceNavigation(EdgeStreamingService.this::navigateSentence);
             if(!bookUri.isEmpty())player.prepareBook("edge:"+bookUri);
             // Service and player can bind in either order. Warm exactly one clip,
             // only when TTS is active and the user has not pressed Play.
@@ -384,7 +387,12 @@ public final class EdgeStreamingService extends Service {
     }
     public void openBook(String uri,int initialWord){
         if(uri==null||uri.isEmpty())return;
+        if(player!=null&&player.playRequested()&&!uri.equals(bookUri)){
+            // The current book keeps playing while another reader is opened.
+            pendingBookUri=uri;pendingBookWord=Math.max(0,initialWord);return;
+        }
         if(uri.equals(bookUri)){
+            pendingBookUri="";
             ReaderDiagnosticLog.event("READER_STARTUP","edge_book_reuse ready="+bookReady);
             // Do not overwrite an explicit selection with a stale activity bind.
             if(deferredSelectedWord<0 && selectedSeekWord<0 &&
@@ -399,7 +407,7 @@ public final class EdgeStreamingService extends Service {
         archive.clear();byStart.clear();pendingStarts.clear();priorityStart=-1;
         selectedOverrides.clear();selectedSeekWord=-1;deferredSelectedWord=-1;
         prefetchForStart=-1;prefetchIssued=0;
-        offsets.clear();sentenceParts.clear();bookText="";chapters=BookChapterIndex.empty();directory=null;error="";
+        offsets.clear();sentenceParts.clear();sentenceIndex=SentenceIndex.fromText("");bookText="";chapters=BookChapterIndex.empty();directory=null;error="";
         if(player!=null)player.prepareBook("edge:"+uri);
         changed();
         final String requested=uri;
@@ -419,7 +427,7 @@ public final class EdgeStreamingService extends Service {
                 DownloadsRepository.storeEdgeMeta(bookDir,requested,name,positions.size());
                 main.post(()->{
                     if(destroyed||!requested.equals(bookUri))return;
-                    bookText=raw;title=name;chapters=parsedChapters;offsets.addAll(positions);sentenceParts.addAll(newParts);directory=dir;
+                    bookText=raw;title=name;chapters=parsedChapters;offsets.addAll(positions);sentenceParts.addAll(newParts);sentenceIndex=SentenceIndex.fromChunks(newParts);directory=dir;
                     bookReady=!offsets.isEmpty();restore();
                     // Recovery is pure disk I/O. It must never delay the first frame.
                     io.execute(()->{
@@ -570,37 +578,49 @@ public final class EdgeStreamingService extends Service {
             // No partial MP3 is ever stored by the new engine.
         }
     }
-    /** Shared MediaSession/headset/UI resume rule, invoked before ExoPlayer starts. */
-    private void rewindOnResume(){
-        if(!bookReady||player==null||sentenceParts.isEmpty())return;
-        int current=Math.max(0,player.currentStartWord());
-        Clip clip=clipAt(current);
-        if(clip!=null){
+    /** Actual spoken word, including cached/live WordBoundary in the middle of an MP3 group. */
+    private int currentSpeechWord(){
+        int current=player!=null&&player.currentStartWord()>=0?player.currentStartWord():anchorWord;
+        Clip clip=clipAt(Math.max(0,current));
+        if(clip!=null&&player!=null){
             File source=player.currentTrackFile();
             java.util.List<EdgeWordTimings.Word> timing=source!=null&&source.isFile()
                 ?EdgeWordTimings.read(source,clip.text):liveWords(clip);
-            long ms=player.positionMs();
-            int mark=EdgeWordTimings.at(timing,ms);
-            if(mark<0){
-                // If paused in punctuation/silence, use the last word whose start
-                // has actually been reached; do not jump back to the whole MP3 block.
-                for(int j=timing.size()-1;j>=0;j--)if(timing.get(j).startMs<=ms){mark=j;break;}
-            }
+            long ms=player.positionMs();int mark=EdgeWordTimings.at(timing,ms);
+            if(mark<0)for(int j=timing.size()-1;j>=0;j--)
+                if(timing.get(j).startMs<=ms){mark=j;break;}
             if(mark>=0&&mark<timing.size()){
                 int sourceChar=charForWord(current)+timing.get(mark).from;
                 current=wordForChar(sourceChar);
             }
         }
-        SentenceChunks.Chunk active=SentenceChunks.forWord(sentenceParts,current);
-        if(active==null)return;
-        int previous=active.fromWord;
-        for(SentenceChunks.Chunk part:sentenceParts){
-            if(part.fromWord>=active.fromWord)break;
-            previous=part.fromWord;
-        }
-        setAnchor(previous,true);
+        return current;
     }
+    /** MediaSession/headset/UI resume always starts the CURRENT sentence at its beginning. */
+    private void rewindOnResume(){
+        if(!bookReady||player==null||sentenceIndex.size()==0)return;
+        setAnchor(sentenceIndex.beginning(currentSpeechWord()),true);
+    }
+    /** Previous/next commands from UI, MediaSession, headset and notification. */
+    private void navigateSentence(int direction){
+        if(!bookReady||sentenceIndex.size()==0)return;
+        int position=currentSpeechWord();
+        int target=direction<0?sentenceIndex.previous(position):sentenceIndex.next(position);
+        setAnchor(target,true);
+    }
+    /** Called only on explicit PLAY in the newly opened reader. */
+    public void activatePreparedBook(){
+        if(pendingBookUri.isEmpty())return;
+        String uri=pendingBookUri;int word=pendingBookWord;pendingBookUri="";
+        if(player!=null&&player.playRequested())player.pause();
+        openBook(uri,word);
+        if(player!=null)player.prepareBook("edge:"+uri);
+    }
+    public boolean hasPendingBook(){return !pendingBookUri.isEmpty();}
     public void setAnchor(int word,boolean selected){
+        if(!pendingBookUri.isEmpty()){
+            pendingBookWord=Math.max(0,word);return;
+        }
         if(!bookReady){
             anchorWord=Math.max(0,word);
             if(selected)deferredSelectedWord=anchorWord;
@@ -1063,7 +1083,7 @@ public final class EdgeStreamingService extends Service {
         });
     }
     @Override public void onDestroy(){
-        if(player!=null)player.setResumeSelection(null);
+        if(player!=null){player.setResumeSelection(null);player.setSentenceNavigation(null);}
         main.removeCallbacks(idleExpiry);
         main.removeCallbacks(saveIndex);
         persistNow(); // Last selected sentence / interrupted work survives process shutdown.

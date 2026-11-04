@@ -80,7 +80,18 @@ final class UniversalDrawer {
         branding.addView(logo,new LinearLayout.LayoutParams(dp(a,43),dp(a,43)));
         TextView brand=new TextView(a);brand.setText("  ПРОЧиталка");brand.setTextSize(21);
         brand.setTextColor(fg);brand.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
-        branding.addView(brand);list.addView(branding);
+        LinearLayout.LayoutParams brandLp=new LinearLayout.LayoutParams(0,-2,1);branding.addView(brand,brandLp);
+        if(!MenuEditPrefs.longPress(a)){
+            ImageView edit=new ImageView(a);edit.setImageResource(R.drawable.ic_edit_name);edit.setColorFilter(fg);
+            edit.setPadding(dp(a,10),dp(a,10),dp(a,10),dp(a,10));edit.setBackground(shape(a,soft,12));
+            edit.setContentDescription("Редактировать боковое меню");
+            branding.addView(edit,new LinearLayout.LayoutParams(dp(a,44),dp(a,44)));
+            edit.setOnClickListener(v->close(a,()->open(a,DrawerEditorActivity.class)));
+        }else{
+            branding.setOnLongClickListener(v->{close(a,()->open(a,DrawerEditorActivity.class));return true;});
+            list.setOnLongClickListener(v->{close(a,()->open(a,DrawerEditorActivity.class));return true;});
+        }
+        list.addView(branding);
         separator(a,list,fg,18,10);
         // Customizable drawer: persistent IDs, names, visibility, order, and working routes.
         for(String id:DrawerMenuStore.order(a)){
@@ -89,8 +100,6 @@ final class UniversalDrawer {
             final String route=id;
             item(a,list,fg,DrawerMenuStore.icon(id,a),DrawerMenuStore.name(a,id),()->navigate(a,route));
         }
-        separator(a,list,fg,12,7);
-        item(a,list,fg,R.drawable.ic_edit_name,"Редактировать",()->open(a,DrawerEditorActivity.class));
 
         scroll.post(()->{
             if(OPEN.get(a)!=session||session.closing)return;

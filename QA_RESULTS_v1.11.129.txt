@@ -1,0 +1,33 @@
+PROChitalka v1.11.129-beta CLEAN - source verification report
+=============================================================
+Source base: v1.11.128-beta CLEAN
+Gradle metadata: versionName=1.11.129-beta; versionCode=12900
+
+RESULT: 13/13 local QA groups PASS on the final full run
+  - 28 release source/interface contracts: PASS
+  - App resource references: 106 drawable refs resolved: PASS
+  - XML: 110 resources parsed: PASS
+  - Java parser: 131 Java files parsed: PASS (syntax only)
+  - Runnable JVM test: SentenceIndex current/previous/next: PASS
+  - Runnable JVM Android stub test: AudioFocus phone always pauses, media opt-in, notifications ignored: PASS
+  - Prior sentence segmentation, Edge sentence seeking, WebView gesture source contracts: PASS
+  - Tap-only panels in comic feed: PASS
+  - Prior ComicReader checked-exception regression: PASS
+  - Prior Edge method reference Java regression: PASS
+  - Playback clocks, Edge server clock and shared book session tests: PASS
+
+NOTE: First full QA run reported an old Edge server clock sync test above its strict
+150 ms nonblocking callback threshold (sensitive to first-run CPU/load). Standalone
+rerun PASSED and the second complete release QA run PASSED 13/13. No source change
+was required for that timing test. Device-level performance is not established.
+
+LIMITATIONS:
+  - Android Gradle build (assembleRelease): NOT RUN, Gradle/Android SDK unavailable.
+  - No APK built, installed, signed, or tested.
+  - No real AudioManager telephone/alarms/video tests on physical Android devices.
+  - No real UI/drag animations, WebView/rotation, headset/MediaSession tests.
+  - No live MangaLib network search/download verification.
+  - Source contract checks do not constitute Android Java type checking.
+
+NEXT: Run `gradle --no-daemon :app:assembleRelease --stacktrace` on an Android
+SDK-enabled CI runner, then manually validate the audio, orientation and drag flows.

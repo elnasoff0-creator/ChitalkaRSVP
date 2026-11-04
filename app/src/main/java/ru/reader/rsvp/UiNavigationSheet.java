@@ -156,7 +156,7 @@ final class UiNavigationSheet {
     }
     /** Comic mode chooser: same active-card treatment as ReaderActivity, from the bottom. */
     static void showComicModes(Activity a,int current,IndexChoice choose){
-        Sheet sh=sheet(a,"Режим просмотра");
+        Sheet sh=sheet(a,"Режим просмотра");sh.fromTop=true;
         int fg=a.getSharedPreferences("reader",0).getInt("fg",0xff30221e);
         int bg=ReaderButtonColors.neutral(a,0xfffff9f0);
         String[] titles={"Страницы","Лента"};
@@ -173,6 +173,31 @@ final class UiNavigationSheet {
             row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
             labels.addView(label(a,titles[i],17,fg));TextView sub=label(a,info[i],12,fg);sub.setAlpha(.72f);labels.addView(sub);
             if(current==i)row.addView(label(a,"✓",20,0xff7050a8));
+            row.setOnClickListener(v->{sh.dialog.dismiss();choose.onSelect(n);});
+        }
+        sh.show();
+    }
+
+    /** Portrait / landscape selector uses the same top sheet and outlined icons. */
+    static void showComicOrientation(Activity a,int current,IndexChoice choose){
+        Sheet sh=sheet(a,"Ориентация комикса");sh.fromTop=true;
+        int ink=a.getSharedPreferences("reader",0).getInt("fg",0xff30221e);
+        int neutral=ReaderButtonColors.neutral(a,0xfffff9f0);
+        String[] labels={"Вертикальная","Горизонтальная"};
+        String[] notes={"Книжная ориентация экрана","Альбомная ориентация экрана"};
+        int[] icons={R.drawable.ic_comic_portrait,R.drawable.ic_comic_landscape};
+        for(int i=0;i<labels.length;i++){
+            final int n=i;
+            LinearLayout row=new LinearLayout(a);row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(a,16),dp(a,12),dp(a,16),dp(a,12));
+            row.setBackground(shape(a,i==current?0xffd9c6ef:neutral,15));
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(a,70));lp.bottomMargin=dp(a,8);sh.content.addView(row,lp);
+            ImageView icon=new ImageView(a);icon.setImageResource(icons[i]);icon.setColorFilter(ink);
+            row.addView(icon,new LinearLayout.LayoutParams(dp(a,28),dp(a,28)));
+            LinearLayout text=new LinearLayout(a);text.setOrientation(LinearLayout.VERTICAL);text.setPadding(dp(a,14),0,0,0);
+            row.addView(text,new LinearLayout.LayoutParams(0,-2,1));
+            text.addView(label(a,labels[i],17,ink));TextView note=label(a,notes[i],12,ink);note.setAlpha(.72f);text.addView(note);
+            if(i==current)row.addView(label(a,"✓",20,0xff7050a8));
             row.setOnClickListener(v->{sh.dialog.dismiss();choose.onSelect(n);});
         }
         sh.show();

@@ -5,7 +5,9 @@ import android.content.ClipData;
 import android.content.SharedPreferences;
 import android.graphics.drawable.GradientDrawable;
 import android.view.DragEvent;
+import android.animation.LayoutTransition;
 import android.view.Gravity;
+import android.widget.ScrollView;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -73,6 +75,9 @@ final class HomeSectionOrder {
         ArrayList<View> all=new ArrayList<>();for(int i=0;i<parent.getChildCount();i++)all.add(parent.getChildAt(i));
         if(bounds[0]<0||bounds[7]>all.size())return;
         parent.removeAllViews();
+        if(editing){LayoutTransition transition=new LayoutTransition();transition.setDuration(135);
+            parent.setLayoutTransition(transition);
+        }else parent.setLayoutTransition(null);
         for(int i=0;i<bounds[0];i++)parent.addView(all.get(i));
         HashMap<String,LinearLayout> groups=new HashMap<>();
         for(int i=0;i<IDS.length;i++){
@@ -80,22 +85,24 @@ final class HomeSectionOrder {
             final String id=IDS[i];
             LinearLayout group=new LinearLayout(activity);group.setOrientation(LinearLayout.VERTICAL);group.setTag("home:"+id);
             for(int j=bounds[i];j<bounds[i+1];j++)group.addView(all.get(j));
-            if(group.getChildCount()==0)continue;
+            if(group.getChildCount()==0&&!editing)continue;
             if(editing){
+                // Hide real cards, lists, covers and pet; show compact reorder placeholders only.
+                for(int child=0;child<group.getChildCount();child++)group.getChildAt(child).setVisibility(View.GONE);
                 LinearLayout actions=new LinearLayout(activity);actions.setGravity(Gravity.CENTER_VERTICAL);
-                actions.setPadding(dp(activity,8),dp(activity,4),dp(activity,8),dp(activity,4));
+                actions.setPadding(dp(activity,8),dp(activity,3),dp(activity,8),dp(activity,3));
                 GradientDrawable bg=new GradientDrawable();bg.setColor(0xffe7daf3);bg.setCornerRadius(dp(activity,12));actions.setBackground(bg);
                 TextView grip=new TextView(activity);grip.setText("⠿");grip.setTextSize(25);grip.setGravity(Gravity.CENTER);grip.setTextColor(0xff30221e);
-                actions.addView(grip,new LinearLayout.LayoutParams(dp(activity,42),dp(activity,43)));
+                actions.addView(grip,new LinearLayout.LayoutParams(dp(activity,44),dp(activity,50)));
                 TextView label=new TextView(activity);label.setText(title(prefs,id));label.setTextColor(0xff30221e);label.setTextSize(15);label.setTypeface(null,1);
-                actions.addView(label,new LinearLayout.LayoutParams(0,-2,1));
+                label.setSingleLine(true);label.setEllipsize(android.text.TextUtils.TruncateAt.END);actions.addView(label,new LinearLayout.LayoutParams(0,-2,1));
                 TextView rename=new TextView(activity);rename.setText("✎");rename.setTextColor(0xff30221e);
                 rename.setTextSize(22);rename.setGravity(Gravity.CENTER);
                 rename.setContentDescription("Переименовать "+title(prefs,id));
-                actions.addView(rename,new LinearLayout.LayoutParams(dp(activity,42),dp(activity,43)));
+                actions.addView(rename,new LinearLayout.LayoutParams(dp(activity,44),dp(activity,50)));
                 rename.setOnClickListener(v->rename(activity,prefs,id));
                 TextView hide=new TextView(activity);hide.setText("✕");hide.setTextColor(0xff30221e);hide.setTextSize(20);hide.setGravity(Gravity.CENTER);
-                actions.addView(hide,new LinearLayout.LayoutParams(dp(activity,42),dp(activity,43)));
+                actions.addView(hide,new LinearLayout.LayoutParams(dp(activity,44),dp(activity,50)));
                 hide.setOnClickListener(v->{visible(prefs,id,false);activity.draw();});
                 grip.setOnTouchListener((v,e)->{
                     if(e.getActionMasked()==android.view.MotionEvent.ACTION_DOWN){
@@ -104,20 +111,49 @@ final class HomeSectionOrder {
                 });
                 group.addView(actions,0);
                 group.setOnDragListener((v,event)->{
-                    if(event.getAction()==DragEvent.ACTION_DRAG_STARTED)return event.getLocalState() instanceof String;
-                    if(event.getAction()==DragEvent.ACTION_DROP){
+                    if(event.getAction()==DragEvent.ACTION_DRAG_STARTED)
+                        return event.getLocalState() instanceof String;
+                    if(event.getAction()==DragEvent.ACTION_DRAG_LOCATION){
+                        if(parent.getParent() instanceof ScrollView){
+                            ScrollView scroll=(ScrollView)parent.getParent();
+                            float y=event.getY();
+                            if(y<dp(activity,14))scroll.smoothScrollBy(0,-dp(activity,20));
+                            else if(y>group.getHeight()-dp(activity,14))scroll.smoothScrollBy(0,dp(activity,20));
+                        }
+                        return true;
+                    }
+                    if(event.getAction()==DragEvent.ACTION_DRAG_ENTERED){
                         if(!(event.getLocalState() instanceof String))return false;
-                        String from=(String)event.getLocalState();ArrayList<String> order=order(prefs);
-                        if(!from.equals(id)&&order.contains(from)){
-                            order.remove(from);order.add(order.indexOf(id),from);setOrder(prefs,order);
-                            parent.post(activity::draw);
-                        }return true;
-                    }return true;
+                        String from=(String)event.getLocalState();
+                        View source=null;
+                        for(int j=0;j<parent.getChildCount();j++){
+                            View candidate=parent.getChildAt(j);
+                            if(("home:"+from).equals(candidate.getTag())){source=candidate;break;}
+                        }
+                        if(source!=null&&source!=group&&group.getParent()==parent){
+                            int target=parent.indexOfChild(group);
+                            parent.removeView(source);parent.addView(source,Math.min(target,parent.getChildCount()));
+                        }
+                        return true;
+                    }
+                    if(event.getAction()==DragEvent.ACTION_DROP){
+                        ArrayList<String> ordered=new ArrayList<>();
+                        for(int j=0;j<parent.getChildCount();j++){
+                            Object tag=parent.getChildAt(j).getTag();
+                            if(tag instanceof String&&((String)tag).startsWith("home:"))ordered.add(((String)tag).substring(5));
+                        }
+                        for(String name:order(prefs))if(!ordered.contains(name))ordered.add(name);
+                        setOrder(prefs,ordered);return true;
+                    }
+                    if(event.getAction()==DragEvent.ACTION_DRAG_ENDED&&!event.getResult()){
+                        parent.post(activity::draw);return true;
+                    }
+                    return true;
                 });
             }else{
-                group.setOnLongClickListener(v->{activity.enterHomeEditing();return true;});
+                group.setOnLongClickListener(v->{if(!MenuEditPrefs.longPress(activity))return false;activity.enterHomeEditing();return true;});
                 if(group.getChildCount()>0){View first=group.getChildAt(0);
-                    first.setOnLongClickListener(v->{activity.enterHomeEditing();return true;});
+                    first.setOnLongClickListener(v->{if(!MenuEditPrefs.longPress(activity))return false;activity.enterHomeEditing();return true;});
                 }
             }
             groups.put(id,group);
@@ -125,7 +161,7 @@ final class HomeSectionOrder {
         for(String id:order(prefs)){
             if(!visible(prefs,id))continue;
             LinearLayout group=groups.get(id);if(group==null)continue;
-            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(activity,12);
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(activity,editing?8:12);
             parent.addView(group,lp);
         }
     }

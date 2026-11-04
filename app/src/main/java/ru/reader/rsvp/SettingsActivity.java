@@ -117,7 +117,7 @@ public class SettingsActivity extends NavigationActivity {
         ScrollView sc=new ScrollView(this);list=col();sc.addView(list);root.addView(sc,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout tabs=new LinearLayout(this);
         int[] icons={R.drawable.ic_tab_appearance,R.drawable.ic_book,R.drawable.ic_tab_music,R.drawable.ic_tab_online,R.drawable.ic_chteico_nav};
-        String[] names={"Оформление","Чтение","Аудио","Онлайн","Чтейцо"};
+        String[] names={"Общие","Чтение","Аудио","Онлайн","Чтейцо"};
         for(int i=0;i<names.length;i++){
             final int tab=i;
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(67),1);
@@ -129,6 +129,9 @@ public class SettingsActivity extends NavigationActivity {
         if(currentTab==2){drawAudioSettings();return;}
         if(currentTab==3){drawOnlineSettings();return;}
         if(currentTab==4){drawChteicoSettings();return;}
+        header("Редактирование меню");
+        settingSwitch("Редактирование долгим нажатием",MenuEditPrefs.LONG_PRESS,false);
+        TextView helpEdit=text("Выключено: кнопка-карандаш. Включено: долгое нажатие на пустое место или заголовок.",12,false);helpEdit.setAlpha(.7f);list.addView(helpEdit);gap(12);
         preview=new TextView(this);preview.setText("Предпросмотр текста");preview.setGravity(Gravity.CENTER);preview.setLineSpacing(dp(5),1.18f);preview.setPadding(dp(19),dp(21),dp(19),dp(21));LinearLayout.LayoutParams previewLp=new LinearLayout.LayoutParams(-1,dp(90));previewLp.topMargin=dp(15);list.addView(preview,previewLp);applyPreview();
         header("Шрифт");
         list.addView(action(ReaderFontLibrary.choice(this,prefs)+"   ▾",this::fontDialog));
@@ -589,6 +592,9 @@ public class SettingsActivity extends NavigationActivity {
         gap(7);
     }
     void drawAudioSettings(){
+        header("Воспроизведение в фоне");
+        audioToggle(R.drawable.ic_audio_timer,"Автопауза при других звуках","При звонке пауза всегда; при выключении будильники и другие приложения не ставят паузу",PlaybackAudioFocus.AUTO_PAUSE_KEY,true);
+        audioDivider();
         header("TTS");
         audioToggle(R.drawable.ic_audio_timer,"Повторять предыдущее предложение","При продолжении TTS после паузы","tts_resume_previous_sentence",true);
         audioLink(R.drawable.ic_tts_engine,"Локальный голос","Установленные русские голоса Samsung, Google и других движков","Выбрать",()->startActivity(new Intent(this,TtsVoiceActivity.class)));

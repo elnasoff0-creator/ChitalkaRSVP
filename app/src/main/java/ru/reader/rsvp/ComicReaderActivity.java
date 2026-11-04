@@ -36,15 +36,18 @@ import java.util.Locale;
 public final class ComicReaderActivity extends NavigationActivity {
     private static final class PageAsset { String relativePath; File localFile; String mime="image/*"; }
     private ComicLibrary.Comic comic; private ArrayList<ComicLibrary.Chapter> chapters=new ArrayList<>(); private WebView web;
-    private TextView chapterTitle, chapterInfo, comicHeading;private ImageView modeAction;
+    private TextView chapterTitle, chapterInfo, comicHeading;private ImageView modeAction,orientationAction;
+    private boolean restoringPage=false;private int restoringToken=0;
     private LinearLayout toolbarOverlay; private FrameLayout footerOverlay;
     private boolean chromeVisible=true, gestureMoved=false, touchPinching=false;
     private float gestureStartX, gestureStartY;
     private long gestureStartedAt;
+    private int restoringScroll=0,restoringIndex=0;
     private int generation=0;private final ArrayList<PageAsset> currentAssets=new ArrayList<>();
     private final Handler tracker=new Handler(Looper.getMainLooper());private boolean tracking=false;
     private final Runnable trackPosition=new Runnable(){@Override public void run(){
         if(!tracking||web==null||isFinishing())return;
+        if(restoringPage){tracker.postDelayed(this,500L);return;}
         final int token=generation;
         try{web.evaluateJavascript("positionInfo()",value->{
             if(token!=generation||value==null||comic==null)return;
@@ -63,7 +66,12 @@ public final class ComicReaderActivity extends NavigationActivity {
 
     @Override public void onCreate(Bundle state){super.onCreate(state);
         String uri=getIntent().getStringExtra("comic_uri"); comic=ComicLibrary.find(this,uri==null?"":uri);
-        if(comic==null){finish();return;} chapters=ComicLibrary.chapters(this,comic);comic.chapterTotal=chapters.size();
+        if(comic==null){finish();return;}
+        int savedOrientation=getSharedPreferences("reader",0).getInt("comic_screen_orientation:"+comic.uri,0);
+        int targetOrientation=savedOrientation==0?android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT:
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE;
+        if(getRequestedOrientation()!=targetOrientation)setRequestedOrientation(targetOrientation);
+        chapters=ComicLibrary.chapters(this,comic);comic.chapterTotal=chapters.size();
         FrameLayout main=new FrameLayout(this);
         SharedPreferences prefs=getSharedPreferences("reader",0);
         int bg=prefs.getInt("bg",0xfff3e7d5), fg=prefs.getInt("fg",0xff30221e);
@@ -97,9 +105,32 @@ public final class ComicReaderActivity extends NavigationActivity {
         modeAction.setOnClickListener(v->UiNavigationSheet.showComicModes(this,comic.mode,n->{
             if(n!=comic.mode){comic.mode=n;comic.scroll=0;setChromeVisible(true);persist();updateModeIcon();loadChapter();}
         }));
-        // Title and current file sit to the RIGHT of the two icons, ON ONE neutral chip.
+        orientationAction=toolIcon(savedOrientation==0?R.drawable.ic_comic_portrait:R.drawable.ic_comic_landscape,neutralInk);
+        orientationAction.setBackground(rounded(neutral,12));
+        orientationAction.setContentDescription("Ориентация экрана комикса");
+        LinearLayout.LayoutParams orientLp=new LinearLayout.LayoutParams(dp(44),dp(44));
+        orientLp.leftMargin=dp(5);toolbar.addView(orientationAction,orientLp);
+        orientationAction.setOnClickListener(v->{
+            int current=getSharedPreferences("reader",0).getInt("comic_screen_orientation:"+comic.uri,0);
+            UiNavigationSheet.showComicOrientation(this,current,n->{
+                if(n==current)return;
+                Runnable rotate=()->{
+                    persist();getSharedPreferences("reader",0).edit()
+                        .putInt("comic_screen_orientation:"+comic.uri,n).apply();
+                    setRequestedOrientation(n==0?android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT:
+                        android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+                };
+                if(!restoringPage&&web!=null)web.evaluateJavascript("positionInfo()",value->{
+                    try{String[] parts=value.replace("\"","").split("\\|");
+                        comic.page=Integer.parseInt(parts[0]);comic.scroll=Integer.parseInt(parts[1]);}
+                    catch(Exception ignored){}
+                    rotate.run();
+                });else rotate.run();
+            });
+        });
+        // Title and current file sit to the RIGHT of the icon controls, ON ONE neutral chip.
         LinearLayout titleChip=new LinearLayout(this);
-        titleChip.setOrientation(LinearLayout.VERTICAL);
+        titleChip.setOrientation(LinearLayout.HORIZONTAL);
         titleChip.setGravity(Gravity.CENTER_VERTICAL);
         titleChip.setPadding(dp(10),dp(3),dp(9),dp(3));
         titleChip.setBackground(rounded(neutral,13));
@@ -110,12 +141,8 @@ public final class ComicReaderActivity extends NavigationActivity {
         comicHeading.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);
         comicHeading.setPadding(0,0,0,0);
         comicHeading.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        titleChip.addView(comicHeading,new LinearLayout.LayoutParams(-1,dp(24)));
-        chapterInfo=button("",neutralInk);chapterInfo.setTextSize(11);chapterInfo.setSingleLine(true);
-        chapterInfo.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);
-        chapterInfo.setPadding(0,0,0,0);
-        chapterInfo.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        titleChip.addView(chapterInfo,new LinearLayout.LayoutParams(-1,dp(17)));
+        titleChip.addView(comicHeading,new LinearLayout.LayoutParams(-1,-1));
+        chapterInfo=null; // Filename is appended to title in the SAME row; statistics remain below.
 
         web=new WebView(this); web.setBackgroundColor(bg); web.getSettings().setJavaScriptEnabled(true); web.getSettings().setAllowFileAccess(false); web.getSettings().setAllowContentAccess(false);
         web.getSettings().setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW);
@@ -127,9 +154,23 @@ public final class ComicReaderActivity extends NavigationActivity {
         web.getSettings().setUseWideViewPort(true);
         web.getSettings().setLoadWithOverviewMode(true);
         web.setOnTouchListener((v,event)->handleReaderTouch(event));
+        web.addJavascriptInterface(new Object(){
+            @android.webkit.JavascriptInterface public void onPositionRestored(int token){
+                runOnUiThread(()->{if(token!=generation||token!=restoringToken||web==null)return;
+                    restoringPage=false;web.animate().cancel();web.setAlpha(1f);
+                    if(tracking){tracker.removeCallbacks(trackPosition);tracker.postDelayed(trackPosition,400L);}
+                });
+            }
+        },"ComicRestore");
         // Feed scrolling only moves pages; both floating panels toggle by a short tap.
         web.setWebViewClient(new WebViewClient(){
             @Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest req){return true;}
+            @Override public void onPageFinished(WebView view,String url){
+                if(view!=web||!restoringPage||!url.startsWith("https://comic.local/"))return;
+                final int token=restoringToken;
+                String call="restoreWhenReady("+restoringScroll+","+restoringIndex+","+token+")";
+                view.evaluateJavascript(call,null);
+            }
             @Override public WebResourceResponse shouldInterceptRequest(WebView view,WebResourceRequest request){
                 Uri requestUri=request.getUrl(); if(!"comic.local".equals(requestUri.getHost())) return forbidden();
                 String path=requestUri.getPath(); if(path==null||!path.startsWith("/page/")) return forbidden();
@@ -246,7 +287,8 @@ public final class ComicReaderActivity extends NavigationActivity {
         String name=total>0?chapters.get(Math.max(0,Math.min(comic.chapter,total-1))).title:"Оглавление";
         int fileNumber=total==0?0:comic.chapter+1;
         chapterTitle.setText(fileNumber+"/"+total+" · Стр "+(comic.page+1)+(comic.pageTotal>0?"/"+comic.pageTotal:""));
-        if(chapterInfo!=null)chapterInfo.setText("Файл "+fileNumber+"/"+total+" · "+name);
+        // Upper toolbar contains only the title and actual filename, never 1/4 statistics.
+        if(comicHeading!=null)comicHeading.setText(comic.title+(name.isEmpty()?"":" · "+name));
     }
     private static WebResourceResponse forbidden(){return new WebResourceResponse("text/plain","UTF-8",new ByteArrayInputStream(new byte[0]));}
     private static DocumentFile lookup(DocumentFile root,String path){DocumentFile current=root; for(String part:path.split("/")){ if(part.isEmpty()||part.equals(".")) continue; if(part.equals("..")) return null; current=current.findFile(part); if(current==null) return null; } return current; }
@@ -274,15 +316,23 @@ public final class ComicReaderActivity extends NavigationActivity {
         persist();updateChapterButton();
         final ComicLibrary.Chapter chapter=chapters.get(comic.chapter);final int token=++generation;
         final int previousScroll=comic.scroll,previousPage=comic.page,mode=comic.mode;
+        restoringScroll=previousScroll;restoringIndex=previousPage;restoringToken=token;restoringPage=true;
+        web.animate().cancel();web.setAlpha(0f);
         new Thread(() -> {
             try {
                 String content = buildChapterHtml(chapter, mode);
                 runOnUiThread(() -> {if(token!=generation||isFinishing())return;
                     updateChapterButton();
                     web.loadDataWithBaseURL("https://comic.local/",content,"text/html","UTF-8",null);
-                    web.postDelayed(()->{if(token==generation)web.evaluateJavascript("restore("+previousScroll+","+previousPage+")",null);},550);
+                    // No fixed-delay jump. The JS bridge reveals the document only after restoration.
+                    web.postDelayed(()->{if(token==generation&&restoringPage){
+                        web.evaluateJavascript("restore("+previousScroll+","+previousPage+")",null);
+                        restoringPage=false;web.setAlpha(1f);
+                    }},10000L);
                 });
-            } catch(Exception e){ runOnUiThread(() -> Toast.makeText(this,"Ошибка открытия главы: "+e.getMessage(),Toast.LENGTH_LONG).show()); }
+            } catch(Exception e){runOnUiThread(()->{if(token!=generation)return;
+                    restoringPage=false;web.setAlpha(1f);
+                    Toast.makeText(this,"Ошибка открытия главы: "+e.getMessage(),Toast.LENGTH_LONG).show();});}
         },"comic-open").start();
     }
 
@@ -341,6 +391,11 @@ public final class ComicReaderActivity extends NavigationActivity {
         if(mode==0)html.append("var el=document.getElementById('pages');el.scrollLeft=n*el.clientWidth;");
         else html.append("window.scrollTo(0,offset>0?offset:imgs[n].offsetTop);");
         html.append("}");
+        html.append("function restoreWhenReady(offset,index,token){var imgs=pictures(),n=Math.max(0,Math.min(index,imgs.length-1));");
+        html.append("var target=");html.append(mode==0?"[imgs[n]]":"Array.prototype.slice.call(imgs,0,n+1)");
+        html.append(";target.forEach(function(im){if(im)im.loading='eager'});");
+        html.append("var waits=target.map(function(im){return new Promise(function(done){if(!im||im.complete){done();return;}im.addEventListener('load',done,{once:true});im.addEventListener('error',done,{once:true});});});");
+        html.append("Promise.race([Promise.all(waits),new Promise(function(done){setTimeout(done,6500)})]).then(function(){restore(offset,index);requestAnimationFrame(function(){restore(offset,index);if(window.ComicRestore)ComicRestore.onPositionRestored(token);});});}");
         // Page swipes remain native; an ACTION_UP without movement toggles the floating chrome.
         html.append("</script></body></html>");
         return html.toString();
@@ -349,7 +404,7 @@ public final class ComicReaderActivity extends NavigationActivity {
     @Override protected void onResume(){super.onResume();tracking=true;tracker.removeCallbacks(trackPosition);tracker.postDelayed(trackPosition,600);}
     @Override protected void onPause(){
         tracking=false;tracker.removeCallbacks(trackPosition);
-        if(web!=null){try{web.evaluateJavascript("positionInfo()",value->{try{
+        if(web!=null&&!restoringPage){try{web.evaluateJavascript("positionInfo()",value->{try{
             String[] parts=value.replace("\"","").split("\\|");
             comic.page=Integer.parseInt(parts[0]);comic.scroll=Integer.parseInt(parts[1]);persist();
         }catch(Exception ignored){}});}catch(Exception ignored){}}

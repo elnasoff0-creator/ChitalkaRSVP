@@ -5,6 +5,7 @@ import android.content.ClipData;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.view.DragEvent;
+import android.animation.LayoutTransition;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.EditText;
@@ -29,10 +30,11 @@ public final class DrawerEditorActivity extends NavigationActivity {
         TextView done=text("Готово",16);head.addView(done);done.setOnClickListener(v->finish());
         ScrollView scroll=new ScrollView(this);layout.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout entries=new LinearLayout(this);entries.setOrientation(1);scroll.addView(entries);
+        LayoutTransition transition=new LayoutTransition();transition.setDuration(135);entries.setLayoutTransition(transition);
         for(String id:DrawerMenuStore.order(this)){
             if(!DrawerMenuStore.visible(this,id))continue;
-            LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setBackground(panel());row.setPadding(dp(7),dp(8),dp(7),dp(8));
-            LinearLayout.LayoutParams rowLp=new LinearLayout.LayoutParams(-1,dp(63));rowLp.setMargins(0,dp(4),0,dp(4));entries.addView(row,rowLp);
+            LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setBackground(panel());row.setPadding(dp(7),dp(4),dp(7),dp(4));row.setTag("drawer:"+id);
+            LinearLayout.LayoutParams rowLp=new LinearLayout.LayoutParams(-1,dp(56));rowLp.setMargins(0,dp(4),0,dp(4));entries.addView(row,rowLp);
             TextView handle=text("⠿",24);handle.setGravity(Gravity.CENTER);row.addView(handle,new LinearLayout.LayoutParams(dp(38),-1));
             handle.setOnTouchListener((v,e)->{if(e.getActionMasked()==android.view.MotionEvent.ACTION_DOWN){
                 ClipData clip=ClipData.newPlainText("drawer",id);v.startDragAndDrop(clip,new View.DragShadowBuilder(row),id,0);return true;}return true;});
@@ -45,9 +47,35 @@ public final class DrawerEditorActivity extends NavigationActivity {
             if(!DrawerMenuStore.isProtected(id))hide.setOnClickListener(v->{DrawerMenuStore.visible(this,id,false);render();});
             row.setOnDragListener((v,e)->{
                 if(e.getAction()==DragEvent.ACTION_DRAG_STARTED)return e.getLocalState() instanceof String;
-                if(e.getAction()==DragEvent.ACTION_DROP){if(!(e.getLocalState() instanceof String))return false;
-                    String from=(String)e.getLocalState();ArrayList<String> order=DrawerMenuStore.order(this);
-                    if(!from.equals(id)){order.remove(from);order.add(order.indexOf(id),from);DrawerMenuStore.saveOrder(this,order);render();}return true;}
+                if(e.getAction()==DragEvent.ACTION_DRAG_LOCATION){
+                    float y=e.getY();
+                    if(y<dp(12))scroll.smoothScrollBy(0,-dp(20));
+                    else if(y>row.getHeight()-dp(12))scroll.smoothScrollBy(0,dp(20));
+                    return true;
+                }
+                if(e.getAction()==DragEvent.ACTION_DRAG_ENTERED){
+                    if(!(e.getLocalState() instanceof String))return false;
+                    String sourceId=(String)e.getLocalState();View source=null;
+                    for(int j=0;j<entries.getChildCount();j++){
+                        View child=entries.getChildAt(j);
+                        if(("drawer:"+sourceId).equals(child.getTag())){source=child;break;}
+                    }
+                    if(source!=null&&source!=row&&row.getParent()==entries){
+                        int index=entries.indexOfChild(row);entries.removeView(source);
+                        entries.addView(source,Math.min(index,entries.getChildCount()));
+                    }
+                    return true;
+                }
+                if(e.getAction()==DragEvent.ACTION_DROP){
+                    ArrayList<String> order=new ArrayList<>();
+                    for(int j=0;j<entries.getChildCount();j++){
+                        Object tag=entries.getChildAt(j).getTag();
+                        if(tag instanceof String&&((String)tag).startsWith("drawer:"))order.add(((String)tag).substring(7));
+                    }
+                    for(String item:DrawerMenuStore.order(this))if(!order.contains(item))order.add(item);
+                    DrawerMenuStore.saveOrder(this,order);return true;
+                }
+                if(e.getAction()==DragEvent.ACTION_DRAG_ENDED&&!e.getResult()){entries.post(this::render);return true;}
                 return true;
             });
         }

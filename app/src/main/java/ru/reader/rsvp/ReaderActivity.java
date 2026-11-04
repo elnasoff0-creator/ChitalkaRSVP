@@ -34,6 +34,7 @@ public class ReaderActivity extends NavigationActivity {
     private BookChapterIndex chapters=BookChapterIndex.empty();
     private BookChapterIndex actualChapters=BookChapterIndex.empty();
     private java.util.ArrayList<SentenceChunks.Chunk> ttsParts=new java.util.ArrayList<>();
+    private SentenceIndex ttsSentenceIndex=SentenceIndex.fromText("");
     private int pendingTtsWord=-1;
     private long pendingTtsSelectedAt=0L;
     private String cachedTimingKey="",lastTtsError="";
@@ -99,7 +100,10 @@ public class ReaderActivity extends NavigationActivity {
             ttsPlayer.prepareBook("edge:"+docUri);ttsPlayer.restoreSharedSleepTimer();
             ttsPlayer.setAutoContinue(true);ttsPlayer.setPlaybackSpeed(Math.min(5f,TtsWpm.rate(ReaderActivity.this)));
             ttsPlayer.addListener(ttsPlayerListener);
-            if(ttsPendingPlay){ttsPendingPlay=false;ttsPlayer.play();if(ttsStreamer!=null)ttsStreamer.ensurePlaySelection();}
+            if(ttsPendingPlay&&ttsStreamer!=null){
+                ttsPendingPlay=false;ttsStreamer.activatePreparedBook();
+                ttsPlayer.play();ttsStreamer.ensurePlaySelection();
+            }
             refreshTtsPosition();
         }
         @Override public void onServiceDisconnected(ComponentName name){ttsPlayer=null;}
@@ -115,7 +119,11 @@ public class ReaderActivity extends NavigationActivity {
             if(pendingTtsWord>=0)ttsStreamer.setAnchor(pendingTtsWord,true);
             else ttsStreamer.setAnchor(index,false);
             ttsStreamer.setActive(true);
-            if(ttsPlayer!=null&&ttsPlayer.playRequested())ttsStreamer.ensurePlaySelection();
+            if(ttsPendingPlay&&ttsPlayer!=null){
+                ttsPendingPlay=false;ttsStreamer.activatePreparedBook();
+                ttsPlayer.play();ttsStreamer.ensurePlaySelection();
+            }else if(ttsPlayer!=null&&ttsPlayer.playRequested()
+                    &&("edge:"+docUri).equals(ttsPlayer.currentBookId()))ttsStreamer.ensurePlaySelection();
         }
         @Override public void onServiceDisconnected(ComponentName name){ttsStreamer=null;}
     };
@@ -330,8 +338,16 @@ public class ReaderActivity extends NavigationActivity {
         LinearLayout.LayoutParams themeLp=new LinearLayout.LayoutParams(dp(44),dp(44));
         themeLp.leftMargin=dp(5);
         toolbar.addView(toolbarThemeAction,themeLp);
-        toolbarSpacer=new View(this);
-        toolbar.addView(toolbarSpacer,new LinearLayout.LayoutParams(0,dp(1),1));
+        toolbarBookName=text("",12);
+        toolbarBookName.setSingleLine(true);toolbarBookName.setEllipsize(TextUtils.TruncateAt.END);
+        toolbarBookName.setPadding(dp(9),0,dp(9),0);
+        toolbarBookName.setGravity(Gravity.CENTER_VERTICAL);
+        toolbarBookName.setBackground(shape(buttonBg(),12));
+        toolbarBookName.setTextColor(contrast(buttonBg()));
+        toolbarBookName.setOnClickListener(v->showBookmarks());
+        toolbar.addView(toolbarBookName,new LinearLayout.LayoutParams(0,dp(44),1));
+        // Layout measurement used to work with the spacer; title now occupies that slot.
+        toolbarSpacer=toolbarBookName;
         LinearLayout.LayoutParams bookmarkLp=new LinearLayout.LayoutParams(dp(44),dp(44));bookmarkLp.leftMargin=dp(5);
         // Bookmarks moved to overflow menu.
         toolbarEngineAction=icon(ttsLocal?R.drawable.ic_android_tts:R.drawable.ic_edge_tts,v->chooseTtsEngine());
@@ -392,16 +408,7 @@ public class ReaderActivity extends NavigationActivity {
         }),settingsLp);
         // The bookmark list is available via a dedicated toolbar/book menu action.
         // A long press on the book title does not alter the active reading position.
-        toolbarBookName=text("",13);
-        toolbarBookName.setSingleLine(true);
-        toolbarBookName.setEllipsize(TextUtils.TruncateAt.END);
-        toolbarBookName.setPadding(dp(6),dp(4),dp(6),dp(3));
-        toolbarBookName.setOnClickListener(v->showBookmarks());
-        toolbarStack.addView(toolbarBookName,new LinearLayout.LayoutParams(-1,dp(23)));
-        toolbarChapterName=text("",11);toolbarChapterName.setSingleLine(true);
-        toolbarChapterName.setEllipsize(TextUtils.TruncateAt.END);
-        toolbarChapterName.setPadding(dp(6),0,dp(6),dp(4));
-        toolbarStack.addView(toolbarChapterName,new LinearLayout.LayoutParams(-1,dp(19)));
+        toolbarChapterName=null; // Chapter appended after a middle dot inside the toolbar.
         if(words.length==0){applySystemBars(false);
             TextView intro=text("EPUB · FB2 · HTML\n\nОткройте книгу, чтобы начать чтение.",20);
             intro.setPadding(dp(24),dp(24),dp(24),dp(24));add(root,intro);
@@ -789,7 +796,7 @@ public class ReaderActivity extends NavigationActivity {
         }
     }
     private String formatReadingTime(long seconds){
-        return (seconds/3600)+" ч "+((seconds%3600)/60)+" мин";
+        return (seconds/3600)+" ч "+((seconds%3600)/60)+" м";
     }
     private void updatePlayButton(){
         boolean active=mode==TTS?ttsCurrentlyPlaying():playing;
@@ -889,13 +896,12 @@ public class ReaderActivity extends NavigationActivity {
         if(focusLines!=null)focusLines.invalidate();updateProgress();
     }
     private void updateChapterTitle(){
-        if(toolbarChapterName==null)return;
+        if(toolbarBookName==null)return;
         int at=viewportWord>=0?viewportWord:index;
         int charAt=map.starts.length>0?map.starts[map.clamp(at)]:-1;
         BookChapterIndex.Chapter shown=charAt>=0?actualChapters.atChar(charAt):null;
         String name=shown==null?"":shown.title;
-        toolbarChapterName.setText(name);
-        toolbarChapterName.setVisibility(name.isEmpty()?View.GONE:View.VISIBLE);
+        toolbarBookName.setText(title+(name.isEmpty()?"":" · "+name));
     }
     private int chapterForWord(int word){
         if(chapters==null||map.starts.length==0)return -1;
@@ -1279,7 +1285,11 @@ public class ReaderActivity extends NavigationActivity {
             // remains a historical cache, never reused for a modified dictionary.
             ttsStreamer.refreshSelectedClip(selected);
             cachedTimingKey="";cachedTimingWords=java.util.Collections.emptyList();
-            if(ttsPlayer!=null&&ttsPlayer.playRequested())ttsStreamer.ensurePlaySelection();
+            if(ttsPendingPlay&&ttsPlayer!=null){
+                ttsPendingPlay=false;ttsStreamer.activatePreparedBook();
+                ttsPlayer.play();ttsStreamer.ensurePlaySelection();
+            }else if(ttsPlayer!=null&&ttsPlayer.playRequested()
+                    &&("edge:"+docUri).equals(ttsPlayer.currentBookId()))ttsStreamer.ensurePlaySelection();
             return;
         }
         if(req==12210&&result==RESULT_OK&&data!=null&&data.hasExtra("word_index")&&words.length>0){
@@ -1316,7 +1326,7 @@ public class ReaderActivity extends NavigationActivity {
                 map=prepared;words=prepared.words;chunks=indexed;
                 actualChapters=parsedChapters==null?BookChapterIndex.empty():parsedChapters;
                 chapters=parsedChapters!=null&&parsedChapters.size()>=3?parsedChapters:BookChapterIndex.empty();
-                ttsParts=session.speechSegments;docUri=uri.toString();
+                ttsParts=session.speechSegments;ttsSentenceIndex=SentenceIndex.fromChunks(ttsParts);docUri=uri.toString();
                 prefs.edit().putString("book_title:"+docUri,title)
                     .putString("book_author:"+docUri,author)
                     .putInt("book_words:"+docUri,words.length).apply();
@@ -1366,10 +1376,10 @@ public class ReaderActivity extends NavigationActivity {
         cachedTimingSidecarLength=-1L;cachedTimingSidecarModified=-1L;
         cachedTimingWords=java.util.Collections.emptyList();lastTtsError="";
         if(ttsLocal){
-            ReaderTtsController.stopLocal(this);
+            // Leaving the Activity must not stop a background speech session.
         }else{
-            if(ttsPlayer!=null){ttsPlayer.pause();ttsPlayer.removeListener(ttsPlayerListener);}
-            if(ttsStreamer!=null){ttsStreamer.removeObserver(ttsStreamObserver);ttsStreamer.setActive(false);}
+            if(ttsPlayer!=null){ttsPlayer.removeListener(ttsPlayerListener);}
+            if(ttsStreamer!=null){ttsStreamer.removeObserver(ttsStreamObserver);}
             if(ttsBoundStream){unbindService(ttsStreamConnection);ttsBoundStream=false;}
             if(ttsBoundPlayer){unbindService(ttsPlayerConnection);ttsBoundPlayer=false;}
             ttsStreamer=null;ttsPlayer=null;
@@ -1381,12 +1391,14 @@ public class ReaderActivity extends NavigationActivity {
             AudioPlaybackService local=AudioPlaybackService.instance;
             return local!=null&&local.isTtsMode()&&!local.isPaused();
         }
-        return ttsPendingPlay||(ttsPlayer!=null&&ttsPlayer.playRequested());
+        return ttsPendingPlay||(ttsPlayer!=null&&ttsPlayer.playRequested()
+            &&("edge:"+docUri).equals(ttsPlayer.currentBookId()));
     }
     private boolean ttsCurrentlyPlaying(){
         if(ttsLocal){AudioPlaybackService s=AudioPlaybackService.instance;
             return s!=null&&s.isTtsMode()&&!s.isPaused();}
-        return ttsPendingPlay||ttsPlayer!=null&&ttsPlayer.playRequested();
+        return ttsPendingPlay||ttsPlayer!=null&&ttsPlayer.playRequested()
+            &&("edge:"+docUri).equals(ttsPlayer.currentBookId());
     }
     private void toggleTtsPlayback(){
         // Rewind is owned by the playback services, not the on-screen button.
@@ -1394,8 +1406,11 @@ public class ReaderActivity extends NavigationActivity {
         if(!ttsCurrentlyPlaying())returnToActiveWord();
         if(ttsLocal){ReaderTtsController.localPauseOrResume(this);
         }else if(ttsPlayer!=null){
-            if(ttsPlayer.playRequested())ttsPlayer.pause();
-            else {ttsPlayer.play();if(ttsStreamer!=null)ttsStreamer.ensurePlaySelection();}
+            boolean thisBook=("edge:"+docUri).equals(ttsPlayer.currentBookId());
+            if(thisBook&&ttsPlayer.playRequested())ttsPlayer.pause();
+            else if(ttsStreamer!=null){
+                ttsStreamer.activatePreparedBook();ttsPlayer.play();ttsStreamer.ensurePlaySelection();
+            }else ttsPendingPlay=true;
         }else ttsPendingPlay=!ttsPendingPlay;
         updatePlayButton();scheduleTtsUi();
     }
@@ -1403,8 +1418,7 @@ public class ReaderActivity extends NavigationActivity {
         // A tap selects the sentence; the book's UI block is never reloaded.
         abandonViewportPreview();
         index=map.clamp(at);
-        SentenceChunks.Chunk sentence=SentenceChunks.forWord(ttsParts,index);
-        if(sentence!=null)index=sentence.fromWord;
+        index=ttsSentenceIndex.beginning(index);
         pendingTtsWord=index;
         pendingTtsSelectedAt=SystemClock.uptimeMillis();
         navigationEpoch++;

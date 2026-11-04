@@ -42,6 +42,9 @@ import java.util.ArrayList;
 public final class EdgePlaybackService extends Service {
     /** Called synchronously on user Play, before resuming sound from MediaSession or UI. */
     public interface ResumeSelection { void rewindToPreviousSentence(); }
+    interface SentenceNavigation { void navigate(int step); }
+    private SentenceNavigation sentenceNavigation;
+    void setSentenceNavigation(SentenceNavigation callback){sentenceNavigation=callback;}
     private ResumeSelection resumeSelection;
     private boolean rewindAfterUserPause;
     public void setResumeSelection(ResumeSelection callback){resumeSelection=callback;}
@@ -69,9 +72,11 @@ public final class EdgePlaybackService extends Service {
     private ExoPlayer player;
     private final ArrayList<Listener> listeners = new ArrayList<>();
     private PlaybackAudioFocus focus;
+    private boolean pausedForTelephone=false;
     private MediaSession mediaSession;
     private android.graphics.Bitmap playbackCover;
     private String mediaTitle="Книга",mediaAuthor="",coverBookUri="";
+    private String pendingBookId="";
     private void updateArtwork(String id){
         String book=id.startsWith("edge:")?id.substring(5):id;
         if(book.isEmpty()||book.equals(coverBookUri))return;
@@ -120,9 +125,8 @@ public final class EdgePlaybackService extends Service {
     private final BroadcastReceiver exclusiveSource = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
             if (AudioModeCoordinator.STOP_EDGE.equals(i.getAction())) {
-                stopAudio();
-                clearQueue();
-                stopSelf();
+                // The old session remains prepared; another player's Play only pauses it.
+                pause();
             }
         }
     };
@@ -248,7 +252,9 @@ public final class EdgePlaybackService extends Service {
                 notifyState();
             }
         });
-        focus = new PlaybackAudioFocus(this, this::pause);
+        focus = new PlaybackAudioFocus(this, telephone->{
+            if(telephone)pauseForTelephone();else pause();
+        },()->{if(pausedForTelephone){pausedForTelephone=false;play();}},true);
         mediaSession = new MediaSession(this, "ChitalkaRSVP-Edge-MP3");
         mediaSession.setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS | MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS);
         mediaSession.setCallback(new MediaSession.Callback() {
@@ -307,8 +313,14 @@ public final class EdgePlaybackService extends Service {
     public void removeListener(Listener value){listeners.remove(value);}
     /** Backwards-compatible registration; new callers should use addListener/removeListener. */
     public void setListener(Listener value) {listeners.clear();addListener(value);}
+    public String currentBookId(){return activeBookId;}
     public void prepareBook(String id) {
         String requested=id==null?"":id;
+        if(requestedPlay&&!requested.equals(activeBookId)){
+            pendingBookId=requested; // OPEN/PREPARE never interrupts an audible Edge session.
+            return;
+        }
+        pendingBookId="";
         if (!requested.equals(activeBookId)) {
             boolean differentBook=!activeBookId.isEmpty();
             clearQueue();activeBookId=requested;
@@ -511,6 +523,12 @@ public final class EdgePlaybackService extends Service {
         notifyState();
     }
     /** Explicit Play is the only user action which requests audible sound. */
+    private void pauseForTelephone(){
+        if(!requestedPlay)return;
+        pausedForTelephone=true;requestedPlay=false;requestedPlayAtMs=0;
+        player.pause();updateNotification();updateSession();notifyState();
+        // Keep focus registered so the call-end monitor can restore playback.
+    }
     public void play() {
         if(!requestedPlay && rewindAfterUserPause){
             rewindAfterUserPause=false;
@@ -518,6 +536,7 @@ public final class EdgePlaybackService extends Service {
                     &&resumeSelection!=null)resumeSelection.rewindToPreviousSentence();
         }
         if (!focus.acquire()) { requestedPlay=false;notifyState();return; }
+        if(!requestedPlay)AudioModeCoordinator.pauseLocal(this);
         if(!requestedPlay)requestedPlayAtMs=android.os.SystemClock.elapsedRealtime();
         requestedPlay=true;
         if(activeBookId!=null&&!activeBookId.isEmpty())ChteicoStore.openAudio(this,activeBookId);
@@ -538,6 +557,7 @@ public final class EdgePlaybackService extends Service {
         notifyState();
     }
     public void pause() {
+        pausedForTelephone=false;
         if(requestedPlay)rewindAfterUserPause=true;
         if(ttsSleepClock!=null)ttsSleepClock.freeze();
         requestedPlay=false;requestedPlayAtMs=0;
@@ -565,11 +585,13 @@ public final class EdgePlaybackService extends Service {
     public void rewind10() { seekWithin(Math.max(0,positionMs()-10000)); }
     public void forward10() { seekWithin(Math.min(durationMs()>0?durationMs():Long.MAX_VALUE,positionMs()+10000)); }
     public void next() {
+        if(sentenceNavigation!=null){sentenceNavigation.navigate(1);return;}
         int idx=trackIndex();
         if(idx+1<tracks.size()) player.seekTo(idx+1,0);
         notifyState();
     }
     public void previous() {
+        if(sentenceNavigation!=null){sentenceNavigation.navigate(-1);return;}
         int idx=trackIndex();
         if(idx>0) player.seekTo(idx-1,0);
         else seekWithin(0);
