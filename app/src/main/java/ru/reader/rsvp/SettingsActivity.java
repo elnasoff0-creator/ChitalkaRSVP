@@ -670,9 +670,19 @@ public class SettingsActivity extends NavigationActivity {
         });
     }
     private void edgeDictionaryDialog(){
-        // The old 8 KB SharedPreferences text editor would overwrite migrated rules.
-        // Always use the SQLite editor for every entry point.
-        startActivity(new android.content.Intent(this,EdgeDictionaryActivity.class));
+        EditText edit=new EditText(this);
+        edit.setSingleLine(false);edit.setMinLines(6);edit.setMaxLines(12);
+        edit.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        edit.setHint("Пример:\nёлка=йолка\n... (до 100 строк)");
+        edit.setText(prefs.getString(EdgeSpeechTextTransform.DICTIONARY,""));
+        edit.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(8192)});
+        LinearLayout panel=col();panel.setPadding(dp(15),0,dp(15),0);panel.addView(edit);
+        new SwipeDialogs.Builder(this).setTitle("Словарь Edge TTS")
+            .setView(panel).setNegativeButton("Отмена",null)
+            .setPositiveButton("Сохранить",(d,w)->{
+                prefs.edit().putString(EdgeSpeechTextTransform.DICTIONARY,
+                    edit.getText().toString()).apply();draw();
+            }).show();
     }
     private void audioSpeedDialog(){
         final float[] rates={.5f,.75f,1f,1.1f,1.25f,1.5f,1.75f,2f,2.5f,3f};

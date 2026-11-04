@@ -129,7 +129,7 @@ public final class EdgeFullBookService extends Service {
             ArrayList<EdgeTextSegments.Part> parts=EdgeTextSegments.all(raw,book.chapters,job.chars);
             if(parts.isEmpty())throw new Exception("Не удалось разбить текст на фрагменты");
             final EdgeSpeechTextTransform.Options speechOptions=
-                EdgeDictionaryStore.get(this).options();
+                EdgeSpeechTextTransform.Options.read(getSharedPreferences("reader",0));
             JSONArray index=new JSONArray();
             for(EdgeTextSegments.Part part:parts){
                 JSONObject o=new JSONObject();

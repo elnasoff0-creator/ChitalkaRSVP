@@ -37,6 +37,7 @@ public final class ComicReaderActivity extends NavigationActivity {
     private static final class PageAsset { String relativePath; File localFile; String mime="image/*"; }
     private ComicLibrary.Comic comic; private ArrayList<ComicLibrary.Chapter> chapters=new ArrayList<>(); private WebView web;
     private TextView chapterTitle, chapterInfo, comicHeading;private ImageView modeAction,orientationAction;
+    private TextView ocrAction; private ComicOcrStore ocrStore; private boolean ocrBusy=false;
     private boolean restoringPage=false;private int restoringToken=0;
     private LinearLayout toolbarOverlay; private FrameLayout footerOverlay;
     private boolean chromeVisible=true, gestureMoved=false, touchPinching=false;
@@ -67,6 +68,7 @@ public final class ComicReaderActivity extends NavigationActivity {
     @Override public void onCreate(Bundle state){super.onCreate(state);
         String uri=getIntent().getStringExtra("comic_uri"); comic=ComicLibrary.find(this,uri==null?"":uri);
         if(comic==null){finish();return;}
+        ocrStore=new ComicOcrStore(this,comic.uri);
         int savedOrientation=getSharedPreferences("reader",0).getInt("comic_screen_orientation:"+comic.uri,0);
         int targetOrientation=savedOrientation==0?android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT:
             android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE;
@@ -128,6 +130,11 @@ public final class ComicReaderActivity extends NavigationActivity {
                 });else rotate.run();
             });
         });
+        ocrAction=button("OCR",accentInk);ocrAction.setTextSize(12);
+        ocrAction.setBackground(rounded(accent,12));ocrAction.setContentDescription("Распознать текст текущей страницы");
+        LinearLayout.LayoutParams ocrLp=new LinearLayout.LayoutParams(dp(48),dp(44));
+        ocrLp.leftMargin=dp(5);toolbar.addView(ocrAction,ocrLp);
+        ocrAction.setOnClickListener(v->recognizeVisiblePage());
         // Title and current file sit to the RIGHT of the icon controls, ON ONE neutral chip.
         LinearLayout titleChip=new LinearLayout(this);
         titleChip.setOrientation(LinearLayout.HORIZONTAL);
@@ -162,7 +169,15 @@ public final class ComicReaderActivity extends NavigationActivity {
                 });
             }
         },"ComicRestore");
-        // Feed scrolling only moves pages; both floating panels toggle by a short tap.
+        web.addJavascriptInterface(new Object(){
+            @android.webkit.JavascriptInterface public void onBlock(int token,int page,int index){
+                runOnUiThread(()->playOcrBlock(token,page,index));
+            }
+            @android.webkit.JavascriptInterface public void onOutside(int token){
+                runOnUiThread(()->{if(token==generation)setChromeVisible(!chromeVisible);});
+            }
+        },"ComicOcrTap");
+        // WebView bridge handles taps while OCR regions exist; swipes and pinch remain native.
         web.setWebViewClient(new WebViewClient(){
             @Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest req){return true;}
             @Override public void onPageFinished(WebView view,String url){
@@ -265,7 +280,8 @@ public final class ComicReaderActivity extends NavigationActivity {
                 android.os.SystemClock.uptimeMillis()-gestureStartedAt<350L){
                 // In BOTH modes a short single-finger tap toggles both overlays.
                 // Horizontal swipes, vertical feed scroll and two-finger pinch remain native.
-                setChromeVisible(!chromeVisible);
+                // Chrome tap is handled by ComicOcrTap's DOM click bridge.
+                // Keeping this native handler passive prevents a double toggle.
             }
             touchPinching=false;
         }else if(action==MotionEvent.ACTION_CANCEL){touchPinching=false;gestureMoved=true;}
@@ -374,22 +390,34 @@ public final class ComicReaderActivity extends NavigationActivity {
         StringBuilder html=new StringBuilder();
         html.append("<html><head><meta name='viewport' content='width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=5, user-scalable=yes'>");
         html.append("<style>html,body{margin:0;padding:0;background:#fff}img{display:block;margin:0 auto;image-rendering:auto;}");
-        if(mode==0) html.append("#pages{display:flex;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;width:100vw;height:100vh;-webkit-overflow-scrolling:touch}img{width:100vw;height:100vh;object-fit:contain;flex-shrink:0;scroll-snap-align:start}");
-        else html.append("#pages{display:block}img{width:100%;height:auto}");
+        html.append(".comic-frame{position:relative;margin:0 auto}.ocr-box{position:absolute;border:2px solid rgba(36,165,100,.85);background:rgba(46,185,115,.09);box-sizing:border-box;cursor:pointer;border-radius:5px;touch-action:pan-x pan-y;z-index:2}");
+        if(mode==0) html.append("#pages{display:flex;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;width:100vw;height:100vh;-webkit-overflow-scrolling:touch}.comic-frame{width:100vw;height:100vh;flex-shrink:0;scroll-snap-align:start}img{width:100%;height:100%;object-fit:contain}");
+        else html.append("#pages{display:block}.comic-frame{width:100%}img{width:100%;height:auto}");
         html.append("</style></head><body><div id='pages'>");
-        synchronized(currentAssets){ for(int i=0;i<currentAssets.size();i++) html.append("<img loading='lazy' src='https://comic.local/page/").append(i).append("'>"); }
+        org.json.JSONObject cached=new org.json.JSONObject();
+        synchronized(currentAssets){ for(int i=0;i<currentAssets.size();i++){
+            html.append("<div class='comic-frame'><img loading='lazy' src='https://comic.local/page/").append(i).append("'></div>");
+            org.json.JSONObject item=ocrStore.load(comic.chapter,i);
+            if(item!=null)try{cached.put(String.valueOf(i),item);}catch(Exception ignored){}
+        }}
         html.append("</div><script>");
+        html.append("var comicOcrCache=").append(cached.toString()).append(";var comicOcrToken=").append(generation).append(";");
+        html.append("function ocrOverlay(index,data){if(!data||!data.blocks)return;var imgs=pictures(),img=imgs[index];if(!img)return;var parent=img.parentNode;parent.querySelectorAll('.ocr-box').forEach(function(el){el.remove()});var nw=img.naturalWidth||1,nh=img.naturalHeight||1;var box=img.getBoundingClientRect();var cw=img.clientWidth,ch=img.clientHeight;var ratio=Math.min(cw/nw,ch/nh);var realW=nw*ratio,realH=nh*ratio,ox=(cw-realW)/2,oy=(ch-realH)/2;data.blocks.forEach(function(b,j){if(!b.bbox)return;var el=document.createElement('div');el.className='ocr-box';el.style.left=(ox+b.bbox[0]*realW)+'px';el.style.top=(oy+b.bbox[1]*realH)+'px';el.style.width=((b.bbox[2]-b.bbox[0])*realW)+'px';el.style.height=((b.bbox[3]-b.bbox[1])*realH)+'px';el.setAttribute('aria-label',b.text||'Текст');el.addEventListener('click',function(e){e.stopPropagation();if(window.ComicOcrTap)ComicOcrTap.onBlock(comicOcrToken,index,j)});parent.appendChild(el)})}");
+        html.append("function ocrPaintAll(){Object.keys(comicOcrCache).forEach(function(k){ocrOverlay(+k,comicOcrCache[k])})}");
+        html.append("function ocrUpdate(index,data){comicOcrCache[String(index)]=data;ocrOverlay(index,data)}");
+        html.append("document.getElementById('pages').addEventListener('click',function(e){if(!e.target.closest('.ocr-box')&&window.ComicOcrTap)ComicOcrTap.onOutside(comicOcrToken)});");
+        html.append("Array.prototype.forEach.call(pictures(),function(im,i){im.addEventListener('load',function(){if(comicOcrCache[i])ocrOverlay(i,comicOcrCache[i])})});window.addEventListener('resize',ocrPaintAll);ocrPaintAll();");
         html.append("function pictures(){return document.getElementById('pages').getElementsByTagName('img')}");
         html.append("function page(){var images=pictures();if(!images.length)return 0;");
         if(mode==0)html.append("var el=document.getElementById('pages');return Math.min(images.length-1,Math.round(el.scrollLeft/Math.max(1,el.clientWidth)))");
-        else html.append("var y=window.scrollY+window.innerHeight*.25;var result=0;for(var i=0;i<images.length;i++){if(images[i].offsetTop<=y)result=i;else break;}return result");
+        else html.append("var y=window.scrollY+window.innerHeight*.25;var result=0;for(var i=0;i<images.length;i++){if(images[i].parentNode.offsetTop<=y)result=i;else break;}return result");
         html.append("}");
         html.append("function positionInfo(){var n=page();var v=");
         html.append(mode==0?"document.getElementById('pages').scrollLeft":"window.scrollY");
         html.append(";return n+'|'+Math.round(v)}");
         html.append("function restore(offset,index){var imgs=pictures();if(!imgs.length)return;var n=Math.max(0,Math.min(index,imgs.length-1));");
         if(mode==0)html.append("var el=document.getElementById('pages');el.scrollLeft=n*el.clientWidth;");
-        else html.append("window.scrollTo(0,offset>0?offset:imgs[n].offsetTop);");
+        else html.append("window.scrollTo(0,offset>0?offset:imgs[n].parentNode.offsetTop);");
         html.append("}");
         html.append("function restoreWhenReady(offset,index,token){var imgs=pictures(),n=Math.max(0,Math.min(index,imgs.length-1));");
         html.append("var target=");html.append(mode==0?"[imgs[n]]":"Array.prototype.slice.call(imgs,0,n+1)");
@@ -401,6 +429,46 @@ public final class ComicReaderActivity extends NavigationActivity {
         return html.toString();
     }
 
+    /** Tap-to-speak is independent from the current WebView zoom and scroll. */
+    private void playOcrBlock(int token,int page,int block){
+        if(token!=generation||comic==null)return;
+        org.json.JSONObject data=ocrStore.load(comic.chapter,page);if(data==null)return;
+        org.json.JSONArray items=data.optJSONArray("blocks");if(items==null||block<0||block>=items.length())return;
+        String text=items.optJSONObject(block)==null?"":items.optJSONObject(block).optString("text","").trim();
+        if(text.isEmpty())return;
+        try{ComicOcrSpeechService.speak(this,text);}catch(Exception e){Toast.makeText(this,"Не удалось начать озвучивание",Toast.LENGTH_SHORT).show();}
+    }
+    private void recognizeVisiblePage(){
+        if(ocrBusy||web==null||restoringPage)return;
+        final int token=generation,chapter=comic.chapter;
+        // Use the actual visible page in either page-swipe or continuous-feed mode.
+        web.evaluateJavascript("page()",value->{
+            if(token!=generation||isFinishing())return;
+            int page;try{page=Integer.parseInt(value.replace("\"",""));}catch(Exception e){return;}
+            PageAsset asset; synchronized(currentAssets){if(page<0||page>=currentAssets.size())return;asset=currentAssets.get(page);}
+            ocrBusy=true;ocrAction.setText("...");
+            new Thread(()->{
+                try(InputStream in=openAssetStream(asset)){
+                    if(in==null)throw new Exception("Изображение недоступно");
+                    org.json.JSONObject result=ComicOcrEngine.recognize(getApplicationContext(),in);
+                    if(token!=generation)return;
+                    ocrStore.save(chapter,page,result);
+                    runOnUiThread(()->{if(token!=generation||web==null)return;
+                        web.evaluateJavascript("ocrUpdate("+page+","+result.toString()+")",null);
+                        int count=result.optJSONArray("blocks").length();
+                        Toast.makeText(this,"OCR: "+count+" текстовых блоков",Toast.LENGTH_SHORT).show();
+                    });
+                }catch(Exception e){runOnUiThread(()->{if(token==generation)Toast.makeText(this,"OCR: "+e.getMessage(),Toast.LENGTH_LONG).show();});}
+                finally{runOnUiThread(()->{ocrBusy=false;if(ocrAction!=null)ocrAction.setText("OCR");});}
+            },"comic-ocr").start();
+        });
+    }
+    private InputStream openAssetStream(PageAsset asset)throws Exception{
+        if(asset.localFile!=null)return new FileInputStream(asset.localFile);
+        if(asset.relativePath==null)return null;
+        DocumentFile root=ComicLibrary.tree(this,comic);if(root==null)return null;
+        DocumentFile file=lookup(root,asset.relativePath);return file==null?null:getContentResolver().openInputStream(file.getUri());
+    }
     @Override protected void onResume(){super.onResume();tracking=true;tracker.removeCallbacks(trackPosition);tracker.postDelayed(trackPosition,600);}
     @Override protected void onPause(){
         tracking=false;tracker.removeCallbacks(trackPosition);
