@@ -1,0 +1,36 @@
+ПРОЧиталка v1.11.133-beta CLEAN — QA
+versionName: 1.11.133-beta
+versionCode: 13300
+Основа: 1.11.132-beta CLEAN HOTFIX
+
+ИТОГО: 15/15 локальных групп PASS.
+
+PASS Java syntax (135 Java files)
+PASS Android API signature checks for dictionary via stand-ins
+PASS Regex/offsets/>100 rules
+PASS Android Unicode Regex compatibility
+PASS Edge speech text transformations
+PASS Unified book progress typecheck
+PASS Pet game + unified progress typecheck
+PASS Exact sentence seek
+PASS Silent HTTP 429 handling for Edge
+PASS Edge save contract
+PASS Audio focus
+PASS Edge cooldown
+PASS v1.11.133 MangaLib/TTS source typecheck (Android + OkHttp stubs)
+PASS v1.11.133 Reader toolbar / TTS current-vs-previous contract
+PASS Gradle version, 113 XML resources, SQLite & UI migration contracts
+
+Дополнительные проверки:
+- JPEG тестового пользовательского vol1.cbz: 205 изображения, 0 ошибок декодирования.
+- MangaLib: HTML -> fallback на допустимый CDN -> JPEG; HTTP 403/429 без обхода; недопустимые URL; формат Accept без AVIF; ошибочный ответ обоих CDN.
+- TTS: миграция прежнего boolean; текущая/предыдущая граница предложения.
+- CBZ: после создания проверяются все ZIP entries и CRC.
+
+НЕ ПРОВЕРЕНО:
+- Реальный :app:assembleRelease (не установлены Gradle и Android SDK).
+- Реальный сетевой ответ MangaLib/CDN, авторизация и доступность сервиса на устройстве.
+- Реальное позиционирование локального TTS с конкретными Android/Samsung/Google голосами.
+- Визуальная проверка ReaderActivity на всех диагоналях/ориентациях.
+
+Отчёт содержит только проверки, реально проведённые в текущем окружении. Тесты Android API выполнены на заглушках и не заменяют Gradle.

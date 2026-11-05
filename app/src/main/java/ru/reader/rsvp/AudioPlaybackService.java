@@ -75,11 +75,29 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
                     notifyState();
                 };
                 long seek=pendingLocalSeek;pendingLocalSeek=0;
+                int absolute=requestedLocalChar;
+                if(absolute>=0){
+                    int relative=Math.max(0,absolute-ttsChunkCharPositions.get(index));
+                    if(relative>0){
+                        java.util.List<LocalTtsWordTimings.Mark> marks=localTimingMarks(index);
+                        boolean hasMark=false;
+                        for(LocalTtsWordTimings.Mark mark:marks){
+                            if(relative>=mark.start&&relative<mark.end){
+                                seek=mark.atMs;hasMark=true;break;
+                            }
+                        }
+                        if(!hasMark){
+                            // No verified word timestamps: synthesize only the selected
+                            // sentence remainder rather than replaying the entire chunk.
+                            fallbackLocalSpeech(index);return;
+                        }
+                    }
+                }
                 if(seek>0){
-                    mp.setOnSeekCompleteListener(prepared->{if(prepared==ttsAudio)begin.run();});
+                    mp.setOnSeekCompleteListener(prepared->{if(prepared==ttsAudio){requestedLocalChar=-1;begin.run();}});
                     try{mp.seekTo((int)Math.min(Math.max(0,mp.getDuration()-1),seek));}
-                    catch(Exception ignored){begin.run();}
-                }else begin.run();
+                    catch(Exception ignored){requestedLocalChar=-1;begin.run();}
+                }else {requestedLocalChar=-1;begin.run();}
             });
             sound.setOnCompletionListener(mp->{if(localGeneration!=generation||!ttsMode||paused)return;
                 releaseLocalAudio();ttsPosition++;saveProgress();if(ttsPosition<chunks.size())speakChunk();else{paused=true;audioFocus.release();notifyState();}});
@@ -89,7 +107,13 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     }
     private void fallbackLocalSpeech(int index){
         releaseLocalAudio();if(tts!=null&&!paused&&ttsMode){
-            tts.setSpeechRate(TtsWpm.rate(this));tts.speak(chunks.get(index),TextToSpeech.QUEUE_FLUSH,new Bundle(),"fallback_"+localGeneration+"_"+index);
+            tts.setSpeechRate(TtsWpm.rate(this));
+            String remaining=chunks.get(index);
+            if(requestedLocalChar>=0){
+                int skip=Math.max(0,requestedLocalChar-ttsChunkCharPositions.get(index));
+                if(skip<remaining.length())remaining=remaining.substring(skip);
+            }
+            tts.speak(remaining,TextToSpeech.QUEUE_FLUSH,new Bundle(),"fallback_"+localGeneration+"_"+index);
         }
     }
 
@@ -256,8 +280,11 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
                 // No seek to an arbitrary word: navigate to the start of its sentence.
                 boolean auto=getSharedPreferences("reader",0).getBoolean("tts_tap_autoplay",false);
                 if(!paused)pausePlayback();
-                ttsPosition=chunkForWord(sentenceIndex.beginning(target));
-                sentenceHistory.manuallySelect(target);
+                int selected=sentenceIndex.beginning(target);
+                ttsPosition=chunkForWord(selected);
+                SentenceChunks.Chunk sentence=sentenceIndex.atWordRange(selected);
+                requestedLocalChar=sentence==null?-1:sentence.fromChar;
+                sentenceHistory.manuallySelect(selected);
                 ttsRewindOnNextPlay=false;pendingLocalSeek=0;
                 resetLocalSession();
                 saveProgress();notifyState();
@@ -439,12 +466,17 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
             // enter through resume(), so a paused sentence rewinds exactly once.
             boolean rewind=ttsRewindOnNextPlay;
             ttsRewindOnNextPlay=false;
-            if(rewind&&getSharedPreferences("reader",0).getBoolean("tts_resume_previous_sentence",true)
-                    &&!chunks.isEmpty()){
-                // Resume from the previously confirmed REAL sentence.
-                int target=sentenceHistory.previousOnResume(currentSpokenTtsWord());
+            if(rewind&&!chunks.isEmpty()){
+                // Restore the paused complete sentence, independently of MP3 chunk boundaries.
+                int spoken=currentSpokenTtsWord();
+                int target=TtsResumeChoice.previous(this)
+                    ?sentenceHistory.previousOnResume(spoken)
+                    :sentenceHistory.currentOnResume(spoken);
                 ttsPosition=chunkForWord(target);
-                pendingLocalSeek=0;sentenceHistory.manuallySelect(target);
+                pendingLocalSeek=0;
+                SentenceChunks.Chunk sentence=sentenceIndex.atWordRange(target);
+                requestedLocalChar=sentence==null?-1:sentence.fromChar;
+                sentenceHistory.manuallySelect(target);
                 resetLocalSession();saveProgress();startTts();return;
             }
             if(ttsAudio!=null&&localPlayingIndex==ttsPosition){
@@ -530,7 +562,11 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         int word=currentSpokenTtsWord();
         int nextWord=change<0?sentenceIndex.previous(word):sentenceIndex.next(word);
         sentenceHistory.manuallySelect(nextWord);
-        seekTo(chunkForWord(nextWord));return;}if(change>0){if(segment+1<playlist.size()){segment++;prepareAudio(0,!paused);}else seekTo(getPosition()+30000);}else {if(getPosition()>15000)seekTo(getPosition()-15000);else if(segment>0){segment--;prepareAudio(0,!paused);}else seekTo(0);}}
+        ttsPosition=chunkForWord(nextWord);
+        SentenceChunks.Chunk sentence=sentenceIndex.atWordRange(nextWord);
+        requestedLocalChar=sentence==null?-1:sentence.fromChar;
+        ttsRewindOnNextPlay=false;pendingLocalSeek=0;resetLocalSession();
+        if(!paused)startTts();saveProgress();notifyState();return;}if(change>0){if(segment+1<playlist.size()){segment++;prepareAudio(0,!paused);}else seekTo(getPosition()+30000);}else {if(getPosition()>15000)seekTo(getPosition()-15000);else if(segment>0){segment--;prepareAudio(0,!paused);}else seekTo(0);}}
     private int chunkForWord(int wordIndex){
         if(chunkWordPositions.isEmpty())return 0;
         int at=java.util.Collections.binarySearch(chunkWordPositions,Math.max(0,wordIndex));
@@ -639,6 +675,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
                     return;
                 }
                 if(!paused&&ttsMode&&u.startsWith("fallback_")){
+                    requestedLocalChar=-1;
                     ttsPosition++;if(ttsPosition<chunks.size())speakChunk();else{paused=true;audioFocus.release();notifyState();}
                 }
             });}
@@ -683,6 +720,10 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
                 }catch(Exception ignored){}
             }
         }
+        // While fallback speech has no WordBoundary, keep the selected sentence
+        // position rather than reporting the transport chunk's earlier start.
+        if(requestedLocalChar>=base&&requestedLocalChar<base+chunk.length())
+            return new int[]{requestedLocalChar,Math.min(base+chunk.length(),requestedLocalChar+1)};
         return new int[]{base,base+chunk.length()};
     }
     private String currentSpokenChapter(){

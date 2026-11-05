@@ -343,7 +343,7 @@ public class ReaderActivity extends NavigationActivity {
         toolbarBookName.setSingleLine(true);toolbarBookName.setEllipsize(TextUtils.TruncateAt.END);
         toolbarBookName.setPadding(dp(9),0,dp(9),0);
         toolbarBookName.setGravity(Gravity.CENTER_VERTICAL);
-        toolbarBookName.setBackground(shape(buttonBg(),12));
+        toolbarBookName.setBackground(shape(buttonBg(),10));
         toolbarBookName.setTextColor(contrast(buttonBg()));
         toolbarBookName.setOnClickListener(v->showBookmarks());
         // The title and chapter share one line BELOW the row of toolbar actions.
@@ -351,8 +351,8 @@ public class ReaderActivity extends NavigationActivity {
         View titleSpacer=new View(this);
         toolbar.addView(titleSpacer,new LinearLayout.LayoutParams(0,dp(44),1));
         toolbarSpacer=titleSpacer;
-        LinearLayout.LayoutParams titleLp=new LinearLayout.LayoutParams(-1,dp(42));
-        titleLp.topMargin=dp(6);
+        LinearLayout.LayoutParams titleLp=new LinearLayout.LayoutParams(-1,dp(32));
+        titleLp.topMargin=dp(4);
         toolbarStack.addView(toolbarBookName,titleLp);
         LinearLayout.LayoutParams bookmarkLp=new LinearLayout.LayoutParams(dp(44),dp(44));bookmarkLp.leftMargin=dp(5);
         // Bookmarks moved to overflow menu.

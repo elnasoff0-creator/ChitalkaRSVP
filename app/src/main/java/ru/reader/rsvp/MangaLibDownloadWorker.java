@@ -44,7 +44,11 @@ public final class MangaLibDownloadWorker extends Worker {
             try(ZipOutputStream zip=new ZipOutputStream(new FileOutputStream(part))){
                 for(int i=0;i<pages.size();i++){
                     if(isStopped())throw new IOException("Загрузка остановлена");
-                    byte[] data=api.image(pages.get(i).url);
+                    byte[] data;
+                    try{data=api.image(pages.get(i));}
+                    catch(MangaLibApi.AccessException denied){throw denied;}
+                    catch(IOException ex){throw new IOException("Глава "+job.number+", страница "
+                            +(i+1)+"/"+pages.size()+": "+ex.getMessage(),ex);}
                     String name=String.format(Locale.US,"%04d.%s",i+1,MangaLibApi.extension(data));
                     zip.putNextEntry(new ZipEntry(name));zip.write(data);zip.closeEntry();
                     job.done=i+1;MangaLibStorage.put(ctx,job);
@@ -56,7 +60,20 @@ public final class MangaLibDownloadWorker extends Worker {
                 String xml="<?xml version=\"1.0\" encoding=\"UTF-8\"?><ComicInfo><Series>"+esc(job.series)+"</Series><Number>"+esc(job.number)+"</Number><Volume>"+esc(job.volume)+"</Volume><Title>"+esc(job.chapter)+"</Title></ComicInfo>";
                 zip.write(xml.getBytes(StandardCharsets.UTF_8));zip.closeEntry();
             }
-            try(ZipFile z=new ZipFile(part)){if(z.size()<pages.size())throw new IOException("Неполный CBZ");}
+            // Validate every written image entry, not just the ZIP header or byte count.
+            try(ZipFile z=new ZipFile(part)){
+                if(z.size()!=pages.size()+1||z.getEntry("ComicInfo.xml")==null)
+                    throw new IOException("Неполный CBZ: неправильное число файлов");
+                byte[] check=new byte[8192];
+                for(java.util.Enumeration<? extends ZipEntry> it=z.entries();it.hasMoreElements();){
+                    ZipEntry entry=it.nextElement();
+                    if(entry.isDirectory()||entry.getSize()==0)throw new IOException("Пустая страница CBZ");
+                    // Reading fully verifies deflate and CRC for each saved page.
+                    try(java.io.InputStream stream=z.getInputStream(entry)){
+                        while(stream.read(check)!=-1){}
+                    }
+                }
+            }
             if(output.exists()&&!output.delete())throw new IOException("Невозможно заменить CBZ");
             if(!part.renameTo(output))throw new IOException("Невозможно сохранить CBZ");
             job.file=output.getAbsolutePath();update(job,"complete","");MangaLibStorage.registerComic(ctx,job);

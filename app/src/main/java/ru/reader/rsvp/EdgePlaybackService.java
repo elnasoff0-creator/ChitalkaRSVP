@@ -41,7 +41,7 @@ import java.util.ArrayList;
 @UnstableApi
 public final class EdgePlaybackService extends Service {
     /** Called synchronously on user Play, before resuming sound from MediaSession or UI. */
-    public interface ResumeSelection { void rewindToPreviousSentence(); }
+    public interface ResumeSelection { void selectResumeSentence(); }
     interface SentenceNavigation { void navigate(int step); }
     private SentenceNavigation sentenceNavigation;
     void setSentenceNavigation(SentenceNavigation callback){sentenceNavigation=callback;}
@@ -534,8 +534,7 @@ public final class EdgePlaybackService extends Service {
     public void play() {
         if(!requestedPlay && rewindAfterUserPause){
             rewindAfterUserPause=false;
-            if(getSharedPreferences("reader",0).getBoolean("tts_resume_previous_sentence",true)
-                    &&resumeSelection!=null)resumeSelection.rewindToPreviousSentence();
+            if(resumeSelection!=null)resumeSelection.selectResumeSentence();
         }
         if (!focus.acquire()) { requestedPlay=false;notifyState();return; }
         if(!requestedPlay)AudioModeCoordinator.pauseLocal(this);

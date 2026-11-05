@@ -261,7 +261,7 @@ public final class EdgeStreamingService extends Service {
         @Override public void onServiceConnected(ComponentName n,IBinder b){
             player=((EdgePlaybackService.LocalBinder)b).getService();
             player.addListener(listener);
-            player.setResumeSelection(EdgeStreamingService.this::rewindOnResume);
+            player.setResumeSelection(EdgeStreamingService.this::selectSentenceOnResume);
             player.setPauseSelection(EdgeStreamingService.this::capturePausedSentence);
             player.setSentenceNavigation(EdgeStreamingService.this::navigateSentence);
             if(!bookUri.isEmpty())player.prepareBook("edge:"+bookUri);
@@ -609,10 +609,13 @@ public final class EdgeStreamingService extends Service {
     private void capturePausedSentence(){
         if(bookReady&&sentenceIndex.size()>0)sentenceHistory.capturePause(currentSpeechWord());
     }
-    /** Resume one complete real sentence before the paused one, not one MP3 clip. */
-    private void rewindOnResume(){
+    /** Resume from the saved complete current/previous sentence, not an MP3 chunk. */
+    private void selectSentenceOnResume(){
         if(!bookReady||player==null||sentenceIndex.size()==0)return;
-        int target=sentenceHistory.previousOnResume(currentSpeechWord());
+        int spoken=currentSpeechWord();
+        int target=TtsResumeChoice.previous(this)
+            ?sentenceHistory.previousOnResume(spoken)
+            :sentenceHistory.currentOnResume(spoken);
         sentenceHistory.manuallySelect(target);
         setAnchor(target,true);
     }

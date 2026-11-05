@@ -21,6 +21,10 @@ final class TtsSentenceHistory {
         int id=pausedPrevious>=0?pausedPrevious:index.atWord(fallbackWord)-1;
         return index.startAt(Math.max(0,id));
     }
+    int currentOnResume(int fallbackWord){
+        int id=pausedCurrent>=0?pausedCurrent:index.atWord(fallbackWord);
+        return index.startAt(Math.max(0,id));
+    }
     void clearPause(){pausedCurrent=-1;pausedPrevious=-1;}
     void manuallySelect(int word){current=index.atWord(word);previous=current<0?-1:Math.max(0,current-1);clearPause();}
     int currentSentence(){return current;}

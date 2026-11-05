@@ -591,12 +591,24 @@ public class SettingsActivity extends NavigationActivity {
         list.addView(line,new LinearLayout.LayoutParams(-1,dp(1)));
         gap(7);
     }
+    private void ttsResumeChoiceDialog(){
+        final String[] options={"С начала предыдущего предложения","С начала текущего предложения"};
+        int selected=TtsResumeChoice.previous(this)?0:1;
+        new AlertDialog.Builder(this)
+            .setTitle("Продолжение TTS после паузы")
+            .setSingleChoiceItems(options,selected,(dialog,which)->{
+                TtsResumeChoice.set(this,which==0?TtsResumeChoice.PREVIOUS:TtsResumeChoice.CURRENT);
+                dialog.dismiss();draw();
+            }).setNegativeButton("Отмена",null).show();
+    }
     void drawAudioSettings(){
         header("Воспроизведение в фоне");
         audioToggle(R.drawable.ic_audio_timer,"Автопауза при других звуках","При звонке пауза всегда; при выключении будильники и другие приложения не ставят паузу",PlaybackAudioFocus.AUTO_PAUSE_KEY,true);
         audioDivider();
         header("TTS");
-        audioToggle(R.drawable.ic_audio_timer,"Повторять предыдущее предложение","При продолжении TTS после паузы","tts_resume_previous_sentence",true);
+        audioLink(R.drawable.ic_audio_timer,"Продолжение TTS после паузы",
+            "С какого предложения начинать при повторном Play",
+            TtsResumeChoice.summary(this),this::ttsResumeChoiceDialog);
         audioLink(R.drawable.ic_tts_engine,"Локальный голос","Установленные русские голоса Samsung, Google и других движков","Выбрать",()->startActivity(new Intent(this,TtsVoiceActivity.class)));
         audioToggle(R.drawable.ic_tts_autoplay,"Автовоспроизведение при касании","Начинать озвучку сразу после выбора предложения","tts_tap_autoplay",false);
         audioToggle(R.drawable.ic_tts_pause_trim,"Сокращение пауз между предложениями MS Edge","Сокращается только конечная тишина; MP3 и WordBoundary не изменяются","edge_trim_sentence_pause",true);
