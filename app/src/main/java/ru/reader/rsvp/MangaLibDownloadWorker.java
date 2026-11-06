@@ -97,6 +97,16 @@ public final class MangaLibDownloadWorker extends Worker {
             return imageCount>0;
         }catch(IOException error){return false;}
     }
+    /** Export is optional: a SAF failure must not invalidate a verified local CBZ. */
+    private static void exportToSelectedFolder(Context ctx,File output,MangaLibStorage.Job job){
+        try{
+            DownloadFolderPicker.export(ctx,DownloadFolderPicker.MANGA,output,
+                MangaLibStorage.safe(job.series),"Том "+MangaLibStorage.safe(job.volume));
+        }catch(IOException error){
+            android.util.Log.w("MangaLibDownloadWorker",
+                "Не удалось скопировать CBZ в выбранную папку; локальная глава сохранена",error);
+        }
+    }
     @NonNull @Override public Result doWork(){
         Context ctx=getApplicationContext();String id=getInputData().getString(JOB_ID);
         MangaLibStorage.Job job=id==null?null:MangaLibStorage.find(ctx,id);
@@ -105,7 +115,7 @@ public final class MangaLibDownloadWorker extends Worker {
         File output=MangaLibStorage.chapterFile(ctx,job);
         File part=new File(output.getAbsolutePath()+".part");
         if(completeArchive(output)){
-            DownloadFolderPicker.export(ctx,DownloadFolderPicker.MANGA,output,MangaLibStorage.safe(job.series),"Том "+MangaLibStorage.safe(job.volume));
+            exportToSelectedFolder(ctx,output,job);
             job.file=output.getAbsolutePath();update(job,"complete","");
             MangaLibStorage.registerComic(ctx,job);return Result.success();
         }
@@ -166,7 +176,7 @@ public final class MangaLibDownloadWorker extends Worker {
             }
             if(output.exists()&&!output.delete())throw new IOException("Невозможно заменить CBZ");
             if(!part.renameTo(output))throw new IOException("Невозможно сохранить CBZ");
-            DownloadFolderPicker.export(ctx,DownloadFolderPicker.MANGA,output,MangaLibStorage.safe(job.series),"Том "+MangaLibStorage.safe(job.volume));
+            exportToSelectedFolder(ctx,output,job);
             job.file=output.getAbsolutePath();update(job,"complete","");
             MangaLibStorage.clearStage(stage);
             MangaLibStorage.registerComic(ctx,job);return Result.success();
