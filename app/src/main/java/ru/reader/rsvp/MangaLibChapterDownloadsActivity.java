@@ -95,8 +95,14 @@ public final class MangaLibChapterDownloadsActivity extends NavigationActivity {
         items.sort((a,b)->{
             int v=compare(a.volume,b.volume);return v!=0?v:compare(a.number,b.number);
         });
-        summary.setText("Глав: "+items.size()+" · Страниц: "+current+"/"+(unknown>0?"?":total)
-            +" · "+(total>0?(100*current/Math.max(1,total))+"%": "ожидание")+" · "+megabytes(bytes));
+        int completed=0;
+        for(MangaLibStorage.Job chapter:items)if("complete".equals(chapter.status))completed++;
+        String percentage=unknown>0?("Глав готово: "+completed+"/"+items.size()):
+            (total>0?(100*current/Math.max(1,total))+"%":"подготовка");
+        String pageSummary=unknown>0?(current==0?"Страницы: подготовка":
+            "Страниц скачано: "+current):"Страниц: "+current+"/"+total;
+        summary.setText("Глав: "+items.size()+" · "+pageSummary
+            +" · "+percentage+" · "+megabytes(bytes));
         if(action!=null)action.setText(active?"Пауза":"Продолжить");
         // Preserve the scroll position across status refreshes.
         final int previous=scroll.getScrollY();entries.removeAllViews();
@@ -109,8 +115,10 @@ public final class MangaLibChapterDownloadsActivity extends NavigationActivity {
                     chapters++;finished+=sibling.done;all+=sibling.total;
                     if(sibling.total==0)unknownPages++;volumeBytes+=sibling.bytes;
                 }
+                String volumePages=unknownPages>0?(finished==0?"подготовка страниц":
+                    "скачано "+finished+" стр."):(finished+"/"+all+" стр.");
                 TextView volume=text("Том "+lastVolume+" · "+chapters+" глав · "
-                    +finished+"/"+(unknownPages>0?"?":all)+" стр. · "+megabytes(volumeBytes),14,true);
+                    +volumePages+" · "+megabytes(volumeBytes),14,true);
                 volume.setPadding(dp(4),dp(9),dp(4),dp(9));entries.addView(volume);
             }
             LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);
@@ -124,7 +132,9 @@ public final class MangaLibChapterDownloadsActivity extends NavigationActivity {
             ProgressBar bar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
             bar.setMax(100);bar.setProgress(job.total==0?0:100*job.done/Math.max(1,job.total));
             LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-1,dp(6));bp.topMargin=dp(7);card.addView(bar,bp);
-            TextView meta=text(job.done+"/"+(job.total==0?"?":job.total)+" стр. · "+megabytes(job.bytes)
+            String jobPages=job.total==0?(job.done==0?"подготовка страниц":
+                "скачано "+job.done+" стр."):(job.done+"/"+job.total+" стр.");
+            TextView meta=text(jobPages+" · "+megabytes(job.bytes)
                 +" · "+state(job),12,false);meta.setTextColor(MUTED);
             LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(-1,-2);mp.topMargin=dp(5);card.addView(meta,mp);
             if(job.error!=null&&!job.error.isEmpty()){

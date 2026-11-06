@@ -72,7 +72,8 @@ final class DownloadsRepository {
             int state=job.states.get(i);if(state<0)continue;
             item.total++;
             File file=BookImportManager.trackFile(context,job,i);
-            if(state==100&&file.isFile()&&file.length()>1024){item.done++;item.downloadedBytes+=file.length();}
+            if(state==100&&!BookImportManager.relocated(job,i).isEmpty()){item.done++;}
+            else if(state==100&&file.isFile()&&file.length()>1024){item.done++;item.downloadedBytes+=file.length();}
             else if(file.isFile())item.downloadedBytes+=file.length();
         }
         item.ready=item.total>0&&item.done==item.total;
@@ -147,19 +148,40 @@ final class DownloadsRepository {
         ArrayList<Item> all=new ArrayList<>();
         for(BookImportManager.Job j:BookImportManager.load(ctx))all.add(fromAudio(ctx,j));
         for(LinkDownloadStore.Batch b:LinkDownloadStore.load(ctx))all.add(fromLink(b));
+        // One download card per manga, NOT per chapter.  Existing chapter records,
+        // CBZ files and retry state are unchanged; only the dashboard projection is grouped.
+        // A stable MangaLib slug is the identity; the human title is the displayed label.
+        java.util.LinkedHashMap<String,MangaLibDownloadGroup> mangaGroups=new java.util.LinkedHashMap<>();
+        java.util.LinkedHashMap<String,Item> mangaRows=new java.util.LinkedHashMap<>();
         for(MangaLibStorage.Job j:MangaLibStorage.jobs(ctx)){
-            Item item=new Item();item.type=MANGA;item.id="manga:"+j.id();
-            item.title=j.series;item.bookUri=MangaLibStorage.comicUri(j.slug);item.source=j.slug;
-            item.description=j.chapter+" · "+j.done+"/"+(j.total>0?String.valueOf(j.total):"?")
-                +" стр. · "+String.format(Locale.ROOT,"%.1f МБ",j.bytes/1048576.0);
-            item.done=j.done;item.total=j.total;item.ready="complete".equals(j.status);
-            item.running="running".equals(j.status)||"queued".equals(j.status);
-            item.paused="paused".equals(j.status);
-            item.failed="failed".equals(j.status)||"blocked".equals(j.status);
-            item.downloadedBytes=j.bytes;
-            item.status=item.ready?"CBZ готов":item.failed?("Ошибка: "+j.error):
-                item.paused?"Приостановлено":item.running?"Скачивается":
-                "cancelled".equals(j.status)?"Отменено":"Ожидает";
+            String slug=j.slug==null?"":j.slug.trim();
+            if(slug.isEmpty())continue; // malformed legacy jobs cannot be routed to a series
+            String key=slug.toLowerCase(Locale.ROOT);
+            MangaLibDownloadGroup group=mangaGroups.get(key);
+            Item item=mangaRows.get(key);
+            if(group==null){
+                group=new MangaLibDownloadGroup();mangaGroups.put(key,group);
+                item=new Item();item.type=MANGA;item.id="manga:"+key;
+                item.title=j.series==null||j.series.trim().isEmpty()?slug:j.series;
+                item.bookUri=MangaLibStorage.comicUri(slug);item.source=slug;
+                mangaRows.put(key,item);
+            }
+            if((item.title==null||item.title.isEmpty()||item.title.equals(slug))
+                &&j.series!=null&&!j.series.trim().isEmpty())item.title=j.series;
+            group.add(j.volume,j.done,j.total,j.bytes,j.status);
+        }
+        for(String key:mangaRows.keySet()){
+            Item item=mangaRows.get(key);MangaLibDownloadGroup group=mangaGroups.get(key);
+            item.done=group.pagesDone;item.total=group.pagesKnown;
+            item.unknownTotal=group.unknownChapters>0;
+            // When total page count is unknown, show completion by chapters instead
+            // of a misleading pages-based percentage.
+            item.coveragePercent=group.chapters==0?0:100*group.finished/group.chapters;
+            item.downloadedBytes=group.downloadedBytes;
+            item.ready=group.complete();item.running=group.active()&&!item.ready;
+            item.paused=group.paused&&!item.running;
+            item.failed=group.failed&&!item.running;
+            item.status=group.status();item.description=group.description();
             all.add(item);
         }
         HashMap<String,JSONObject> index=new HashMap<>();

@@ -47,6 +47,18 @@ final class MangaLibQueue {
         }
         return count;
     }
+    /** Cancel only this manga; do not cancel the shared queue containing other series. */
+    static int cancelSeries(Context ctx,String slug){
+        int count=0;
+        for(MangaLibStorage.Job job:MangaLibStorage.jobs(ctx)){
+            if(!slug.equals(job.slug))continue;
+            if("running".equals(job.status)||"queued".equals(job.status)
+                ||"paused".equals(job.status)){
+                job.status="cancelled";MangaLibStorage.put(ctx,job);count++;
+            }
+        }
+        return count;
+    }
     static int resume(Context ctx,String slug){
         ArrayList<MangaLibStorage.Job> resume=new ArrayList<>();
         for(MangaLibStorage.Job job:MangaLibStorage.jobs(ctx)){

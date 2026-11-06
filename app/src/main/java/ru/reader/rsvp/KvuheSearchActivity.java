@@ -50,12 +50,18 @@ public final class KvuheSearchActivity extends NavigationActivity {
         back.setColorFilter(INK);back.setBackground(shape(WHITE,15));back.setOnClickListener(v->UniversalDrawer.show(this));
         back.setContentDescription("Главное меню");header.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));
         TextView heading=text("Поиск аудиокниги",23);heading.setTypeface(Typeface.SERIF,Typeface.BOLD);heading.setGravity(Gravity.CENTER);
-        header.addView(heading,new LinearLayout.LayoutParams(0,-1,1));header.addView(new View(this),new LinearLayout.LayoutParams(dp(49),dp(49)));
+        header.addView(heading,new LinearLayout.LayoutParams(0,-1,1));
+        ImageView folder=new ImageView(this);folder.setImageResource(R.drawable.ic_folder_audio);
+        folder.setColorFilter(INK);folder.setPadding(dp(10),dp(10),dp(10),dp(10));
+        folder.setBackground(shape(ReaderButtonColors.neutral(this,WHITE),15));
+        folder.setContentDescription("Выбрать папку сохранения аудиокниг");
+        header.addView(folder,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        folder.setOnClickListener(v->DownloadFolderPicker.choose(this,DownloadFolderPicker.AUDIO_REQUEST,DownloadFolderPicker.AUDIO));
         LinearLayout search=new LinearLayout(this);search.setGravity(Gravity.CENTER_VERTICAL);LinearLayout.LayoutParams sl=new LinearLayout.LayoutParams(-1,dp(54));sl.topMargin=dp(16);root.addView(search,sl);
         query=new EditText(this);query.setSingleLine(true);query.setTextSize(16);query.setHint("Название, автор или чтец");query.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         query.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);query.setBackground(shape(WHITE,15));query.setPadding(dp(12),0,dp(12),0);
         search.addView(query,new LinearLayout.LayoutParams(0,-1,1));
-        searchButton=button("Найти");searchButton.setTextColor(Color.WHITE);searchButton.setBackground(shape(ACCENT,15));
+        searchButton=button("Найти");searchButton.setTextColor(ReaderButtonColors.contrastingText(ReaderButtonColors.accent(this,ACCENT)));searchButton.setBackground(shape(ReaderButtonColors.accent(this,ACCENT),15));
         LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(dp(82),-1);bp.leftMargin=dp(7);search.addView(searchButton,bp);
         searchButton.setOnClickListener(v->startNewSearch());query.setOnEditorActionListener((v,action,event)->{if(action==EditorInfo.IME_ACTION_SEARCH){startNewSearch();return true;}return false;});
         LinearLayout tabs=new LinearLayout(this);tabs.setGravity(Gravity.CENTER_VERTICAL);
@@ -69,8 +75,12 @@ public final class KvuheSearchActivity extends NavigationActivity {
         state=text("Введите название и нажмите «Найти»",13);state.setTextColor(MUTED);state.setPadding(dp(2),dp(11),0,dp(10));root.addView(state);
         RecyclerView list=new RecyclerView(this);list.setLayoutManager(new LinearLayoutManager(this));adapter=new ResultAdapter();list.setAdapter(adapter);
         root.addView(list,new LinearLayout.LayoutParams(-1,0,1));
-        more=button("Показать ещё");more.setVisibility(View.GONE);more.setOnClickListener(v->fetch(failedPage.isEmpty()?next:failedPage));
+        more=button("Показать ещё");more.setBackground(shape(ReaderButtonColors.neutral(this,WHITE),16));more.setTextColor(ReaderButtonColors.contrastingText(ReaderButtonColors.neutral(this,WHITE)));more.setVisibility(View.GONE);more.setOnClickListener(v->fetch(failedPage.isEmpty()?next:failedPage));
         LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(-1,dp(48));mp.topMargin=dp(8);root.addView(more,mp);update();
+    }
+    @Override protected void onActivityResult(int request,int result,Intent data){
+        super.onActivityResult(request,result,data);
+        DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.AUDIO_REQUEST,DownloadFolderPicker.AUDIO);
     }
     private void startNewSearch(){
         String q=query.getText().toString().trim();if(q.isEmpty()){query.setError("Введите название книги");return;}
@@ -112,8 +122,8 @@ public final class KvuheSearchActivity extends NavigationActivity {
         if(adapter==null)return;
         booksTab.setText("Книги"+(totalBooks>=0?" · "+totalBooks:""));
         seriesTab.setText("Циклы"+(totalSeries>=0?" · "+totalSeries:""));
-        booksTab.setTextColor(tab==0?Color.WHITE:INK);booksTab.setBackground(shape(tab==0?ACCENT:WHITE,14));
-        seriesTab.setTextColor(tab==1?Color.WHITE:INK);seriesTab.setBackground(shape(tab==1?ACCENT:WHITE,14));
+        booksTab.setTextColor(tab==0?ReaderButtonColors.contrastingText(ReaderButtonColors.accent(this,ACCENT)):INK);booksTab.setBackground(shape(tab==0?ReaderButtonColors.accent(this,ACCENT):ReaderButtonColors.neutral(this,WHITE),14));
+        seriesTab.setTextColor(tab==1?ReaderButtonColors.contrastingText(ReaderButtonColors.accent(this,ACCENT)):INK);seriesTab.setBackground(shape(tab==1?ReaderButtonColors.accent(this,ACCENT):ReaderButtonColors.neutral(this,WHITE),14));
         shown.clear();shown.addAll(tab==0?books:series);adapter.notifyDataSetChanged();
         if(!pending){
             if(books.isEmpty()&&series.isEmpty())state.setText(visitedPages.isEmpty()?"Введите название и нажмите «Найти»":"Ничего не найдено. Попробуйте другое название.");

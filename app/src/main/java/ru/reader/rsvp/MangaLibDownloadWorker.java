@@ -105,6 +105,7 @@ public final class MangaLibDownloadWorker extends Worker {
         File output=MangaLibStorage.chapterFile(ctx,job);
         File part=new File(output.getAbsolutePath()+".part");
         if(completeArchive(output)){
+            DownloadFolderPicker.export(ctx,DownloadFolderPicker.MANGA,output,MangaLibStorage.safe(job.series),"Том "+MangaLibStorage.safe(job.volume));
             job.file=output.getAbsolutePath();update(job,"complete","");
             MangaLibStorage.registerComic(ctx,job);return Result.success();
         }
@@ -165,6 +166,7 @@ public final class MangaLibDownloadWorker extends Worker {
             }
             if(output.exists()&&!output.delete())throw new IOException("Невозможно заменить CBZ");
             if(!part.renameTo(output))throw new IOException("Невозможно сохранить CBZ");
+            DownloadFolderPicker.export(ctx,DownloadFolderPicker.MANGA,output,MangaLibStorage.safe(job.series),"Том "+MangaLibStorage.safe(job.volume));
             job.file=output.getAbsolutePath();update(job,"complete","");
             MangaLibStorage.clearStage(stage);
             MangaLibStorage.registerComic(ctx,job);return Result.success();

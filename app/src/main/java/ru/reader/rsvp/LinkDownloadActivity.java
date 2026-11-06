@@ -56,22 +56,24 @@ public final class LinkDownloadActivity extends NavigationActivity {
         LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);append(header,0);
         ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_menu_lines);back.setColorFilter(ReaderButtonColors.contrastingText(ReaderButtonColors.neutral(this,CARD)));back.setPadding(dp(10),dp(10),dp(10),dp(10));back.setBackground(shape(ReaderButtonColors.neutral(this,CARD),15));header.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));back.setOnClickListener(v->UniversalDrawer.show(this));back.setContentDescription("Главное меню");
         TextView title=text("Скачать по ссылке",22,true);title.setTypeface(Typeface.SERIF,Typeface.BOLD);title.setGravity(Gravity.CENTER);header.addView(title,new LinearLayout.LayoutParams(0,dp(52),1));
-        header.addView(new View(this),new LinearLayout.LayoutParams(dp(44),dp(44)));
+        ImageView folder=new ImageView(this);folder.setImageResource(R.drawable.ic_folder_audio);
+        folder.setColorFilter(INK);folder.setPadding(dp(10),dp(10),dp(10),dp(10));
+        folder.setBackground(shape(ReaderButtonColors.neutral(this,CARD),15));
+        folder.setContentDescription("Выбрать папку сохранения");
+        header.addView(folder,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        folder.setOnClickListener(v->selectFolder());
         LinearLayout linkPanel=panel();append(linkPanel,17);linkPanel.addView(text("Ссылка на MP3, FB2, EPUB или облачный файл",16,true));
         links=new EditText(this);links.setTextSize(14);links.setHint("https://example.com/book.epub\nhttps://example.com/book.fb2\nhttps://example.com/audio.mp3");links.setMinLines(3);links.setMaxLines(7);links.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE|android.text.InputType.TYPE_TEXT_VARIATION_URI);
         linkPanel.addView(links,new LinearLayout.LayoutParams(-1,-2));
         Button paste=button("Вставить ссылку из буфера",false);linkPanel.addView(paste);paste.setOnClickListener(v->{ClipboardManager clipboard=(ClipboardManager)getSystemService(CLIPBOARD_SERVICE);ClipData data=clipboard.getPrimaryClip();if(data!=null&&data.getItemCount()>0){String value=data.getItemAt(0).coerceToText(this).toString();String previous=links.getText().toString().trim();links.setText(previous.isEmpty()?value:previous+"\n"+value);}});
-        TextView explanation=text("Одна ссылка в строке. Поддерживаются MP3, FB2 и EPUB: прямые HTTPS-файлы, публичные ссылки Яндекс.Диска, Dropbox и Google Drive, если доступна прямая загрузка. Для Яндекс.Диска — первые 100 файлов публичной папки. Другие облака могут потребовать отдельный адаптер.",12,false);explanation.setTextColor(0xff716259);linkPanel.addView(explanation);
         LinearLayout folderPanel=panel();append(folderPanel,12);folderPanel.addView(text("Путь / Папка для сохранения",17,true));
         folderLabel=text(chosenTree==null?"Папка ещё не выбрана":treeLabel,14,false);folderLabel.setTextColor(ACCENT);folderPanel.addView(folderLabel);
-        Button select=button("▣ Выбрать папку",false);folderPanel.addView(select);select.setOnClickListener(v->selectFolder());
         folderPanel.addView(text("Название новой подпапки (необязательно):",13,false));subfolder=new EditText(this);subfolder.setSingleLine(true);subfolder.setHint("Загрузка по ссылке");subfolder.setText(getSharedPreferences("reader",0).getString("direct_last_subfolder",""));folderPanel.addView(subfolder);
         TextView hint=text("Оставьте поле пустым, чтобы сохранить файлы прямо в выбранную папку. Новая подпапка будет создана автоматически при скачивании.",12,false);hint.setTextColor(0xff716259);folderPanel.addView(hint);
         analyze=button("⌕  Анализировать ссылки",true);append(analyze,14);analyze.setOnClickListener(v->analyze());
         status=text("",13,false);append(status,8);
         previewArea=new LinearLayout(this);previewArea.setOrientation(LinearLayout.VERTICAL);append(previewArea,4);
         download=button("↓  Скачать выбранное",true);append(download,12);download.setVisibility(View.GONE);download.setOnClickListener(v->confirm());
-        Button openQueue=button("Открыть все загрузки",false);append(openQueue,8);openQueue.setOnClickListener(v->startActivity(new Intent(this,DownloadActivity.class)));
         String source=getIntent().getStringExtra("source");if(source!=null&&!source.isEmpty())links.setText(source);
     }
     private void selectFolder(){Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);if(Build.VERSION.SDK_INT>=26&&chosenTree!=null)i.putExtra(DocumentsContract.EXTRA_INITIAL_URI,chosenTree);startActivityForResult(i,PICK_FOLDER);}

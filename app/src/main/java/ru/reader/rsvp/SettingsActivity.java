@@ -620,12 +620,12 @@ public class SettingsActivity extends NavigationActivity {
     private void ttsResumeChoiceDialog(){
         final String[] options={"С начала предыдущего предложения","С начала текущего предложения"};
         int selected=TtsResumeChoice.previous(this)?0:1;
-        new AlertDialog.Builder(this)
-            .setTitle("Продолжение TTS после паузы")
-            .setSingleChoiceItems(options,selected,(dialog,which)->{
-                TtsResumeChoice.set(this,which==0?TtsResumeChoice.PREVIOUS:TtsResumeChoice.CURRENT);
-                dialog.dismiss();draw();
-            }).setNegativeButton("Отмена",null).show();
+        // Use the same themed, animated, swipe-dismissible sheet as reading modes
+        // and chapter selection.  It inherits the user's accent and selection colors.
+        UiNavigationSheet.showTopChoices(this,"Продолжение TTS после паузы",options,selected,which->{
+            TtsResumeChoice.set(this,which==0?TtsResumeChoice.PREVIOUS:TtsResumeChoice.CURRENT);
+            draw();
+        });
     }
     void drawAudioSettings(){
         header("Воспроизведение в фоне");

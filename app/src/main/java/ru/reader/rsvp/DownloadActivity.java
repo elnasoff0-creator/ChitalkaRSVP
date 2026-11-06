@@ -41,6 +41,8 @@ import java.util.concurrent.Executors;
 /** Unified online-download dashboard. Neither downloader is owned/started by this screen. */
 public final class DownloadActivity extends NavigationActivity {
     private static final int BG=0xfff3e7d5,PANEL=0xfffff9f0,INK=0xff30221e,MUTED=0xff716259,ACCENT=0xffa26949,GREEN=0xff2b6145;
+    private static final int TRANSFER_REQUEST=12521;
+    private DownloadsRepository.Item pendingTransfer;
     private static final String FILTER_KEY="downloads_filter_v2";
     private final Handler main=new Handler(Looper.getMainLooper());
     private boolean visible,bound,refreshInFlight;
@@ -68,8 +70,17 @@ public final class DownloadActivity extends NavigationActivity {
     private ImageView icon(int image,String hint,int size){ImageView v=new ImageView(this);v.setImageResource(image);v.setColorFilter(INK);v.setPadding(dp(11),dp(11),dp(11),dp(11));v.setBackground(bg(PANEL,16));v.setContentDescription(hint);return v;}
     @Override public void onCreate(Bundle saved){super.onCreate(saved);
         filter=getSharedPreferences("reader",0).getInt(FILTER_KEY,0);
+        if(saved!=null){
+            String id=saved.getString("transfer_item_id","");
+            if(!id.isEmpty())for(DownloadsRepository.Item candidate:DownloadsRepository.load(this,null))
+                if(id.equals(candidate.id)){pendingTransfer=candidate;break;}
+        }
         build();
         bound=bindService(new Intent(this,EdgeStreamingService.class),edgeConnection,BIND_AUTO_CREATE);
+    }
+    @Override protected void onSaveInstanceState(Bundle state){
+        if(pendingTransfer!=null)state.putString("transfer_item_id",pendingTransfer.id);
+        super.onSaveInstanceState(state);
     }
     private void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(12),dp(25),dp(12),dp(12));root.setBackgroundColor(BG);setContentView(root);SafeSystemBars.matchBackground(this,BG);
@@ -242,10 +253,8 @@ public final class DownloadActivity extends NavigationActivity {
     }
     private void open(DownloadsRepository.Item item){
         if(DownloadsRepository.MANGA.equals(item.type)){
-            if(item.ready){ComicLibrary.Comic c=ComicLibrary.find(this,item.bookUri);
-                if(c!=null)startActivity(new Intent(this,ComicReaderActivity.class).putExtra("comic_uri",c.uri));
-                else startActivity(new Intent(this,MangaLibSearchActivity.class));
-            }else openMangaChapters(item);
+            // A series card always opens its volume/chapter manager, like audio downloads.
+            openMangaChapters(item);
             return;
         }
         if(DownloadsRepository.LINK.equals(item.type)){startActivity(new Intent(this,LinkDownloadDetailsActivity.class).putExtra(DirectLinkDownloadService.EXTRA_ID,item.link.id));}
@@ -388,6 +397,51 @@ public final class DownloadActivity extends NavigationActivity {
             });
         },"download-bulk-cleanup").start();
     }
+    private void exportMangaChapter(String slug){
+        ArrayList<MangaLibStorage.Job> complete=new ArrayList<>();
+        for(MangaLibStorage.Job job:MangaLibStorage.jobs(this)){
+            if(slug.equals(job.slug)&&"complete".equals(job.status)
+                &&job.file!=null&&new File(job.file).isFile())complete.add(job);
+        }
+        if(complete.isEmpty()){
+            Toast.makeText(this,"Скачанных глав для экспорта пока нет",Toast.LENGTH_SHORT).show();return;
+        }
+        complete.sort((a,b)->{
+            int vol=compareMangaNumber(a.volume,b.volume);
+            return vol==0?compareMangaNumber(a.number,b.number):vol;
+        });
+        String[] titles=new String[complete.size()];
+        for(int i=0;i<complete.size();i++){
+            MangaLibStorage.Job job=complete.get(i);
+            titles[i]="Том "+job.volume+" · Глава "+job.number+" — "+job.chapter;
+        }
+        new SwipeDialogs.Builder(this).setTitle("Экспорт CBZ · выберите главу")
+            .setItems(titles,(dialog,index)->{
+                File file=new File(complete.get(index).file);
+                getSharedPreferences("reader",0).edit()
+                    .putString("mangalib_export_pending",file.getAbsolutePath()).apply();
+                Intent save=new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                save.addCategory(Intent.CATEGORY_OPENABLE);save.setType("application/zip");
+                save.putExtra(Intent.EXTRA_TITLE,file.getName());
+                startActivityForResult(save,12520);
+            }).setNegativeButton("Отмена",null).show();
+    }
+    private static int compareMangaNumber(String a,String b){
+        try{return Double.compare(Double.parseDouble(a),Double.parseDouble(b));}
+        catch(Exception ignored){return a.compareToIgnoreCase(b);}
+    }
+    private void transferDialog(DownloadsRepository.Item item){
+        if(item.running){Toast.makeText(this,"Сначала приостановите загрузку",Toast.LENGTH_LONG).show();return;}
+        new SwipeDialogs.Builder(this).setTitle("Перенести файлы")
+            .setMessage("Выберите папку назначения. Копии проверяются по SHA-256. Для аудиокниг и файлов по ссылке пути в библиотеках обновляются, после чего старые файлы удаляются. Манга и Edge TTS пока сохраняют локальные оригиналы для корректного чтения. Существующие файлы не перезаписываются.")
+            .setNegativeButton("Отмена",null)
+            .setPositiveButton("Выбрать папку",(d,w)->{
+                pendingTransfer=item;
+                Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                startActivityForResult(intent,TRANSFER_REQUEST);
+            }).show();
+    }
     private void menu(View anchor,DownloadsRepository.Item item){
         if(DownloadsRepository.MANGA.equals(item.type)){
             PopupMenu p=new PopupMenu(this,anchor);
@@ -402,22 +456,18 @@ public final class DownloadActivity extends NavigationActivity {
                     else MangaLibQueue.resume(this,item.source);
                     refresh();return true;
                 });
-            if(item.ready)p.getMenu().add(0,3,1,"Экспортировать CBZ в папку телефона").setOnMenuItemClickListener(m->{
-                MangaLibStorage.Job job=MangaLibStorage.find(this,item.id.substring("manga:".length()));
-                if(job==null||!new File(job.file).isFile())return true;
-                getSharedPreferences("reader",0).edit().putString("mangalib_export_pending",job.file).apply();
-                Intent save=new Intent(Intent.ACTION_CREATE_DOCUMENT);
-                save.addCategory(Intent.CATEGORY_OPENABLE);save.setType("application/zip");
-                save.putExtra(Intent.EXTRA_TITLE,new File(job.file).getName());
-                startActivityForResult(save,12520);return true;
+            // A series contains multiple CBZ files; choose the chapter to export.
+            // Also available when only some chapters have completed.
+            p.getMenu().add(0,3,3,"Экспортировать CBZ главы").setOnMenuItemClickListener(m->{
+                exportMangaChapter(item.source);return true;
             });
-            if(!item.ready)p.getMenu().add(0,2,2,"Отменить очередь MangaLib").setOnMenuItemClickListener(m->{
-                androidx.work.WorkManager.getInstance(this).cancelUniqueWork("mangalib_serial_downloads");
-                for(MangaLibStorage.Job j:MangaLibStorage.jobs(this))if("running".equals(j.status)||"queued".equals(j.status)){
-                    j.status="cancelled";MangaLibStorage.put(this,j);
-                }
+            if(!item.ready)p.getMenu().add(0,2,4,"Отменить очередь этой манги").setOnMenuItemClickListener(m->{
+                // Do not cancel the global serial WorkManager queue: other manga
+                // may have pending chapters. Workers consult the persisted job state.
+                MangaLibQueue.cancelSeries(this,item.source);
                 refresh();return true;
             });
+            p.getMenu().add(0,31,5,"Перенести файлы").setOnMenuItemClickListener(m->{transferDialog(item);return true;});
             p.show();return;
         }
         if(DownloadsRepository.LINK.equals(item.type)){
@@ -425,10 +475,12 @@ public final class DownloadActivity extends NavigationActivity {
             p.getMenu().add(0,1,0,"Список файлов");p.getMenu().add(0,2,1,"Добавить MP3 в библиотеку");
             if(!item.ready)p.getMenu().add(0,3,2,"Продолжить загрузку");
             p.getMenu().add(0,4,3,"Удалить из библиотеки/аудиотеки");p.getMenu().add(0,5,4,"Удалить скачанные файлы");
+            p.getMenu().add(0,31,5,"Перенести файлы");
             p.setOnMenuItemClickListener(m->{switch(m.getItemId()){
                 case 1:open(item);break;
                 case 2:LinkDownloadStore.addToLibrary(this,item.link);Toast.makeText(this,"Добавлено в библиотеку",Toast.LENGTH_SHORT).show();break;
                 case 3:linkCommand(item,DirectLinkDownloadService.START);break;
+                case 31:transferDialog(item);break;
                 case 4:case 5:final boolean erase=m.getItemId()==5;new SwipeDialogs.Builder(this).setTitle(erase?"Удалить загруженные MP3?":"Убрать задание из списка?")
                     .setMessage(erase?"Будут удалены файлы этого задания в выбранной папке.":"Файлы останутся на устройстве.")
                     .setNegativeButton("Отмена",null).setPositiveButton("Удалить",(d,w)->deleteLink(item,erase)).show();break;
@@ -447,6 +499,7 @@ public final class DownloadActivity extends NavigationActivity {
         popup.getMenu().add(0,3,2,"Открыть файлы");
         popup.getMenu().add(0,6,3,"Убрать из списка");
         popup.getMenu().add(0,4,4,"Удалить скачанные файлы");
+        popup.getMenu().add(0,31,5,"Перенести файлы");
         popup.setOnMenuItemClickListener(m->{
             switch(m.getItemId()){
                 case 1:open(item);break;
@@ -456,6 +509,7 @@ public final class DownloadActivity extends NavigationActivity {
                 case 6:confirmDelete(item,false);break;
                 case 8:fullCommand(item,item.running);break;
                 case 9:listenEdge(item);break;
+                case 31:transferDialog(item);break;
             }return true;
         });popup.show();
     }
@@ -495,6 +549,10 @@ public final class DownloadActivity extends NavigationActivity {
                 if(DownloadsRepository.EDGE.equals(item.type)){
                     progress.setMax(100);progress.setProgress(item.coveragePercent);
                     progress.setIndeterminate(false);
+                }else if(DownloadsRepository.MANGA.equals(item.type)&&item.unknownTotal){
+                    // Chapter completion is a truthful fallback while page counts are pending.
+                    progress.setMax(100);progress.setProgress(item.coveragePercent);
+                    progress.setIndeterminate(false);
                 }else{
                     progress.setMax(Math.max(1,item.total));progress.setProgress(Math.min(item.done,item.total));
                     if(item.total==0)progress.setIndeterminate(item.running);
@@ -515,6 +573,23 @@ public final class DownloadActivity extends NavigationActivity {
     }
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
+        if(request==TRANSFER_REQUEST){
+            DownloadsRepository.Item selected=pendingTransfer;pendingTransfer=null;
+            if(result!=RESULT_OK||data==null||data.getData()==null||selected==null)return;
+            Uri destination=data.getData();
+            try{getContentResolver().takePersistableUriPermission(destination,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);}
+            catch(Exception ex){Toast.makeText(this,"Нет доступа к выбранной папке",Toast.LENGTH_LONG).show();return;}
+            Toast.makeText(this,"Проверяем и переносим файлы…",Toast.LENGTH_SHORT).show();
+            new Thread(()->{
+                try{
+                    SafeDownloadTransfer.Result report=SafeDownloadTransfer.copy(getApplicationContext(),selected,destination);
+                    runOnUiThread(()->Toast.makeText(this,"Скопировано "+report.copied+", уже были: "+report.existing+", старых удалено: "+report.deleted+". "+report.note,Toast.LENGTH_LONG).show());
+                }catch(Exception ex){runOnUiThread(()->Toast.makeText(this,
+                    "Перенос остановлен: "+ex.getMessage()+". Исходные файлы сохранены.",Toast.LENGTH_LONG).show());}
+            },"verified-download-transfer").start();
+            return;
+        }
         if(request!=12520||result!=RESULT_OK||data==null||data.getData()==null)return;
         String path=getSharedPreferences("reader",0).getString("mangalib_export_pending","");
         getSharedPreferences("reader",0).edit().remove("mangalib_export_pending").apply();
