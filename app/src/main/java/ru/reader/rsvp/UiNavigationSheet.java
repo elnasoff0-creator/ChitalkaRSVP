@@ -79,12 +79,12 @@ final class UiNavigationSheet {
         String[] captions={"Обычное чтение текста","Показ слов с заданной скоростью","Следование по тексту","Голосовое воспроизведение"};
         int[] icons={R.drawable.ic_book,R.drawable.ic_mode_speedreading,R.drawable.ic_mode_cursor,R.drawable.ic_microphone};
         int ink=a.getSharedPreferences("reader",0).getInt("fg",0xff30221e);
-        int neutral=ReaderButtonColors.neutral(a,0xfffff9f0);
+        int neutral=UiColorScheme.neutral(a);
         for(int i=0;i<names.length;i++){
             final int option=i;
             LinearLayout line=new LinearLayout(a);line.setGravity(Gravity.CENTER_VERTICAL);
             line.setPadding(dp(a,12),dp(a,9),dp(a,12),dp(a,9));
-            line.setBackground(shape(a,i==current?0xffdae9df:neutral,15));
+            line.setBackground(shape(a,i==current?UiColorScheme.selected(a):neutral,15));
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(a,69));lp.bottomMargin=dp(a,7);
             sh.content.addView(line,lp);
             ImageView icon=new ImageView(a);icon.setImageResource(icons[i]);icon.setColorFilter(ink);
@@ -93,7 +93,7 @@ final class UiNavigationSheet {
             line.addView(text,new LinearLayout.LayoutParams(0,-2,1f));
             TextView name=label(a,names[i],17,ink);text.addView(name);
             TextView sub=label(a,captions[i],12,ink);sub.setAlpha(.72f);text.addView(sub);
-            if(i==current){TextView check=label(a,"✓",19,0xff388458);line.addView(check);}
+            if(i==current){TextView check=label(a,"✓",19,UiColorScheme.accent(a));line.addView(check);}
             line.setOnClickListener(v->{sh.dialog.dismiss();choice.onSelect(option);});
         }
         sh.show();
@@ -108,7 +108,7 @@ final class UiNavigationSheet {
     static void showTopChoices(Activity a,String heading,String[] labels,int selected,IndexChoice choice){
         Sheet sh=sheet(a,heading);sh.fromTop=true;
         int ink=a.getSharedPreferences("reader",0).getInt("fg",0xff30221e);
-        int neutral=ReaderButtonColors.neutral(a,0xfffff9f0);
+        int neutral=UiColorScheme.neutral(a);
         LinearLayout destination=sh.content;
         if(labels.length>7){
             ScrollView scrolling=new ScrollView(a);
@@ -122,12 +122,12 @@ final class UiNavigationSheet {
             final int position=i;
             LinearLayout row=new LinearLayout(a);row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(dp(a,16),dp(a,8),dp(a,16),dp(a,8));
-            row.setBackground(shape(a,position==selected?0xffdae9df:neutral,14));
+            row.setBackground(shape(a,position==selected?UiColorScheme.selected(a):neutral,14));
             LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,dp(a,56));rp.bottomMargin=dp(a,7);
             destination.addView(row,rp);
             TextView label=label(a,labels[i],17,ink);
             row.addView(label,new LinearLayout.LayoutParams(0,-2,1));
-            if(position==selected)row.addView(label(a,"✓",20,0xff388458));
+            if(position==selected)row.addView(label(a,"✓",20,UiColorScheme.accent(a)));
             row.setOnClickListener(v->{sh.dialog.dismiss();choice.onSelect(position);});
         }
         sh.show();
@@ -137,7 +137,7 @@ final class UiNavigationSheet {
         if(names.length!=icons.length)throw new IllegalArgumentException("Action icons mismatch");
         Sheet sh=sheet(a,heading);sh.fromTop=true;
         int ink=a.getSharedPreferences("reader",0).getInt("fg",0xff30221e);
-        int neutral=ReaderButtonColors.neutral(a,0xfffff9f0);
+        int neutral=UiColorScheme.neutral(a);
         for(int i=0;i<names.length;i++){
             int option=i;
             LinearLayout row=new LinearLayout(a);row.setGravity(Gravity.CENTER_VERTICAL);
@@ -158,21 +158,21 @@ final class UiNavigationSheet {
     static void showComicModes(Activity a,int current,IndexChoice choose){
         Sheet sh=sheet(a,"Режим просмотра");sh.fromTop=true;
         int fg=a.getSharedPreferences("reader",0).getInt("fg",0xff30221e);
-        int bg=ReaderButtonColors.neutral(a,0xfffff9f0);
+        int bg=UiColorScheme.neutral(a);
         String[] titles={"Страницы","Лента"};
         String[] info={"Постраничное перелистывание","Непрерывная вертикальная прокрутка"};
         int[] icons={R.drawable.ic_comic_mode_pages,R.drawable.ic_comic_mode_feed};
         for(int i=0;i<2;i++){
             final int n=i;LinearLayout row=new LinearLayout(a);row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(dp(a,16),dp(a,12),dp(a,16),dp(a,12));
-            row.setBackground(shape(a,i==current?0xffd9c6ef:bg,15));
+            row.setBackground(shape(a,i==current?UiColorScheme.selected(a):bg,15));
             LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,dp(a,70));rp.bottomMargin=dp(a,8);sh.content.addView(row,rp);
             ImageView symbol=new ImageView(a);symbol.setImageResource(icons[i]);symbol.setColorFilter(fg);
             row.addView(symbol,new LinearLayout.LayoutParams(dp(a,27),dp(a,27)));
             LinearLayout labels=new LinearLayout(a);labels.setOrientation(LinearLayout.VERTICAL);labels.setPadding(dp(a,14),0,0,0);
             row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
             labels.addView(label(a,titles[i],17,fg));TextView sub=label(a,info[i],12,fg);sub.setAlpha(.72f);labels.addView(sub);
-            if(current==i)row.addView(label(a,"✓",20,0xff7050a8));
+            if(current==i)row.addView(label(a,"✓",20,UiColorScheme.accent(a)));
             row.setOnClickListener(v->{sh.dialog.dismiss();choose.onSelect(n);});
         }
         sh.show();
@@ -182,7 +182,7 @@ final class UiNavigationSheet {
     static void showComicOrientation(Activity a,int current,IndexChoice choose){
         Sheet sh=sheet(a,"Ориентация комикса");sh.fromTop=true;
         int ink=a.getSharedPreferences("reader",0).getInt("fg",0xff30221e);
-        int neutral=ReaderButtonColors.neutral(a,0xfffff9f0);
+        int neutral=UiColorScheme.neutral(a);
         String[] labels={"Вертикальная","Горизонтальная"};
         String[] notes={"Книжная ориентация экрана","Альбомная ориентация экрана"};
         int[] icons={R.drawable.ic_comic_portrait,R.drawable.ic_comic_landscape};
@@ -190,14 +190,14 @@ final class UiNavigationSheet {
             final int n=i;
             LinearLayout row=new LinearLayout(a);row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(dp(a,16),dp(a,12),dp(a,16),dp(a,12));
-            row.setBackground(shape(a,i==current?0xffd9c6ef:neutral,15));
+            row.setBackground(shape(a,i==current?UiColorScheme.selected(a):neutral,15));
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(a,70));lp.bottomMargin=dp(a,8);sh.content.addView(row,lp);
             ImageView icon=new ImageView(a);icon.setImageResource(icons[i]);icon.setColorFilter(ink);
             row.addView(icon,new LinearLayout.LayoutParams(dp(a,28),dp(a,28)));
             LinearLayout text=new LinearLayout(a);text.setOrientation(LinearLayout.VERTICAL);text.setPadding(dp(a,14),0,0,0);
             row.addView(text,new LinearLayout.LayoutParams(0,-2,1));
             text.addView(label(a,labels[i],17,ink));TextView note=label(a,notes[i],12,ink);note.setAlpha(.72f);text.addView(note);
-            if(i==current)row.addView(label(a,"✓",20,0xff7050a8));
+            if(i==current)row.addView(label(a,"✓",20,UiColorScheme.accent(a)));
             row.setOnClickListener(v->{sh.dialog.dismiss();choose.onSelect(n);});
         }
         sh.show();
@@ -223,7 +223,7 @@ final class UiNavigationSheet {
                 ((TextView)row.getChildAt(0)).setText((pos+1)+". "+chapterNames[pos]);
                 int count=pos<pageCounts.length?pageCounts[pos]:-1;
                 ((TextView)row.getChildAt(1)).setText(count>=0?"Изображений: "+count:"Изображения будут подсчитаны при открытии");
-                row.setBackground(shape(a,pos==selected?0xffd9c6ef:Color.TRANSPARENT,12));
+                row.setBackground(shape(a,pos==selected?UiColorScheme.selected(a):Color.TRANSPARENT,12));
                 row.setOnClickListener(v->{sh.dialog.dismiss();choose.onSelect(pos);});
             }
             @Override public int getItemCount(){return chapterNames.length;}
@@ -240,7 +240,7 @@ final class UiNavigationSheet {
         LinearLayout.LayoutParams body=new LinearLayout.LayoutParams(-1,-2);
         body.bottomMargin=dp(a,12);
         sh.content.addView(form,body);
-        int bg=ReaderButtonColors.accent(a,0xff94583b);
+        int bg=UiColorScheme.accent(a);
         int ink=ReaderButtonColors.contrastingText(bg);
         TextView confirm=label(a,"Готово",17,ink);
         confirm.setGravity(Gravity.CENTER);confirm.setBackground(shape(a,bg,14));
@@ -261,8 +261,8 @@ final class UiNavigationSheet {
             @Override public void onBindViewHolder(RecyclerView.ViewHolder holder,int position){
                 TextView row=(TextView)holder.itemView;
                 row.setText(chapters[position]);row.setSingleLine(false);row.setMaxLines(2);
-                row.setBackground(shape(owner,position==selected?0xffead7d1:Color.TRANSPARENT,13));
-                row.setTextColor(position==selected?0xffa53b4c:color);
+                row.setBackground(shape(owner,position==selected?UiColorScheme.selected(owner):Color.TRANSPARENT,13));
+                row.setTextColor(color);
                 row.setOnClickListener(v->{sh.dialog.dismiss();choice.onSelect(position);});
             }
             @Override public int getItemCount(){return chapters.length;}
@@ -310,8 +310,8 @@ final class UiNavigationSheet {
             @Override public void onBindViewHolder(TocHolder h,int i){TocEntry entry=choices.get(i);
                 h.name.setText(entry.title);h.details.setText(entry.details);
                 h.details.setVisibility(entry.details.isEmpty()?View.GONE:View.VISIBLE);
-                h.row.setBackground(shape(a,i==current?0xffe7d5cf:Color.TRANSPARENT,14));
-                h.name.setTextColor(i==current?0xffa53b4c:ink);
+                h.row.setBackground(shape(a,i==current?UiColorScheme.selected(a):Color.TRANSPARENT,14));
+                h.name.setTextColor(ink);
                 h.row.setOnClickListener(v->{sh.dialog.dismiss();choice.onSelect(entry.word);});
             }
             @Override public int getItemCount(){return choices.size();}

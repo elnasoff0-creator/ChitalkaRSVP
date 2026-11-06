@@ -49,7 +49,7 @@ public final class SwipeDialogs {
             if(swipeHandle!=null)swipeHandle.setOnTouchListener(new SwipeDismiss(dialog,openFromTop,false,true));
             // Never resize the already-visible window: Android would interpolate the
             // entrance at the old centered size and snap to the new full-width sheet.
-            dialog.setOnShowListener(ignored->installGestures(dialog,openFromTop));
+            dialog.setOnShowListener(ignored->{installGestures(dialog,openFromTop);UiColorScheme.tintDialog(dialog,context);});
             return dialog;
         }
         @Override public AlertDialog show(){

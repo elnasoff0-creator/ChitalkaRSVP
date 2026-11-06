@@ -15,8 +15,8 @@ public final class ReaderButtonColors {
         return saved==0?defaultColor:saved;
     }
     public static int accent(Context context, int defaultColor) {
-        int saved=preferences(context).getInt("button_accent_color",0);
-        return saved==0?defaultColor:saved;
+        // Shared selected/primary palette is the same in every Activity.
+        return UiColorScheme.accent(context);
     }
     public static int contrastingText(int color) {
         double brightness=Color.red(color)*0.299+Color.green(color)*0.587+Color.blue(color)*0.114;

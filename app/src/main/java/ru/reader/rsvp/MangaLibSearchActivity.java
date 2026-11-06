@@ -29,25 +29,31 @@ import java.util.concurrent.TimeUnit;
 
 /** MangaLib-only search, chapter selection and durable CBZ queue UI. */
 public final class MangaLibSearchActivity extends NavigationActivity {
-    private static final int BG=0xfff3e7d5,PANEL=0xfffff9f2,INK=0xff30221e;
+    private int BG=0xfff3e7d5,PANEL=0xfffff9f2,INK=0xff30221e;
     private final ExecutorService executor=Executors.newSingleThreadExecutor();
     private LinearLayout list;private TextView message;private EditText query;
     private int generation=0;
     private int dp(int value){return (int)(value*getResources().getDisplayMetrics().density+.5f);}
     private GradientDrawable panel(){GradientDrawable b=new GradientDrawable();b.setColor(PANEL);b.setCornerRadius(dp(16));return b;}
+    private GradientDrawable tintPanel(int color){GradientDrawable b=new GradientDrawable();b.setColor(color);b.setCornerRadius(dp(16));return b;}
     private TextView label(String text,int size,boolean bold){TextView t=new TextView(this);t.setText(text);t.setTextColor(INK);t.setTextSize(size);if(bold)t.setTypeface(Typeface.DEFAULT,Typeface.BOLD);return t;}
     @Override public void onCreate(Bundle state){super.onCreate(state);
+        android.content.SharedPreferences theme=getSharedPreferences("reader",MODE_PRIVATE);
+        BG=theme.getInt("bg",BG);INK=theme.getInt("fg",INK);
+        PANEL=UiColorScheme.neutral(this);
         LinearLayout root=new LinearLayout(this);root.setBackgroundColor(BG);root.setPadding(dp(15),dp(18),dp(15),dp(10));root.setOrientation(LinearLayout.VERTICAL);
         setContentView(root);SafeSystemBars.matchBackground(this,BG);
         LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);root.addView(head);
-        TextView back=label("‹",32,false);back.setPadding(dp(5),0,dp(16),0);head.addView(back);back.setOnClickListener(v->finish());
+        TextView back=label("‹",32,false);back.setGravity(Gravity.CENTER);
+        back.setBackground(panel());head.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));back.setOnClickListener(v->finish());
         TextView title=label("Поиск манги · MangaLib",21,true);head.addView(title,new LinearLayout.LayoutParams(0,-2,1));
         query=new EditText(this);query.setSingleLine(true);query.setTextColor(INK);query.setTextSize(15);
         query.setHint("Название манги или ссылка MangaLib");query.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         query.setBackground(panel());query.setPadding(dp(14),dp(10),dp(14),dp(10));
         LinearLayout.LayoutParams qp=new LinearLayout.LayoutParams(-1,dp(52));qp.topMargin=dp(18);root.addView(query,qp);
         query.setOnEditorActionListener((v,action,event)->{if(action==EditorInfo.IME_ACTION_SEARCH){search();return true;}return false;});
-        TextView search=label("Найти на MangaLib",16,true);search.setGravity(Gravity.CENTER);search.setBackground(panel());
+        TextView search=label("Найти на MangaLib",16,true);search.setGravity(Gravity.CENTER);search.setBackground(tintPanel(UiColorScheme.accent(this)));
+        search.setTextColor(UiColorScheme.onAccent(this));
         LinearLayout.LayoutParams sb=new LinearLayout.LayoutParams(-1,dp(50));sb.topMargin=dp(10);root.addView(search,sb);search.setOnClickListener(v->search());
         message=label("Поиск по публичному каталогу MangaLib. Выберите главы для сохранения в CBZ.",13,false);
         message.setPadding(0,dp(12),0,dp(12));root.addView(message);
@@ -107,7 +113,7 @@ public final class MangaLibSearchActivity extends NavigationActivity {
         for(int i=0;i<chapters.size();i++){names[i]=chapters.get(i).display();MangaLibStorage.Job j=MangaLibStorage.find(this,title.slug+"|"+chapters.get(i).key());
             names[i]+=j!=null&&"complete".equals(j.status)?" ✓":"";
         }
-        new android.app.AlertDialog.Builder(this).setTitle("Главы · "+title.title)
+        new SwipeDialogs.Builder(this).setTitle("Главы · "+title.title)
             .setMultiChoiceItems(names,checked,(d,index,value)->checked[index]=value)
             .setNegativeButton("Отмена",null).setPositiveButton("Скачать в CBZ",(d,w)->{
                 ArrayList<MangaLibApi.Chapter> selected=new ArrayList<>();

@@ -115,8 +115,8 @@ final class TtsTextBlockManager {
                 row.setSingleLine(true);row.setEllipsize(TextUtils.TruncateAt.END);
                 row.setText(chapter.title);
                 boolean selected=active!=null&&chapter.startChar==active.startChar;
-                row.setTextColor(selected?0xffa53b4c:fg);
-                row.setBackground(selected?bg(owner,0xffead7d1,12):bg(owner,bg,12));
+                row.setTextColor(fg);
+                row.setBackground(selected?bg(owner,UiColorScheme.selected(owner),12):bg(owner,bg,12));
                 row.setOnClickListener(v->{dialog.dismiss();callback.onChoose(chapter.startChar);});
             }
             @Override public int getItemCount(){return chapters.size();}

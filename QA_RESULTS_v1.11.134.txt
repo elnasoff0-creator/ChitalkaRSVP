@@ -1,0 +1,22 @@
+ПРОЧиталка 1.11.134-beta CLEAN — QA
+Дата: 2026-11-06
+На основе: 1.11.133-beta CLEAN
+Version: 1.11.134-beta / versionCode 13400
+
+Локальный агрегированный прогон: 17/17 PASS
+Синтаксис Java: 136/136 PASS (без Android SDK)
+XML: 113/113 ресурсов корректны
+MangaLib: парсинг URL и CDN, статус HTTP 403/429, формат картинки — PASS в типовых stand-in проверках
+Edge TTS: SQLite, Regex и Unicode, прежние границы предложений — PASS в локальных тестах
+UI словаря: структура элементов, новые кнопки, проверка Regex — PASS
+Цветовая схема: компиляционная проверка UiColorScheme / ReaderButtonColors и исходные контракты — PASS
+Две XML-иконки: содержимое по SHA-256, разбор XML — PASS
+Целостность ZIP: проверяется при упаковке
+
+НЕ ПРОВЕРЕНО:
+- Gradle :app:assembleRelease (Android SDK и Gradle отсутствуют)
+- Работа MangaLib CDN и сохранение реального CBZ на устройстве
+- Сквозные Android UI/инструментальные тесты и Pixel-level цвета/свайпы
+- Все производительские Android TTS движки и все версии Android
+
+Для полного подтверждения релиза нужно прогнать GitHub Actions и ручные тесты.

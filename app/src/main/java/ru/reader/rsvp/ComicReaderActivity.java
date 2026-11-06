@@ -39,6 +39,7 @@ public final class ComicReaderActivity extends NavigationActivity {
     private TextView chapterTitle, chapterInfo, comicHeading;private ImageView modeAction,orientationAction;
     private boolean restoringPage=false;private int restoringToken=0;
     private LinearLayout toolbarOverlay; private FrameLayout footerOverlay;
+    private ImageView drawerAction;private int displayedUiAccent=Integer.MIN_VALUE;
     private boolean chromeVisible=true, gestureMoved=false, touchPinching=false;
     private float gestureStartX, gestureStartY;
     private long gestureStartedAt;
@@ -78,6 +79,7 @@ public final class ComicReaderActivity extends NavigationActivity {
         final int neutral=ReaderButtonColors.neutral(this,
             ReadingThemeCycle.isDark(bg)?0xff303238:0xfffff9f0);
         final int accent=ReaderButtonColors.accent(this,0xff915439);
+        displayedUiAccent=accent;
         final int neutralInk=ReaderButtonColors.contrastingText(neutral);
         final int accentInk=ReaderButtonColors.contrastingText(accent);
         main.setBackgroundColor(bg);setContentView(main);
@@ -93,7 +95,7 @@ public final class ComicReaderActivity extends NavigationActivity {
         toolbarStack.setPadding(dp(5),dp(3),dp(5),dp(3));
         LinearLayout toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);
         toolbarStack.addView(toolbar,new LinearLayout.LayoutParams(-1,dp(50)));
-        ImageView drawer=toolIcon(R.drawable.ic_menu_lines,neutralInk);
+        ImageView drawer=toolIcon(R.drawable.ic_menu_lines,neutralInk);drawerAction=drawer;
         drawer.setBackground(rounded(neutral,12));
         toolbar.addView(drawer,new LinearLayout.LayoutParams(dp(44),dp(44)));
         drawer.setContentDescription("Открыть боковое меню");drawer.setOnClickListener(v->UniversalDrawer.show(this));
@@ -401,7 +403,14 @@ public final class ComicReaderActivity extends NavigationActivity {
         return html.toString();
     }
 
-    @Override protected void onResume(){super.onResume();tracking=true;tracker.removeCallbacks(trackPosition);tracker.postDelayed(trackPosition,600);}
+    @Override protected void onResume(){super.onResume();
+        // Repaint toolbar chips in place; never reset the WebView, chapter or scroll position.
+        int fresh=UiColorScheme.accent(this);
+        if(displayedUiAccent!=fresh){displayedUiAccent=fresh;
+            if(modeAction!=null){modeAction.setBackground(rounded(fresh,12));
+                modeAction.setColorFilter(ReaderButtonColors.contrastingText(fresh));}
+        }
+        tracking=true;tracker.removeCallbacks(trackPosition);tracker.postDelayed(trackPosition,600);}
     @Override protected void onPause(){
         tracking=false;tracker.removeCallbacks(trackPosition);
         if(web!=null&&!restoringPage){try{web.evaluateJavascript("positionInfo()",value->{try{

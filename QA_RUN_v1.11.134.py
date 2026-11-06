@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Selected v1.11.133 regression suite. No Android SDK / APK build."""
+"""Selected v1.11.134 regression suite. No Android SDK / APK build."""
 from pathlib import Path
 import subprocess, sys, xml.etree.ElementTree as ET, re
 root=Path(__file__).resolve().parent
@@ -18,6 +18,8 @@ suite=[
  ('Fixed Edge cooldown', ['bash','qa/test_edge_500ms_policy.sh']),
  ('v1.11.133 MangaLib + TTS selection Android typecheck', ['python3','qa/test_v11133_compile_and_behavior.py']),
  ('v1.11.133 UI and local TTS selection contracts', ['python3','qa/test_v11133_ui_local_tts_contract.py']),
+ ('v1.11.134 UI color palette Java API typecheck', ['python3','qa/typecheck_v11134_palette.py']),
+ ('v1.11.134 MangaLib, dictionary, color and icon contracts', ['python3','qa/test_v11134_features.py']),
 ]
 passed=0
 for name,cmd in suite:
@@ -32,7 +34,7 @@ try:
  src=root/'app/src/main/java/ru/reader/rsvp'
  files=list(root.glob('app/src/main/res/**/*.xml'))
  for f in files:ET.parse(f)
- assert "versionCode 13300; versionName '1.11.133-beta'" in gradle
+ assert "versionCode 13400; versionName '1.11.134-beta'" in gradle
  assert 'implementation' in gradle and 'sqlite' not in gradle.lower() # native SQLite; no dependency
  store=(src/'EdgeDictionaryStore.java').read_text()
  assert 'extends SQLiteOpenHelper' in store and '10000' in store and '5000' in store and '1000' in store

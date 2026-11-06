@@ -11,6 +11,9 @@ mkdir -p "$T/src/android/content/res"
 cat > "$T/src/android/content/res/Resources.java" <<'JAVA'
 package android.content.res;public class Resources{public Metrics getDisplayMetrics(){return new Metrics();}public static class Metrics{public float density=1;}}
 JAVA
+cat > "$T/src/android/content/res/ColorStateList.java" <<'JAVA'
+package android.content.res;public class ColorStateList{public static ColorStateList valueOf(int i){return new ColorStateList();}}
+JAVA
 cat > "$T/src/android/content/SharedPreferences.java" <<'JAVA'
 package android.content;
 public interface SharedPreferences{String getString(String k,String d);int getInt(String k,int d);boolean getBoolean(String k,boolean d);Editor edit();interface Editor{Editor putBoolean(String k,boolean b);Editor putInt(String k,int n);boolean commit();}}
@@ -31,7 +34,7 @@ cat > "$T/src/android/database/sqlite/SQLiteOpenHelper.java" <<'JAVA'
 package android.database.sqlite;public abstract class SQLiteOpenHelper {public SQLiteOpenHelper(android.content.Context c,String s,Object factory,int v){}public abstract void onCreate(SQLiteDatabase db);public abstract void onUpgrade(SQLiteDatabase db,int a,int b);public SQLiteDatabase getWritableDatabase(){return null;}public SQLiteDatabase getReadableDatabase(){return null;}public void close(){}}
 JAVA
 cat > "$T/src/android/app/Activity.java" <<'JAVA'
-package android.app;public class Activity extends android.content.Context{public static final int RESULT_OK=-1;public void onCreate(android.os.Bundle b){}protected void onDestroy(){}public void setContentView(android.view.View v){}public android.content.Intent getIntent(){return new android.content.Intent();}public void setResult(int c,android.content.Intent i){}public boolean isFinishing(){return false;}public boolean isDestroyed(){return false;}}
+package android.app;public class Activity extends android.content.Context{public static final int RESULT_OK=-1;public void onCreate(android.os.Bundle b){}protected void onResume(){}protected void onDestroy(){}public void setContentView(android.view.View v){}public android.content.Intent getIntent(){return new android.content.Intent();}public void setResult(int c,android.content.Intent i){}public boolean isFinishing(){return false;}public boolean isDestroyed(){return false;}}
 JAVA
 cat > "$T/src/android/app/AlertDialog.java" <<'JAVA'
 package android.app;public class AlertDialog{public static final int BUTTON_POSITIVE=-1;public void dismiss(){}public android.widget.Button getButton(int n){return null;}public void setOnShowListener(android.content.DialogInterface.OnShowListener l){}public void show(){}public static class Builder{public Builder(android.content.Context ctx){}public Builder setTitle(String s){return this;}public Builder setView(android.view.View v){return this;}public Builder setNegativeButton(String s,android.content.DialogInterface.OnClickListener l){return this;}public Builder setPositiveButton(String s,android.content.DialogInterface.OnClickListener l){return this;}public Builder setNeutralButton(String s,android.content.DialogInterface.OnClickListener l){return this;}public Builder setItems(String[] items,android.content.DialogInterface.OnClickListener l){return this;}public AlertDialog create(){return new AlertDialog();}public AlertDialog show(){return new AlertDialog();}}}
@@ -39,8 +42,14 @@ JAVA
 cat > "$T/src/android/content/DialogInterface.java" <<'JAVA'
 package android.content;public interface DialogInterface {interface OnClickListener {void onClick(DialogInterface dialog,int which);}interface OnShowListener{void onShow(DialogInterface dialog);}}
 JAVA
+cat > "$T/src/android/graphics/drawable/Drawable.java" <<'JAVA'
+package android.graphics.drawable;public class Drawable{}
+JAVA
+cat > "$T/src/android/graphics/drawable/RippleDrawable.java" <<'JAVA'
+package android.graphics.drawable;public class RippleDrawable extends Drawable{public RippleDrawable(android.content.res.ColorStateList c,Drawable d,Drawable mask){}}
+JAVA
 cat > "$T/src/android/graphics/drawable/GradientDrawable.java" <<'JAVA'
-package android.graphics.drawable;public class GradientDrawable{public void setColor(int v){}public void setCornerRadius(float r){}}
+package android.graphics.drawable;public class GradientDrawable extends Drawable{public void setColor(int v){}public void setCornerRadius(float r){}}
 JAVA
 cat > "$T/src/android/graphics/Color.java" <<'JAVA'
 package android.graphics;public class Color{public static int red(int c){return 0;}public static int green(int c){return 0;}public static int blue(int c){return 0;}}
@@ -67,16 +76,16 @@ cat > "$T/src/android/text/InputType.java" <<'JAVA'
 package android.text;public class InputType{public static final int TYPE_CLASS_TEXT=1,TYPE_TEXT_VARIATION_VISIBLE_PASSWORD=2,TYPE_TEXT_FLAG_NO_SUGGESTIONS=4;}
 JAVA
 cat > "$T/src/android/view/View.java" <<'JAVA'
-package android.view;public class View{public static final int VISIBLE=0,GONE=8;public interface OnClickListener{void onClick(View v);}public void setOnClickListener(OnClickListener l){}public void setPadding(int a,int b,int c,int d){}public void setBackground(android.graphics.drawable.GradientDrawable g){}public void setBackgroundColor(int c){}public void setVisibility(int v){}public int getVisibility(){return 0;}public void post(Runnable r){}public int getTop(){return 0;}}
+package android.view;public class View{public static final int VISIBLE=0,GONE=8;public interface OnClickListener{void onClick(View v);}public void setOnClickListener(OnClickListener l){}public void setPadding(int a,int b,int c,int d){}public void setBackground(android.graphics.drawable.GradientDrawable g){}public void setBackgroundColor(int c){}public void setBackground(android.graphics.drawable.Drawable d){}public void setVisibility(int v){}public int getVisibility(){return 0;}public void post(Runnable r){}public int getTop(){return 0;}public void setContentDescription(String s){}public android.view.ViewGroup.LayoutParams getLayoutParams(){return null;}public void setLayoutParams(android.view.ViewGroup.LayoutParams p){}}
 JAVA
 cat > "$T/src/android/view/ViewGroup.java" <<'JAVA'
-package android.view;public class ViewGroup extends View{public void removeAllViews(){}public void addView(View v){}public void addView(View v,LayoutParams p){}public static class LayoutParams{public LayoutParams(int w,int h){}}}
+package android.view;public class ViewGroup extends View{public void removeAllViews(){}public void addView(View v){}public void addView(View v,LayoutParams p){}public static class LayoutParams{public int width;public LayoutParams(int w,int h){width=w;}}}
 JAVA
 cat > "$T/src/android/view/Gravity.java" <<'JAVA'
 package android.view;public class Gravity{public static final int CENTER=1,CENTER_VERTICAL=2;}
 JAVA
 cat > "$T/src/android/widget/TextView.java" <<'JAVA'
-package android.widget;public class TextView extends android.view.View{public TextView(android.content.Context c){}public void setText(String s){}public void setTextSize(float n){}public void setTextColor(int c){}public void setGravity(int g){}public void setMaxLines(int n){}public void setHint(String s){}public void setEnabled(boolean b){}public void setSelection(int n){}public int length(){return 0;}public android.text.Editable getText(){return null;}public void setSingleLine(boolean b){}public void setMinLines(int l){}public void setInputType(int i){}public void addTextChangedListener(android.text.TextWatcher t){}}
+package android.widget;public class TextView extends android.view.View{public TextView(android.content.Context c){}public void setText(String s){}public void setTextSize(float n){}public void setTextColor(int c){}public void setGravity(int g){}public void setMaxLines(int n){}public void setHint(String s){}public void setHintTextColor(int c){}public void setBackgroundTintList(android.content.res.ColorStateList color){}public void setEnabled(boolean b){}public void setSelection(int n){}public int length(){return 0;}public android.text.Editable getText(){return null;}public void setSingleLine(boolean b){}public void setMinLines(int l){}public void setInputType(int i){}public void addTextChangedListener(android.text.TextWatcher t){}}
 JAVA
 cat > "$T/src/android/widget/EditText.java" <<'JAVA'
 package android.widget;public class EditText extends TextView{public EditText(android.content.Context c){super(c);}}
@@ -85,7 +94,7 @@ cat > "$T/src/android/widget/Button.java" <<'JAVA'
 package android.widget;public class Button extends TextView{public Button(android.content.Context c){super(c);}public void setAllCaps(boolean v){}}
 JAVA
 cat > "$T/src/android/widget/CompoundButton.java" <<'JAVA'
-package android.widget;public class CompoundButton extends Button{public CompoundButton(android.content.Context c){super(c);}public interface OnCheckedChangeListener{void onCheckedChanged(CompoundButton b,boolean c);}public void setOnCheckedChangeListener(OnCheckedChangeListener l){}public void setChecked(boolean b){}public boolean isChecked(){return false;}}
+package android.widget;public class CompoundButton extends Button{public CompoundButton(android.content.Context c){super(c);}public void setButtonTintList(android.content.res.ColorStateList l){}public interface OnCheckedChangeListener{void onCheckedChanged(CompoundButton b,boolean c);}public void setOnCheckedChangeListener(OnCheckedChangeListener l){}public void setChecked(boolean b){}public boolean isChecked(){return false;}}
 JAVA
 cat > "$T/src/android/widget/CheckBox.java" <<'JAVA'
 package android.widget;public class CheckBox extends CompoundButton{public CheckBox(android.content.Context c){super(c);}}
@@ -94,7 +103,7 @@ cat > "$T/src/android/widget/ImageButton.java" <<'JAVA'
 package android.widget;public class ImageButton extends Button{public ImageButton(android.content.Context c){super(c);}public void setImageResource(int r){}public void setColorFilter(int c){}}
 JAVA
 cat > "$T/src/android/widget/LinearLayout.java" <<'JAVA'
-package android.widget;public class LinearLayout extends android.view.ViewGroup{public static final int VERTICAL=1;public LinearLayout(android.content.Context c){}public void setOrientation(int v){}public void setGravity(int v){}public static class LayoutParams extends android.view.ViewGroup.LayoutParams{public int bottomMargin,rightMargin;public LayoutParams(int x,int y){super(x,y);}public LayoutParams(int x,int y,float weight){super(x,y);}}}
+package android.widget;public class LinearLayout extends android.view.ViewGroup{public static final int VERTICAL=1;public LinearLayout(android.content.Context c){}public void setOrientation(int v){}public void setGravity(int v){}public static class LayoutParams extends android.view.ViewGroup.LayoutParams{public int bottomMargin,rightMargin,leftMargin;public float weight;public LayoutParams(int x,int y){super(x,y);}public LayoutParams(int x,int y,float weight){super(x,y);}}}
 JAVA
 cat > "$T/src/android/widget/ScrollView.java" <<'JAVA'
 package android.widget;public class ScrollView extends android.view.ViewGroup{public ScrollView(android.content.Context c){}public void smoothScrollTo(int x,int y){}}
@@ -112,13 +121,19 @@ cat > "$T/src/ru/reader/rsvp/UniversalDrawer.java" <<'JAVA'
 package ru.reader.rsvp;public class UniversalDrawer{public static void show(android.app.Activity a){}}
 JAVA
 cat > "$T/src/ru/reader/rsvp/R.java" <<'JAVA'
-package ru.reader.rsvp;public final class R{public static final class drawable{public static final int ic_menu_lines=1,ic_plus=2,ic_edit_name=3,ic_tts_engine=4;}}
+package ru.reader.rsvp;public final class R{public static final class drawable{public static final int ic_menu_lines=1,ic_plus=2,ic_edit_name=3,ic_tts_engine=4,ic_microphone=5;}}
 JAVA
 cat > "$T/src/ru/reader/rsvp/EdgeTtsClient.java" <<'JAVA'
 package ru.reader.rsvp;public class EdgeTtsClient{public interface Callback{void progress(int count,long size);void finished(byte[] data,int n,String error);}public static EdgeTtsClient synthesize(String text,String voice,String rate,int priority,Callback cb){return null;}public void cancel(){}}
 JAVA
 cat > "$T/src/ru/reader/rsvp/EdgeSpeechQueue.java" <<'JAVA'
 package ru.reader.rsvp;public class EdgeSpeechQueue{public static final int PREFETCH=1;}
+JAVA
+cat > "$T/src/ru/reader/rsvp/UiColorScheme.java" <<'JAVA'
+package ru.reader.rsvp;public class UiColorScheme{public static int accent(android.content.Context c){return 0xffa26949;}public static int neutral(android.content.Context c){return 0xfff4e4d6;}public static int selected(android.content.Context c){return 0xffeed5cf;}public static int onAccent(android.content.Context c){return 0xffffffff;}public static int blend(int a,int b,float f){return a;}}
+JAVA
+cat > "$T/src/ru/reader/rsvp/SwipeDialogs.java" <<'JAVA'
+package ru.reader.rsvp;public class SwipeDialogs{public static class Builder extends android.app.AlertDialog.Builder{public Builder(android.content.Context c){super(c);}}}
 JAVA
 cat > "$T/src/ru/reader/rsvp/TtsWpm.java" <<'JAVA'
 package ru.reader.rsvp;public class TtsWpm{public static float rate(android.content.Context c){return 1.0f;}}

@@ -100,17 +100,17 @@ public class AudioPlayerActivity extends NavigationActivity {
         draw();String audioAction=getIntent().getStringExtra("audio_action");if(audioAction!=null)handler.post(()->{switch(audioAction){case "tts":loadTts(bookUri,getSharedPreferences("reader",0).getInt("index",0));break;case "voice":voiceMenu();break;case "marks":showMarks();break;case "cover":chooseCover();break;case "sleep":sleepMenu();break;case "speed":speedMenu();break;}});boolean resumeAudio=getIntent().getBooleanExtra("resume_audio",false);
         if(selected!=null&&(AudioPlaybackService.instance==null||AudioPlaybackService.instance.isTtsMode()||!selected.id.equals(AudioPlaybackService.instance.getBookId())))openSelected(selected,resumeAudio);
         else if(resumeAudio&&selected!=null)command(AudioPlaybackService.PLAY);if(getIntent().getBooleanExtra("start_tts",false)&&!bookUri.isEmpty())loadTts(bookUri,getIntent().getIntExtra("word_index",0));}
-    int drawnBackground=Integer.MIN_VALUE,drawnText=Integer.MIN_VALUE;
+    int drawnBackground=Integer.MIN_VALUE,drawnText=Integer.MIN_VALUE,drawnAccent=Integer.MIN_VALUE;
     void readPalette(){android.content.SharedPreferences p=getSharedPreferences("reader",0);BACKGROUND=p.getInt("bg",0xfff3e7d5);TEXT=p.getInt("fg",0xff30221e);}
     @Override protected void onResume(){super.onResume();
         int oldBg=drawnBackground,oldText=drawnText;readPalette();
-        if(oldBg!=BACKGROUND||oldText!=TEXT){draw();}
+        if(oldBg!=BACKGROUND||oldText!=TEXT||drawnAccent!=UiColorScheme.accent(this)){draw();}
         if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)
             requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},427);
 if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPlaybackService.ACTION_STATE),Context.RECEIVER_NOT_EXPORTED);else registerReceiver(receiver,new IntentFilter(AudioPlaybackService.ACTION_STATE));handler.post(updater);}
     @Override protected void onPause(){handler.removeCallbacks(updater);try{unregisterReceiver(receiver);}catch(Exception ignored){}super.onPause();}
     void draw(){
-        readPalette();drawnBackground=BACKGROUND;drawnText=TEXT;
+        readPalette();drawnBackground=BACKGROUND;drawnText=TEXT;drawnAccent=UiColorScheme.accent(this);
         root=new LinearLayout(this);root.setOrientation(1);root.setBackgroundColor(BACKGROUND);
         root.setPadding(dp(12),dp(29),dp(12),dp(10));setContentView(root);SafeSystemBars.matchBackground(this,BACKGROUND);
         LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);

@@ -93,7 +93,7 @@ public class SettingsActivity extends NavigationActivity {
     GradientDrawable rounded(int c,int rad){GradientDrawable gd=new GradientDrawable();gd.setColor(c);gd.setCornerRadius(dp(rad));return gd;}
     GradientDrawable outlined(int color,int radius){GradientDrawable d=rounded(color,radius);d.setStroke(dp(1),0xff938475);return d;}
     int cardColor(){return contrast(bg)==Color.WHITE?0xff404348:0xfffff9f1;}
-    int activeColor(){return accentButtonColor==NO_COLOR?0xffa26949:accentButtonColor;}
+    int activeColor(){return UiColorScheme.accent(this);}
     Typeface face(){return ReaderFontLibrary.selected(this,prefs);}
     LinearLayout col(){LinearLayout l=new LinearLayout(this);l.setOrientation(1);return l;}
     TextView text(String str,int sp,boolean bold){TextView t=new TextView(this);t.setText(str);t.setTextSize(sp);t.setTextColor(contrast(bg));t.setTypeface(Typeface.DEFAULT,bold?Typeface.BOLD:Typeface.NORMAL);return t;}
@@ -112,7 +112,8 @@ public class SettingsActivity extends NavigationActivity {
     void draw(){
         root=col();root.setBackgroundColor(bg);root.setPadding(dp(14),dp(25),dp(14),dp(9));setContentView(root);SafeSystemBars.matchBackground(this,bg);
         LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);
-        ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_menu_lines);back.setColorFilter(contrast(bg));back.setPadding(dp(10),dp(10),dp(10),dp(10));back.setOnClickListener(v->UniversalDrawer.show(this));top.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_menu_lines);back.setColorFilter(contrast(bg));back.setPadding(dp(10),dp(10),dp(10),dp(10));
+        back.setBackground(rounded(UiColorScheme.neutral(this),12));back.setOnClickListener(v->UniversalDrawer.show(this));top.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));
         TextView name=text("Настройки",24,true);name.setTypeface(Typeface.SERIF,Typeface.BOLD);top.addView(name,new LinearLayout.LayoutParams(0,-2,1));root.addView(top);
         ScrollView sc=new ScrollView(this);list=col();sc.addView(list);root.addView(sc,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout tabs=new LinearLayout(this);
@@ -156,6 +157,7 @@ public class SettingsActivity extends NavigationActivity {
         header("Цвет текста");palette(textColors,false);
         header("Цвет фоновых подложек");
         list.addView(action("Изменить цвет подложек",()->panelColorDialog()));
+        header("Цветовая схема интерфейса");drawUiColorScheme();
         header("Цвет обычных кнопок");buttonPalette(false);
         header("Цвет акцентных кнопок · Play, режимы");buttonPalette(true);
         gap(18);
@@ -836,6 +838,42 @@ public class SettingsActivity extends NavigationActivity {
             int color=colors[k];TextView tile=new TextView(this);tile.setText(color==(background?bg:fg)?"✓":" ");tile.setGravity(Gravity.CENTER);tile.setTextSize(19);tile.setTextColor(contrast(color));tile.setBackground(outlined(color,13));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(54),1);lp.setMargins(dp(3),dp(3),dp(3),dp(3));row.addView(tile,lp);
             tile.setOnClickListener(v->{if(background){bg=color;put("bg",bg);if(contrast(bg)==contrast(fg)) {fg=contrast(bg);put("fg",fg);}draw();}else{fg=color;put("fg",fg);draw();}});
         }list.addView(row);}list.addView(action("Настроить RGB вручную",()->colorDialog(background)));
+    }
+    void drawUiColorScheme(){
+        TextView hint=text("Единый цвет выделения для оглавления, манги, аудиокниг, словаря и диалогов. При варианте «Из текущей темы» используется цвет акцентных кнопок.",13,false);
+        hint.setPadding(dp(4),0,dp(4),dp(10));list.addView(hint);
+        TextView picker=action("Схема: "+UiColorScheme.displayName(this),()->{
+            String[] options={"Из текущей темы","Тёплая","Зелёная","Сиреневая","Свой цвет (HEX)"};
+            String[] keys={"theme","warm","green","violet","custom"};
+            new SwipeDialogs.Builder(this).setTitle("Цветовая схема интерфейса")
+                .setItems(options,(dialog,index)->{
+                    if(index==4){uiCustomColorDialog();return;}
+                    prefs.edit().putString(UiColorScheme.KEY_MODE,keys[index]).apply();draw();
+                }).setNegativeButton("Отмена",null).show();
+        });list.addView(picker);
+        int accent=UiColorScheme.accent(this),selection=UiColorScheme.selected(this);
+        LinearLayout sample=col();sample.setPadding(dp(12),dp(11),dp(12),dp(11));
+        sample.setBackground(rounded(UiColorScheme.neutral(this),12));
+        TextView selected=text("✓  Выбранная глава — образец",15,true);
+        selected.setTextColor(contrast(selection));selected.setBackground(rounded(selection,10));
+        selected.setPadding(dp(12),dp(12),dp(12),dp(12));sample.addView(selected);
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=dp(8);list.addView(sample,lp);
+    }
+    void uiCustomColorDialog(){
+        EditText hex=new EditText(this);hex.setSingleLine(true);hex.setHint("#A26949");
+        hex.setText(String.format(java.util.Locale.ROOT,"#%06X",UiColorScheme.accent(this)&0xffffff));
+        LinearLayout wrap=col();wrap.setPadding(dp(20),dp(8),dp(20),0);wrap.addView(hex);
+        new SwipeDialogs.Builder(this).setTitle("Собственный акцентный цвет")
+            .setView(wrap).setNegativeButton("Отмена",null)
+            .setPositiveButton("Применить",(dialog,index)->{
+                try{
+                    String raw=hex.getText().toString().trim();
+                    if(!raw.matches("#[0-9A-Fa-f]{6}"))throw new IllegalArgumentException("HEX должен иметь формат #RRGGBB");
+                    int color=Color.parseColor(raw);
+                    prefs.edit().putInt(UiColorScheme.KEY_CUSTOM,color)
+                        .putString(UiColorScheme.KEY_MODE,"custom").apply();draw();
+                }catch(Exception e){android.widget.Toast.makeText(this,e.getMessage(),android.widget.Toast.LENGTH_LONG).show();}
+            }).show();
     }
     void buttonPalette(boolean primary){
         final String setting=primary?"button_accent_color":"button_color";

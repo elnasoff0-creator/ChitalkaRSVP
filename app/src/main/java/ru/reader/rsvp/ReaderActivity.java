@@ -284,7 +284,7 @@ public class ReaderActivity extends NavigationActivity {
     private Typeface type(){return ReaderFontLibrary.selected(this,prefs);}
     private int panelColor(){return ReadingThemeCycle.isDark(bg)?0xff303238:0xfffff9f0;}
     private int buttonBg(){return buttonColor==NO_COLOR?panelColor():buttonColor;}
-    private int accent(){return accentButtonColor==NO_COLOR?0xff915439:accentButtonColor;}
+    private int accent(){return UiColorScheme.accent(this);}
     private int contrast(int value){return Color.red(value)*0.299+Color.green(value)*0.587+Color.blue(value)*0.114<140?Color.WHITE:0xff30221e;}
     private GradientDrawable shape(int color,int radius){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(radius));return d;}
     private TextView text(String s,int sp){TextView t=new TextView(this);t.setText(s);t.setTextSize(sp);t.setTextColor(fg);return t;}
@@ -303,7 +303,9 @@ public class ReaderActivity extends NavigationActivity {
     }
     private int modeDrawable(){return mode==NORMAL?R.drawable.ic_book:mode==RSVP?R.drawable.ic_mode_speedreading:mode==CURSOR?R.drawable.ic_mode_cursor:R.drawable.ic_microphone;}
 
+    private int accentAtDraw=Integer.MIN_VALUE;
     private void draw(){
+        accentAtDraw=UiColorScheme.accent(this);
         lastAppliedFont=ReaderFontLibrary.choice(this,prefs);
         stop();
         sceneRoot=new FrameLayout(this);
@@ -1724,7 +1726,7 @@ public class ReaderActivity extends NavigationActivity {
         }
         if(root!=null&&words.length>0&&(!lastAppliedFont.equals(ReaderFontLibrary.choice(this,prefs))||oldBg!=bg||oldFg!=fg||oldSize!=size||oldFont!=font||oldMode!=mode||oldPortion!=portion
             ||oldCursorBg!=cursorBackground||oldCursorText!=cursorText||oldCursorScale!=cursorScale||oldNormalText!=normalSelectText
-            ||oldNormalScale!=normalSelectScale||oldButton!=buttonColor||oldAccent!=accentButtonColor
+            ||oldNormalScale!=normalSelectScale||oldButton!=buttonColor||oldAccent!=accentButtonColor||accentAtDraw!=UiColorScheme.accent(this)
             ||oldHighlightColor!=sentenceHighlightColor||oldHighlightOpacity!=sentenceHighlightOpacity||oldFocus!=focusColor||oldLineColor!=lineColor
             ||oldLinePos!=linePosition||oldPoint!=focusPoint||oldLines!=focusLinesEnabled))draw();
 

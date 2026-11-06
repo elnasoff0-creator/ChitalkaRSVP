@@ -150,13 +150,13 @@ with tempfile.TemporaryDirectory(prefix='chitalka133_') as t:
     ''',
     'org/json/JSONArray.java':r'''
         package org.json;
-        public class JSONArray{public int length(){return 0;}public JSONObject optJSONObject(int i){return null;}public String optString(int i,String d){return d;}}
+        public class JSONArray{public int length(){return 0;}public JSONObject optJSONObject(int i){return null;}public String optString(int i,String d){return d;}public int optInt(int i,int d){return d;}}
     ''',
     'org/json/JSONObject.java':r'''
         package org.json;
         public class JSONObject{
             public JSONObject(){}public JSONObject(String s){}
-            public JSONObject optJSONObject(String k){return null;}public JSONArray optJSONArray(String k){return null;}
+            public JSONObject optJSONObject(String k){return null;}public JSONArray optJSONArray(String k){return null;}public Object opt(String k){return null;}
             public String optString(String k,String def){return def;}public String optString(String k){return "";}public long optLong(String k,long d){return d;}public long optLong(String k){return 0;}
             public boolean optBoolean(String k,boolean d){return d;}
         }

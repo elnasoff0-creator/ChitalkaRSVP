@@ -170,38 +170,79 @@ final class MangaLibApi {
             .addQueryParameter("number",ch.number).addQueryParameter("volume",ch.volume);
         if(ch.branch>0)u.addQueryParameter("branch_id",String.valueOf(ch.branch));
         JSONObject data=objectData(getJson(u.build()));
-        JSONArray raw=data.optJSONArray("pages");if(raw==null||raw.length()==0)throw new AccessException("Для главы нет доступных страниц");
+        JSONArray raw=data.optJSONArray("pages");
+        if(raw==null){JSONObject nested=data.optJSONObject("chapter");if(nested!=null)raw=nested.optJSONArray("pages");}
+        if(raw==null||raw.length()==0)throw new AccessException("Для главы нет доступных страниц");
         List<String> servers=null;ArrayList<Page> pages=new ArrayList<>();
         for(int i=0;i<raw.length();i++){
             JSONObject o=raw.optJSONObject(i);if(o==null)continue;
-            String path=o.optString("url","");if(path.isEmpty())path=o.optString("image","");
+            // MangaLib: "url" is the relative image path; "image" is often just its filename.
+            String path=pagePath(o);
+            if(path.isEmpty())throw new IOException("Страница "+(i+1)+": API не вернул путь изображения (url/path). "
+                +"Поле image без пути не позволяет построить корректный адрес");
             if(servers==null){
                 // Absolute URLs also get alternative CDNs when MangaLib exposes them.
                 // If constants is temporarily unavailable, a valid absolute URL still works.
                 if(path.startsWith("https://")){
                     try{servers=imageServers();}catch(IOException ignored){servers=new ArrayList<>();}
-                }else servers=imageServers();
+                }else {try{servers=imageServers();}catch(IOException ignored){servers=new ArrayList<>();}}
+                // Public CDN origins are only a fallback for a VALID relative path, never for a lone filename.
+                if(servers.isEmpty()){servers.add("https://img2.imglib.info");servers.add("https://img3.mixlib.me");}
             }
             List<String> candidates=imageUrls(path,servers);
-            if(candidates.isEmpty())throw new IOException("Не удалось определить адрес страницы "+(i+1));
+            if(candidates.isEmpty())throw new IOException("Не удалось определить адрес страницы "+(i+1)
+                +"; url="+safeDiagnostic(path)+"; допустимых CDN="+servers.size());
             pages.add(new Page(candidates,i+1));
         }
         if(pages.isEmpty())throw new IOException("Нет изображений главы");
         return pages;
+    }
+    /** Use the API path (not a standalone image filename) with an allowlisted CDN. */
+    private static String pagePath(JSONObject page){
+        String[] keys={"url","path","image_url","imageUrl","src"};
+        for(String key:keys){Object value=page.opt(key);
+            if(value instanceof String){String s=((String)value).trim();if(!s.isEmpty()&&!"null".equals(s))return s;}
+            if(value instanceof JSONObject){JSONObject object=(JSONObject)value;
+                for(String nested:keys){String s=object.optString(nested,"").trim();
+                    if(!s.isEmpty()&&!"null".equals(s))return s;}
+            }
+        }
+        // Some API revisions wrap an image path inside an image object.
+        Object image=page.opt("image");
+        if(image instanceof JSONObject){JSONObject node=(JSONObject)image;
+            for(String key:keys){String nested=node.optString(key,"").trim();
+                if(!nested.isEmpty()&&!"null".equals(nested))return nested;}
+        }
+        // A lone filename cannot identify its parent directory. Only use image if it
+        // already contains an actual relative/absolute media path.
+        if(image instanceof String){String raw=((String)image).trim();
+            if(raw.startsWith("/uploads/")||raw.startsWith("uploads/")||raw.startsWith("https://"))return raw;
+        }
+        return "";
+    }
+    private static String safeDiagnostic(String path){
+        if(path==null)return "(пусто)";
+        // Never include full signed image URLs or their query strings in logs/errors.
+        int query=path.indexOf('?');String cut=query<0?path:path.substring(0,query);
+        return cut.length()>105?cut.substring(0,105)+"...":cut;
     }
     private List<String> imageServers() throws IOException {
         HttpUrl u=HttpUrl.parse(BASE+"/constants").newBuilder().addQueryParameter("fields[]","imageServers").build();
         JSONObject data=objectData(getJson(u));JSONArray a=data.optJSONArray("imageServers");
         ArrayList<String> out=new ArrayList<>();if(a!=null)for(int i=0;i<a.length();i++){
             JSONObject o=a.optJSONObject(i);String host=o==null?a.optString(i,""):o.optString("url","");
-            if(allowedImage(host))out.add(host);
+            if(o!=null){JSONArray sites=o.optJSONArray("site_ids");
+                if(sites!=null){boolean siteOne=false;for(int j=0;j<sites.length();j++)if(sites.optInt(j,-1)==1)siteOne=true;
+                    if(!siteOne)continue;}
+            }
+            if(allowedImage(host)&&!out.contains(host))out.add(host);
         }
         return out;
     }
     private static boolean allowedImage(String value){
         try{HttpUrl u=HttpUrl.parse(value);if(u==null||!"https".equals(u.scheme()))return false;
             String h=u.host().toLowerCase(Locale.ROOT);
-            return h.equals("mixlib.me")||h.endsWith(".mixlib.me")||h.equals("imglib.info")||h.endsWith(".imglib.info")||h.equals("cdnlibs.org")||h.endsWith(".cdnlibs.org");
+            return h.equals("mixlib.me")||h.endsWith(".mixlib.me")||h.equals("imglib.info")||h.endsWith(".imglib.info")||h.equals("cdnlibs.org")||h.endsWith(".cdnlibs.org")||h.equals("mangalib.me")||h.endsWith(".mangalib.me");
         }catch(Exception ignored){return false;}
     }
     private static List<String> imageUrls(String path,List<String> servers){
@@ -216,6 +257,7 @@ final class MangaLibApi {
         }else if(path.startsWith("//")||path.startsWith("http:")){
             return new ArrayList<>();
         }
+        if(path.contains("\\")||path.contains("..")||path.startsWith("#")||path.contains(" "))return new ArrayList<>(candidates);
         String relative=path.startsWith("/")?path:"/"+path;
         if(servers!=null)for(String server:servers){
             HttpUrl base=HttpUrl.parse(server);
