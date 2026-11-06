@@ -47,7 +47,7 @@ public final class EdgeStreamingService extends Service {
     private final ExecutorService io=Executors.newSingleThreadExecutor();
     // MP3 decode must never hold the queue responsible for producing playable files.
     private final ExecutorService tailAnalysis=Executors.newSingleThreadExecutor(r->{
-        Thread thread=new Thread(r,"EdgeTrailingSilence");
+        Thread thread=new Thread(r,"EdgeCoverage");
         thread.setPriority(Thread.MIN_PRIORITY);
         return thread;
     });
@@ -442,7 +442,6 @@ public final class EdgeStreamingService extends Service {
                       for(File pending:EdgeStreamCache.recover(dir)){
                         File meta=new File(pending.getParentFile(),pending.getName().replace(".ready",".json"));
                         EdgeCacheCommitter.submit(this,pending,meta,dir,
-                            getSharedPreferences("reader",0).getBoolean("edge_trim_sentence_pause",true),
                             (key,file,problem)->main.post(()->{
                                 if(problem==null&&requested.equals(bookUri)){
                                     for(Clip c:archive)if(c.key.equals(key)){
@@ -937,12 +936,6 @@ public final class EdgeStreamingService extends Service {
                                 if(basePart!=null&&(clip.start!=basePart.fromWord||clip.end!=basePart.toWord))
                                     saveOverride(clip);
                                 clip.failures=0;clip.retryAt=0;clip.awaitingUserRetry=false;
-                                // Analyze trailing silence after the MP3 is already playable.
-                                if(getSharedPreferences("reader",0).getBoolean("edge_trim_sentence_pause",true))
-                                    tailAnalysis.execute(()->{
-                                        try{EdgeTrailingSilence.detectAndStore(ready,clip.text);}
-                                        catch(Exception ex){Log.w("EdgeSpeech","Tail detection skipped",ex);}
-                                    });
                             }else{
                                 clip.failures++;clip.retryAt=0;clip.awaitingUserRetry=true;
                                 error="Ошибка сохранения MP3: "+cacheError;

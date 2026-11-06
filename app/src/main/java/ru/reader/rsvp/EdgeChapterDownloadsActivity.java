@@ -30,7 +30,7 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
     private final Handler main=new Handler(Looper.getMainLooper());
     private final ExecutorService worker=Executors.newSingleThreadExecutor();
     private String uri="",title="";
-    private TextView summary;
+    private TextView summary,pauseButton;
     private LinearLayout entries;
     private boolean visible,loading;
     private final ArrayList<Entry> displayed=new ArrayList<>();
@@ -69,8 +69,9 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
         LinearLayout controls=new LinearLayout(this);LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,-2);
         cp.topMargin=dp(12);root.addView(controls,cp);
         TextView all=button("Подготовить все",()->command(-1));controls.addView(all,new LinearLayout.LayoutParams(0,dp(47),1));
-        TextView pause=button("Пауза / Продолжить",this::toggle);LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(0,dp(47),1);
-        pp.leftMargin=dp(8);controls.addView(pause,pp);
+        pauseButton=button("Пауза",this::toggle);pauseButton.setSingleLine(true);
+        LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(0,dp(47),1);
+        pp.leftMargin=dp(8);controls.addView(pauseButton,pp);
         TextView hint=text("Нажмите на главу, чтобы подготовить только её. Скачанные MP3 сохраняются и при повторном запуске используются из кэша.",12,false);
         hint.setTextColor(MUTED);LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);hp.topMargin=dp(9);root.addView(hint,hp);
         ScrollView scroll=new ScrollView(this);LinearLayout.LayoutParams sl=new LinearLayout.LayoutParams(-1,0,1);
@@ -129,7 +130,13 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
             }
             EdgeFullBookStore.Job job=EdgeFullBookStore.find(this,uri,title);
             main.post(()->{loading=false;if(!visible)return;
-                String status=job==null?"":(" · "+(EdgeFullBookStore.RUNNING.equals(job.status)?"загрузка":job.status));
+                boolean running=job!=null&&(EdgeFullBookStore.RUNNING.equals(job.status)||EdgeFullBookStore.QUEUED.equals(job.status));
+                if(pauseButton!=null)pauseButton.setText(running?"Пауза":"Продолжить");
+                String localized=job==null?"":EdgeFullBookStore.RUNNING.equals(job.status)?"загрузка":
+                    EdgeFullBookStore.QUEUED.equals(job.status)?"в очереди":
+                    EdgeFullBookStore.PAUSED.equals(job.status)?"приостановлено":
+                    EdgeFullBookStore.FAILED.equals(job.status)?"ошибка":job.status;
+                String status=localized.isEmpty()?"":" · "+localized;
                 summary.setText("Сохранено "+total.percent()+"% текста · "+total.files+" MP3 · "+
                     String.format(Locale.ROOT,"%.1f МБ",total.bytes/1048576.0)+status);
                 if(chapterViews.size()!=result.size()||!sameChapters(result)){

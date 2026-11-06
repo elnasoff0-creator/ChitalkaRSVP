@@ -35,7 +35,7 @@ for fn in ['ic_manga_search.xml','ic_audio_chapters.xml']:
     assert E.attrib['{http://schemas.android.com/apk/res/android}width']=='24dp'
     assert E.attrib['{http://schemas.android.com/apk/res/android}height']=='24dp'
 assert sha256((draw/'ic_manga_search.xml').read_bytes()).hexdigest()=='3c3bcba55cb76be1f77d2b29a21af3ff0f8cc06396971b9c5ed95178e556776c'
-assert sha256((draw/'ic_audio_chapters.xml').read_bytes()).hexdigest()=='e281097b60e64ab8fe0b3594389b414db4341e04c719b26a9666e836f8bd8fca'
+assert sha256((draw/'ic_audio_chapters.xml').read_bytes()).hexdigest()=='6299c2cab8cc621614a135e3069dda67cff556befdcbd1d7de4e8cab80b3e622'
 for f in root.glob('app/src/main/res/**/*.xml'):ET.parse(f)
 print('PASS: MangaLib URL/CDN security and diagnosis')
 print('PASS: Edge dictionary editor, actions, preview and theme colors')

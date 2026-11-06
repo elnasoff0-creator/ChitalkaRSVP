@@ -114,7 +114,7 @@ public class SettingsActivity extends NavigationActivity {
         LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);
         ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_menu_lines);back.setColorFilter(contrast(bg));back.setPadding(dp(10),dp(10),dp(10),dp(10));
         back.setBackground(rounded(UiColorScheme.neutral(this),12));back.setOnClickListener(v->UniversalDrawer.show(this));top.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));
-        TextView name=text("Настройки",24,true);name.setTypeface(Typeface.SERIF,Typeface.BOLD);top.addView(name,new LinearLayout.LayoutParams(0,-2,1));root.addView(top);
+        TextView name=text("Настройки",24,true);name.setTypeface(Typeface.SERIF,Typeface.BOLD);LinearLayout.LayoutParams nameLp=new LinearLayout.LayoutParams(0,-2,1);nameLp.leftMargin=dp(14);top.addView(name,nameLp);root.addView(top);
         ScrollView sc=new ScrollView(this);list=col();sc.addView(list);root.addView(sc,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout tabs=new LinearLayout(this);
         int[] icons={R.drawable.ic_tab_appearance,R.drawable.ic_book,R.drawable.ic_tab_music,R.drawable.ic_tab_online,R.drawable.ic_chteico_nav};
@@ -564,22 +564,46 @@ public class SettingsActivity extends NavigationActivity {
         TextView h=text(title,15,true);words.addView(h);
         if(subtitle!=null&&!subtitle.isEmpty()){
             TextView caption=text(subtitle,12,false);caption.setAlpha(.75f);
-            caption.setMaxLines(3);words.addView(caption);
+            // Allow an optional second line for a long selected value, while still
+            // preventing a verbose setting from expanding the row indefinitely.
+            caption.setMaxLines(5);caption.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            words.addView(caption);
         }
         row.addView(words,new LinearLayout.LayoutParams(0,-2,1));
-        if(accessory!=null)row.addView(accessory);
+        if(accessory!=null){
+            LinearLayout.LayoutParams accessoryParams=new LinearLayout.LayoutParams(-2,-2);
+            accessoryParams.leftMargin=dp(6);
+            row.addView(accessory,accessoryParams);
+        }
         if(action!=null){row.setOnClickListener(v->action.run());row.setContentDescription(title);}
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);
         lp.bottomMargin=dp(5);list.addView(row,lp);
         return row;
     }
     private TextView settingValue(String value){
-        TextView label=text(value,14,false);label.setGravity(Gravity.CENTER_VERTICAL);
+        TextView label=text(value,14,false);
+        label.setGravity(Gravity.CENTER_VERTICAL|Gravity.END);
+        // A trailing action must never consume the width of the setting title.
+        label.setSingleLine(true);
+        label.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        label.setMaxWidth(dp(108));
         return label;
     }
     private void audioLink(int icon,String title,String info,String value,Runnable action){
-        TextView tail=settingValue(value+"  ›");
-        audioCard(icon,title,info,tail,action);
+        String selection=value==null?"":value.trim();
+        // Long summaries belong below the setting title, not in the trailing
+        // accessory. Otherwise LinearLayout measures the accessory first and
+        // compresses the weighted title to a 1-character-wide column.
+        if(selection.length()>18){
+            String details=(info==null||info.isEmpty())?selection:info+"\n"+selection;
+            TextView chevron=settingValue("›");
+            chevron.setTextSize(22);
+            chevron.setMinWidth(dp(24));
+            audioCard(icon,title,details,chevron,action);
+        }else{
+            TextView tail=settingValue(selection+"  ›");
+            audioCard(icon,title,info,tail,action);
+        }
     }
     private void audioToggle(int icon,String title,String info,String key,boolean initial){
         android.widget.Switch sw=new android.widget.Switch(this);sw.setShowText(false);
@@ -609,15 +633,11 @@ public class SettingsActivity extends NavigationActivity {
         audioDivider();
         header("TTS");
         audioLink(R.drawable.ic_audio_timer,"Продолжение TTS после паузы",
-            "С какого предложения начинать при повторном Play",
-            TtsResumeChoice.summary(this),this::ttsResumeChoiceDialog);
+            "",TtsResumeChoice.summary(this),this::ttsResumeChoiceDialog);
         audioLink(R.drawable.ic_tts_engine,"Локальный голос","Установленные русские голоса Samsung, Google и других движков","Выбрать",()->startActivity(new Intent(this,TtsVoiceActivity.class)));
         audioToggle(R.drawable.ic_tts_autoplay,"Автовоспроизведение при касании","Начинать озвучку сразу после выбора предложения","tts_tap_autoplay",false);
-        audioToggle(R.drawable.ic_tts_pause_trim,"Сокращение пауз между предложениями MS Edge","Сокращается только конечная тишина; MP3 и WordBoundary не изменяются","edge_trim_sentence_pause",true);
-        edgePunctuationSpinners();
-        audioLink(R.drawable.ic_tts_engine,"Словарь произношения · Edge TTS",
-            "Каждая строка: исходное слово=произношение. Только для отправки на синтез",
-            "Редактировать",()->startActivity(new android.content.Intent(this,EdgeDictionaryActivity.class)));
+        audioLink(R.drawable.ic_edge_dictionary,"Словарь MS Edge",
+            "", "",()->startActivity(new android.content.Intent(this,EdgeDictionaryActivity.class)));
         audioDivider();
         header("Аудиокниги MP3 / M4A");
         audioLink(R.drawable.ic_equalizer,"Эквалайзер","Настройка звучания аудиокниг",equalizerLabel(),this::equalizerDialog);
@@ -630,58 +650,6 @@ public class SettingsActivity extends NavigationActivity {
             "События Edge TTS, WebSocket, HTTP 429, кэша и воспроизведения",
             "Открыть",()->startActivity(new Intent(this,ReaderLogActivity.class)));
         gap(18);
-    }
-    /** Two native dropdowns only; the appearance of the reference site is not copied. */
-    private void edgePunctuationSpinners(){
-        TextView title=text("Замена точки · Edge TTS",15,true);list.addView(title);
-        TextView info=text("Меняется только запрос озвучки. Текст книги и закладки сохраняются.",12,false);
-        info.setAlpha(.75f);list.addView(info);
-        LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);
-        android.widget.Spinner replacement=new android.widget.Spinner(this);
-        final String[] values={"Не заменять точки","Заменять точки на ,",
-            "Заменять точки на ;","Заменять точки на :","Заменять точки на -",
-            "Заменять на три переноса строки"};
-        android.widget.ArrayAdapter<String> valuesAdapter=contrastSpinnerAdapter(values);
-        replacement.setAdapter(valuesAdapter);styleSpinner(replacement);
-        String mode=prefs.getString(EdgeSpeechTextTransform.MODE,"off");
-        String symbol=prefs.getString(EdgeSpeechTextTransform.REPLACEMENT,",");
-        int symbolIndex=0;
-        if(!"off".equals(mode))for(int i=0;i<EdgeSpeechTextTransform.SYMBOLS.length;i++)
-            if(EdgeSpeechTextTransform.SYMBOLS[i].equals(symbol)){symbolIndex=i+1;break;}
-        replacement.setSelection(symbolIndex);
-        line.addView(replacement,new LinearLayout.LayoutParams(0,dp(54),1));
-        android.widget.Spinner modeSelector=new android.widget.Spinner(this);
-        final String[] modes={"V1","V2","V3"};
-        android.widget.ArrayAdapter<String> modesAdapter=contrastSpinnerAdapter(modes);
-        modeSelector.setAdapter(modesAdapter);styleSpinner(modeSelector);
-        int modeIndex="v2".equals(mode)?1:"v3".equals(mode)?2:0;
-        modeSelector.setSelection(modeIndex);
-        modeSelector.setEnabled(symbolIndex!=0);
-        line.addView(modeSelector,new LinearLayout.LayoutParams(dp(78),dp(54)));
-        list.addView(line);
-        replacement.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
-            @Override public void onItemSelected(android.widget.AdapterView<?> parent,View view,int position,long id){
-                String selectedSymbol=position==0?",":EdgeSpeechTextTransform.SYMBOLS[position-1];
-                String desiredMode=position==0?"off":
-                    ("off".equals(prefs.getString(EdgeSpeechTextTransform.MODE,"off"))?"v1":
-                     prefs.getString(EdgeSpeechTextTransform.MODE,"v1"));
-                modeSelector.setEnabled(position!=0);
-                if(!desiredMode.equals(prefs.getString(EdgeSpeechTextTransform.MODE,"off"))||
-                        !selectedSymbol.equals(prefs.getString(EdgeSpeechTextTransform.REPLACEMENT,",")))
-                    prefs.edit().putString(EdgeSpeechTextTransform.MODE,desiredMode)
-                        .putString(EdgeSpeechTextTransform.REPLACEMENT,selectedSymbol).apply();
-            }
-            @Override public void onNothingSelected(android.widget.AdapterView<?> parent){}
-        });
-        modeSelector.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
-            @Override public void onItemSelected(android.widget.AdapterView<?> parent,View view,int position,long id){
-                if(replacement.getSelectedItemPosition()==0)return;
-                String next=EdgeSpeechTextTransform.MODES[position+1];
-                if(!next.equals(prefs.getString(EdgeSpeechTextTransform.MODE,"off")))
-                    prefs.edit().putString(EdgeSpeechTextTransform.MODE,next).apply();
-            }
-            @Override public void onNothingSelected(android.widget.AdapterView<?> parent){}
-        });
     }
     private void edgeDictionaryDialog(){
         // The old 8 KB SharedPreferences text editor would overwrite migrated rules.

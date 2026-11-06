@@ -51,7 +51,7 @@ final class EdgeSpeechTextTransform {
         Options(String mode,String replacement,String dictionary){this(mode,replacement,dictionary,"");}
         Options(String mode,String replacement,String dictionary,String ignored){
             this.ignored=ignored==null?"":ignored.substring(0,Math.min(ignored.length(),8192));
-            this.mode=Arrays.asList(MODES).contains(mode)?mode:"off";
+            this.mode="off";
             this.replacement=Arrays.asList(SYMBOLS).contains(replacement)?replacement:",";
             this.dictionary=dictionary==null?"":dictionary.substring(0,Math.min(dictionary.length(),8192));
             this.entries=Collections.emptyList();
@@ -60,7 +60,7 @@ final class EdgeSpeechTextTransform {
             this.revision=-1;
         }
         Options(String mode,String replacement,List<Entry> entries,int revision){
-            this.mode=Arrays.asList(MODES).contains(mode)?mode:"off";
+            this.mode="off";
             this.replacement=Arrays.asList(SYMBOLS).contains(replacement)?replacement:",";
             this.dictionary="";this.ignored="";
             this.entries=Collections.unmodifiableList(new ArrayList<>(entries));
@@ -220,27 +220,9 @@ final class EdgeSpeechTextTransform {
                 result=updated.result(source,result.ignoredAny);rules++;
             }
         }
-        if("off".equals(options.mode))return result;
-        // Do not touch punctuation belonging to URLs, decimals or abbreviations.
-        boolean[] shield=new boolean[result.spoken.length()];
-        Matcher excluded=PROTECTED.matcher(result.spoken);
-        while(excluded.find())Arrays.fill(shield,excluded.start(),excluded.end(),true);
-        Buffer output=new Buffer();
-        for(int i=0;i<result.spoken.length();i++){
-            char c=result.spoken.charAt(i);
-            boolean atLineEnd=i+1==result.spoken.length()||result.spoken.charAt(i+1)=='\n'||result.spoken.charAt(i+1)=='\r';
-            boolean whitespaceNext=i+1<result.spoken.length()&&(result.spoken.charAt(i+1)==' '||result.spoken.charAt(i+1)=='\t');
-            // An explicit dictionary rule such as ***=. overrides the
-            // generic dot-replacement preference. Only source dots qualify.
-            boolean sourceDot=result.to[i]==result.from[i]+1 &&
-                result.from[i]>=0 && result.from[i]<source.length() &&
-                source.charAt(result.from[i])=='.';
-            boolean eligible=c=='.'&&sourceDot&&!shield[i]&&
-                ("v1".equals(options.mode)||("v2".equals(options.mode)&&!atLineEnd)||
-                 ("v3".equals(options.mode)&&whitespaceNext));
-            output.append(eligible?options.replacement:String.valueOf(c),result.from[i],result.to[i]);
-        }
-        return output.result(source,result.ignoredAny);
+        // Legacy automatic dot substitutions are retired. Only SQLite dictionary
+        // rules can change punctuation sent to Edge TTS.
+        return result;
     }
     /** Android's java.util.regex.Pattern rejects UNICODE_CHARACTER_CLASS, and already
      * uses Unicode character classes by default. Desktop Java needs that flag to

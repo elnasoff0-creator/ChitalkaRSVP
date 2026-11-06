@@ -123,22 +123,20 @@ public final class MangaLibSearchActivity extends NavigationActivity {
     }
     private void queue(MangaLibApi.Title title,List<MangaLibApi.Chapter> selected){
         if(selected.isEmpty()){Toast.makeText(this,"Выберите главы",Toast.LENGTH_SHORT).show();return;}
-        int added=0;WorkContinuation chain=null;
-        WorkManager manager=WorkManager.getInstance(this);
+        ArrayList<MangaLibStorage.Job> requested=new ArrayList<>();
         for(MangaLibApi.Chapter chapter:selected){
             MangaLibStorage.Job job=new MangaLibStorage.Job();job.slug=title.slug;job.series=title.title;
             job.volume=chapter.volume;job.number=chapter.number;job.branch=chapter.branch;job.chapter=chapter.display();
             MangaLibStorage.Job existing=MangaLibStorage.find(this,job.id());
-            if(existing!=null&&("complete".equals(existing.status)||"running".equals(existing.status)||"queued".equals(existing.status)))continue;
-            MangaLibStorage.put(this,job);
-            Constraints net=new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build();
-            OneTimeWorkRequest request=new OneTimeWorkRequest.Builder(MangaLibDownloadWorker.class)
-                .setInputData(new Data.Builder().putString(MangaLibDownloadWorker.JOB_ID,job.id()).build())
-                .setConstraints(net).setBackoffCriteria(BackoffPolicy.EXPONENTIAL,30,TimeUnit.SECONDS)
-                .addTag("mangalib").addTag("mangalib:"+title.slug).addTag("mangalib-job:"+job.id()).build();
-            chain=chain==null?manager.beginUniqueWork("mangalib_serial_downloads",ExistingWorkPolicy.APPEND_OR_REPLACE,request):chain.then(request);added++;
+            if(existing!=null){
+                if("complete".equals(existing.status)||"running".equals(existing.status)
+                    ||"queued".equals(existing.status))continue;
+                // Retain downloaded-page metadata/cache when retrying a failed chapter.
+                job=existing;
+            }
+            requested.add(job);
         }
-        if(chain!=null)chain.enqueue();
+        int added=MangaLibQueue.enqueue(this,requested);
         Toast.makeText(this,added>0?"Глав в очереди: "+added:"Эти главы уже загружены или в очереди",Toast.LENGTH_LONG).show();
         if(added>0)startActivity(new Intent(this,DownloadActivity.class));
     }

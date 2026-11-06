@@ -248,6 +248,11 @@ final class MangaLibApi {
     private static List<String> imageUrls(String path,List<String> servers){
         LinkedHashSet<String> candidates=new LinkedHashSet<>();
         if(path==null||path.isEmpty())return new ArrayList<>();
+        // MangaLib API often emits //manga/slug/chapters/... as a CDN-relative
+        // MEDIA PATH, not an external protocol-relative host. Accept only known
+        // media prefixes; //unknown-host/... remains blocked.
+        if(path.startsWith("//manga/")||path.startsWith("//uploads/"))
+            path=path.substring(1);
         HttpUrl original=HttpUrl.parse(path);
         if(original!=null){
             if(!allowedImage(original.toString()))return new ArrayList<>();

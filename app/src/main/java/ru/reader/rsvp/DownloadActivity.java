@@ -245,7 +245,7 @@ public final class DownloadActivity extends NavigationActivity {
             if(item.ready){ComicLibrary.Comic c=ComicLibrary.find(this,item.bookUri);
                 if(c!=null)startActivity(new Intent(this,ComicReaderActivity.class).putExtra("comic_uri",c.uri));
                 else startActivity(new Intent(this,MangaLibSearchActivity.class));
-            }else startActivity(new Intent(this,MangaLibSearchActivity.class).putExtra("mangalib_query",item.source));
+            }else openMangaChapters(item);
             return;
         }
         if(DownloadsRepository.LINK.equals(item.type)){startActivity(new Intent(this,LinkDownloadDetailsActivity.class).putExtra(DirectLinkDownloadService.EXTRA_ID,item.link.id));}
@@ -254,6 +254,10 @@ public final class DownloadActivity extends NavigationActivity {
         }else if(item.ready){
             startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_book_id","url:"+item.source));
         }else startActivity(new Intent(this,UrlImportActivity.class).putExtra("source",item.source));
+    }
+    private void openMangaChapters(DownloadsRepository.Item item){
+        startActivity(new Intent(this,MangaLibChapterDownloadsActivity.class)
+            .putExtra("mangalib_slug",item.source));
     }
     private void openEdgeChapters(DownloadsRepository.Item item){
         startActivity(new Intent(this,EdgeChapterDownloadsActivity.class)
@@ -387,7 +391,17 @@ public final class DownloadActivity extends NavigationActivity {
     private void menu(View anchor,DownloadsRepository.Item item){
         if(DownloadsRepository.MANGA.equals(item.type)){
             PopupMenu p=new PopupMenu(this,anchor);
-            p.getMenu().add(0,1,0,"Открыть мангу / повторить поиск").setOnMenuItemClickListener(m->{open(item);return true;});
+            p.getMenu().add(0,1,0,"Главы и загрузка").setOnMenuItemClickListener(m->{openMangaChapters(item);return true;});
+            p.getMenu().add(0,4,1,"Найти другие главы").setOnMenuItemClickListener(m->{
+                startActivity(new Intent(this,MangaLibSearchActivity.class)
+                    .putExtra("mangalib_query",item.source));return true;
+            });
+            if(!item.ready)p.getMenu().add(0,5,2,item.running?"Пауза загрузки манги":"Продолжить загрузку манги")
+                .setOnMenuItemClickListener(m->{
+                    if(item.running)MangaLibQueue.pause(this,item.source);
+                    else MangaLibQueue.resume(this,item.source);
+                    refresh();return true;
+                });
             if(item.ready)p.getMenu().add(0,3,1,"Экспортировать CBZ в папку телефона").setOnMenuItemClickListener(m->{
                 MangaLibStorage.Job job=MangaLibStorage.find(this,item.id.substring("manga:".length()));
                 if(job==null||!new File(job.file).isFile())return true;
@@ -489,7 +503,8 @@ public final class DownloadActivity extends NavigationActivity {
             }
             // Every row exposes its actions through one compact overflow menu.
             // No duplicate file buttons or bulky download controls.
-            ImageView more=icon(android.R.drawable.ic_menu_more,"Действия загрузки",43);
+            TextView more=center("⋮",28);more.setContentDescription("Действия загрузки");
+            more.setBackground(bg(PANEL,16));
             LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(43),dp(43));
             moreParams.leftMargin=dp(5);top.addView(more,moreParams);
             more.setOnClickListener(v->menu(more,item));card.setOnClickListener(v->open(item));

@@ -27,6 +27,7 @@ with tempfile.TemporaryDirectory(prefix='chitalka133_') as t:
         package android.graphics;
         public final class BitmapFactory {
             public static class Options {public boolean inJustDecodeBounds;public int outWidth,outHeight;}
+            public static Object decodeFile(String path,Options o){o.outWidth=100;o.outHeight=100;return null;}
             public static Object decodeByteArray(byte[] b,int from,int n,Options o){
                 if(n>=3&&(b[0]&255)==255&&(b[1]&255)==216){o.outWidth=100;o.outHeight=100;}
                 return null;
@@ -104,7 +105,9 @@ with tempfile.TemporaryDirectory(prefix='chitalka133_') as t:
         public class Data{
             public String getString(String k){return "";}
             public static class Builder{
+                public Builder putString(String name,String n){return this;}
                 public Builder putInt(String name,int n){return this;}
+                public Builder putLong(String name,long n){return this;}
                 public Data build(){return new Data();}
             }
         }
@@ -129,6 +132,13 @@ with tempfile.TemporaryDirectory(prefix='chitalka133_') as t:
             }
         }
     ''',
+    'androidx/work/BackoffPolicy.java':r'''package androidx.work;public enum BackoffPolicy {EXPONENTIAL}''',
+    'androidx/work/NetworkType.java':r'''package androidx.work;public enum NetworkType {CONNECTED}''',
+    'androidx/work/ExistingWorkPolicy.java':r'''package androidx.work;public enum ExistingWorkPolicy {APPEND_OR_REPLACE}''',
+    'androidx/work/Constraints.java':r'''package androidx.work;public final class Constraints{public static class Builder{public Builder setRequiredNetworkType(NetworkType n){return this;}public Constraints build(){return new Constraints();}}}''',
+    'androidx/work/OneTimeWorkRequest.java':r'''package androidx.work;public final class OneTimeWorkRequest{public static class Builder{public Builder(Class<?> c){}public Builder setInputData(Data d){return this;}public Builder setConstraints(Constraints c){return this;}public Builder setBackoffCriteria(BackoffPolicy p,int n,java.util.concurrent.TimeUnit u){return this;}public Builder addTag(String t){return this;}public OneTimeWorkRequest build(){return new OneTimeWorkRequest();}}}''',
+    'androidx/work/WorkContinuation.java':r'''package androidx.work;public class WorkContinuation{public WorkContinuation then(OneTimeWorkRequest r){return this;}public void enqueue(){}}''',
+    'androidx/work/WorkManager.java':r'''package androidx.work;public class WorkManager{public static WorkManager getInstance(android.content.Context c){return new WorkManager();}public WorkContinuation beginUniqueWork(String key,ExistingWorkPolicy p,OneTimeWorkRequest r){return new WorkContinuation();}}''',
     'ru/reader/rsvp/MangaLibStorage.java':r'''
         package ru.reader.rsvp;
         import android.content.Context;
@@ -136,12 +146,15 @@ with tempfile.TemporaryDirectory(prefix='chitalka133_') as t:
         public class MangaLibStorage{
             public static class Job{
                 public String status,error,series,number,volume,chapter,slug,file;
-                public long branch;public int done,total;
+                public long branch,bytes;public int done,total;
                 public String id(){return "";}
             }
             public static Job find(Context c,String id){return new Job();}
+            public static java.util.ArrayList<Job> jobs(Context c){return new java.util.ArrayList<>();}
             public static void put(Context c,Job j){}
             public static File chapterFile(Context c,Job j){return new File("/tmp/test.cbz");}
+            public static File stageDir(Context c,Job j){return new File("/tmp/cache_pages");}
+            public static void clearStage(File dir){}
             public static void registerComic(Context c,Job j){}
         }
     ''',
@@ -271,6 +284,10 @@ with tempfile.TemporaryDirectory(prefix='chitalka133_') as t:
                 ok(urls.size()==2&&urls.get(0).contains("a.mixlib.me")&&urls.get(1).contains("b.imglib.info"),"mirror URL list");
                 @SuppressWarnings("unchecked") List<String> blocked=(List<String>)m.invoke(null,"https://evil.com/track",servers);
                 ok(blocked.isEmpty(),"offsite URLs rejected");
+                @SuppressWarnings("unchecked") List<String> mangaPath=(List<String>)m.invoke(null,"//manga/shijou_saikyou_no_deshi_kenichi/chapters/1-6/01.png",servers);
+                ok(mangaPath.size()==2&&mangaPath.get(0).contains("/manga/shijou_saikyou_no_deshi_kenichi/chapters/1-6/01.png"),"MangaLib doubled slash path");
+                @SuppressWarnings("unchecked") List<String> otherHost=(List<String>)m.invoke(null,"//evil.com/steal",servers);
+                ok(otherHost.isEmpty(),"protocol-relative remote host rejected");
                 byte[] jpg=new byte[200];jpg[0]=(byte)255;jpg[1]=(byte)216;jpg[2]=(byte)255;
                 String first=urls.get(0), second=urls.get(1);
                 OkHttpClient.calls.clear();OkHttpClient.response.put(first,"<html>bot error</html>".getBytes());
@@ -299,7 +316,7 @@ with tempfile.TemporaryDirectory(prefix='chitalka133_') as t:
     '''
     }
     paths=[write(t,name,body) for name,body in stubs.items()]
-    paths += [source/x for x in ['MangaLibApi.java','MangaLibDownloadWorker.java','TtsResumeChoice.java','TtsSentenceHistory.java','SentenceIndex.java','SentenceChunks.java']]
+    paths += [source/x for x in ['MangaLibApi.java','MangaLibDownloadWorker.java','MangaLibQueue.java','TtsResumeChoice.java','TtsSentenceHistory.java','SentenceIndex.java','SentenceChunks.java']]
     dest=t/'classes';dest.mkdir()
     p=subprocess.run(['javac','-encoding','UTF-8','-source','17','-target','17','-d',str(dest),*map(str,paths)],capture_output=True,text=True)
     if p.returncode:

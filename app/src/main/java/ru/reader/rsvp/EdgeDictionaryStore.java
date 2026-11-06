@@ -188,7 +188,7 @@ final class EdgeDictionaryStore extends SQLiteOpenHelper {
         ensureMigrated();SharedPreferences p=prefs();int revision=p.getInt(REVISION,0);
         synchronized(EdgeDictionaryStore.class){
             if(cached!=null&&cachedRevision==revision &&
-                cached.mode.equals(p.getString(EdgeSpeechTextTransform.MODE,"off"))&&
+                cached.mode.equals("off")&&
                 cached.replacement.equals(p.getString(EdgeSpeechTextTransform.REPLACEMENT,",")))return cached;
             ArrayList<EdgeSpeechTextTransform.Entry> entries=new ArrayList<>();
             try(Cursor c=getReadableDatabase().rawQuery(
@@ -200,7 +200,7 @@ final class EdgeDictionaryStore extends SQLiteOpenHelper {
                 }
             }
             cached=new EdgeSpeechTextTransform.Options(
-                p.getString(EdgeSpeechTextTransform.MODE,"off"),
+                "off",
                 p.getString(EdgeSpeechTextTransform.REPLACEMENT,","),entries,revision);
             cachedRevision=revision;
             return cached;

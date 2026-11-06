@@ -17,6 +17,7 @@
         <service android:name=".DownloadWorker" android:exported="false" android:foregroundServiceType="dataSync" />
         <activity android:name=".DownloadActivity" android:exported="false" />
         <activity android:name=".MangaLibSearchActivity" android:exported="false" />
+        <activity android:name=".MangaLibChapterDownloadsActivity" android:exported="false" />
         <service android:name="androidx.work.impl.foreground.SystemForegroundService" android:foregroundServiceType="dataSync" tools:node="merge" />
         <service android:name=".DirectLinkDownloadService" android:exported="false" android:foregroundServiceType="dataSync" />
         <activity android:name=".LinkDownloadDetailsActivity" android:exported="false" />

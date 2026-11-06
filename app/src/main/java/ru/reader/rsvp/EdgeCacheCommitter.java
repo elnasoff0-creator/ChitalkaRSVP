@@ -21,7 +21,7 @@ final class EdgeCacheCommitter {
         Thread t=new Thread(r,"EdgeOfflineCommit");t.setPriority(Thread.MIN_PRIORITY);return t;
     });
     interface Listener {void onSaved(String key,File file,String error);}
-    static void submit(Context context,File completed,File metadata,File destination,boolean trim,Listener listener){
+    static void submit(Context context,File completed,File metadata,File destination,Listener listener){
         WORK.execute(()->{
             String key="";File file=null;String error=null;
             try{
@@ -57,10 +57,9 @@ final class EdgeCacheCommitter {
                 }
                 if(file.length()<1500)throw new Exception("Offline file is not complete");
                 EdgeWordTimings.store(file,text,ticks);
-                // Timing files and MP3 are available before optional decoding work.
+                // MP3 and WordBoundary files are stored as received, without
+                // shortening the naturally synthesized sentence pauses.
                 metadata.delete();
-                if(trim)try{EdgeTrailingSilence.detectAndStore(file,text);}
-                    catch(Exception ex){Log.w("EdgeOfflineCommit","Tail analysis skipped",ex);}
             }catch(Exception ex){error=ex.getMessage();Log.w("EdgeOfflineCommit","Will recover cache on next open",ex);}
             if(listener!=null)listener.onSaved(key,file,error);
         });

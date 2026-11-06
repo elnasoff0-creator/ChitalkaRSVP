@@ -150,11 +150,16 @@ final class DownloadsRepository {
         for(MangaLibStorage.Job j:MangaLibStorage.jobs(ctx)){
             Item item=new Item();item.type=MANGA;item.id="manga:"+j.id();
             item.title=j.series;item.bookUri=MangaLibStorage.comicUri(j.slug);item.source=j.slug;
-            item.description=j.chapter+" · Страниц: "+j.done+"/"+j.total;
+            item.description=j.chapter+" · "+j.done+"/"+(j.total>0?String.valueOf(j.total):"?")
+                +" стр. · "+String.format(Locale.ROOT,"%.1f МБ",j.bytes/1048576.0);
             item.done=j.done;item.total=j.total;item.ready="complete".equals(j.status);
             item.running="running".equals(j.status)||"queued".equals(j.status);
+            item.paused="paused".equals(j.status);
             item.failed="failed".equals(j.status)||"blocked".equals(j.status);
-            item.status=item.ready?"CBZ готов":item.failed?("Ошибка: "+j.error):item.running?"Скачивается":"Ожидает";
+            item.downloadedBytes=j.bytes;
+            item.status=item.ready?"CBZ готов":item.failed?("Ошибка: "+j.error):
+                item.paused?"Приостановлено":item.running?"Скачивается":
+                "cancelled".equals(j.status)?"Отменено":"Ожидает";
             all.add(item);
         }
         HashMap<String,JSONObject> index=new HashMap<>();

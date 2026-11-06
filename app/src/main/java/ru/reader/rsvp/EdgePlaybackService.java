@@ -502,13 +502,6 @@ public final class EdgePlaybackService extends Service {
                 .setUri(android.net.Uri.fromFile(file));
         if(format!=null)itemBuilder.setMimeType(format.mime);
         // Clipping starts at zero, so every unmodified WordBoundary time stays valid.
-        if(getSharedPreferences("reader",0).getBoolean("edge_trim_sentence_pause",true)){
-            long clipEnd=EdgeTrailingSilence.clippedEnd(file);
-            if(clipEnd>0){
-                itemBuilder.setClippingConfiguration(new MediaItem.ClippingConfiguration.Builder()
-                    .setStartPositionMs(0).setEndPositionMs(clipEnd).build());
-            }
-        }
         player.addMediaItem(insertion,itemBuilder.build());
         // Perform user-selected seek before prepare()/play(), including when
         // the requested MP3 was downloaded only after the tap.

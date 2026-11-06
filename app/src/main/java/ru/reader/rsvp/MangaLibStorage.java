@@ -19,11 +19,11 @@ import java.util.zip.ZipFile;
 final class MangaLibStorage {
     static final class Job {
         String slug="",series="",chapter="",volume="",number="",status="queued",error="",file="";
-        long branch=0; int done=0,total=0;
+        long branch=0,bytes=0; int done=0,total=0;
         JSONObject json(){JSONObject o=new JSONObject();try{
-            o.put("slug",slug);o.put("series",series);o.put("chapter",chapter);o.put("volume",volume);o.put("number",number);o.put("status",status);o.put("error",error);o.put("file",file);o.put("branch",branch);o.put("done",done);o.put("total",total);
+            o.put("slug",slug);o.put("series",series);o.put("chapter",chapter);o.put("volume",volume);o.put("number",number);o.put("status",status);o.put("error",error);o.put("file",file);o.put("branch",branch);o.put("done",done);o.put("total",total);o.put("bytes",bytes);
         }catch(Exception ignored){}return o;}
-        static Job read(JSONObject o){Job j=new Job();j.slug=o.optString("slug","");j.series=o.optString("series","");j.chapter=o.optString("chapter","");j.volume=o.optString("volume","");j.number=o.optString("number","");j.status=o.optString("status","queued");j.error=o.optString("error","");j.file=o.optString("file","");j.branch=o.optLong("branch",0);j.done=o.optInt("done",0);j.total=o.optInt("total",0);return j;}
+        static Job read(JSONObject o){Job j=new Job();j.slug=o.optString("slug","");j.series=o.optString("series","");j.chapter=o.optString("chapter","");j.volume=o.optString("volume","");j.number=o.optString("number","");j.status=o.optString("status","queued");j.error=o.optString("error","");j.file=o.optString("file","");j.branch=o.optLong("branch",0);j.done=o.optInt("done",0);j.total=o.optInt("total",0);j.bytes=o.optLong("bytes",0);return j;}
         String id(){return slug+"|"+volume+"|"+number+"|"+branch;}
     }
     private static final String STORE="mangalib_jobs_v1";
@@ -53,6 +53,16 @@ final class MangaLibStorage {
     static File chapterFile(Context c,Job j){
         File vol=new File(seriesFolder(c,j),"Том "+safe(j.volume));if(!vol.exists())vol.mkdirs();
         return new File(vol,"Глава "+safe(j.number)+"_"+Long.toString(j.branch)+".cbz");
+    }
+    /** Verified per-page download cache, kept after Pause/Retry, deleted only on completion. */
+    static File stageDir(Context c,Job j){
+        File dir=new File(seriesFolder(c,j),".pages_"+safe(j.volume)+"_"+safe(j.number)+"_"+j.branch);
+        if(!dir.exists())dir.mkdirs();return dir;
+    }
+    static void clearStage(File dir){
+        if(dir==null||!dir.isDirectory())return;
+        File[] files=dir.listFiles();if(files!=null)for(File file:files)if(file.isFile())file.delete();
+        dir.delete();
     }
     static ArrayList<ComicLibrary.Chapter> comicChapters(Context c,String slug){ArrayList<ComicLibrary.Chapter> out=new ArrayList<>();
         for(Job j:seriesJobs(c,slug)){
