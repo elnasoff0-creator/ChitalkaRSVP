@@ -55,7 +55,7 @@ public final class MangaLibSearchActivity extends NavigationActivity {
         folder.setColorFilter(INK);folder.setPadding(dp(10),dp(10),dp(10),dp(10));
         folder.setBackground(panel());head.addView(folder,new LinearLayout.LayoutParams(dp(44),dp(44)));
         folder.setContentDescription("Выбрать папку сохранения манги");
-        folder.setOnClickListener(v->DownloadFolderPicker.choose(this,DownloadFolderPicker.MANGA_REQUEST,DownloadFolderPicker.MANGA));
+        folder.setOnClickListener(v->DownloadFolderPicker.choose(this,DownloadFolderPicker.MANGA_REQUEST,DownloadFolderPicker.sourceKey("mangalib")));
         query=new EditText(this);query.setSingleLine(true);query.setTextColor(INK);query.setTextSize(15);
         query.setHint("Название манги или ссылка MangaLib");query.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         query.setBackground(panel());query.setPadding(dp(14),dp(10),dp(14),dp(10));
@@ -72,7 +72,7 @@ public final class MangaLibSearchActivity extends NavigationActivity {
     }
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
-        DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.MANGA_REQUEST,DownloadFolderPicker.MANGA);
+        DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.MANGA_REQUEST,DownloadFolderPicker.sourceKey("mangalib"));
     }
     private void loading(String text){message.setText(text);list.removeAllViews();}
     private void showError(String text){message.setText(text);Toast.makeText(this,text,Toast.LENGTH_LONG).show();}

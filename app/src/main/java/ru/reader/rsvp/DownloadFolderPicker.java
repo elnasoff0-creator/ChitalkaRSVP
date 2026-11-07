@@ -14,11 +14,13 @@ import java.io.*;
 final class DownloadFolderPicker {
     static final int AUDIO_REQUEST=3811, MANGA_REQUEST=3812;
     static final String AUDIO="audiobook_search_tree", MANGA="mangalib_search_tree";
+    static String sourceKey(String provider){return "download_provider_tree:"+provider;}
     private DownloadFolderPicker(){}
     static void choose(Activity activity,int request,String key){
         Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-        String saved=activity.getSharedPreferences("reader",0).getString(key,"");
+        String saved=activity.getSharedPreferences("reader",0).getString(key,
+            activity.getSharedPreferences("reader",0).getString(key.contains("mangalib")?MANGA:AUDIO,""));
         if(Build.VERSION.SDK_INT>=26&&!saved.isEmpty())intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI,Uri.parse(saved));
         activity.startActivityForResult(intent,request);
     }
@@ -30,7 +32,10 @@ final class DownloadFolderPicker {
                 activity.getContentResolver().takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
                 DocumentFile folder=DocumentFile.fromTreeUri(activity,uri);
                 if(folder==null||!folder.canWrite())throw new IOException("Нет доступа для записи");
-                activity.getSharedPreferences("reader",0).edit().putString(key,uri.toString()).apply();
+                android.content.SharedPreferences.Editor editor=activity.getSharedPreferences("reader",0).edit().putString(key,uri.toString());
+                if(key.contains("mangalib"))editor.putString(MANGA,uri.toString());
+                else if(key.contains("kvuhe"))editor.putString(AUDIO,uri.toString());
+                editor.apply();
                 Toast.makeText(activity,"Папка сохранения: "+folder.getName(),Toast.LENGTH_SHORT).show();
             }catch(Exception ex){Toast.makeText(activity,"Не удалось выбрать папку: "+ex.getMessage(),Toast.LENGTH_LONG).show();}
         }

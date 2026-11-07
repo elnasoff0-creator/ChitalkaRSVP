@@ -153,6 +153,14 @@ public final class DownloadActivity extends NavigationActivity {
         scan.execute(()->{
             try{
                 ArrayList<DownloadsRepository.Item> all=DownloadsRepository.load(getApplicationContext(),null);
+                for(DownloadsRepository.Item entry:all)if(DownloadsRepository.MANGA.equals(entry.type)&&entry.cover.isEmpty()){
+                    java.util.ArrayList<MangaLibStorage.Job> chapters=MangaLibStorage.seriesJobs(getApplicationContext(),entry.source);
+                    if(!chapters.isEmpty()){
+                        MangaDownloadCover.ensure(getApplicationContext(),chapters.get(0));
+                        File cover=MangaDownloadCover.file(getApplicationContext(),entry.source);
+                        if(cover.isFile()&&cover.length()>100)entry.cover=cover.toURI().toString();
+                    }
+                }
                 if(!liveUri.isEmpty()){
                     boolean found=false;
                     for(DownloadsRepository.Item item:all)if(liveUri.equals(item.bookUri)){
@@ -442,6 +450,59 @@ public final class DownloadActivity extends NavigationActivity {
                 startActivityForResult(intent,TRANSFER_REQUEST);
             }).show();
     }
+    private void showMangaFolder(String slug){
+        java.io.File folder=new java.io.File(MangaLibStorage.root(this),slug);
+        // App-private Android/data cannot be opened by arbitrary file managers.
+        java.util.ArrayList<MangaLibStorage.Job> jobs=MangaLibStorage.seriesJobs(this,slug);
+        if(jobs.isEmpty()){Toast.makeText(this,"Папка не содержит скачанных глав",Toast.LENGTH_SHORT).show();return;}
+        String[] files=new String[jobs.size()];
+        for(int i=0;i<jobs.size();i++){
+            java.io.File file=new java.io.File(jobs.get(i).file);
+            files[i]="Том "+jobs.get(i).volume+" / "+file.getName()+" · "+(file.length()/1024)+" КБ";
+        }
+        new SwipeDialogs.Builder(this).setTitle("Открыть папку · "+folder.getName())
+            .setItems(files,(d,i)->exportMangaChapter(slug))
+            .setNeutralButton("Путь к папке",(d,w)->new SwipeDialogs.Builder(this)
+                .setTitle("Папка файлов")
+                .setMessage(folder.getAbsolutePath()+"\n\nФайлы находятся в закрытом каталоге Android. Чтобы получить доступ из другой программы, используйте экспорт CBZ.")
+                .setPositiveButton("Закрыть",null).show())
+            .setNegativeButton("Закрыть",null).show();
+    }
+    private void chooseMangaFilesToDelete(DownloadsRepository.Item item){
+        if(item.running){Toast.makeText(this,"Приостановите загрузку перед удалением",Toast.LENGTH_LONG).show();return;}
+        java.util.ArrayList<MangaLibStorage.Job> jobs=MangaLibStorage.seriesJobs(this,item.source);
+        if(jobs.isEmpty()){Toast.makeText(this,"Нет скачанных CBZ",Toast.LENGTH_SHORT).show();return;}
+        String[] titles=new String[jobs.size()];boolean[] checked=new boolean[jobs.size()];
+        for(int i=0;i<jobs.size();i++){MangaLibStorage.Job j=jobs.get(i);titles[i]="Том "+j.volume+" · "+j.chapter;}
+        new SwipeDialogs.Builder(this).setTitle("Удалить скачанные файлы")
+            .setMultiChoiceItems(titles,checked,(d,i,v)->checked[i]=v)
+            .setNegativeButton("Отмена",null)
+            .setPositiveButton("Далее",(d,w)->{
+                int count=0;for(boolean selected:checked)if(selected)count++;
+                if(count==0){Toast.makeText(this,"Выберите тома",Toast.LENGTH_SHORT).show();return;}
+                new SwipeDialogs.Builder(this).setTitle("Подтвердить удаление")
+                    .setMessage("Будут удалены "+count+" скачанных CBZ. Действие нельзя отменить. Остальные тома и их прогресс останутся.")
+                    .setNegativeButton("Отмена",null)
+                    .setPositiveButton("Удалить",(dialog,which)->{
+                        scan.execute(()->{
+                            int removed=0;
+                            for(int i=0;i<jobs.size();i++)if(checked[i]){
+                                MangaLibStorage.Job job=jobs.get(i);java.io.File file=new java.io.File(job.file);
+                                if(file.isFile()&&!file.delete())continue;
+                                job.file="";job.done=0;job.bytes=0;job.status="cancelled";MangaLibStorage.put(getApplicationContext(),job);removed++;
+                            }
+                            ComicCovers.invalidate(getApplicationContext(),MangaLibStorage.comicUri(item.source));
+                            File previousCover=MangaDownloadCover.file(getApplicationContext(),item.source);
+                            CoverImageLoader.invalidateLocal(previousCover.toURI().toString());
+                            MangaDownloadCover.invalidate(getApplicationContext(),item.source);
+                            java.util.ArrayList<MangaLibStorage.Job> remaining=MangaLibStorage.seriesJobs(getApplicationContext(),item.source);
+                            if(!remaining.isEmpty())MangaDownloadCover.ensure(getApplicationContext(),remaining.get(0));
+                            final int deleted=removed;
+                            main.post(()->{Toast.makeText(this,"Удалено CBZ: "+deleted,Toast.LENGTH_SHORT).show();refresh();});
+                        });
+                    }).show();
+            }).show();
+    }
     private void menu(View anchor,DownloadsRepository.Item item){
         if(DownloadsRepository.MANGA.equals(item.type)){
             PopupMenu p=new PopupMenu(this,anchor);
@@ -467,6 +528,8 @@ public final class DownloadActivity extends NavigationActivity {
                 MangaLibQueue.cancelSeries(this,item.source);
                 refresh();return true;
             });
+            p.getMenu().add(0,32,6,"Открыть папку").setOnMenuItemClickListener(m->{showMangaFolder(item.source);return true;});
+            p.getMenu().add(0,33,7,"Удалить скачанные файлы").setOnMenuItemClickListener(m->{chooseMangaFilesToDelete(item);return true;});
             p.getMenu().add(0,31,5,"Перенести файлы").setOnMenuItemClickListener(m->{transferDialog(item);return true;});
             p.show();return;
         }
@@ -561,7 +624,7 @@ public final class DownloadActivity extends NavigationActivity {
             }
             // Every row exposes its actions through one compact overflow menu.
             // No duplicate file buttons or bulky download controls.
-            TextView more=center("⋮",28);more.setContentDescription("Действия загрузки");
+            ImageView more=icon(R.drawable.ic_more_vertical,"Действия загрузки",43);
             more.setBackground(bg(PANEL,16));
             LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(43),dp(43));
             moreParams.leftMargin=dp(5);top.addView(more,moreParams);

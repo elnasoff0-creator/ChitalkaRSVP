@@ -25,6 +25,9 @@ final class CoverImageLoader {
         @Override protected int sizeOf(String k,Bitmap b){return Math.max(1,b.getByteCount()/1024);}
     };
     private CoverImageLoader(){}
+    static void invalidateLocal(String uri){
+        if(uri!=null&&!uri.isEmpty())MEMORY.remove("web:"+uri);
+    }
     private static Bitmap scaled(byte[] data){
         BitmapFactory.Options check=new BitmapFactory.Options();check.inJustDecodeBounds=true;
         BitmapFactory.decodeByteArray(data,0,data.length,check);

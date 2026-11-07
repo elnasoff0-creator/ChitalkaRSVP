@@ -203,7 +203,7 @@ final class UniversalDrawer {
         }
         if(uri.isEmpty()){mainImport(a,"book");return;}
         if(a instanceof ReaderActivity&&uri.equals(p.getString("uri",""))){((ReaderActivity)a).openReadingFromDrawer();return;}
-        Intent i=new Intent(a,ReaderActivity.class).putExtra("book_uri",uri).putExtra("reading_mode_override",0);
+        Intent i=new Intent(a,ReaderActivity.class).putExtra("book_uri",uri);
         a.startActivity(i);
     }
     private static void audiobook(Activity a){
@@ -225,8 +225,13 @@ final class UniversalDrawer {
         ComicLibrary.Comic selected=null;
         for(ComicLibrary.Comic c:comics){
             try{
-                androidx.documentfile.provider.DocumentFile f=ComicLibrary.isArchiveKind(c.kind)?ComicLibrary.single(a,c):ComicLibrary.tree(a,c);
-                if(f==null||!f.exists())continue;
+                if("mangalib".equals(c.kind)){
+                    String slug=c.uri.startsWith("mangalib:")?c.uri.substring("mangalib:".length()):"";
+                    if(slug.isEmpty()||MangaLibStorage.seriesJobs(a,slug).isEmpty())continue;
+                }else{
+                    androidx.documentfile.provider.DocumentFile f=ComicLibrary.isArchiveKind(c.kind)?ComicLibrary.single(a,c):ComicLibrary.tree(a,c);
+                    if(f==null||!f.exists())continue;
+                }
             }catch(Exception ignored){continue;}
             if(selected==null||c.opened>selected.opened)selected=c;
         }

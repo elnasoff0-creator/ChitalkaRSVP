@@ -22,6 +22,10 @@ public class AudioPlayerActivity extends NavigationActivity {
     private boolean showingTtsCover = false;
     private String displayedTtsCoverUri = "";
     private int ttsCoverRequest = 0;
+    private int audioCoverRequest=0;
+    private String pendingAudioCoverUri="";
+    private final java.util.concurrent.ExecutorService coverExecutor=java.util.concurrent.Executors.newSingleThreadExecutor();
+    private final android.util.LruCache<String,android.graphics.Bitmap> audioCoverCache=new android.util.LruCache<>(8);
     int BACKGROUND=0xfff3e7d5, TEXT=0xff30221e; final int ACCENT=0xff94583b;
     BroadcastReceiver receiver=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){refresh();}};
     Runnable updater=new Runnable(){public void run(){refresh();handler.postDelayed(this,1000);}};
@@ -89,7 +93,8 @@ public class AudioPlayerActivity extends NavigationActivity {
         if(selected!=null)intent.putExtra("bookId",selected.id);
         startService(intent);handler.postDelayed(this::refresh,150);
     }
-    @Override public void onCreate(Bundle b){super.onCreate(b);bookUri=getIntent().getStringExtra("book_uri");if(bookUri==null||bookUri.isEmpty())bookUri=getSharedPreferences("reader",0).getString("uri","");String id=getIntent().getStringExtra("audio_book_id");if(id!=null)for(AudioLibrary.Book item:AudioLibrary.load(this))if(id.equals(item.id)){selected=item;break;}if(getIntent().getBooleanExtra("count_usage",false)&&selected!=null)bumpAudioUsage(selected.id);
+    @Override public void onCreate(Bundle b){super.onCreate(b);
+        android.util.Log.d("AudioPlayerTiming","onCreate started "+android.os.SystemClock.elapsedRealtime());bookUri=getIntent().getStringExtra("book_uri");if(bookUri==null||bookUri.isEmpty())bookUri=getSharedPreferences("reader",0).getString("uri","");String id=getIntent().getStringExtra("audio_book_id");if(id!=null)for(AudioLibrary.Book item:AudioLibrary.load(this))if(id.equals(item.id)){selected=item;break;}if(getIntent().getBooleanExtra("count_usage",false)&&selected!=null)bumpAudioUsage(selected.id);
         if(getIntent().getBooleanExtra("start_tts",false)&&!bookUri.isEmpty()){
             startActivity(new Intent(this,ReaderActivity.class).putExtra("reading_mode_override",3)
                 .putExtra("book_uri",bookUri)
@@ -108,8 +113,10 @@ public class AudioPlayerActivity extends NavigationActivity {
         if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)
             requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},427);
 if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPlaybackService.ACTION_STATE),Context.RECEIVER_NOT_EXPORTED);else registerReceiver(receiver,new IntentFilter(AudioPlaybackService.ACTION_STATE));handler.post(updater);}
+    @Override protected void onDestroy(){coverExecutor.shutdownNow();super.onDestroy();}
     @Override protected void onPause(){handler.removeCallbacks(updater);try{unregisterReceiver(receiver);}catch(Exception ignored){}super.onPause();}
     void draw(){
+        final long renderStart=android.os.SystemClock.elapsedRealtime();
         readPalette();drawnBackground=BACKGROUND;drawnText=TEXT;drawnAccent=UiColorScheme.accent(this);
         root=new LinearLayout(this);root.setOrientation(1);root.setBackgroundColor(BACKGROUND);
         root.setPadding(dp(12),dp(29),dp(12),dp(10));setContentView(root);SafeSystemBars.matchBackground(this,BACKGROUND);
@@ -219,6 +226,7 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         LinearLayout.LayoutParams pl=new LinearLayout.LayoutParams(-1,dp(90));pl.topMargin=dp(10);root.addView(playRow,pl);
         buildPlaybackButtons(false);
         refresh();
+        android.util.Log.d("AudioPlayerTiming","draw ms="+(android.os.SystemClock.elapsedRealtime()-renderStart));
     }
     void buildPlaybackButtons(boolean isTts){
         playRow.removeAllViews();
@@ -310,6 +318,7 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         holder.addView(add);dialog.show();
     }
     void updateCover(){
+        android.util.Log.d("AudioPlayerTiming","updateCover start");
         if(coverImage==null||showingTtsCover)return;
         String id=selected==null?"":selected.id;
         String uri=getSharedPreferences("reader",0).getString("audio_cover:"+id,"");
@@ -321,15 +330,36 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
             if(coverPlaceholderText!=null){coverPlaceholderText.setText("Выбрать обложку");coverPlaceholderText.setVisibility(View.VISIBLE);}
             return;
         }
-        try{
-            coverImage.setImageURI(Uri.parse(uri));coverImage.setVisibility(View.VISIBLE);
-            if(coverPlaceholderIcon!=null)coverPlaceholderIcon.setVisibility(View.GONE);
-            if(coverPlaceholderText!=null)coverPlaceholderText.setVisibility(View.GONE);
-        }catch(Exception e){
-            coverImage.setVisibility(View.INVISIBLE);
-            if(coverPlaceholderIcon!=null)coverPlaceholderIcon.setVisibility(View.VISIBLE);
-            if(coverPlaceholderText!=null)coverPlaceholderText.setVisibility(View.VISIBLE);
-        }
+        final String target=uri;
+        android.graphics.Bitmap cached=audioCoverCache.get(target);
+        if(cached==null&&target.equals(pendingAudioCoverUri))return;
+        final int request=++audioCoverRequest;
+        if(cached!=null){applyAudioCover(cached);return;}
+        coverImage.setVisibility(View.INVISIBLE);
+        if(coverPlaceholderText!=null){coverPlaceholderText.setText("Загрузка обложки…");coverPlaceholderText.setVisibility(View.VISIBLE);}
+        pendingAudioCoverUri=target;
+        coverExecutor.execute(()->{
+            android.graphics.Bitmap bitmap=null;
+            try{
+                android.graphics.BitmapFactory.Options bounds=new android.graphics.BitmapFactory.Options();bounds.inJustDecodeBounds=true;
+                try(java.io.InputStream in=getContentResolver().openInputStream(Uri.parse(target))){if(in!=null)android.graphics.BitmapFactory.decodeStream(in,null,bounds);}
+                android.graphics.BitmapFactory.Options options=new android.graphics.BitmapFactory.Options();int sample=1;
+                while(bounds.outWidth/sample>640||bounds.outHeight/sample>640)sample*=2;
+                options.inSampleSize=sample;
+                try(java.io.InputStream in=getContentResolver().openInputStream(Uri.parse(target))){if(in!=null)bitmap=android.graphics.BitmapFactory.decodeStream(in,null,options);}
+                if(bitmap!=null)audioCoverCache.put(target,bitmap);
+            }catch(Exception ex){android.util.Log.w("AudioPlayerActivity","Cover decode failed",ex);}
+            final android.graphics.Bitmap result=bitmap;
+            runOnUiThread(()->{
+                if(request==audioCoverRequest){pendingAudioCoverUri="";if(!isFinishing()&&!showingTtsCover)applyAudioCover(result);}
+            });
+        });
+    }
+    private void applyAudioCover(android.graphics.Bitmap bitmap){
+        if(coverImage==null)return;
+        coverImage.setImageBitmap(bitmap);coverImage.setVisibility(bitmap==null?View.INVISIBLE:View.VISIBLE);
+        if(coverPlaceholderIcon!=null)coverPlaceholderIcon.setVisibility(bitmap==null?View.VISIBLE:View.GONE);
+        if(coverPlaceholderText!=null){coverPlaceholderText.setText("Выбрать обложку");coverPlaceholderText.setVisibility(bitmap==null?View.VISIBLE:View.GONE);}
     }
     /** Display the embedded EPUB/FB2 cover for system TTS, not the last audio library cover. */
     void showTtsCover(String uri){

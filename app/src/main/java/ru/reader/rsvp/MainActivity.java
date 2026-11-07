@@ -1329,7 +1329,7 @@ public class MainActivity extends NavigationActivity {
         for(ComicLibrary.Comic c:all)if(c.opened>0&&(result==null||c.opened>result.opened))result=c;
         return result;
     }
-    private View comicCover(ComicLibrary.Comic comic,int width,int height){
+    private View comicCover(ComicLibrary.Comic comic,int width,int height,boolean continueCard){
         FrameLayout frame=new FrameLayout(this);
         frame.setBackground(shape(panelColor(),COVER_CORNER_DP));
         frame.setClipToOutline(true);
@@ -1337,7 +1337,7 @@ public class MainActivity extends NavigationActivity {
         cover.setImageResource(R.drawable.ic_comic_library);
         cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
         frame.addView(cover,new FrameLayout.LayoutParams(-1,-1));
-        new Thread(()->{try{android.graphics.Bitmap bitmap=ComicCovers.cover(this,comic);
+        new Thread(()->{try{android.graphics.Bitmap bitmap=(continueCard?ComicCovers.continueCover(this,comic):ComicCovers.cover(this,comic));
             if(bitmap!=null)runOnUiThread(()->{if(!isFinishing()&&cover.getParent()!=null)cover.setImageBitmap(bitmap);});
         }catch(Exception ignored){}} ,"comic-cover").start();
         return frame;
@@ -1348,7 +1348,7 @@ public class MainActivity extends NavigationActivity {
         if(recent==null)return;
         LinearLayout card=column();card.setBackground(shape(panelColor(),22));pad(card,14);
         LinearLayout content=row();content.setGravity(Gravity.CENTER_VERTICAL);card.addView(content);
-        content.addView(comicCover(recent,88,88),new LinearLayout.LayoutParams(dp(88),dp(88)));
+        content.addView(comicCover(recent,88,88,true),new LinearLayout.LayoutParams(dp(88),dp(88)));
         LinearLayout info=column();LinearLayout.LayoutParams detailLp=new LinearLayout.LayoutParams(0,-2,1);
         detailLp.leftMargin=dp(12);content.addView(info,detailLp);
         TextView name=text(recent.title,17,true);name.setMaxLines(2);name.setEllipsize(TextUtils.TruncateAt.END);info.addView(name);
@@ -1375,7 +1375,7 @@ public class MainActivity extends NavigationActivity {
             for(int i=0;i<comics.size();i++){
                 ComicLibrary.Comic item=comics.get(i);
                 LinearLayout line=row();line.setGravity(Gravity.CENTER_VERTICAL);pad(line,8,7,8,7);
-                line.addView(comicCover(item,80,105),new LinearLayout.LayoutParams(dp(80),dp(105)));
+                line.addView(comicCover(item,80,105,false),new LinearLayout.LayoutParams(dp(80),dp(105)));
                 LinearLayout info=column();LinearLayout.LayoutParams infoLp=new LinearLayout.LayoutParams(0,dp(105),1);
                 infoLp.setMargins(dp(10),0,dp(5),0);line.addView(info,infoLp);
                 TextView title=text(item.title,16,true);title.setMaxLines(2);
@@ -1423,7 +1423,7 @@ public class MainActivity extends NavigationActivity {
     }
     private void audioMenu(AudioLibrary.Book book){
         new SwipeDialogs.Builder(this).setTitle(book.name)
-            .setItems(new String[]{"Открыть / Продолжить","Сделать текущей","Убрать из библиотеки"},(d,which)->{
+            .setItems(new String[]{"Открыть / Продолжить","Сделать текущей","Изменить обложку","Убрать из библиотеки"},(d,which)->{
                 if(which==0)openAudioBook(book.id);
                 else if(which==1){prefs.edit().putString("audio_last_book",book.id).apply();draw();}
                 else confirmForget(book.name,()->{
@@ -1439,11 +1439,43 @@ public class MainActivity extends NavigationActivity {
     }
     private void comicMenu(ComicLibrary.Comic item){
         new SwipeDialogs.Builder(this).setTitle(item.title)
-            .setItems(new String[]{"Открыть / Продолжить","Сделать текущей","Убрать из библиотеки"},(d,which)->{
+            .setItems(new String[]{"Открыть / Продолжить","Сделать текущей","Изменить обложку","Убрать из библиотеки"},(d,which)->{
                 if(which==0)openComic(item.uri);
                 else if(which==1){item.opened=System.currentTimeMillis();ComicLibrary.save(this,item);draw();}
+                else if(which==2)chooseComicCover(item);
                 else confirmForget(item.title,()->{ComicLibrary.remove(this,item.uri);draw();});
             }).show();
+    }
+    private void chooseComicCover(ComicLibrary.Comic comic){
+        new Thread(()->{
+            ArrayList<ComicLibrary.Chapter> chapters=ComicLibrary.chapters(getApplicationContext(),comic);
+            runOnUiThread(()->{
+                if(isFinishing())return;
+                if(chapters.isEmpty()){Toast.makeText(this,"Файлы манги недоступны",Toast.LENGTH_LONG).show();return;}
+                String[] titles=new String[chapters.size()];
+                for(int i=0;i<titles.length;i++)titles[i]=(i+1)+". "+chapters.get(i).title;
+                new SwipeDialogs.Builder(this).setTitle("Изменить обложку · выбор файла/тома")
+                    .setItems(titles,(d,index)->{
+                        new Thread(()->{
+                            android.graphics.Bitmap preview=null;
+                            try{preview=ComicCovers.coverFromChapter(getApplicationContext(),comic,index);}catch(Exception ex){android.util.Log.w("MainActivity","Comic cover preview failed",ex);}
+                            final android.graphics.Bitmap bitmap=preview;
+                            runOnUiThread(()->{
+                                if(isFinishing())return;
+                                if(bitmap==null){Toast.makeText(this,"Невозможно прочитать обложку из этого файла",Toast.LENGTH_LONG).show();return;}
+                                ImageView image=new ImageView(this);image.setImageBitmap(bitmap);
+                                image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                                new SwipeDialogs.Builder(this).setTitle("Обложка · "+titles[index])
+                                    .setView(image).setNegativeButton("Отмена",null)
+                                    .setPositiveButton("Использовать",(dialog,which)->{
+                                        getSharedPreferences("reader",0).edit().putInt("comic_manual_cover:"+comic.uri,index).apply();
+                                        draw();
+                                    }).show();
+                            });
+                        },"comic-cover-preview").start();
+                    }).setNegativeButton("Отмена",null).show();
+            });
+        },"comic-cover-choices").start();
     }
     void chooseAudioFolder(){
         new SwipeDialogs.Builder(this).setTitle("Аудиокнига из папки")

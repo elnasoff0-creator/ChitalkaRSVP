@@ -172,6 +172,8 @@ final class DownloadsRepository {
         }
         for(String key:mangaRows.keySet()){
             Item item=mangaRows.get(key);MangaLibDownloadGroup group=mangaGroups.get(key);
+            File coverFile=MangaDownloadCover.file(ctx,item.source);
+            if(coverFile.isFile()&&coverFile.length()>100)item.cover=coverFile.toURI().toString();
             item.done=group.pagesDone;item.total=group.pagesKnown;
             item.unknownTotal=group.unknownChapters>0;
             // When total page count is unknown, show completion by chapters instead

@@ -56,7 +56,7 @@ public final class KvuheSearchActivity extends NavigationActivity {
         folder.setBackground(shape(ReaderButtonColors.neutral(this,WHITE),15));
         folder.setContentDescription("Выбрать папку сохранения аудиокниг");
         header.addView(folder,new LinearLayout.LayoutParams(dp(44),dp(44)));
-        folder.setOnClickListener(v->DownloadFolderPicker.choose(this,DownloadFolderPicker.AUDIO_REQUEST,DownloadFolderPicker.AUDIO));
+        folder.setOnClickListener(v->DownloadFolderPicker.choose(this,DownloadFolderPicker.AUDIO_REQUEST,DownloadFolderPicker.sourceKey("kvuhe")));
         LinearLayout search=new LinearLayout(this);search.setGravity(Gravity.CENTER_VERTICAL);LinearLayout.LayoutParams sl=new LinearLayout.LayoutParams(-1,dp(54));sl.topMargin=dp(16);root.addView(search,sl);
         query=new EditText(this);query.setSingleLine(true);query.setTextSize(16);query.setHint("Название, автор или чтец");query.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         query.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);query.setBackground(shape(WHITE,15));query.setPadding(dp(12),0,dp(12),0);
@@ -80,7 +80,7 @@ public final class KvuheSearchActivity extends NavigationActivity {
     }
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
-        DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.AUDIO_REQUEST,DownloadFolderPicker.AUDIO);
+        DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.AUDIO_REQUEST,DownloadFolderPicker.sourceKey("kvuhe"));
     }
     private void startNewSearch(){
         String q=query.getText().toString().trim();if(q.isEmpty()){query.setError("Введите название книги");return;}

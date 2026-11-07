@@ -115,7 +115,7 @@ public class SettingsActivity extends NavigationActivity {
         ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_menu_lines);back.setColorFilter(contrast(bg));back.setPadding(dp(10),dp(10),dp(10),dp(10));
         back.setBackground(rounded(UiColorScheme.neutral(this),12));back.setOnClickListener(v->UniversalDrawer.show(this));top.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));
         TextView name=text("Настройки",24,true);name.setTypeface(Typeface.SERIF,Typeface.BOLD);LinearLayout.LayoutParams nameLp=new LinearLayout.LayoutParams(0,-2,1);nameLp.leftMargin=dp(14);top.addView(name,nameLp);root.addView(top);
-        ScrollView sc=new ScrollView(this);list=col();sc.addView(list);root.addView(sc,new LinearLayout.LayoutParams(-1,0,1));
+        ScrollView sc=new ScrollView(this);list=col();list.setPadding(dp(2),dp(6),dp(2),dp(12));sc.addView(list);root.addView(sc,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout tabs=new LinearLayout(this);
         int[] icons={R.drawable.ic_tab_appearance,R.drawable.ic_book,R.drawable.ic_tab_music,R.drawable.ic_tab_online,R.drawable.ic_chteico_nav};
         String[] names={"Общие","Чтение","Аудио","Онлайн","Чтейцо"};
@@ -157,7 +157,7 @@ public class SettingsActivity extends NavigationActivity {
         header("Цвет текста");palette(textColors,false);
         header("Цвет фоновых подложек");
         list.addView(action("Изменить цвет подложек",()->panelColorDialog()));
-        header("Цветовая схема интерфейса");drawUiColorScheme();
+        header("Цвет выделения");drawUiColorScheme();
         header("Цвет обычных кнопок");buttonPalette(false);
         header("Цвет акцентных кнопок · Play, режимы");buttonPalette(true);
         gap(18);
@@ -808,12 +808,10 @@ public class SettingsActivity extends NavigationActivity {
         }list.addView(row);}list.addView(action("Настроить RGB вручную",()->colorDialog(background)));
     }
     void drawUiColorScheme(){
-        TextView hint=text("Единый цвет выделения для оглавления, манги, аудиокниг, словаря и диалогов. При варианте «Из текущей темы» используется цвет акцентных кнопок.",13,false);
-        hint.setPadding(dp(4),0,dp(4),dp(10));list.addView(hint);
         TextView picker=action("Схема: "+UiColorScheme.displayName(this),()->{
-            String[] options={"Из текущей темы","Тёплая","Зелёная","Сиреневая","Свой цвет (HEX)"};
+            String[] options={"Из текущей темы","Тёплая","Зелёная","Сиреневая","Настройка RGB вручную"};
             String[] keys={"theme","warm","green","violet","custom"};
-            new SwipeDialogs.Builder(this).setTitle("Цветовая схема интерфейса")
+            new SwipeDialogs.Builder(this).setTitle("Цвет выделения")
                 .setItems(options,(dialog,index)->{
                     if(index==4){uiCustomColorDialog();return;}
                     prefs.edit().putString(UiColorScheme.KEY_MODE,keys[index]).apply();draw();
@@ -899,7 +897,7 @@ public class SettingsActivity extends NavigationActivity {
         wrapper.addView(sample,sampleLp);
         SeekBar[] bars=new SeekBar[3];String[] channels={"Красный","Зелёный","Синий"};
         int[] rgb={Color.red(c),Color.green(c),Color.blue(c)};
-        for(int i=0;i<3;i++){wrapper.addView(text(channels[i],14,false));SeekBar bar=new SeekBar(this);bar.setMax(255);bar.setProgress(rgb[i]);bars[i]=bar;wrapper.addView(bar);}        
+        for(int i=0;i<3;i++){wrapper.addView(text(channels[i],14,false));SeekBar bar=new SeekBar(this);bar.setMax(255);bar.setProgress(rgb[i]);bars[i]=bar;styleRgbSlider(bar,i);wrapper.addView(bar);}        
         for(SeekBar bar:bars)bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
             public void onProgressChanged(SeekBar b,int value,boolean from){sample.setBackground(outlined(Color.rgb(bars[0].getProgress(),bars[1].getProgress(),bars[2].getProgress()),8));}
             public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
@@ -907,6 +905,12 @@ public class SettingsActivity extends NavigationActivity {
         new SwipeDialogs.Builder(this).setTitle("Выбор RGB").setView(wrapper)
             .setPositiveButton("Применить",(d,w)->{int color=Color.rgb(bars[0].getProgress(),bars[1].getProgress(),bars[2].getProgress());if(background){bg=color;put("bg",bg);}else{fg=color;put("fg",fg);}draw();})
             .setNegativeButton("Отмена",null).show();
+    }
+    private void styleRgbSlider(SeekBar bar,int channel){
+        int[] colors={0xffdd3b38,0xff20a454,0xff246be0};
+        android.content.res.ColorStateList tint=android.content.res.ColorStateList.valueOf(colors[channel]);
+        bar.setProgressTintList(tint);bar.setThumbTintList(tint);
+        bar.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf((colors[channel]&0x00ffffff)|0x44000000));
     }
     void panelColorDialog(){
         int selected=prefs.getInt("panel_color",cardColor());
@@ -918,7 +922,7 @@ public class SettingsActivity extends NavigationActivity {
         String[] names={"Красный","Зелёный","Синий"};
         for(int i=0;i<3;i++){
             wrapper.addView(text(names[i],14,false));SeekBar bar=new SeekBar(this);
-            bar.setMax(255);bar.setProgress(rgb[i]);bars[i]=bar;wrapper.addView(bar);
+            bar.setMax(255);bar.setProgress(rgb[i]);bars[i]=bar;styleRgbSlider(bar,i);wrapper.addView(bar);
         }
         for(SeekBar bar:bars)bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
             public void onProgressChanged(SeekBar b,int progress,boolean fromUser){
@@ -945,7 +949,7 @@ public class SettingsActivity extends NavigationActivity {
         int[] rgb={Color.red(c),Color.green(c),Color.blue(c)};
         for(int i=0;i<3;i++){
             wrapper.addView(text(channels[i],14,false));SeekBar bar=new SeekBar(this);
-            bar.setMax(255);bar.setProgress(rgb[i]);bars[i]=bar;wrapper.addView(bar);
+            bar.setMax(255);bar.setProgress(rgb[i]);bars[i]=bar;styleRgbSlider(bar,i);wrapper.addView(bar);
         }
         for(SeekBar bar:bars)bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
             public void onProgressChanged(SeekBar b,int value,boolean from){

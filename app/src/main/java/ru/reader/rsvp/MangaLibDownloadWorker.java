@@ -117,7 +117,7 @@ public final class MangaLibDownloadWorker extends Worker {
         if(completeArchive(output)){
             exportToSelectedFolder(ctx,output,job);
             job.file=output.getAbsolutePath();update(job,"complete","");
-            MangaLibStorage.registerComic(ctx,job);return Result.success();
+            MangaLibStorage.registerComic(ctx,job);MangaDownloadCover.ensure(ctx,job);return Result.success();
         }
         update(job,"running","");
         try{setForegroundAsync(foreground(job));}catch(Exception ignored){}
@@ -179,7 +179,7 @@ public final class MangaLibDownloadWorker extends Worker {
             exportToSelectedFolder(ctx,output,job);
             job.file=output.getAbsolutePath();update(job,"complete","");
             MangaLibStorage.clearStage(stage);
-            MangaLibStorage.registerComic(ctx,job);return Result.success();
+            MangaLibStorage.registerComic(ctx,job);MangaDownloadCover.ensure(ctx,job);return Result.success();
         }catch(MangaLibApi.AccessException denied){
             part.delete();update(job,"blocked",denied.getMessage());return Result.failure();
         }catch(Exception error){

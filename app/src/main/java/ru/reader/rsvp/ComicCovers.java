@@ -18,12 +18,28 @@ final class ComicCovers {
     private ComicCovers(){}
     static File cached(Context c,String uri){File directory=new File(c.getCacheDir(),"comic_cover_cache");
         if(!directory.exists())directory.mkdirs();return new File(directory,Integer.toHexString(uri.hashCode())+".jpg");}
+    static void invalidate(Context c,String comicUri){
+        File folder=new File(c.getCacheDir(),"comic_cover_cache");
+        File[] files=folder.listFiles();if(files==null)return;
+        // Cache names include per-chapter indices; safely remove only this comic's entries.
+        int max=ComicLibrary.find(c,comicUri)==null?0:Math.max(1,ComicLibrary.find(c,comicUri).chapterTotal);
+        for(int i=0;i<max+3;i++)cached(c,comicUri+"#"+i).delete();
+    }
     static Bitmap cover(Context c,ComicLibrary.Comic comic) throws Exception {
-        File cached=cached(c,comic.uri);
+        int index=c.getSharedPreferences("reader",0).getInt("comic_manual_cover:"+comic.uri,0);
+        return coverFromChapter(c,comic,index);
+    }
+    static Bitmap continueCover(Context c,ComicLibrary.Comic comic) throws Exception {
+        ArrayList<ComicLibrary.Chapter> chapters=ComicLibrary.chapters(c,comic);
+        boolean archive=!chapters.isEmpty()&&(chapters.get(0).type.equals("mangalib_cbz")||chapters.get(0).type.equals("archive_tree")||chapters.get(0).type.equals("archive"));
+        return coverFromChapter(c,comic,archive?comic.chapter:0);
+    }
+    static Bitmap coverFromChapter(Context c,ComicLibrary.Comic comic,int chapterIndex) throws Exception {
+        File cached=cached(c,comic.uri+"#"+chapterIndex);
         if(cached.isFile()&&cached.length()>0){Bitmap found=BitmapFactory.decodeFile(cached.getAbsolutePath());if(found!=null)return found;}
         ArrayList<ComicLibrary.Chapter> chapters=ComicLibrary.chapters(c,comic);
         if(chapters.isEmpty())return null;
-        ComicLibrary.Chapter chapter=chapters.get(0);
+        ComicLibrary.Chapter chapter=chapters.get(Math.max(0,Math.min(chapterIndex,chapters.size()-1)));
         Bitmap bitmap=null;
         if("mangalib_cbz".equals(chapter.type)){
             ArrayList<String> pages=MangaLibStorage.extractForReading(c,new File(chapter.imagePaths.get(0)));

@@ -343,7 +343,7 @@ public class ReaderActivity extends NavigationActivity {
         toolbar.addView(toolbarThemeAction,themeLp);
         toolbarBookName=text("",12);
         toolbarBookName.setSingleLine(true);toolbarBookName.setEllipsize(TextUtils.TruncateAt.END);
-        toolbarBookName.setPadding(dp(9),0,dp(9),0);
+        toolbarBookName.setPadding(dp(9),dp(2),dp(9),dp(2));
         toolbarBookName.setGravity(Gravity.CENTER_VERTICAL);
         toolbarBookName.setBackground(shape(buttonBg(),10));
         toolbarBookName.setTextColor(contrast(buttonBg()));
@@ -353,8 +353,8 @@ public class ReaderActivity extends NavigationActivity {
         View titleSpacer=new View(this);
         toolbar.addView(titleSpacer,new LinearLayout.LayoutParams(0,dp(44),1));
         toolbarSpacer=titleSpacer;
-        LinearLayout.LayoutParams titleLp=new LinearLayout.LayoutParams(-1,dp(32));
-        titleLp.topMargin=dp(4);
+        LinearLayout.LayoutParams titleLp=new LinearLayout.LayoutParams(-1,-2);
+        titleLp.topMargin=dp(2);
         toolbarStack.addView(toolbarBookName,titleLp);
         LinearLayout.LayoutParams bookmarkLp=new LinearLayout.LayoutParams(dp(44),dp(44));bookmarkLp.leftMargin=dp(5);
         // Bookmarks moved to overflow menu.
@@ -1214,7 +1214,10 @@ public class ReaderActivity extends NavigationActivity {
         ReaderToolbarController.reveal(toolbarStack,show,106);
     }
     /** Switch back to ordinary reading without losing the current word or book. */
-    void openReadingFromDrawer(){setMode(NORMAL);}
+    void openReadingFromDrawer(){
+        // Reader itself owns the current mode; drawer navigation must not reset it.
+        if(toolbarStack!=null)setToolbarExpanded(true);
+    }
 
     private void setMode(int next){if(next<0||next>TTS||next==mode)return;
         final long modeSelectedAt=SystemClock.elapsedRealtime();

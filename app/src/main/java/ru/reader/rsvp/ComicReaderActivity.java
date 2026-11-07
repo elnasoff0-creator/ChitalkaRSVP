@@ -134,16 +134,17 @@ public final class ComicReaderActivity extends NavigationActivity {
         LinearLayout titleChip=new LinearLayout(this);
         titleChip.setOrientation(LinearLayout.HORIZONTAL);
         titleChip.setGravity(Gravity.CENTER_VERTICAL);
-        titleChip.setPadding(dp(10),dp(3),dp(9),dp(3));
+        titleChip.setPadding(dp(9),dp(2),dp(9),dp(2));
         titleChip.setBackground(rounded(neutral,13));
-        LinearLayout.LayoutParams titleLp=new LinearLayout.LayoutParams(0,dp(50),1);
-        titleLp.leftMargin=dp(6);toolbar.addView(titleChip,titleLp);
+        LinearLayout.LayoutParams titleLp=new LinearLayout.LayoutParams(-1,-2);
+        titleLp.topMargin=dp(2);toolbarStack.addView(titleChip,titleLp);
+        toolbar.addView(new View(this),new LinearLayout.LayoutParams(0,dp(44),1));
         comicHeading=button(comic.title,neutralInk);
-        comicHeading.setTextSize(13);comicHeading.setSingleLine(true);
+        comicHeading.setTextSize(12);comicHeading.setSingleLine(true);
         comicHeading.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);
         comicHeading.setPadding(0,0,0,0);
         comicHeading.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        titleChip.addView(comicHeading,new LinearLayout.LayoutParams(-1,-1));
+        titleChip.addView(comicHeading,new LinearLayout.LayoutParams(-1,-2));
         chapterInfo=null; // Filename is appended to title in the SAME row; statistics remain below.
 
         web=new WebView(this); web.setBackgroundColor(bg); web.getSettings().setJavaScriptEnabled(true); web.getSettings().setAllowFileAccess(false); web.getSettings().setAllowContentAccess(false);
