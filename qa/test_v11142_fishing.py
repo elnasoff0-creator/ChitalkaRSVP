@@ -14,7 +14,7 @@ help=get('ActivityInfo.java')
 reader=get('ReaderActivity.java')
 comic=get('ComicReaderActivity.java')
 audio=get('AudioPlaybackService.java')
-assert "versionCode 14200" in (r/'app/build.gradle').read_text()
+assert "versionCode 14300" in (r/'app/build.gradle').read_text()
 assert not (java/'ChteicoMiniGameView.java').exists()
 assert 'new ChteicoFishingView(this,()->closeMiniGame())' in activity
 assert 'ChteicoFishingView activeMiniGame' in activity
@@ -25,10 +25,10 @@ assert 'Math.abs(cast-.80f)' in game and 'castDirection' in game
 assert 'phase==REELING&&held' in game
 assert 'phase==FLOATING' in game and 'phase==CATCHING' in game
 assert 'Math.exp(-p)' in game and 'held?-.53f:.34f' in game
-assert 'inside?.26f:-.15f' in game
+assert 'inside?.26f/FILL_TIME[rarity]:-.12f' in game
 assert 'recordFishingCatch' in game
-assert 'Math.round(mass*20*multTimes2' in game
-assert 'Math.round(mass*5*multTimes2' in game
+assert 'Math.round(mass*20*mul2' in game
+assert 'Math.round(mass*5*mul2' in game
 assert 'buyFishingBait' in store and 'amount==10?270' in store
 assert 'amount==50?1200' in store and 'amount==1?30' in store
 assert 'fishing_comic_unique_pages' in store and 'total%10==0' in store
@@ -53,4 +53,4 @@ all_ids={el.get(ns+'id') for el in root.iter()}
 for id_ in ('fishing_bobber','fishing_cast_meter','fishing_cast_optimum','fishing_cast_indicator',
             'fishing_fish','fishing_zone','fishing_catch_progress','fishing_catch_panel','fishing_status'):
  assert '@+id/'+id_ in all_ids,id_
-print('PASS: v1.11.142 fishing mechanics, XML resources, economy and reading milestones')
+print('PASS: v1.11.143 fishing backward-compatible economy and reading milestones')

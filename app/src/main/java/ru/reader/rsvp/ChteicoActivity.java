@@ -432,7 +432,35 @@ public final class ChteicoActivity extends NavigationActivity {
         LinearLayout third=new LinearLayout(this);
         stat(third,"Забросов",String.valueOf(p.getInt("fishing_casts",0)));
         stat(third,"Рекорд массы",String.format(java.util.Locale.forLanguageTag("ru"),"%.1f кг",p.getInt("fishing_best_grams",0)/1000.0));
-        panel.addView(third);
+        panel.addView(third);gap(panel,9);
+        panel.addView(button("Улов",this::showFishingCatchCollection));
+    }
+    /** Separate persisted counts and best mass per rarity. Old catches keep their counts. */
+    private void showFishingCatchCollection(){
+        String[] names={"Обычные","Необычные","Редкие","Легендарные","Мифические"};
+        int[] pictures={R.drawable.ic_fishing_fish_common,R.drawable.ic_fishing_fish_uncommon,
+                R.drawable.ic_fishing_fish_rare,R.drawable.ic_fishing_fish_legendary,R.drawable.ic_fishing_fish_mythical};
+        int[] colors={fg,0xff65c96b,0xff55c8ef,0xfff49a45,0xffb478e7};
+        LinearLayout rows=column();rows.setPadding(dp(18),dp(8),dp(18),dp(7));
+        for(int i=0;i<5;i++){
+            final int count=p.getInt("fishing_rarity_"+i,0);
+            final int best=p.getInt("fishing_rarity_best_grams_"+i,0);
+            LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);
+            line.setPadding(0,dp(7),0,dp(7));
+            ImageView icon=new ImageView(this);icon.setImageResource(pictures[i]);
+            icon.setRotation(i==0?-90f:0f);icon.setContentDescription(names[i]);
+            line.addView(icon,new LinearLayout.LayoutParams(dp(55),dp(35)));
+            LinearLayout labels=column();labels.setPadding(dp(9),0,0,0);
+            TextView header=text(names[i]+" × "+count,15,true);header.setTextColor(colors[i]);labels.addView(header);
+            String mass=count==0?"Пока нет улова":best>0?
+                String.format(java.util.Locale.forLanguageTag("ru"),"Максимум: %.2f кг",best/1000.0):
+                "Максимум: нет данных для старых уловов";
+            labels.addView(text(mass,12,false));
+            line.addView(labels,new LinearLayout.LayoutParams(0,-2,1));rows.addView(line);
+        }
+        ScrollView scroll=new ScrollView(this);scroll.addView(rows);
+        new SwipeDialogs.Builder(this).setTitle("Улов").setView(scroll)
+            .setPositiveButton("Закрыть",null).show();
     }
     private void statistics(){new SwipeDialogs.Builder(this).setTitle("Книжная статистика")
         .setMessage("Книг открыто: "+p.getInt("opened_books_count",0)+"\nПрочитано: "+p.getInt("finished_books_count",0)

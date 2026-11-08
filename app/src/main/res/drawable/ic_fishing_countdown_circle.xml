@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+ android:width="76dp" android:height="76dp" android:viewportWidth="76" android:viewportHeight="76">
+ <path android:name="countdown_arc" android:fillColor="@android:color/transparent"
+  android:strokeColor="#16A34A" android:strokeWidth="4" android:strokeLineCap="round"
+  android:trimPathStart="0" android:trimPathEnd="1" android:pathData="M38,5 A33,33 0,1 1,37.999 5"/>
+</vector>

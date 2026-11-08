@@ -203,7 +203,9 @@ public final class ChteicoStore {
             .putInt("fishing_gold",p.getInt("fishing_gold",0)+gold)
             .putInt("fishing_caught",p.getInt("fishing_caught",0)+1)
             .putInt("fishing_best_grams",Math.max(p.getInt("fishing_best_grams",0),massGrams))
-            .putInt("fishing_rarity_"+rarity,p.getInt("fishing_rarity_"+rarity,0)+1).apply();
+            .putInt("fishing_rarity_"+rarity,p.getInt("fishing_rarity_"+rarity,0)+1)
+            .putInt("fishing_rarity_best_grams_"+rarity,
+                Math.max(p.getInt("fishing_rarity_best_grams_"+rarity,0),massGrams)).apply();
     }
     private static String stableRewardId(String kind,String source,int ordinal){
         // Hashing keeps SharedPreferences keys short even for long content:// URIs.
