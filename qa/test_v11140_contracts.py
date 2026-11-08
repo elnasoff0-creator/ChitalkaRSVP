@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static source contracts for v1.11.140-beta. Not an Android build/test."""
+"""Regression contracts from v1.11.140-beta checked against v1.11.141-beta. Not an Android build/test."""
 from pathlib import Path
 import xml.etree.ElementTree as ET
 r=Path(__file__).resolve().parents[1]
@@ -28,5 +28,5 @@ assert '.putExtra("reading_mode_override",0)' not in s('UniversalDrawer.java')
 assert 'void openReadingFromDrawer(){' in s('ReaderActivity.java') and 'setMode(NORMAL);' not in s('ReaderActivity.java').split('void openReadingFromDrawer(){',1)[1].split('}',1)[0]
 assert 'MangaDownloadCover.ensure(ctx,job)' in s('MangaLibDownloadWorker.java')
 assert 'MangaDownloadCover.file(ctx,item.source)' in s('DownloadsRepository.java')
-assert "versionCode 14000" in (r/'app/build.gradle').read_text()
+assert "versionCode 14100" in (r/'app/build.gradle').read_text()
 print('PASS: 14 release source contracts (not runtime verification)')

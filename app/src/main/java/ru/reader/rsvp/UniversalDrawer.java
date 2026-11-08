@@ -43,7 +43,9 @@ final class UniversalDrawer {
     }
     static boolean isOpen(Activity a){Session s=OPEN.get(a);return s!=null&&s.shade.getParent()==s.parent;}
 
-    static void show(Activity a){
+    static void show(Activity a){show(a,false);}
+    static void showFromGesture(Activity a){show(a,true);}
+    private static void show(Activity a,boolean controlledByFinger){
         if(a==null||a.isFinishing()||isOpen(a))return;
         final FrameLayout host=content(a);
         if(host==null)return;
@@ -68,7 +70,21 @@ final class UniversalDrawer {
         OPEN.put(a,session);
         shade.setOnClickListener(v->close(a));
         scroll.setOnClickListener(v->{}); // Do not dismiss when the panel itself is tapped.
-        shade.onSwipe=()->close(a);
+        shade.onDrag=delta->{
+            if(OPEN.get(a)!=session||session.closing)return;
+            session.panel.animate().cancel();session.shade.animate().cancel();
+            float x=Math.max(-session.panel.getWidth(),Math.min(0,delta));
+            session.panel.setTranslationX(x);
+            session.shade.setAlpha(1f+x/Math.max(1,session.panel.getWidth()));
+        };
+        shade.onDragEnd=(distance,velocity)->{
+            if(OPEN.get(a)!=session||session.closing)return;
+            if(distance<-session.panel.getWidth()*.40f||velocity<-dp(a,550))close(a);
+            else{
+                session.panel.animate().translationX(0f).setDuration(180).start();
+                session.shade.animate().alpha(1f).setDuration(180).start();
+            }
+        };
         LinearLayout list=new LinearLayout(a);
         list.setOrientation(LinearLayout.VERTICAL);
         list.setPadding(dp(a,18),dp(a,23),dp(a,18),dp(a,18));
@@ -78,6 +94,18 @@ final class UniversalDrawer {
         ImageView logo=new ImageView(a);logo.setImageResource(R.drawable.ic_launcher_foreground);
         logo.setBackground(shape(a,soft,14));logo.setClipToOutline(true);
         branding.addView(logo,new LinearLayout.LayoutParams(dp(a,43),dp(a,43)));
+        final long[] lastTap={0L};final int[] tapCount={0};
+        logo.setOnClickListener(v->{
+            long now=android.os.SystemClock.uptimeMillis();
+            if(now-lastTap[0]>2000L)tapCount[0]=0;
+            lastTap[0]=now;
+            if(++tapCount[0]>=10){
+                tapCount[0]=0;
+                boolean enabled=ChteicoStore.toggleDeveloper(a);
+                Toast.makeText(a,enabled?"Режим разработчика включён":"Режим разработчика выключен",Toast.LENGTH_SHORT).show();
+                close(a,()->{if(a instanceof SettingsActivity)((SettingsActivity)a).draw();});
+            }
+        });
         TextView brand=new TextView(a);brand.setText("  ПРОЧиталка");brand.setTextSize(21);
         brand.setTextColor(fg);brand.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
         LinearLayout.LayoutParams brandLp=new LinearLayout.LayoutParams(0,-2,1);branding.addView(brand,brandLp);
@@ -101,11 +129,28 @@ final class UniversalDrawer {
             item(a,list,fg,DrawerMenuStore.icon(id,a),DrawerMenuStore.name(a,id),()->navigate(a,route));
         }
 
-        scroll.post(()->{
+        if(!controlledByFinger)scroll.post(()->{
             if(OPEN.get(a)!=session||session.closing)return;
             shade.animate().alpha(1f).setDuration(SLIDE_MS).start();
             scroll.animate().translationX(0f).setDuration(SLIDE_MS).start();
         });
+    }
+
+    static void dragOpen(Activity a,float distance){
+        Session session=OPEN.get(a);if(session==null||session.closing)return;
+        int width=session.panel.getLayoutParams().width;
+        if(width<=0)return;
+        float fraction=Math.max(0f,Math.min(1f,distance/width));
+        session.panel.animate().cancel();session.shade.animate().cancel();
+        session.panel.setTranslationX(-width*(1f-fraction));
+        session.shade.setAlpha(fraction);
+    }
+    static void finishOpeningGesture(Activity a,float distance){
+        Session session=OPEN.get(a);if(session==null||session.closing)return;
+        int width=session.panel.getLayoutParams().width;
+        if(distance<width*.40f){close(a);return;}
+        session.panel.animate().translationX(0).setDuration(170).start();
+        session.shade.animate().alpha(1f).setDuration(170).start();
     }
 
     private static void separator(Activity a,LinearLayout list,int fg,int above,int below){
@@ -239,33 +284,49 @@ final class UniversalDrawer {
         a.startActivity(new Intent(a,ComicReaderActivity.class).putExtra("comic_uri",selected.uri));
     }
 
-    /** Captures only an intentional horizontal swipe, leaves vertical menu scrolling intact. */
+    /** Dragging the drawer follows the finger until release. Vertical scrolling remains intact. */
     private static final class SwipeShade extends FrameLayout {
-        private float downX,downY;
-        private boolean closingGesture;
-        Runnable onSwipe;
+        interface Drag {void move(float delta);}
+        interface DragEnd {void finish(float delta,float velocity);}
+        private float downX,downY,latestX;
+        private long downAt;
+        private boolean dragging;
+        Drag onDrag;DragEnd onDragEnd;
         SwipeShade(Activity a){super(a);}
         @Override public boolean onInterceptTouchEvent(MotionEvent e){
             switch(e.getActionMasked()){
                 case MotionEvent.ACTION_DOWN:
-                    downX=e.getX();downY=e.getY();closingGesture=false;break;
+                    downX=e.getX();downY=e.getY();latestX=downX;
+                    downAt=android.os.SystemClock.uptimeMillis();dragging=false;break;
                 case MotionEvent.ACTION_MOVE:
                     float dx=e.getX()-downX,dy=e.getY()-downY;
-                    if(dx<-dp(getActivity(),65)&&Math.abs(dx)>Math.abs(dy)*1.4f){
-                        closingGesture=true;return true;
+                    if(dx<-dp(getActivity(),12)&&Math.abs(dx)>Math.abs(dy)*1.2f){
+                        dragging=true;return true;
                     }
                     break;
             }
             return super.onInterceptTouchEvent(e);
         }
         @Override public boolean onTouchEvent(MotionEvent e){
-            if(closingGesture){
-                if(e.getActionMasked()==MotionEvent.ACTION_UP){closingGesture=false;if(onSwipe!=null)onSwipe.run();}
-                if(e.getActionMasked()==MotionEvent.ACTION_CANCEL)closingGesture=false;
+            if(dragging){
+                switch(e.getActionMasked()){
+                    case MotionEvent.ACTION_MOVE:
+                        latestX=e.getX();if(onDrag!=null)onDrag.move(Math.min(0,latestX-downX));return true;
+                    case MotionEvent.ACTION_UP:
+                        latestX=e.getX();
+                        long elapsed=Math.max(1,android.os.SystemClock.uptimeMillis()-downAt);
+                        float dx=latestX-downX;
+                        if(onDragEnd!=null)onDragEnd.finish(dx,dx*1000f/elapsed);
+                        dragging=false;return true;
+                    case MotionEvent.ACTION_CANCEL:
+                        if(onDragEnd!=null)onDragEnd.finish(0f,0f);
+                        dragging=false;return true;
+                }
                 return true;
             }
             return super.onTouchEvent(e);
         }
         private Activity getActivity(){return (Activity)getContext();}
     }
+
 }

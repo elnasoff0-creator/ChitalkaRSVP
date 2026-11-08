@@ -1329,6 +1329,7 @@ public class MainActivity extends NavigationActivity {
         for(ComicLibrary.Comic c:all)if(c.opened>0&&(result==null||c.opened>result.opened))result=c;
         return result;
     }
+    private static final java.util.concurrent.ExecutorService COMIC_COVER_POOL=java.util.concurrent.Executors.newFixedThreadPool(2);
     private View comicCover(ComicLibrary.Comic comic,int width,int height,boolean continueCard){
         FrameLayout frame=new FrameLayout(this);
         frame.setBackground(shape(panelColor(),COVER_CORNER_DP));
@@ -1337,9 +1338,9 @@ public class MainActivity extends NavigationActivity {
         cover.setImageResource(R.drawable.ic_comic_library);
         cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
         frame.addView(cover,new FrameLayout.LayoutParams(-1,-1));
-        new Thread(()->{try{android.graphics.Bitmap bitmap=(continueCard?ComicCovers.continueCover(this,comic):ComicCovers.cover(this,comic));
+        COMIC_COVER_POOL.execute(()->{try{android.graphics.Bitmap bitmap=(continueCard?ComicCovers.continueCover(this,comic):ComicCovers.cover(this,comic));
             if(bitmap!=null)runOnUiThread(()->{if(!isFinishing()&&cover.getParent()!=null)cover.setImageBitmap(bitmap);});
-        }catch(Exception ignored){}} ,"comic-cover").start();
+        }catch(Exception ignored){}});
         return frame;
     }
     private void addComicContinue(LinearLayout host){

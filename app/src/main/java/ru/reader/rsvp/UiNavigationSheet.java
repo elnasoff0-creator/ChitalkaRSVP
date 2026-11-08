@@ -55,13 +55,35 @@ final class UiNavigationSheet {
         LinearLayout.LayoutParams handleLp=new LinearLayout.LayoutParams(dp(a,44),dp(a,5));handleLp.gravity=Gravity.CENTER_HORIZONTAL;
         TextView handle=label(a,"",1,ink);handle.setBackground(shape(a,0xffc3bcb3,6));card.addView(handle,handleLp);
         // Start a drag only from the handle so scrollable chapter lists are never intercepted.
-        handle.setOnTouchListener(new View.OnTouchListener(){float down;
+        handle.setOnTouchListener(new View.OnTouchListener(){
+            float down,movement;long started;
             @Override public boolean onTouch(View view,MotionEvent e){
-                if(e.getActionMasked()==MotionEvent.ACTION_DOWN){down=e.getRawY();return true;}
-                if(e.getActionMasked()==MotionEvent.ACTION_MOVE||e.getActionMasked()==MotionEvent.ACTION_UP){
-                    float dy=e.getRawY()-down;
-                    boolean fromTop=dialog.getWindow()!=null&&dialog.getWindow().getAttributes().gravity==Gravity.TOP;
-                    if((fromTop?-dy:dy)>dp(a,42))dialog.dismiss();
+                if(e.getActionMasked()==MotionEvent.ACTION_DOWN){
+                    down=e.getRawY();movement=0;started=android.os.SystemClock.uptimeMillis();return true;
+                }
+                if(e.getActionMasked()==MotionEvent.ACTION_MOVE){
+                    boolean top=dialog.getWindow()!=null&&dialog.getWindow().getAttributes().gravity==Gravity.TOP;
+                    float delta=e.getRawY()-down;movement=top?Math.min(0,delta):Math.max(0,delta);
+                    if(dialog.getWindow()!=null){
+                        View decor=dialog.getWindow().getDecorView();
+                        decor.animate().cancel();decor.setTranslationY(movement);
+                    }
+                    return true;
+                }
+                if(e.getActionMasked()==MotionEvent.ACTION_UP){
+                    if(dialog.getWindow()!=null){
+                        View decor=dialog.getWindow().getDecorView();
+                        boolean dismiss=Math.abs(movement)>dp(a,70)||Math.abs(movement)*1000f/Math.max(1,android.os.SystemClock.uptimeMillis()-started)>dp(a,700);
+                        if(dismiss){
+                            boolean top=dialog.getWindow().getAttributes().gravity==Gravity.TOP;
+                            float target=(top?-1:1)*Math.max(decor.getHeight(),dp(a,200));
+                            decor.animate().translationY(target).setDuration(160).withEndAction(dialog::dismiss).start();
+                        }else decor.animate().translationY(0f).setDuration(170).start();
+                    }
+                    return true;
+                }
+                if(e.getActionMasked()==MotionEvent.ACTION_CANCEL){
+                    if(dialog.getWindow()!=null)dialog.getWindow().getDecorView().animate().translationY(0f).setDuration(170).start();
                     return true;
                 }
                 return true;
@@ -84,7 +106,7 @@ final class UiNavigationSheet {
             final int option=i;
             LinearLayout line=new LinearLayout(a);line.setGravity(Gravity.CENTER_VERTICAL);
             line.setPadding(dp(a,12),dp(a,9),dp(a,12),dp(a,9));
-            line.setBackground(shape(a,i==current?UiColorScheme.selected(a):neutral,15));
+            line.setBackground(UiColorScheme.selectionOutline(a,i==current,neutral,15));
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(a,69));lp.bottomMargin=dp(a,7);
             sh.content.addView(line,lp);
             ImageView icon=new ImageView(a);icon.setImageResource(icons[i]);icon.setColorFilter(ink);
@@ -122,7 +144,7 @@ final class UiNavigationSheet {
             final int position=i;
             LinearLayout row=new LinearLayout(a);row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(dp(a,16),dp(a,8),dp(a,16),dp(a,8));
-            row.setBackground(shape(a,position==selected?UiColorScheme.selected(a):neutral,14));
+            row.setBackground(UiColorScheme.selectionOutline(a,position==selected,neutral,14));
             LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,dp(a,56));rp.bottomMargin=dp(a,7);
             destination.addView(row,rp);
             TextView label=label(a,labels[i],17,ink);
@@ -165,7 +187,7 @@ final class UiNavigationSheet {
         for(int i=0;i<2;i++){
             final int n=i;LinearLayout row=new LinearLayout(a);row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(dp(a,16),dp(a,12),dp(a,16),dp(a,12));
-            row.setBackground(shape(a,i==current?UiColorScheme.selected(a):bg,15));
+            row.setBackground(UiColorScheme.selectionOutline(a,i==current,bg,15));
             LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,dp(a,70));rp.bottomMargin=dp(a,8);sh.content.addView(row,rp);
             ImageView symbol=new ImageView(a);symbol.setImageResource(icons[i]);symbol.setColorFilter(fg);
             row.addView(symbol,new LinearLayout.LayoutParams(dp(a,27),dp(a,27)));
@@ -190,7 +212,7 @@ final class UiNavigationSheet {
             final int n=i;
             LinearLayout row=new LinearLayout(a);row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(dp(a,16),dp(a,12),dp(a,16),dp(a,12));
-            row.setBackground(shape(a,i==current?UiColorScheme.selected(a):neutral,15));
+            row.setBackground(UiColorScheme.selectionOutline(a,i==current,neutral,15));
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(a,70));lp.bottomMargin=dp(a,8);sh.content.addView(row,lp);
             ImageView icon=new ImageView(a);icon.setImageResource(icons[i]);icon.setColorFilter(ink);
             row.addView(icon,new LinearLayout.LayoutParams(dp(a,28),dp(a,28)));
@@ -223,7 +245,7 @@ final class UiNavigationSheet {
                 ((TextView)row.getChildAt(0)).setText((pos+1)+". "+chapterNames[pos]);
                 int count=pos<pageCounts.length?pageCounts[pos]:-1;
                 ((TextView)row.getChildAt(1)).setText(count>=0?"Изображений: "+count:"Изображения будут подсчитаны при открытии");
-                row.setBackground(shape(a,pos==selected?UiColorScheme.selected(a):Color.TRANSPARENT,12));
+                row.setBackground(UiColorScheme.selectionOutline(a,pos==selected,Color.TRANSPARENT,12));
                 row.setOnClickListener(v->{sh.dialog.dismiss();choose.onSelect(pos);});
             }
             @Override public int getItemCount(){return chapterNames.length;}
@@ -261,7 +283,7 @@ final class UiNavigationSheet {
             @Override public void onBindViewHolder(RecyclerView.ViewHolder holder,int position){
                 TextView row=(TextView)holder.itemView;
                 row.setText(chapters[position]);row.setSingleLine(false);row.setMaxLines(2);
-                row.setBackground(shape(owner,position==selected?UiColorScheme.selected(owner):Color.TRANSPARENT,13));
+                row.setBackground(UiColorScheme.selectionOutline(owner,position==selected,Color.TRANSPARENT,13));
                 row.setTextColor(color);
                 row.setOnClickListener(v->{sh.dialog.dismiss();choice.onSelect(position);});
             }
@@ -310,7 +332,7 @@ final class UiNavigationSheet {
             @Override public void onBindViewHolder(TocHolder h,int i){TocEntry entry=choices.get(i);
                 h.name.setText(entry.title);h.details.setText(entry.details);
                 h.details.setVisibility(entry.details.isEmpty()?View.GONE:View.VISIBLE);
-                h.row.setBackground(shape(a,i==current?UiColorScheme.selected(a):Color.TRANSPARENT,14));
+                h.row.setBackground(UiColorScheme.selectionOutline(a,i==current,Color.TRANSPARENT,14));
                 h.name.setTextColor(ink);
                 h.row.setOnClickListener(v->{sh.dialog.dismiss();choice.onSelect(entry.word);});
             }

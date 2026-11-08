@@ -41,10 +41,15 @@ final class CoverImageLoader {
         StringBuilder b=new StringBuilder();for(int i=0;i<12;i++)b.append(String.format(Locale.ROOT,"%02x",sum[i]&255));return b.toString();
     }catch(Exception ignored){return Integer.toHexString(value.hashCode());}}
     static void show(ImageView target,String url,boolean textBook){
+        if(url==null||url.isEmpty()){
+            target.setTag(null);target.setImageDrawable(null);
+            target.setVisibility(android.view.View.INVISIBLE);return;
+        }
+        String identity=(textBook?"book:":"web:")+url;
+        // RecyclerView may rebind the same image every refresh; keep it without flicker.
+        if(identity.equals(target.getTag())&&target.getDrawable()!=null)return;
         target.setTag(null);target.setImageDrawable(null);
         target.setVisibility(android.view.View.INVISIBLE);
-        if(url==null||url.isEmpty())return;
-        String identity=(textBook?"book:":"web:")+url;
         target.setTag(identity);
         Bitmap cached=MEMORY.get(identity);
         if(cached!=null){target.setImageBitmap(cached);target.setVisibility(android.view.View.VISIBLE);return;}

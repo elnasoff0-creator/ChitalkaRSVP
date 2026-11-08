@@ -14,6 +14,8 @@ public final class SheetDragLayout extends LinearLayout {
     private boolean fromTop;
     private float startX,startY;
     private boolean intercepting;
+    private float movement;
+    private long started;
     private final float density;
 
     public SheetDragLayout(Context context){
@@ -26,7 +28,8 @@ public final class SheetDragLayout extends LinearLayout {
     @Override public boolean onInterceptTouchEvent(MotionEvent event){
         switch(event.getActionMasked()){
             case MotionEvent.ACTION_DOWN:
-                startX=event.getRawX();startY=event.getRawY();intercepting=false;
+                startX=event.getRawX();startY=event.getRawY();intercepting=false;movement=0f;
+                started=android.os.SystemClock.uptimeMillis();
                 return false;
             case MotionEvent.ACTION_MOVE:
                 float dy=event.getRawY()-startY;
@@ -41,18 +44,37 @@ public final class SheetDragLayout extends LinearLayout {
             default:return false;
         }
     }
+    private void moveWindow(float distance){
+        if(dialog==null||dialog.getWindow()==null)return;
+        View decor=dialog.getWindow().getDecorView();
+        decor.animate().cancel();decor.setTranslationY(distance);
+    }
+    private void settle(boolean dismiss){
+        if(dialog==null||dialog.getWindow()==null)return;
+        View decor=dialog.getWindow().getDecorView();
+        if(dismiss){
+            float target=(fromTop?-1f:1f)*Math.max(decor.getHeight(),density*200);
+            decor.animate().translationY(target).setDuration(155).withEndAction(()->{
+                if(dialog.isShowing())dialog.dismiss();
+            }).start();
+        }else decor.animate().translationY(0f).setDuration(170).start();
+    }
     @Override public boolean onTouchEvent(MotionEvent event){
         if(!intercepting)return super.onTouchEvent(event);
         switch(event.getActionMasked()){
             case MotionEvent.ACTION_MOVE:
-            case MotionEvent.ACTION_UP:
                 float dy=event.getRawY()-startY;
-                if((fromTop?-dy:dy)>density*52){
-                    if(dialog!=null&&dialog.isShowing())dialog.dismiss();
-                    intercepting=false;
-                }
+                movement=fromTop?Math.min(0,dy):Math.max(0,dy);
+                moveWindow(movement);
                 return true;
-            case MotionEvent.ACTION_CANCEL:intercepting=false;return true;
+            case MotionEvent.ACTION_UP:
+                long elapsed=Math.max(1,android.os.SystemClock.uptimeMillis()-started);
+                float velocity=movement*1000f/elapsed;
+                boolean dismiss=(fromTop?-movement:movement)>Math.max(density*68,getHeight()*.28f)
+                    ||(fromTop?-velocity:velocity)>density*700;
+                settle(dismiss);intercepting=false;return true;
+            case MotionEvent.ACTION_CANCEL:
+                settle(false);intercepting=false;return true;
             default:return true;
         }
     }

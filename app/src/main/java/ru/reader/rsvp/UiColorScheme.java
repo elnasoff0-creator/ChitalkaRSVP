@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -44,6 +45,15 @@ public final class UiColorScheme {
         int panel=p.getInt("panel_color",0);if(panel!=0 && panel!=b)return panel;
         return dark(c)?blend(b,Color.WHITE,.085f):
             ((Color.red(b)+Color.green(b)+Color.blue(b))>735?blend(b,Color.BLACK,.055f):blend(b,Color.WHITE,.65f));
+    }
+    /** Outline-only selected state: keep the themed surface, no solid accent fill. */
+    public static GradientDrawable selectionOutline(Context c,boolean isSelected,int normalColor,int radiusDp){
+        float density=c.getResources().getDisplayMetrics().density;
+        GradientDrawable g=new GradientDrawable();
+        g.setColor(normalColor);
+        g.setCornerRadius(radiusDp*density);
+        if(isSelected)g.setStroke(Math.max(1,(int)(2*density+.5f)),accent(c));
+        return g;
     }
     public static int onAccent(Context c){return ReaderButtonColors.contrastingText(accent(c));}
     public static String displayName(Context c){

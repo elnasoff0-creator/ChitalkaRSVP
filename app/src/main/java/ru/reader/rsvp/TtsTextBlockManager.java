@@ -116,7 +116,7 @@ final class TtsTextBlockManager {
                 row.setText(chapter.title);
                 boolean selected=active!=null&&chapter.startChar==active.startChar;
                 row.setTextColor(fg);
-                row.setBackground(selected?bg(owner,UiColorScheme.selected(owner),12):bg(owner,bg,12));
+                row.setBackground(UiColorScheme.selectionOutline(owner,selected,bg,12));
                 row.setOnClickListener(v->{dialog.dismiss();callback.onChoose(chapter.startChar);});
             }
             @Override public int getItemCount(){return chapters.size();}

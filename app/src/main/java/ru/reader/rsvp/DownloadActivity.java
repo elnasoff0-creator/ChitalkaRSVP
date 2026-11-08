@@ -153,7 +153,7 @@ public final class DownloadActivity extends NavigationActivity {
         scan.execute(()->{
             try{
                 ArrayList<DownloadsRepository.Item> all=DownloadsRepository.load(getApplicationContext(),null);
-                for(DownloadsRepository.Item entry:all)if(DownloadsRepository.MANGA.equals(entry.type)&&entry.cover.isEmpty()){
+                for(DownloadsRepository.Item entry:all)if(DownloadsRepository.MANGA.equals(entry.type)){
                     java.util.ArrayList<MangaLibStorage.Job> chapters=MangaLibStorage.seriesJobs(getApplicationContext(),entry.source);
                     if(!chapters.isEmpty()){
                         MangaDownloadCover.ensure(getApplicationContext(),chapters.get(0));

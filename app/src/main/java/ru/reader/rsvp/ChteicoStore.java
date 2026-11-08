@@ -200,6 +200,11 @@ public final class ChteicoStore {
     }
     public static boolean developerUnlocked(Context c){return prefs(c).getBoolean("developer_unlocked",false);}    
     public static void unlockDeveloper(Context c){prefs(c).edit().putBoolean("developer_unlocked",true).apply();}
+    public static boolean toggleDeveloper(Context c){
+        boolean next=!developerUnlocked(c);
+        prefs(c).edit().putBoolean("developer_unlocked",next).apply();
+        return next;
+    }
     /** Developer-only preview override for QA of every evolution and reading branch. */
     public static synchronized void setDeveloperState(Context c,int stage,int branch){
         stage=Math.max(EGG,Math.min(ADULT,stage));
