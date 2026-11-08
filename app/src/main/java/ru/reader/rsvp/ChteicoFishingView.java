@@ -38,7 +38,9 @@ public final class ChteicoFishingView extends FrameLayout {
     private final Runnable exit;
     private final TextView hud,status,feedback,biteMessage,resultName,resultRarity,resultMass,resultRewards;
     private final ImageView bobber,fish,zone,castMark,castCursor,ring,wave1,wave2,resultFish;
-    private final FrameLayout meter,catchPanel,track,resultPanel;
+    private final FrameLayout meter,catchPanel,track;
+    // The result panel is a LinearLayout in XML; only common View methods are needed.
+    private final View resultPanel;
     private final ProgressBar catchProgress;
     private final int accent,ink;
     private int phase=READY,rarity=0;

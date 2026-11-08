@@ -215,7 +215,17 @@ public final class ChteicoActivity extends NavigationActivity {
         frame.animate().cancel();
         for(int i=0;i<frame.getChildCount();i++)frame.getChildAt(i).setVisibility(View.INVISIBLE);
         activePetFrame=frame;
-        ChteicoFishingView game=new ChteicoFishingView(this,()->closeMiniGame());
+        ChteicoFishingView game;
+        try {
+            game=new ChteicoFishingView(this,()->closeMiniGame());
+        } catch (RuntimeException error) {
+            android.util.Log.e("ChteicoFishing", "Could not initialize fishing UI", error);
+            android.widget.Toast.makeText(this,
+                "Не удалось открыть Рыбалку. Ошибка записана в Logcat.",
+                android.widget.Toast.LENGTH_LONG).show();
+            show();
+            return;
+        }
         activeMiniGame=game;
         frame.addView(game,new FrameLayout.LayoutParams(-1,-1));
         int from=frame.getLayoutParams().height,to=dp(370);
