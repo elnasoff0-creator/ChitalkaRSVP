@@ -58,6 +58,7 @@ public final class ComicReaderActivity extends NavigationActivity {
                 int max; synchronized(currentAssets){max=currentAssets.size();}
                 comic.page=Math.max(0,Math.min(page,Math.max(0,max-1)));
                 comic.scroll=Math.max(0,offset);
+                ChteicoStore.recordComicPage(ComicReaderActivity.this,comic.uri,comic.chapter,comic.page);
                 updateChapterButton();
             }catch(Exception ignored){}
         });}catch(Exception ignored){}

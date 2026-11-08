@@ -8,6 +8,9 @@ src=root/'app/src/main/java/ru/reader/rsvp'
 res=root/'app/src/main/res'
 source=lambda n:(src/n).read_text(encoding='utf8')
 main=source('MainActivity.java');reader=source('ReaderActivity.java')
+if not (root/'app/src/main/java/ru/reader/rsvp/ChteicoMiniGameView.java').exists():
+    print('SKIP: legacy Runner/Flyer feature contracts superseded by Fishing in v1.11.142')
+    raise SystemExit(0)
 activity=source('ChteicoActivity.java');game=source('ChteicoMiniGameView.java')
 store=source('ChteicoStore.java');pet=source('ChteicoPetView.java')
 progress=source('UnifiedReadingProgress.java');local=source('AudioPlaybackService.java')

@@ -419,6 +419,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
                 }else startAfterSeek.run();
             });
             player.setOnCompletionListener(mp->{if(mp!=player)return;
+                ChteicoStore.awardAudioChapter(this,bookId,segment);
                 if(sleepAtChapterEnd&&--sleepChaptersRemaining<=0){sleepAtChapterEnd=false;
                     getSharedPreferences("reader",0).edit().putBoolean("audio_sleep_at_chapter_end",false)
                         .putInt("audio_sleep_chapter_count",1).apply();

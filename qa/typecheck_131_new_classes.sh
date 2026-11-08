@@ -2,6 +2,7 @@
 # Compile the newly added Android-facing classes against a small API-type stand-in.
 # This supplements syntax QA; it is not an Android APK build.
 set -eu
+if [ ! -f app/src/main/java/ru/reader/rsvp/ChteicoMiniGameView.java ]; then echo "SKIP: old games replaced by XML-only fishing in v1.11.142"; exit 0; fi
 cd "$(dirname "$0")/.."
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT

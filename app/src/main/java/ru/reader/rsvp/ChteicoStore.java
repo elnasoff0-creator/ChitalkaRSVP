@@ -172,7 +172,7 @@ public final class ChteicoStore {
             +Math.max(0,p.getLong("seconds_speed",0)-p.getLong("evo_marker_speed",0))
             +Math.max(0,p.getLong("seconds_audio",0)-p.getLong("evo_marker_audio",0));
         int readingProgress=(int)(seconds*95/Math.max(1L,secondsTarget));
-        int gameBonus=Math.min(10,(p.getInt("runner_xp",0)+p.getInt("flyer_xp",0))/30);
+        int gameBonus=Math.min(10,p.getInt("fishing_xp",0)/200);
         return Math.min(95,readingProgress+gameBonus);
     }
     public static int progress(Context c){SharedPreferences p=prefs(c);int st=stage(c);
@@ -181,22 +181,66 @@ public final class ChteicoStore {
         if(st==CHICK)return stageProgress(p,3600L);
         return stageProgress(p,5400L);
     }
-    /** Game experience is additional, small and capped; reading remains the main evolution driver. */
-    public static synchronized void addGameExperience(Context c,int experience,float distance){
-        SharedPreferences p=prefs(c);int gain=Math.max(0,Math.min(30,experience));
-        int total=p.getInt("runner_xp",0)+gain;
-        p.edit().putInt("runner_xp",total).putInt("runner_best",Math.max(p.getInt("runner_best",0),(int)distance))
-            .putLong("runner_distance",p.getLong("runner_distance",0)+(long)distance)
-            .putInt("runner_games",p.getInt("runner_games",0)+1).apply();
+    /** Fishing economy is isolated from reading positions and existing books. */
+    public static int fishingBait(Context c){return prefs(c).getInt("fishing_bait",10);}
+    public static int fishingGold(Context c){return prefs(c).getInt("fishing_gold",0);}
+    public static synchronized boolean useFishingBait(Context c){
+        SharedPreferences p=prefs(c);int left=fishingBait(c);if(left<=0)return false;
+        p.edit().putInt("fishing_bait",left-1).putInt("fishing_casts",p.getInt("fishing_casts",0)+1).apply();return true;
     }
-    /** "Летун" is unlocked at Reader stage; existing Runner records are retained. */
-    public static synchronized void addFlyerGameExperience(Context c,int experience,float distance){
+    public static synchronized boolean buyFishingBait(Context c,int amount){
+        final int cost=amount==1?30:amount==10?270:amount==50?1200:-1;
+        if(cost<0)return false;
+        SharedPreferences p=prefs(c);int gold=p.getInt("fishing_gold",0);
+        if(gold<cost)return false;
+        p.edit().putInt("fishing_gold",gold-cost)
+            .putInt("fishing_bait",Math.max(0,p.getInt("fishing_bait",10))+amount).apply();return true;
+    }
+    public static synchronized void recordFishingCatch(Context c,int massGrams,int xp,int gold,int rarity){
+        if(massGrams<=0||xp<0||gold<=0||rarity<0||rarity>4)return;
         SharedPreferences p=prefs(c);
-        int gain=Math.max(0,Math.min(30,experience));
-        p.edit().putInt("flyer_xp",p.getInt("flyer_xp",0)+gain)
-            .putInt("flyer_best",Math.max(p.getInt("flyer_best",0),(int)distance))
-            .putLong("flyer_distance",p.getLong("flyer_distance",0)+(long)distance)
-            .putInt("flyer_games",p.getInt("flyer_games",0)+1).apply();
+        p.edit().putInt("fishing_xp",p.getInt("fishing_xp",0)+xp)
+            .putInt("fishing_gold",p.getInt("fishing_gold",0)+gold)
+            .putInt("fishing_caught",p.getInt("fishing_caught",0)+1)
+            .putInt("fishing_best_grams",Math.max(p.getInt("fishing_best_grams",0),massGrams))
+            .putInt("fishing_rarity_"+rarity,p.getInt("fishing_rarity_"+rarity,0)+1).apply();
+    }
+    private static String stableRewardId(String kind,String source,int ordinal){
+        // Hashing keeps SharedPreferences keys short even for long content:// URIs.
+        String text=kind+"|"+source+"|"+ordinal;
+        try{java.security.MessageDigest sha=java.security.MessageDigest.getInstance("SHA-256");
+            byte[] digest=sha.digest(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder hex=new StringBuilder();for(byte b:digest)hex.append(String.format(java.util.Locale.ROOT,"%02x",b&255));return hex.toString();
+        }catch(Exception e){return Integer.toHexString(text.hashCode());}
+    }
+    private static boolean creditOnce(SharedPreferences p,String kind,String source,int number){
+        String id=stableRewardId(kind,source,number);
+        java.util.Set<String> registered=new java.util.HashSet<>(p.getStringSet("fishing_reward_ids",java.util.Collections.emptySet()));
+        if(!registered.add(id))return false;
+        p.edit().putStringSet("fishing_reward_ids",registered)
+            .putInt("fishing_bait",p.getInt("fishing_bait",10)+10).apply();return true;
+    }
+    /** Only completed chapters are awarded; navigation alone does not award bait. */
+    public static synchronized boolean awardReadChapter(Context c,String book,int chapter){
+        if(book==null||book.isEmpty()||chapter<0)return false;
+        return creditOnce(prefs(c),"read",book,chapter);
+    }
+    public static synchronized boolean awardAudioChapter(Context c,String book,int chapter){
+        if(book==null||book.isEmpty()||chapter<0)return false;
+        return creditOnce(prefs(c),"audio",book,chapter);
+    }
+    /** Only unique visited pages count; progress accumulates across every manga/volume. */
+    public static synchronized boolean recordComicPage(Context c,String comic,int volume,int page){
+        if(comic==null||comic.isEmpty()||volume<0||page<0)return false;
+        SharedPreferences p=prefs(c);
+        String id=stableRewardId("comic",comic+"|"+volume,page);
+        // Per-page keys avoid copying an ever-growing StringSet on every swipe.
+        String pageKey="fishing_page_"+id;
+        if(p.getBoolean(pageKey,false))return false;
+        int total=p.getInt("fishing_comic_unique_pages",0)+1;
+        SharedPreferences.Editor edit=p.edit().putBoolean(pageKey,true).putInt("fishing_comic_unique_pages",total);
+        if(total%10==0)edit.putInt("fishing_bait",p.getInt("fishing_bait",10)+10);
+        edit.apply();return total%10==0;
     }
     public static boolean developerUnlocked(Context c){return prefs(c).getBoolean("developer_unlocked",false);}    
     public static void unlockDeveloper(Context c){prefs(c).edit().putBoolean("developer_unlocked",true).apply();}

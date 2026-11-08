@@ -174,6 +174,11 @@ public class ReaderActivity extends NavigationActivity {
     private long chteicoLastInteraction=0;
     private long chteicoReadingSeconds=0;
     private int chteicoInitialIndex=0,chteicoLastWordIndex=0;
+    private int fishingChapter=-1,fishingChapterSeconds=0,fishingChapterStartWord=-1;
+    private int fishingTtsChapter=-1,fishingTtsStartWord=-1;
+    private long fishingTtsTime=0,fishingTtsAccumulatedMs=0;
+
+
     private boolean chteicoResumed=false;
     private final Runnable chteicoReadTick=new Runnable(){@Override public void run(){
         if(!chteicoResumed)return;
@@ -183,6 +188,18 @@ public class ReaderActivity extends NavigationActivity {
             if(index>chteicoLastWordIndex)ChteicoStore.recordWords(ReaderActivity.this,index-chteicoLastWordIndex);
             chteicoLastWordIndex=index;
             chteicoReadingSeconds+=10;
+            int visibleWord=mode==NORMAL&&viewportWord>=0?viewportWord:index;
+            int readingChapter=chapterForWord(visibleWord);
+            if(readingChapter>=0){
+                if(fishingChapter<0){fishingChapter=readingChapter;fishingChapterStartWord=visibleWord;}
+                else if(readingChapter!=fishingChapter){
+                    if(fishingChapterSeconds>=30 && Math.abs(visibleWord-fishingChapterStartWord)>=25){
+                        if(mode==TTS)ChteicoStore.awardAudioChapter(ReaderActivity.this,docUri,fishingChapter);
+                        else ChteicoStore.awardReadChapter(ReaderActivity.this,docUri,fishingChapter);
+                    }
+                    fishingChapter=readingChapter;fishingChapterSeconds=0;fishingChapterStartWord=visibleWord;
+                }else fishingChapterSeconds+=10;
+            }
         }
         handler.postDelayed(this,10000);
     }};
@@ -1246,6 +1263,10 @@ public class ReaderActivity extends NavigationActivity {
         if(mode==NORMAL && textList!=null && !textList.canScrollVertically(1)
             && (index>chteicoInitialIndex||chteicoReadingSeconds>=60))atEnd=true;
         if(atEnd&&(chteicoReadingSeconds>=50||index>chteicoInitialIndex+30)){
+            if(fishingChapter>=0&&fishingChapterSeconds>=30){
+                if(mode==TTS)ChteicoStore.awardAudioChapter(this,docUri,fishingChapter);
+                else ChteicoStore.awardReadChapter(this,docUri,fishingChapter);
+            }
             if(ChteicoStore.completeBook(this,docUri))ChteicoNotifications.milestone(this,"Книга завершена!","Чтейцо стал ещё ближе к взрослой стадии.");
         }
     }
@@ -1541,6 +1562,24 @@ public class ReaderActivity extends NavigationActivity {
                 }
             }
         }
+        // Edge and local TTS are credited only for listening across chapter boundaries.
+        if(mode==TTS&&active&&actual>=0&&actual<words.length){
+            int chapter=chapterForWord(actual);
+            long time=SystemClock.elapsedRealtime();
+            if(chapter>=0){
+                if(fishingTtsChapter<0){
+                    fishingTtsChapter=chapter;fishingTtsStartWord=actual;
+                    fishingTtsAccumulatedMs=0;
+                }else if(chapter!=fishingTtsChapter){
+                    if(fishingTtsAccumulatedMs>=30000L && Math.abs(actual-fishingTtsStartWord)>=25)
+                        ChteicoStore.awardAudioChapter(this,docUri,fishingTtsChapter);
+                    fishingTtsChapter=chapter;fishingTtsStartWord=actual;fishingTtsAccumulatedMs=0;
+                }else if(fishingTtsTime>0){
+                    fishingTtsAccumulatedMs+=Math.min(700L,Math.max(0,time-fishingTtsTime));
+                }
+            }
+            fishingTtsTime=time;
+        }else fishingTtsTime=0;
         if(active&&actual>=0&&actual<words.length&&actual!=index){
             int old=index;index=actual;refreshHighlight(old);updateProgress();
             saveLight(false);
