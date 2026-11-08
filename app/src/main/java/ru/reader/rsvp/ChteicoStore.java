@@ -202,10 +202,19 @@ public final class ChteicoStore {
         p.edit().putInt("fishing_xp",p.getInt("fishing_xp",0)+xp)
             .putInt("fishing_gold",p.getInt("fishing_gold",0)+gold)
             .putInt("fishing_caught",p.getInt("fishing_caught",0)+1)
+            // Long gram counters avoid floating-point drift and do not invent legacy masses.
+            .putLong("fishing_total_grams",p.getLong("fishing_total_grams",0L)+massGrams)
+            .putLong("fishing_rarity_total_grams_"+rarity,
+                p.getLong("fishing_rarity_total_grams_"+rarity,0L)+massGrams)
             .putInt("fishing_best_grams",Math.max(p.getInt("fishing_best_grams",0),massGrams))
             .putInt("fishing_rarity_"+rarity,p.getInt("fishing_rarity_"+rarity,0)+1)
             .putInt("fishing_rarity_best_grams_"+rarity,
                 Math.max(p.getInt("fishing_rarity_best_grams_"+rarity,0),massGrams)).apply();
+    }
+    /** Old boots are not fish: no XP, no gold and no contribution to fish mass. */
+    public static synchronized void recordFishingBoot(Context c){
+        SharedPreferences p=prefs(c);
+        p.edit().putInt("fishing_old_boots",p.getInt("fishing_old_boots",0)+1).apply();
     }
     private static String stableRewardId(String kind,String source,int ordinal){
         // Hashing keeps SharedPreferences keys short even for long content:// URIs.

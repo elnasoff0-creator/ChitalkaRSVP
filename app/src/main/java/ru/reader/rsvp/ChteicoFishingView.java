@@ -29,6 +29,11 @@ public final class ChteicoFishingView extends FrameLayout {
     private static final int[] RARITY_COLORS={Color.WHITE,0xff65c96b,0xff55c8ef,0xfff49a45,0xffb478e7};
     private static final float[] SPEED={1f,1.15f,1.35f,1.60f,1.90f};
     private static final float[] FILL_TIME={1f,1.15f,1.35f,1.65f,2f};
+    // Smaller visual target for more valuable fish, without altering the catch-zone collision rule.
+    private static final float[] FISH_SCALE={1f,.90f,.80f,.70f,.60f};
+    // Grade order: Super, Excellent, Good, Fair, Failed. One quality modifier, not a double bonus.
+    private static final double[] QUALITY_RARITY_MULTIPLIER={1.80,1.40,1.00,.70,.40};
+    private static final int BOOT_BROWN=0xff8b5a2b;
     private static final int[] BITE_TIMES={6000,5000,4000,3000,2000};
     private static final int[] BITE_DRAWABLES={R.drawable.ic_fishing_bite_6,R.drawable.ic_fishing_bite_5,
             R.drawable.ic_fishing_bite_4,R.drawable.ic_fishing_bite_3,R.drawable.ic_fishing_bite_2};
@@ -43,8 +48,8 @@ public final class ChteicoFishingView extends FrameLayout {
     private final View resultPanel;
     private final ProgressBar catchProgress;
     private final int accent,ink;
-    private int phase=READY,rarity=0;
-    private boolean held=false,paused=false,stopped=false,castWaitingSecondTap=false,ignoreUp=false,biteNeedsRelease=false;
+    private int phase=READY,rarity=0,castGrade=2;
+    private boolean held=false,paused=false,stopped=false,castWaitingSecondTap=false,ignoreUp=false,biteNeedsRelease=false,hookedBoot=false,fishHeadingUp=true;
     private float cast=0f,castDirection=1f,distance=0f,depth=0f,zoneY=.62f,fishY=.45f;
     private float fishVelocity=.27f,fishSteer=0f,catchAmount=.28f,bobberX=.5f;
     private long lastMs=0,castPressTime=0,biteStartedMs=0,feedbackUntil=0;
@@ -112,6 +117,8 @@ public final class ChteicoFishingView extends FrameLayout {
             fishY+=fishVelocity*dt;
             if(fishY<.07f){fishY=.07f;fishVelocity=Math.abs(fishVelocity);}
             if(fishY>.91f){fishY=.91f;fishVelocity=-Math.abs(fishVelocity);}
+            // Head points in the actual travel direction (positive Y = down).
+            updateFishHeading(fishVelocity<0f);
             zoneY+=dt*(held?-.53f:.34f);
             zoneY=Math.max(0f,Math.min(.75f,zoneY));
             boolean inside=fishY>=zoneY-.04f&&fishY<=zoneY+.30f;
@@ -121,27 +128,59 @@ public final class ChteicoFishingView extends FrameLayout {
         }
     }
     private void startBite(long now){
-        rarity=chooseRarity(distance);phase=BITE;held=false;biteNeedsRelease=true;biteStartedMs=now;
+        // Boots are possible only after a failed cast and cannot award XP or gold.
+        hookedBoot=castGrade==4&&random.nextFloat()<.25f;
+        rarity=hookedBoot?0:chooseRarity();
+        phase=BITE;held=false;biteNeedsRelease=true;biteStartedMs=now;
+        biteMessage.setText(hookedBoot?"Что-то зацепилось!":"Рыба клюнула!");
         ring.setImageResource(BITE_DRAWABLES[rarity]);ring.setColorFilter(accent);
         ring.setVisibility(VISIBLE);
         if(ring.getDrawable() instanceof Animatable)((Animatable)ring.getDrawable()).start();
         vibrate(75);playWaves();
     }
-    private int chooseRarity(float accuracy){
-        double roll=random.nextDouble();
-        double myth=.001+.009*accuracy,legend=.005+.035*accuracy,
-                rare=.025+.095*accuracy,uncommon=.22+.06*accuracy;
-        if(roll<myth)return 4;
-        if(roll<myth+legend)return 3;
-        if(roll<myth+legend+rare)return 2;
-        if(roll<myth+legend+rare+uncommon)return 1;
-        return 0;
+    private int chooseRarity(){
+        // Baseline relative weights: common 55, uncommon 28, rare 12, legendary 4, mythical 1.
+        // Apply cast quality to the three rarest groups, then normalize by total weight.
+        double quality=QUALITY_RARITY_MULTIPLIER[Math.max(0,Math.min(4,castGrade))];
+        double[] weights={55d,28d,12d*quality,4d*quality,1d*quality};
+        double total=0d;for(double w:weights)total+=w;
+        double roll=random.nextDouble()*total;
+        for(int i=0;i<weights.length;i++){roll-=weights[i];if(roll<0)return i;}
+        return 4;
+    }
+    private float fishAngle(boolean headUp){
+        // Common art is vertical, the other four XML vectors have their head on the left.
+        return rarity==0?(headUp?0f:180f):(headUp?90f:-90f);
+    }
+    private void updateFishHeading(boolean headUp){
+        if(fishHeadingUp==headUp)return;
+        fishHeadingUp=headUp;
+        fish.animate().cancel();
+        fish.animate().rotation(fishAngle(headUp)).setDuration(145L).start();
     }
     private void beginCatch(){
-        stopRing();ring.setVisibility(GONE);phase=CATCHING;held=true;
+        stopRing();ring.setVisibility(GONE);
+        if(hookedBoot){showBootResult();return;}
+        phase=CATCHING;held=true;
         zoneY=.58f;fishY=.52f;fishSteer=.25f;catchAmount=.28f;
+        fishVelocity=random.nextBoolean()?-.27f:.27f;
         fish.setImageResource(FISH_ART[rarity]);
-        fish.setRotation(rarity==0?0f:-90f); // Other rarity drawings are horizontal XML vectors.
+        fish.setScaleX(FISH_SCALE[rarity]);fish.setScaleY(FISH_SCALE[rarity]);
+        fish.animate().cancel();
+        fishHeadingUp=fishVelocity<0f;
+        fish.setRotation(fishAngle(fishHeadingUp));
+    }
+    private void showBootResult(){
+        ChteicoStore.recordFishingBoot(getContext());
+        resultName.setText("Старый башмак");resultName.setTextColor(BOOT_BROWN);
+        resultRarity.setText("Бесполезная находка");resultRarity.setTextColor(BOOT_BROWN);
+        resultMass.setText("Вместо рыбы — старый башмак");resultMass.setTextColor(BOOT_BROWN);
+        resultRewards.setText("0 XP   ·   0 золота");resultRewards.setTextColor(BOOT_BROWN);
+        resultFish.setImageResource(R.drawable.ic_fishing_old_boot);
+        resultFish.setRotation(0f);
+        FrameLayout.LayoutParams lp=(FrameLayout.LayoutParams)resultFish.getLayoutParams();
+        lp.width=(int)dp(142f);lp.height=(int)dp(84f);resultFish.setLayoutParams(lp);
+        finish("Башмак пойман!");
     }
     private void successfulCatch(){
         float[] min={.2f,.5f,1f,2f,3f},max={2f,3.5f,5f,8f,12f};
@@ -150,7 +189,8 @@ public final class ChteicoFishingView extends FrameLayout {
         int xp=Math.round(mass*20*mul2[rarity]/2f);
         int gold=Math.max(1,Math.round(mass*5*mul2[rarity]/2f));
         ChteicoStore.recordFishingCatch(getContext(),Math.round(mass*1000),xp,gold,rarity);
-        resultName.setText("Рыба поймана!");
+        resultName.setText("Рыба поймана!");resultName.setTextColor(ink);
+        resultMass.setTextColor(ink);resultRewards.setTextColor(ink);
         resultRarity.setText(RARITY_NAMES[rarity]);
         resultRarity.setTextColor(rarity==0?ink:RARITY_COLORS[rarity]);
         resultMass.setText(String.format(Locale.forLanguageTag("ru"),"Масса: %.2f кг",mass));
@@ -171,7 +211,7 @@ public final class ChteicoFishingView extends FrameLayout {
               .setPositiveButton("Купить",(d,w)->showShop()).setNegativeButton("Закрыть",null).show();return;
         }
         bobberX=Math.max(.06f,Math.min(.94f,x/Math.max(1f,getWidth())));
-        cast=0f;castDirection=1f;phase=CASTING;held=true;castWaitingSecondTap=false;
+        cast=0f;castDirection=1f;phase=CASTING;held=true;castWaitingSecondTap=false;hookedBoot=false;
         castPressTime=SystemClock.uptimeMillis();feedbackUntil=0;outcome="";
     }
     private void finishCast(){
@@ -179,11 +219,11 @@ public final class ChteicoFishingView extends FrameLayout {
         float error=Math.abs(cast-.80f);
         distance=Math.max(.08f,Math.min(1f,1f-error/.80f));
         depth=.09f+(1-distance)*.73f;phase=FLOATING;held=false;castWaitingSecondTap=false;
-        if(error<=.06f){feedbackText="Супер!";feedbackColor=0xff16a34a;}
-        else if(error<=.12f){feedbackText="Отлично!";feedbackColor=0xff3f9b50;}
-        else if(error<=.20f){feedbackText="Хорошо!";feedbackColor=0xffaa8600;}
-        else if(error<=.35f){feedbackText="Неплохо";feedbackColor=0xffd47c1c;}
-        else {feedbackText="Неудачно";feedbackColor=0xffc53030;}
+        if(error<=.06f){castGrade=0;feedbackText="Супер!";feedbackColor=0xff16a34a;}
+        else if(error<=.12f){castGrade=1;feedbackText="Отлично!";feedbackColor=0xff3f9b50;}
+        else if(error<=.20f){castGrade=2;feedbackText="Хорошо!";feedbackColor=0xffaa8600;}
+        else if(error<=.35f){castGrade=3;feedbackText="Неплохо";feedbackColor=0xffd47c1c;}
+        else {castGrade=4;feedbackText="Неудачно";feedbackColor=0xffc53030;}
         feedbackUntil=SystemClock.uptimeMillis()+1400;
         vibrate(40);post(()->{renderBobber();playWaves();});
     }
@@ -231,7 +271,7 @@ public final class ChteicoFishingView extends FrameLayout {
         catchProgress.setVisibility(phase==CATCHING?VISIBLE:GONE);
         ring.setVisibility(phase==BITE?VISIBLE:GONE);
         biteMessage.setVisibility(phase==BITE?VISIBLE:GONE);
-        resultPanel.setVisibility(phase==RESULT&&"Улов сохранён!".equals(outcome)?VISIBLE:GONE);
+        resultPanel.setVisibility(phase==RESULT&&( "Улов сохранён!".equals(outcome)||"Башмак пойман!".equals(outcome))?VISIBLE:GONE);
         if(phase==CASTING){
             int height=Math.max(1,meter.getHeight());
             castMark.setY(Math.max(0f,(1f-.80f)*height-castMark.getHeight()/2f));
@@ -246,7 +286,7 @@ public final class ChteicoFishingView extends FrameLayout {
             fish.setY((height-fish.getHeight())*fishY);
             catchProgress.setProgress(Math.round(catchAmount*100));
             updateStatus("Удерживайте рыбку внутри акцентной зоны");
-        }else if(phase==RESULT)updateStatus(outcome+" · Тап — новый заброс");
+        }else if(phase==RESULT)updateStatus(outcome+" · Тап — закрыть результат");
         else updateStatus("Нажмите для заброса. Можно удерживать или тапнуть дважды");
         if(phase==FLOATING||phase==REELING||phase==BITE)renderBobber();
         if(phase==BITE){
@@ -263,9 +303,13 @@ public final class ChteicoFishingView extends FrameLayout {
         int action=e.getActionMasked();
         if(action==MotionEvent.ACTION_DOWN){
             float x=e.getX(),y=e.getY();ignoreUp=false;
+            if(phase==RESULT){
+                // A reward overlay consumes the WHOLE gesture even if the user taps on a toolbar icon.
+                // ACTION_UP is swallowed too, so it cannot begin the next cast.
+                phase=READY;outcome="";held=false;ignoreUp=true;render();return true;
+            }
             if(y<dp(45)&&x>getWidth()-dp(44)){ignoreUp=true;stopClock();if(exit!=null)exit.run();return true;}
             if(y<dp(45)&&x>getWidth()-dp(116)){ignoreUp=true;showShop();return true;}
-            if(phase==RESULT){phase=READY;outcome="";}
             if(phase==READY)startCast(x);
             else if(phase==CASTING&&castWaitingSecondTap){finishCast();ignoreUp=true;}
             else if(phase==FLOATING){phase=REELING;held=true;}

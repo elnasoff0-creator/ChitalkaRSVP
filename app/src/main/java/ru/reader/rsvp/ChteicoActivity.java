@@ -452,6 +452,11 @@ public final class ChteicoActivity extends NavigationActivity {
                 R.drawable.ic_fishing_fish_rare,R.drawable.ic_fishing_fish_legendary,R.drawable.ic_fishing_fish_mythical};
         int[] colors={fg,0xff65c96b,0xff55c8ef,0xfff49a45,0xffb478e7};
         LinearLayout rows=column();rows.setPadding(dp(18),dp(8),dp(18),dp(7));
+        long totalGrams=p.getLong("fishing_total_grams",0L);
+        TextView totals=text(String.format(java.util.Locale.forLanguageTag("ru"),
+            "Всего рыб: %d   ·   Общая масса: %.2f кг",
+            p.getInt("fishing_caught",0),totalGrams/1000.0),15,true);
+        rows.addView(totals);gap(rows,10);
         for(int i=0;i<5;i++){
             final int count=p.getInt("fishing_rarity_"+i,0);
             final int best=p.getInt("fishing_rarity_best_grams_"+i,0);
@@ -466,8 +471,22 @@ public final class ChteicoActivity extends NavigationActivity {
                 String.format(java.util.Locale.forLanguageTag("ru"),"Максимум: %.2f кг",best/1000.0):
                 "Максимум: нет данных для старых уловов";
             labels.addView(text(mass,12,false));
+            long categoryGrams=p.getLong("fishing_rarity_total_grams_"+i,0L);
+            labels.addView(text(String.format(java.util.Locale.forLanguageTag("ru"),
+                "Суммарная масса: %.2f кг",categoryGrams/1000.0),12,false));
             line.addView(labels,new LinearLayout.LayoutParams(0,-2,1));rows.addView(line);
         }
+        if(p.getInt("fishing_caught",0)>0){
+            rows.addView(text("Масса учитывается с v1.11.145: для старых уловов без сохранённой массы исторические значения неизвестны.",11,false));
+            gap(rows,10);
+        }
+        LinearLayout boots=new LinearLayout(this);boots.setGravity(Gravity.CENTER_VERTICAL);
+        boots.setPadding(0,dp(7),0,dp(7));
+        ImageView bootIcon=new ImageView(this);bootIcon.setImageResource(R.drawable.ic_fishing_old_boot);
+        boots.addView(bootIcon,new LinearLayout.LayoutParams(dp(55),dp(35)));
+        TextView bootCount=text("Старые башмаки × "+p.getInt("fishing_old_boots",0),15,true);
+        bootCount.setTextColor(0xff8b5a2b);bootCount.setPadding(dp(9),0,0,0);
+        boots.addView(bootCount);rows.addView(boots);
         ScrollView scroll=new ScrollView(this);scroll.addView(rows);
         new SwipeDialogs.Builder(this).setTitle("Улов").setView(scroll)
             .setPositiveButton("Закрыть",null).show();

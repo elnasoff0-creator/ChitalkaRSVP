@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp"
+    android:height="64dp"
+    android:viewportWidth="120"
+    android:viewportHeight="64">
+
+    <!-- Worn leather upper; contour illustration matching the fishing game. -->
+    <path
+        android:fillColor="#8B5A2B"
+        android:strokeColor="#30221E"
+        android:strokeWidth="2.2"
+        android:strokeLineJoin="round"
+        android:pathData="M26,8 L55,8 L59,31 C66,35 74,38 83,39 L103,42 Q113,43 114,51 L111,57 L13,57 Q8,54 10,49 L13,39 L21,34 Z" />
+
+    <!-- Lighter front leather panel. -->
+    <path
+        android:fillColor="#A97544"
+        android:strokeColor="#30221E"
+        android:strokeWidth="1.7"
+        android:strokeLineJoin="round"
+        android:pathData="M30,13 L52,13 L56,34 Q68,44 83,44 L101,46 Q104,46 106,49 L53,49 L36,40 L24,37 Z" />
+
+    <!-- Folded top edge. -->
+    <path
+        android:fillColor="#72431F"
+        android:strokeColor="#30221E"
+        android:strokeWidth="1.7"
+        android:strokeLineJoin="round"
+        android:pathData="M26,8 L55,8 L56,15 L27,15 Z" />
+
+    <!-- Sole and heel; dark-brown fill. -->
+    <path
+        android:fillColor="#5B3822"
+        android:strokeColor="#30221E"
+        android:strokeWidth="1.8"
+        android:strokeLineJoin="round"
+        android:pathData="M10,49 Q12,52 22,52 L107,52 Q112,52 114,49 L115,55 Q113,61 104,61 L18,61 Q9,60 9,55 Z" />
+
+    <!-- Laces, seams and worn scuffs, all drawn as contours. -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#30221E"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M28,21 L46,23 M27,27 L45,29 M25,33 L43,36 M36,17 L37,39 M51,17 L53,32 M58,37 Q64,42 72,44 M78,48 L87,48 M91,48 L96,48" />
+
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#6A3F22"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round"
+        android:pathData="M17,44 L23,42 M83,43 L90,44 M96,43 L101,44" />
+</vector>
