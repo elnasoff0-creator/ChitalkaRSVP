@@ -14,7 +14,7 @@ help=get('ActivityInfo.java')
 reader=get('ReaderActivity.java')
 comic=get('ComicReaderActivity.java')
 audio=get('AudioPlaybackService.java')
-assert "versionCode 14500" in (r/'app/build.gradle').read_text()
+assert "versionCode 14600" in (r/'app/build.gradle').read_text()
 assert not (java/'ChteicoMiniGameView.java').exists()
 assert 'new ChteicoFishingView(this,()->closeMiniGame())' in activity
 assert 'ChteicoFishingView activeMiniGame' in activity
@@ -25,7 +25,7 @@ assert 'Math.abs(cast-.80f)' in game and 'castDirection' in game
 assert 'phase==REELING&&held' in game
 assert 'phase==FLOATING' in game and 'phase==CATCHING' in game
 assert 'Math.exp(-p)' in game and 'held?-.53f:.34f' in game
-assert 'inside?.26f/FILL_TIME[rarity]:-.12f' in game
+assert 'catchAmount+dt*(inside?.26f*slow*shimmerFactor/fillTime:-.12f)' in game
 assert 'recordFishingCatch' in game
 assert 'Math.round(mass*20*mul2' in game
 assert 'Math.round(mass*5*mul2' in game

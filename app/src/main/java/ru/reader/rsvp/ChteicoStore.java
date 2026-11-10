@@ -197,19 +197,50 @@ public final class ChteicoStore {
             .putInt("fishing_bait",Math.max(0,p.getInt("fishing_bait",10))+amount).apply();return true;
     }
     public static synchronized void recordFishingCatch(Context c,int massGrams,int xp,int gold,int rarity){
+        recordFishingCatch(c,massGrams,xp,gold,rarity,false);
+    }
+    /** Rod ownership and equipment are persisted independently of the pet and library. */
+    private static final int[] FISHING_ROD_PRICES={0,180,800,3000,8000};
+    public static int fishingRodEquipped(Context c){
+        return Math.max(0,Math.min(4,prefs(c).getInt("fishing_rod_equipped",0)));
+    }
+    public static boolean hasFishingRod(Context c,int rod){
+        return rod==0||(rod>0&&rod<FISHING_ROD_PRICES.length&&prefs(c).getBoolean("fishing_rod_owned_"+rod,false));
+    }
+    public static synchronized boolean equipFishingRod(Context c,int rod){
+        if(!hasFishingRod(c,rod))return false;
+        prefs(c).edit().putInt("fishing_rod_equipped",rod).apply();return true;
+    }
+    public static synchronized boolean purchaseFishingRod(Context c,int rod){
+        if(rod<=0||rod>=FISHING_ROD_PRICES.length)return false;
+        SharedPreferences p=prefs(c);
+        if(p.getBoolean("fishing_rod_owned_"+rod,false))return false;
+        int price=FISHING_ROD_PRICES[rod],gold=p.getInt("fishing_gold",0);
+        if(gold<price)return false;
+        // One atomic preference update prevents a paid rod from not being registered.
+        return p.edit().putInt("fishing_gold",gold-price)
+            .putBoolean("fishing_rod_owned_"+rod,true)
+            .putInt("fishing_rod_equipped",rod).commit();
+    }
+    /** Saves fish totals and the optional shimmer counter in one consistent transaction. */
+    public static synchronized void recordFishingCatch(Context c,int massGrams,int xp,int gold,int rarity,boolean shimmering){
         if(massGrams<=0||xp<0||gold<=0||rarity<0||rarity>4)return;
         SharedPreferences p=prefs(c);
-        p.edit().putInt("fishing_xp",p.getInt("fishing_xp",0)+xp)
+        SharedPreferences.Editor e=p.edit().putInt("fishing_xp",p.getInt("fishing_xp",0)+xp)
             .putInt("fishing_gold",p.getInt("fishing_gold",0)+gold)
             .putInt("fishing_caught",p.getInt("fishing_caught",0)+1)
-            // Long gram counters avoid floating-point drift and do not invent legacy masses.
             .putLong("fishing_total_grams",p.getLong("fishing_total_grams",0L)+massGrams)
             .putLong("fishing_rarity_total_grams_"+rarity,
                 p.getLong("fishing_rarity_total_grams_"+rarity,0L)+massGrams)
             .putInt("fishing_best_grams",Math.max(p.getInt("fishing_best_grams",0),massGrams))
             .putInt("fishing_rarity_"+rarity,p.getInt("fishing_rarity_"+rarity,0)+1)
             .putInt("fishing_rarity_best_grams_"+rarity,
-                Math.max(p.getInt("fishing_rarity_best_grams_"+rarity,0),massGrams)).apply();
+                Math.max(p.getInt("fishing_rarity_best_grams_"+rarity,0),massGrams));
+        if(shimmering){
+            e.putInt("fishing_shimmer_count",p.getInt("fishing_shimmer_count",0)+1)
+                .putInt("fishing_shimmer_rarity_"+rarity,p.getInt("fishing_shimmer_rarity_"+rarity,0)+1);
+        }
+        e.apply();
     }
     /** Old boots are not fish: no XP, no gold and no contribution to fish mass. */
     public static synchronized void recordFishingBoot(Context c){

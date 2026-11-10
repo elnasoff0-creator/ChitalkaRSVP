@@ -22,7 +22,7 @@ import java.util.Random;
 
 /** Fishing uses Android XML graphics only; Java controls states, positioning and animation. */
 public final class ChteicoFishingView extends FrameLayout {
-    private static final int READY=0,CASTING=1,FLOATING=2,REELING=3,BITE=4,CATCHING=5,RESULT=6;
+    private static final int READY=0,CASTING=1,FLOATING=2,REELING=3,BITE=4,CATCHING=5,RESULT=6,FLYING=7;
     private static final int[] FISH_ART={R.drawable.ic_fishing_fish_common,R.drawable.ic_fishing_fish_uncommon,
             R.drawable.ic_fishing_fish_rare,R.drawable.ic_fishing_fish_legendary,R.drawable.ic_fishing_fish_mythical};
     private static final String[] RARITY_NAMES={"Обычная","Необычная","Редкая","Легендарная","Мифическая"};
@@ -35,23 +35,26 @@ public final class ChteicoFishingView extends FrameLayout {
     private static final double[] QUALITY_RARITY_MULTIPLIER={1.80,1.40,1.00,.70,.40};
     private static final int BOOT_BROWN=0xff8b5a2b;
     private static final int[] BITE_TIMES={6000,5000,4000,3000,2000};
+    private static final String[] ROD_NAMES={"Тренировочная удочка","Удочка новичка","Хорошая удочка","Удочка мастера","Удочка прочитателя"};
+    private static final int[] ROD_COST={0,180,800,3000,8000};
+    private static final float[] CATCH_ZONE_WIDTH={1f,.90f,.80f,.70f,.60f};
     private static final int[] BITE_DRAWABLES={R.drawable.ic_fishing_bite_6,R.drawable.ic_fishing_bite_5,
             R.drawable.ic_fishing_bite_4,R.drawable.ic_fishing_bite_3,R.drawable.ic_fishing_bite_2};
     private static final long QUICK_TAP_MS=220L;
     private final Handler handler=new Handler(Looper.getMainLooper());
     private final Random random=new Random();
     private final Runnable exit;
-    private final TextView hud,status,feedback,biteMessage,resultName,resultRarity,resultMass,resultRewards;
-    private final ImageView bobber,fish,zone,castMark,castCursor,ring,wave1,wave2,resultFish;
+    private final TextView hud,status,feedback,biteMessage,resultName,resultRarity,resultMass,resultRewards,resultContinue;
+    private final ImageView bobber,fish,zone,castMark,castCursor,ring,wave1,wave2,resultFish,catchShimmer,resultShimmer;
     private final FrameLayout meter,catchPanel,track;
     // The result panel is a LinearLayout in XML; only common View methods are needed.
     private final View resultPanel;
     private final ProgressBar catchProgress;
     private final int accent,ink;
     private int phase=READY,rarity=0,castGrade=2;
-    private boolean held=false,paused=false,stopped=false,castWaitingSecondTap=false,ignoreUp=false,biteNeedsRelease=false,hookedBoot=false,fishHeadingUp=true;
+    private boolean held=false,paused=false,stopped=false,castWaitingSecondTap=false,ignoreUp=false,biteNeedsRelease=false,hookedBoot=false,fishHeadingUp=true,shimmering=false;
     private float cast=0f,castDirection=1f,distance=0f,depth=0f,zoneY=.62f,fishY=.45f;
-    private float fishVelocity=.27f,fishSteer=0f,catchAmount=.28f,bobberX=.5f;
+    private float fishVelocity=.27f,fishSteer=0f,catchAmount=.28f,bobberX=.5f,flightProgress=0f,flightDuration=.5f;
     private long lastMs=0,castPressTime=0,biteStartedMs=0,feedbackUntil=0;
     private String outcome="",feedbackText="";
     private int feedbackColor=0xff16a34a,displayedBait=Integer.MIN_VALUE,displayedGold=Integer.MIN_VALUE;
@@ -74,6 +77,11 @@ public final class ChteicoFishingView extends FrameLayout {
         resultPanel=findViewById(R.id.fishing_result_panel);resultFish=findViewById(R.id.fishing_result_fish);
         resultName=findViewById(R.id.fishing_result_title);resultRarity=findViewById(R.id.fishing_result_rarity);
         resultMass=findViewById(R.id.fishing_result_mass);resultRewards=findViewById(R.id.fishing_result_rewards);
+        resultContinue=findViewById(R.id.fishing_result_continue);
+        catchShimmer=findViewById(R.id.fishing_catch_shimmer);resultShimmer=findViewById(R.id.fishing_result_shimmer);
+        resultPanel.setClickable(true); // Consume every reward tap except the dedicated button.
+        resultPanel.bringToFront();
+        resultContinue.setOnClickListener(v->closeResult());
         accent=ReaderButtonColors.accent(context,0xff16a34a);ink=0xff30221e;
         hud.setTextColor(ink);status.setTextColor(ink);feedback.setTextColor(ink);biteMessage.setTextColor(ink);
         castMark.setColorFilter(accent);zone.setColorFilter(accent);ring.setColorFilter(accent);
@@ -86,7 +94,7 @@ public final class ChteicoFishingView extends FrameLayout {
     @Override protected void onAttachedToWindow(){super.onAttachedToWindow();resumeClock();}
     @Override protected void onDetachedFromWindow(){stopClock();super.onDetachedFromWindow();}
     public void pauseClock(){paused=true;held=false;castWaitingSecondTap=false;
-        if(phase==CASTING)phase=READY;
+        if(phase==CASTING||phase==FLYING)phase=READY;
         else if(phase==REELING||phase==BITE){phase=FLOATING;stopRing();}
         handler.removeCallbacks(clock);lastMs=0;render();
     }
@@ -100,6 +108,10 @@ public final class ChteicoFishingView extends FrameLayout {
             if(cast>=1f){cast=2f-cast;castDirection=-1f;}
             if(cast<=0f){cast=-cast;castDirection=1f;}
         }
+        if(phase==FLYING){
+            flightProgress=Math.min(1f,flightProgress+dt/flightDuration);
+            if(flightProgress>=1f){phase=FLOATING;vibrate(40);post(this::playWaves);}
+        }
         if(phase==REELING&&held){
             depth=Math.min(1f,depth+dt*.20f);
             // Rate per second, independent from display refresh rate; never rolls while idle.
@@ -107,13 +119,13 @@ public final class ChteicoFishingView extends FrameLayout {
             if(random.nextDouble()<1-Math.exp(-p)){startBite(now);return;}
             if(depth>=.985f){finish("Поплавок вернулся. Поклёвки не было.");return;}
         }
-        if(phase==BITE&&now-biteStartedMs>=BITE_TIMES[rarity]){
+        if(phase==BITE&&now-biteStartedMs>=(hookedBoot?7000:BITE_TIMES[rarity])){
             stopRing();finish("Время вышло — рыба сорвалась!");return;
         }
         if(phase==CATCHING){
             fishSteer-=dt;
             if(fishSteer<=0){fishSteer=.27f+random.nextFloat()*.43f;
-                fishVelocity=(random.nextFloat()-.5f)*1.18f*SPEED[rarity];}
+                fishVelocity=(random.nextFloat()-.5f)*1.18f*(hookedBoot?.65f:SPEED[rarity])*(shimmering?1.2f:1f);}
             fishY+=fishVelocity*dt;
             if(fishY<.07f){fishY=.07f;fishVelocity=Math.abs(fishVelocity);}
             if(fishY>.91f){fishY=.91f;fishVelocity=-Math.abs(fishVelocity);}
@@ -121,19 +133,28 @@ public final class ChteicoFishingView extends FrameLayout {
             updateFishHeading(fishVelocity<0f);
             zoneY+=dt*(held?-.53f:.34f);
             zoneY=Math.max(0f,Math.min(.75f,zoneY));
-            boolean inside=fishY>=zoneY-.04f&&fishY<=zoneY+.30f;
-            catchAmount=Math.max(0,Math.min(1,catchAmount+dt*(inside?.26f/FILL_TIME[rarity]:-.12f)));
-            if(catchAmount>=1f){successfulCatch();return;}
-            if(catchAmount<=0f){finish("Рыба сорвалась!");}
+            // Hit-testing must match the visibly smaller zone, not merely resize its drawable.
+            float trackHeight=Math.max(dp(140),track.getHeight());
+            float fishCenter=(trackHeight-fish.getHeight())*fishY+fish.getHeight()/2f;
+            float zoneCenter=(trackHeight-zone.getHeight())*zoneY/.75f+zone.getHeight()/2f;
+            float zoneFactor=(hookedBoot?1.2f:CATCH_ZONE_WIDTH[rarity])*(shimmering?.85f:1f);
+            boolean inside=Math.abs(fishCenter-zoneCenter)<=zone.getHeight()*zoneFactor/2f;
+            float slow=catchAmount>=.90f?.70f:catchAmount>=.70f?.85f:1f;
+            float fillTime=hookedBoot?.70f:FILL_TIME[rarity];
+            float shimmerFactor=shimmering?.75f:1f;
+            catchAmount=Math.max(0,Math.min(1,catchAmount+dt*(inside?.26f*slow*shimmerFactor/fillTime:-.12f)));
+            if(catchAmount>=1f){if(hookedBoot)showBootResult();else successfulCatch();return;}
+            if(catchAmount<=0f){finish(hookedBoot?"Башмак сорвался!":"Рыба сорвалась!");}
         }
     }
     private void startBite(long now){
         // Boots are possible only after a failed cast and cannot award XP or gold.
         hookedBoot=castGrade==4&&random.nextFloat()<.25f;
         rarity=hookedBoot?0:chooseRarity();
+        shimmering=!hookedBoot&&random.nextFloat()<.01f;
         phase=BITE;held=false;biteNeedsRelease=true;biteStartedMs=now;
         biteMessage.setText(hookedBoot?"Что-то зацепилось!":"Рыба клюнула!");
-        ring.setImageResource(BITE_DRAWABLES[rarity]);ring.setColorFilter(accent);
+        ring.setImageResource(hookedBoot?R.drawable.ic_fishing_bite_7:BITE_DRAWABLES[rarity]);ring.setColorFilter(accent);
         ring.setVisibility(VISIBLE);
         if(ring.getDrawable() instanceof Animatable)((Animatable)ring.getDrawable()).start();
         vibrate(75);playWaves();
@@ -143,14 +164,16 @@ public final class ChteicoFishingView extends FrameLayout {
         // Apply cast quality to the three rarest groups, then normalize by total weight.
         double quality=QUALITY_RARITY_MULTIPLIER[Math.max(0,Math.min(4,castGrade))];
         double[] weights={55d,28d,12d*quality,4d*quality,1d*quality};
+        int maxRarity=ChteicoStore.fishingRodEquipped(getContext());
+        for(int i=maxRarity+1;i<weights.length;i++)weights[i]=0d;
         double total=0d;for(double w:weights)total+=w;
         double roll=random.nextDouble()*total;
         for(int i=0;i<weights.length;i++){roll-=weights[i];if(roll<0)return i;}
         return 4;
     }
     private float fishAngle(boolean headUp){
-        // Common art is vertical, the other four XML vectors have their head on the left.
-        return rarity==0?(headUp?0f:180f):(headUp?90f:-90f);
+        // The black fish silhouette is always the same vertical vector during catching.
+        return hookedBoot?0f:(headUp?0f:180f);
     }
     private void updateFishHeading(boolean headUp){
         if(fishHeadingUp==headUp)return;
@@ -160,23 +183,27 @@ public final class ChteicoFishingView extends FrameLayout {
     }
     private void beginCatch(){
         stopRing();ring.setVisibility(GONE);
-        if(hookedBoot){showBootResult();return;}
         phase=CATCHING;held=true;
         zoneY=.58f;fishY=.52f;fishSteer=.25f;catchAmount=.28f;
         fishVelocity=random.nextBoolean()?-.27f:.27f;
-        fish.setImageResource(FISH_ART[rarity]);
-        fish.setScaleX(FISH_SCALE[rarity]);fish.setScaleY(FISH_SCALE[rarity]);
+        fish.setImageResource(hookedBoot?R.drawable.ic_fishing_boot_silhouette:R.drawable.ic_fishing_catch_silhouette);
+        float targetScale=hookedBoot?1.1f:FISH_SCALE[rarity];
+        fish.setScaleX(targetScale);fish.setScaleY(targetScale);
+        float zoneScale=(hookedBoot?1.2f:CATCH_ZONE_WIDTH[rarity])*(shimmering?.85f:1f);
+        zone.setScaleX(zoneScale);zone.setScaleY(zoneScale);
+        catchShimmer.setVisibility(shimmering?VISIBLE:GONE);
         fish.animate().cancel();
         fishHeadingUp=fishVelocity<0f;
         fish.setRotation(fishAngle(fishHeadingUp));
     }
     private void showBootResult(){
         ChteicoStore.recordFishingBoot(getContext());
+        shimmering=false;
         resultName.setText("Старый башмак");resultName.setTextColor(BOOT_BROWN);
         resultRarity.setText("Бесполезная находка");resultRarity.setTextColor(BOOT_BROWN);
         resultMass.setText("Вместо рыбы — старый башмак");resultMass.setTextColor(BOOT_BROWN);
         resultRewards.setText("0 XP   ·   0 золота");resultRewards.setTextColor(BOOT_BROWN);
-        resultFish.setImageResource(R.drawable.ic_fishing_old_boot);
+        resultShimmer.setVisibility(GONE);resultFish.setImageResource(R.drawable.ic_fishing_old_boot);
         resultFish.setRotation(0f);
         FrameLayout.LayoutParams lp=(FrameLayout.LayoutParams)resultFish.getLayoutParams();
         lp.width=(int)dp(142f);lp.height=(int)dp(84f);resultFish.setLayoutParams(lp);
@@ -188,14 +215,15 @@ public final class ChteicoFishingView extends FrameLayout {
         int[] mul2={2,3,5,8,14};
         int xp=Math.round(mass*20*mul2[rarity]/2f);
         int gold=Math.max(1,Math.round(mass*5*mul2[rarity]/2f));
-        ChteicoStore.recordFishingCatch(getContext(),Math.round(mass*1000),xp,gold,rarity);
-        resultName.setText("Рыба поймана!");resultName.setTextColor(ink);
+        ChteicoStore.recordFishingCatch(getContext(),Math.round(mass*1000),xp,gold,rarity,shimmering);
+        resultName.setText(shimmering?"Мерцающая рыба поймана!":"Рыба поймана!");resultName.setTextColor(ink);
         resultMass.setTextColor(ink);resultRewards.setTextColor(ink);
-        resultRarity.setText(RARITY_NAMES[rarity]);
+        resultRarity.setText(shimmering?"Мерцающая · "+RARITY_NAMES[rarity]:RARITY_NAMES[rarity]);
         resultRarity.setTextColor(rarity==0?ink:RARITY_COLORS[rarity]);
         resultMass.setText(String.format(Locale.forLanguageTag("ru"),"Масса: %.2f кг",mass));
         resultRewards.setText("+"+xp+" XP   ·   +"+gold+" золота");
         resultFish.setImageResource(FISH_ART[rarity]);
+        resultShimmer.setVisibility(shimmering?VISIBLE:GONE);
         resultFish.setRotation(rarity==0?-90f:0f);
         // sqrt scaling keeps larger specimens visible but limits to the card width.
         float scale=Math.max(.85f,Math.min(1.75f,.85f+.22f*(float)Math.sqrt(mass)));
@@ -203,7 +231,21 @@ public final class ChteicoFishingView extends FrameLayout {
         lp.width=(int)dp(92f*scale);lp.height=(int)dp(72f*scale);resultFish.setLayoutParams(lp);
         finish("Улов сохранён!");
     }
-    private void finish(String message){phase=RESULT;held=false;castWaitingSecondTap=false;outcome=message;}
+    private void finish(String message){
+        phase=RESULT;held=false;castWaitingSecondTap=false;outcome=message;
+        boolean success="Улов сохранён!".equals(message)||"Башмак пойман!".equals(message);
+        if(!success){
+            resultName.setText("Попытка завершена");resultName.setTextColor(ink);
+            resultRarity.setText("");resultMass.setText(message);resultMass.setTextColor(ink);
+            resultRewards.setText("0 XP   ·   0 золота");resultRewards.setTextColor(ink);
+            resultFish.setVisibility(GONE);resultShimmer.setVisibility(GONE);
+        }else resultFish.setVisibility(VISIBLE);
+    }
+    private void closeResult(){
+        if(phase!=RESULT)return;
+        phase=READY;outcome="";held=false;ignoreUp=false;
+        resultShimmer.setVisibility(GONE);render();
+    }
     private void startCast(float x){
         if(ChteicoStore.fishingBait(getContext())<1){
             new SwipeDialogs.Builder(getContext()).setTitle("Нет наживок")
@@ -212,20 +254,21 @@ public final class ChteicoFishingView extends FrameLayout {
         }
         bobberX=Math.max(.06f,Math.min(.94f,x/Math.max(1f,getWidth())));
         cast=0f;castDirection=1f;phase=CASTING;held=true;castWaitingSecondTap=false;hookedBoot=false;
-        castPressTime=SystemClock.uptimeMillis();feedbackUntil=0;outcome="";
+        castPressTime=SystemClock.uptimeMillis();feedbackUntil=0;outcome="";shimmering=false;
     }
     private void finishCast(){
         if(!ChteicoStore.useFishingBait(getContext())){phase=READY;held=false;return;}
         float error=Math.abs(cast-.80f);
         distance=Math.max(.08f,Math.min(1f,1f-error/.80f));
-        depth=.09f+(1-distance)*.73f;phase=FLOATING;held=false;castWaitingSecondTap=false;
+        depth=.09f+(1-distance)*.73f;phase=FLYING;held=false;castWaitingSecondTap=false;
+        flightProgress=0f;flightDuration=.35f+.30f*distance;
         if(error<=.06f){castGrade=0;feedbackText="Супер!";feedbackColor=0xff16a34a;}
         else if(error<=.12f){castGrade=1;feedbackText="Отлично!";feedbackColor=0xff3f9b50;}
         else if(error<=.20f){castGrade=2;feedbackText="Хорошо!";feedbackColor=0xffaa8600;}
         else if(error<=.35f){castGrade=3;feedbackText="Неплохо";feedbackColor=0xffd47c1c;}
         else {castGrade=4;feedbackText="Неудачно";feedbackColor=0xffc53030;}
         feedbackUntil=SystemClock.uptimeMillis()+1400;
-        vibrate(40);post(()->{renderBobber();playWaves();});
+        vibrate(20); // Cast confirmation; stronger vibration and ripples follow touchdown.
     }
     private void vibrate(int duration){
         try{Vibrator v=(Vibrator)getContext().getSystemService(Context.VIBRATOR_SERVICE);
@@ -246,49 +289,111 @@ public final class ChteicoFishingView extends FrameLayout {
         }
     }
     private void showShop(){
-        String[] items={"1 наживка — 30 золота","10 наживок — 270 золота","50 наживок — 1200 золота"};
+        String[] items={"Удочки и снаряжение", "1 наживка — 30 золота","10 наживок — 270 золота","50 наживок — 1200 золота"};
         final int[] amounts={1,10,50};
         new SwipeDialogs.Builder(getContext()).setTitle("Купить наживки · Золото: "+ChteicoStore.fishingGold(getContext()))
           .setItems(items,(d,which)->{
-            if(!ChteicoStore.buyFishingBait(getContext(),amounts[which]))
+            if(which==0){showRods();return;}
+            if(!ChteicoStore.buyFishingBait(getContext(),amounts[which-1]))
                 android.widget.Toast.makeText(getContext(),"Недостаточно золота",android.widget.Toast.LENGTH_SHORT).show();
             render();
           }).setNegativeButton("Отмена",null).show();
     }
+    private void showRods(){
+        int gold=ChteicoStore.fishingGold(getContext());
+        int equipped=ChteicoStore.fishingRodEquipped(getContext());
+        int[] art={R.drawable.ic_fishing_rod_training,R.drawable.ic_fishing_rod_novice,
+            R.drawable.ic_fishing_rod_good,R.drawable.ic_fishing_rod_master,R.drawable.ic_fishing_rod_spinning};
+        android.widget.LinearLayout list=new android.widget.LinearLayout(getContext());
+        list.setOrientation(android.widget.LinearLayout.VERTICAL);list.setPadding((int)dp(12),(int)dp(8),(int)dp(12),(int)dp(8));
+        final android.app.AlertDialog[] dialog=new android.app.AlertDialog[1];
+        for(int i=0;i<ROD_NAMES.length;i++){
+            final int rod=i;
+            boolean owned=ChteicoStore.hasFishingRod(getContext(),rod);
+            android.widget.LinearLayout line=new android.widget.LinearLayout(getContext());
+            line.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            line.setPadding((int)dp(10),(int)dp(10),(int)dp(10),(int)dp(10));
+            android.widget.ImageView icon=new android.widget.ImageView(getContext());icon.setImageResource(art[i]);
+            line.addView(icon,new android.widget.LinearLayout.LayoutParams((int)dp(40),(int)dp(40)));
+            android.widget.TextView label=new android.widget.TextView(getContext());
+            label.setText(ROD_NAMES[i]+"\n"+RARITY_NAMES[i]+" · "+
+                (i==equipped?"Используется":owned?"Куплена":ROD_COST[i]+" золота"));
+            label.setTextColor(ink);label.setTextSize(14);label.setPadding((int)dp(12),0,0,0);
+            line.addView(label,new android.widget.LinearLayout.LayoutParams(0,-2,1));
+            line.setOnClickListener(v->{
+                if(dialog[0]!=null)dialog[0].dismiss();
+                if(ChteicoStore.hasFishingRod(getContext(),rod)){
+                    ChteicoStore.equipFishingRod(getContext(),rod);
+                    android.widget.Toast.makeText(getContext(),"Выбрана: "+ROD_NAMES[rod],android.widget.Toast.LENGTH_SHORT).show();
+                    showRods();
+                }else{
+                    new SwipeDialogs.Builder(getContext()).setTitle("Купить "+ROD_NAMES[rod]+"?")
+                        .setMessage("Стоимость: "+ROD_COST[rod]+" золота. Удочка останется навсегда.")
+                        .setPositiveButton("Купить",(d,w)->{
+                            if(!ChteicoStore.purchaseFishingRod(getContext(),rod))
+                                android.widget.Toast.makeText(getContext(),"Недостаточно золота",android.widget.Toast.LENGTH_SHORT).show();
+                            else android.widget.Toast.makeText(getContext(),"Удочка куплена и выбрана",android.widget.Toast.LENGTH_SHORT).show();
+                            render();showRods();
+                        }).setNegativeButton("Отмена",(d,w)->showRods()).show();
+                }
+            });
+            list.addView(line,new android.widget.LinearLayout.LayoutParams(-1,-2));
+        }
+        android.widget.ScrollView scroll=new android.widget.ScrollView(getContext());scroll.addView(list);
+        dialog[0]=new SwipeDialogs.Builder(getContext()).setTitle("Удочки · Золото: "+gold)
+            .setView(scroll).setNegativeButton("Закрыть",null).show();
+    }
     private void updateStatus(String message){if(!message.contentEquals(status.getText()))status.setText(message);}
     private void renderBobber(){
         float minX=dp(8),maxX=Math.max(minX,getWidth()-bobber.getWidth()-dp(8));
-        bobber.setX(Math.max(minX,Math.min(maxX,getWidth()*bobberX-bobber.getWidth()/2f)));
-        float max=Math.max(0,getHeight()-dp(150));bobber.setY(dp(55)+max*depth);
+        float targetX=Math.max(minX,Math.min(maxX,getWidth()*bobberX-bobber.getWidth()/2f));
+        float max=Math.max(0,getHeight()-dp(150)),targetY=dp(55)+max*depth;
+        if(phase==FLYING){
+            float t=flightProgress;
+            float startX=getWidth()/2f-bobber.getWidth()/2f,startY=getHeight()-dp(100);
+            bobber.setX(startX+(targetX-startX)*t);
+            bobber.setY(startY+(targetY-startY)*t-(float)Math.sin(Math.PI*t)*dp(38));
+            bobber.setRotation((1f-t)*18f);
+        }else{bobber.setX(targetX);bobber.setY(targetY);bobber.setRotation(0f);}
     }
     private void render(){
         int bait=ChteicoStore.fishingBait(getContext()),gold=ChteicoStore.fishingGold(getContext());
         if(bait!=displayedBait||gold!=displayedGold){displayedBait=bait;displayedGold=gold;
             hud.setText("Рыбалка · "+bait+" наж. · "+gold+" зол.");}
         meter.setVisibility(phase==CASTING?VISIBLE:GONE);
-        bobber.setVisibility(phase==FLOATING||phase==REELING||phase==BITE?VISIBLE:GONE);
+        bobber.setVisibility(phase==FLYING||phase==FLOATING||phase==REELING||phase==BITE?VISIBLE:GONE);
         catchPanel.setVisibility(phase==CATCHING?VISIBLE:GONE);
         catchProgress.setVisibility(phase==CATCHING?VISIBLE:GONE);
         ring.setVisibility(phase==BITE?VISIBLE:GONE);
         biteMessage.setVisibility(phase==BITE?VISIBLE:GONE);
-        resultPanel.setVisibility(phase==RESULT&&( "Улов сохранён!".equals(outcome)||"Башмак пойман!".equals(outcome))?VISIBLE:GONE);
+        boolean rewardVisible=phase==RESULT;
+        resultPanel.setVisibility(rewardVisible?VISIBLE:GONE);
+        status.setVisibility(rewardVisible?GONE:VISIBLE);
+        // XML sparkle vector is only visible for the 1% shimmering fish variant.
+        catchShimmer.setVisibility(phase==CATCHING&&shimmering?VISIBLE:GONE);
+        if(shimmering&&(phase==CATCHING||rewardVisible)){
+            float glow=.40f+.60f*(.5f+.5f*(float)Math.sin(SystemClock.uptimeMillis()*.009));
+            if(phase==CATCHING){catchShimmer.setAlpha(glow);catchShimmer.setY(fish.getY()-dp(13));}
+            else resultShimmer.setAlpha(glow);
+        }
         if(phase==CASTING){
             int height=Math.max(1,meter.getHeight());
             castMark.setY(Math.max(0f,(1f-.80f)*height-castMark.getHeight()/2f));
             castCursor.setY(Math.max(0f,(1f-cast)*(height-castCursor.getHeight())));
             updateStatus(castWaitingSecondTap?"Второй тап — заброс":"Отпустите на 80% или сделайте два коротких тапа");
-        }else if(phase==FLOATING)updateStatus("Зажмите, чтобы подтягивать поплавок");
+        }else if(phase==FLYING)updateStatus("Поплавок летит к воде...");
+        else if(phase==FLOATING)updateStatus("Зажмите, чтобы подтягивать поплавок");
         else if(phase==REELING)updateStatus("Подтягивание · шанс поклёвки только при удерживании");
-        else if(phase==BITE)updateStatus("Рыба клюнула! Отпустите и быстро тапните!");
+        else if(phase==BITE)updateStatus(hookedBoot?"Зацепилось! Отпустите и быстро тапните!":"Рыба клюнула! Отпустите и быстро тапните!");
         else if(phase==CATCHING){
             float height=Math.max(dp(140),track.getHeight());
             zone.setY((height-zone.getHeight())*zoneY/.75f);
             fish.setY((height-fish.getHeight())*fishY);
             catchProgress.setProgress(Math.round(catchAmount*100));
             updateStatus("Удерживайте рыбку внутри акцентной зоны");
-        }else if(phase==RESULT)updateStatus(outcome+" · Тап — закрыть результат");
+        }else if(phase==RESULT)updateStatus(outcome+" · Нажмите «Продолжить»");
         else updateStatus("Нажмите для заброса. Можно удерживать или тапнуть дважды");
-        if(phase==FLOATING||phase==REELING||phase==BITE)renderBobber();
+        if(phase==FLYING||phase==FLOATING||phase==REELING||phase==BITE)renderBobber();
         if(phase==BITE){
             float x=bobber.getX()+bobber.getWidth()/2f-ring.getWidth()/2f;
             ring.setX(Math.max(dp(6),Math.min(x,getWidth()-ring.getWidth()-dp(6))));
@@ -298,23 +403,22 @@ public final class ChteicoFishingView extends FrameLayout {
         feedback.setVisibility(showFeedback?VISIBLE:GONE);
         if(showFeedback){feedback.setText(feedbackText);feedback.setTextColor(feedbackColor);}
     }
-    @Override public boolean onInterceptTouchEvent(MotionEvent e){return true;}
+    @Override public boolean onInterceptTouchEvent(MotionEvent e){
+        // Let only the result button handle its own clicks. Overlay consumes all other touches.
+        return phase!=RESULT;
+    }
     @Override public boolean onTouchEvent(MotionEvent e){
         int action=e.getActionMasked();
         if(action==MotionEvent.ACTION_DOWN){
             float x=e.getX(),y=e.getY();ignoreUp=false;
-            if(phase==RESULT){
-                // A reward overlay consumes the WHOLE gesture even if the user taps on a toolbar icon.
-                // ACTION_UP is swallowed too, so it cannot begin the next cast.
-                phase=READY;outcome="";held=false;ignoreUp=true;render();return true;
-            }
+            if(phase==RESULT)return true; // Reward closes ONLY via the button.
             if(y<dp(45)&&x>getWidth()-dp(44)){ignoreUp=true;stopClock();if(exit!=null)exit.run();return true;}
             if(y<dp(45)&&x>getWidth()-dp(116)){ignoreUp=true;showShop();return true;}
             if(phase==READY)startCast(x);
             else if(phase==CASTING&&castWaitingSecondTap){finishCast();ignoreUp=true;}
             else if(phase==FLOATING){phase=REELING;held=true;}
             else if(phase==BITE){
-                if(!biteNeedsRelease&&SystemClock.uptimeMillis()-biteStartedMs<BITE_TIMES[rarity])beginCatch();
+                if(!biteNeedsRelease&&SystemClock.uptimeMillis()-biteStartedMs<(hookedBoot?7000:BITE_TIMES[rarity]))beginCatch();
             }else if(phase==CATCHING)held=true;
             render();return true;
         }

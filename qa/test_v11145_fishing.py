@@ -13,14 +13,12 @@ activity=(j/'ChteicoActivity.java').read_text()
 helptext=(j/'ActivityInfo.java').read_text()
 gradle=(root/'app/build.gradle').read_text()
 layout=(root/'app/src/main/res/layout/view_chteico_fishing.xml').read_text()
-assert 'versionCode 14500' in gradle and "versionName '1.11.145-beta'" in gradle
-# Result dismissal cannot start casting from the same finger gesture.
-a=source.index('if(phase==RESULT){',source.index('onTouchEvent(MotionEvent e)'))
-b=source.index('if(phase==READY)startCast(x);',a)
-assert 'ignoreUp=true' in source[a:b] and 'return true;' in source[a:b]
-assert 'if(ignoreUp){ignoreUp=false;return true;}' in source
-assert 'Тап — закрыть результат' in source and 'Тап — закрыть результат' in layout
-assert 'Тап — следующий заброс' not in layout
+assert 'versionCode 14600' in gradle and "versionName '1.11.146-beta'" in gradle
+# A reward requires the explicit Continue control: no tap-to-dismiss in the game root.
+assert 'resultContinue.setOnClickListener(v->closeResult())' in source
+assert 'if(phase==RESULT)return true;' in source
+assert 'fishing_result_continue' in layout
+assert 'Тап — закрыть результат' not in layout
 # Total weight and per-rarity weight accumulate exactly once, in integer grams.
 assert '.putLong("fishing_total_grams"' in store
 assert '.putLong("fishing_rarity_total_grams_"+rarity,' in store
@@ -41,7 +39,7 @@ assert 'fishing_old_boots' in activity
 assert 'BOOT_BROWN' in source
 # Rarity affects rotation and appearance, but reward uses mass-based scaling.
 assert 'FISH_SCALE={1f,.90f,.80f,.70f,.60f}' in source
-assert 'fish.setScaleX(FISH_SCALE[rarity])' in source and 'fish.setScaleY(FISH_SCALE[rarity])' in source
+assert 'float targetScale=hookedBoot?1.1f:FISH_SCALE[rarity]' in source
 assert 'updateFishHeading(fishVelocity<0f)' in source
 assert 'fish.animate().rotation(fishAngle(headUp))' in source
 assert 'Math.sqrt(mass)' in source

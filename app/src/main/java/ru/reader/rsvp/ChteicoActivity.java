@@ -487,6 +487,8 @@ public final class ChteicoActivity extends NavigationActivity {
         TextView bootCount=text("Старые башмаки × "+p.getInt("fishing_old_boots",0),15,true);
         bootCount.setTextColor(0xff8b5a2b);bootCount.setPadding(dp(9),0,0,0);
         boots.addView(bootCount);rows.addView(boots);
+        int shimmerCount=p.getInt("fishing_shimmer_count",0);
+        rows.addView(text("Мерцающие рыбы × "+shimmerCount,14,true));
         ScrollView scroll=new ScrollView(this);scroll.addView(rows);
         new SwipeDialogs.Builder(this).setTitle("Улов").setView(scroll)
             .setPositiveButton("Закрыть",null).show();
