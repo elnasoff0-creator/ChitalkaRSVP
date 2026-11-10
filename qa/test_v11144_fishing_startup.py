@@ -27,7 +27,8 @@ expected={
     'resultRarity':'TextView','resultRewards':'TextView',
     'bobber':'ImageView','fish':'ImageView','zone':'ImageView',
     'ring':'ImageView','resultFish':'ImageView',
-    'catchProgress':'ProgressBar'
+    'catchProgress':'FrameLayout', 'catchProgressFill':'View',
+    'gameToolbar':'LinearLayout', 'goldCount':'TextView', 'catchHeader':'TextView'
 }
 for field, tag in expected.items():
     assert elements[assignments[field]]==tag, f'{field}: expected {tag}, got {elements[assignments[field]]}'
@@ -35,5 +36,5 @@ for field, tag in expected.items():
 assert 'private final View resultPanel;' in src
 assert not re.search(r'FrameLayout[^;]*\bresultPanel\s*;',src)
 assert 'Could not initialize fishing UI' in activity
-assert 'versionCode 14800' in gradle and "versionName '1.11.148-beta'" in gradle
+assert 'versionCode 14900' in gradle and "versionName '1.11.149-beta'" in gradle
 print('PASS: Fishing startup widget types, recovery path, release version')

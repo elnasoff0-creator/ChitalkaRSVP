@@ -13,8 +13,8 @@ stats=(java/'ChteicoActivity.java').read_text()
 layout=ET.parse(res/'layout/view_chteico_fishing.xml').getroot()
 ns='{http://schemas.android.com/apk/res/android}'
 ids={v.get(ns+'id') for v in layout.iter()}
-assert "versionCode 14800" in (r/'app/build.gradle').read_text()
-assert "versionName '1.11.148-beta'" in (r/'app/build.gradle').read_text()
+assert "versionCode 14900" in (r/'app/build.gradle').read_text()
+assert "versionName '1.11.149-beta'" in (r/'app/build.gradle').read_text()
 # Taps outside the result button do NOT dismiss results.
 assert '@+id/fishing_result_continue' in ids
 assert 'resultContinue.setOnClickListener(v->closeResult())' in source

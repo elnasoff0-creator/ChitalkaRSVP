@@ -1,7 +1,6 @@
 package ru.reader.rsvp;
 
 import android.content.Context;
-import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.content.SharedPreferences;
@@ -17,7 +16,6 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
-import android.widget.ProgressBar;
 import android.widget.TextView;
 import java.util.Locale;
 import java.util.Random;
@@ -46,14 +44,15 @@ public final class ChteicoFishingView extends FrameLayout {
     private final Handler handler=new Handler(Looper.getMainLooper());
     private final Random random=new Random();
     private final Runnable exit;
-    private final TextView hud,status,feedback,biteMessage,resultName,resultRarity,resultMass,resultRewards,resultContinue;
+    private final TextView hud,goldCount,catchHeader,status,feedback,biteMessage,resultName,resultRarity,resultMass,resultRewards,resultContinue;
     private final ImageView bobber,fish,zone,castMark,castCursor,ring,wave1,wave2,resultFish,catchShimmer,catchShimmerTrail,resultShimmer,resultShimmerTrail;
     private final FrameLayout meter,catchPanel,track;
     // The result panel is a LinearLayout in XML; only common View methods are needed.
     private final View resultPanel;
-    private final ProgressBar catchProgress;
+    private final FrameLayout catchProgress;
+    private final View catchProgressFill,gameToolbar;
     private final int accent,ink,themeBg,surface;
-    private final View shopIcon,pond;
+    private final ImageView shopIcon,pond,baitIcon,goldIcon;
     private int phase=READY,rarity=0,castGrade=2;
     private boolean held=false,paused=false,stopped=false,castWaitingSecondTap=false,ignoreUp=false,biteNeedsRelease=false,hookedBoot=false,fishHeadingUp=true,shimmering=false;
     private float cast=0f,castDirection=1f,distance=0f,depth=0f,zoneY=.62f,fishY=.45f;
@@ -70,11 +69,13 @@ public final class ChteicoFishingView extends FrameLayout {
     public ChteicoFishingView(Context context,Runnable onExit,int petCardColor){
         super(context);exit=onExit;
         LayoutInflater.from(context).inflate(R.layout.view_chteico_fishing,this,true);
-        hud=findViewById(R.id.fishing_hud);status=findViewById(R.id.fishing_status);
+        hud=findViewById(R.id.fishing_hud);goldCount=findViewById(R.id.fishing_gold_count);
+        catchHeader=findViewById(R.id.fishing_catch_header);status=findViewById(R.id.fishing_status);
         bobber=findViewById(R.id.fishing_bobber);fish=findViewById(R.id.fishing_fish);zone=findViewById(R.id.fishing_zone);
         meter=findViewById(R.id.fishing_cast_meter);castMark=findViewById(R.id.fishing_cast_optimum);
         castCursor=findViewById(R.id.fishing_cast_indicator);catchPanel=findViewById(R.id.fishing_catch_panel);
         track=findViewById(R.id.fishing_track);catchProgress=findViewById(R.id.fishing_catch_progress);
+        catchProgressFill=findViewById(R.id.fishing_catch_progress_fill);gameToolbar=findViewById(R.id.fishing_toolbar);
         feedback=findViewById(R.id.fishing_cast_feedback);biteMessage=findViewById(R.id.fishing_bite_message);
         ring=findViewById(R.id.fishing_bite_ring);wave1=findViewById(R.id.fishing_wave_1);wave2=findViewById(R.id.fishing_wave_2);
         resultPanel=findViewById(R.id.fishing_result_panel);resultFish=findViewById(R.id.fishing_result_fish);
@@ -86,6 +87,7 @@ public final class ChteicoFishingView extends FrameLayout {
         resultShimmer=findViewById(R.id.fishing_result_shimmer);
         resultShimmerTrail=findViewById(R.id.fishing_result_shimmer_trail);
         shopIcon=findViewById(R.id.fishing_shop);pond=findViewById(R.id.fishing_pond);
+        baitIcon=findViewById(R.id.fishing_bait_icon);goldIcon=findViewById(R.id.fishing_gold_icon);
         resultPanel.setClickable(true); // Consume every reward tap except the dedicated button.
         resultPanel.bringToFront();
         resultContinue.setOnClickListener(v->closeResult());
@@ -97,25 +99,30 @@ public final class ChteicoFishingView extends FrameLayout {
         surface=mix(themeBg,ink,isDark(themeBg)?.09f:.045f);
         setBackgroundColor(themeBg);
         pond.setBackgroundColor(themeBg);
-        ((ImageView)pond).setColorFilter(ink);
+        pond.setColorFilter(ink);
         // The RIGHT-HAND fishing panel is fully opaque, but never covers the lake.
         catchPanel.setBackground(panelBackground(themeBg,accent,dp(14)));
+        gameToolbar.setBackground(panelBackground(surface,ink,dp(13)));
+        catchHeader.setBackground(panelBackground(surface,0,dp(12)));
+        catchHeader.setTextColor(ink);
+        catchProgress.setBackground(panelBackground(surface,ink,dp(7)));
+        catchProgressFill.setBackground(panelBackground(accent,0,dp(5)));
         resultPanel.setBackground(panelBackground(themeBg,accent,0));
         status.setBackground(panelBackground(surface,accent,dp(15)));
         resultContinue.setBackground(panelBackground(surface,accent,dp(12)));
         resultContinue.setTextColor(accent);
         shopIcon.setBackground(panelBackground(surface,ink,dp(12)));
-        ((ImageView)shopIcon).setColorFilter(ink);
+        shopIcon.setColorFilter(ink);baitIcon.setColorFilter(ink);goldIcon.setColorFilter(ink);
         findViewById(R.id.fishing_close).setBackground(panelBackground(surface,ink,dp(12)));
         ((TextView)findViewById(R.id.fishing_close)).setTextColor(ink);
         meter.setBackground(panelBackground(surface,ink,dp(8)));
         track.setBackground(panelBackground(mix(themeBg,ink,isDark(themeBg)?.30f:.06f),ink,dp(12)));
-        hud.setTextColor(ink);status.setTextColor(ink);feedback.setTextColor(ink);biteMessage.setTextColor(ink);
+        hud.setTextColor(ink);goldCount.setTextColor(ink);status.setTextColor(ink);feedback.setTextColor(ink);biteMessage.setTextColor(ink);
         resultName.setTextColor(ink);resultMass.setTextColor(ink);resultRewards.setTextColor(ink);
         castMark.setColorFilter(accent);zone.setColorFilter(accent);ring.setColorFilter(accent);
         catchShimmer.setColorFilter(accent);catchShimmerTrail.setColorFilter(accent);
         resultShimmer.setColorFilter(accent);resultShimmerTrail.setColorFilter(accent);
-        catchProgress.setProgressTintList(ColorStateList.valueOf(accent));
+        // The vertical fill uses the live accent as an opaque bottom-up drawable.
         setClickable(true);setFocusable(true);
         setContentDescription("Рыбалка. Касайтесь игрового поля для заброса, поклёвки и вываживания");
         render();
@@ -402,7 +409,7 @@ public final class ChteicoFishingView extends FrameLayout {
     private void renderBobber(){
         float minX=dp(8),maxX=Math.max(minX,getWidth()-bobber.getWidth()-dp(8));
         float targetX=Math.max(minX,Math.min(maxX,getWidth()*bobberX-bobber.getWidth()/2f));
-        float max=Math.max(0,getHeight()-dp(150)),targetY=dp(55)+max*depth;
+        float max=Math.max(0,getHeight()-dp(168)),targetY=dp(67)+max*depth;
         if(phase==FLYING){
             float t=flightProgress;
             float startX=getWidth()/2f-bobber.getWidth()/2f,startY=getHeight()-dp(100);
@@ -439,10 +446,21 @@ public final class ChteicoFishingView extends FrameLayout {
         star.setTranslationX(xOffset);
         star.setTranslationY(-dp(32)*t); // Reward shimmer always drifts upward.
     }
+    /** A vertical 0..100 percent progress column growing from the bottom.
+     *  The moving fish and the accent catch zone remain independent. */
+    private void renderVerticalCatchProgress(){
+        final int available=Math.max(0,catchProgress.getHeight()-Math.round(dp(4)));
+        final int fillHeight=Math.round(available*Math.max(0f,Math.min(1f,catchAmount)));
+        final FrameLayout.LayoutParams lp=(FrameLayout.LayoutParams)catchProgressFill.getLayoutParams();
+        if(lp.height!=fillHeight){
+            lp.height=fillHeight;
+            catchProgressFill.setLayoutParams(lp);
+        }
+    }
     private void render(){
         int bait=ChteicoStore.fishingBait(getContext()),gold=ChteicoStore.fishingGold(getContext());
         if(bait!=displayedBait||gold!=displayedGold){displayedBait=bait;displayedGold=gold;
-            hud.setText("Рыбалка · "+bait+" наж. · "+gold+" зол.");}
+            hud.setText(String.valueOf(bait));goldCount.setText(String.valueOf(gold));}
         meter.setVisibility(phase==CASTING?VISIBLE:GONE);
         bobber.setVisibility(phase==FLYING||phase==FLOATING||phase==REELING||phase==BITE?VISIBLE:GONE);
         catchPanel.setVisibility(phase==CATCHING?VISIBLE:GONE);
@@ -475,7 +493,7 @@ public final class ChteicoFishingView extends FrameLayout {
             float height=Math.max(dp(140),track.getHeight());
             zone.setY((height-zone.getHeight())*zoneY/.75f);
             fish.setY((height-fish.getHeight())*fishY);
-            catchProgress.setProgress(Math.round(catchAmount*100));
+            renderVerticalCatchProgress();
             updateStatus("Удерживайте рыбку внутри акцентной зоны");
         }else if(phase==RESULT)updateStatus(outcome+" · Нажмите «Продолжить»");
         else updateStatus("Нажмите для заброса. Можно удерживать или тапнуть дважды");
@@ -502,8 +520,13 @@ public final class ChteicoFishingView extends FrameLayout {
         if(action==MotionEvent.ACTION_DOWN){
             float x=e.getX(),y=e.getY();ignoreUp=false;
             if(phase==RESULT)return true; // Reward closes ONLY via the button.
-            if(y<dp(45)&&x>getWidth()-dp(44)){ignoreUp=true;stopClock();if(exit!=null)exit.run();return true;}
-            if(y<dp(45)&&x>getWidth()-dp(116)){ignoreUp=true;showShop();return true;}
+            // A separate toolbar sits above the lake. Tapping its counters must NEVER cast.
+            if(y<=dp(57)){
+                ignoreUp=true;
+                if(x>getWidth()-dp(49)){stopClock();if(exit!=null)exit.run();}
+                else if(x>getWidth()-dp(91)){showShop();}
+                return true;
+            }
             if(phase==READY)startCast(x);
             else if(phase==CASTING&&castWaitingSecondTap){finishCast();ignoreUp=true;}
             else if(phase==FLOATING){phase=REELING;held=true;}
