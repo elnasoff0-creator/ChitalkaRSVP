@@ -7,10 +7,9 @@
  <TextView android:id="@+id/fishing_hud" android:layout_width="wrap_content" android:layout_height="36dp"
   android:layout_gravity="top|left" android:layout_marginLeft="12dp" android:layout_marginTop="6dp"
   android:gravity="center_vertical" android:textSize="13sp" android:textStyle="bold" android:textColor="#30221E" android:text="Рыбалка"/>
- <TextView android:id="@+id/fishing_shop" android:layout_width="wrap_content" android:layout_height="36dp"
+ <ImageView android:id="@+id/fishing_shop" android:layout_width="36dp" android:layout_height="36dp"
   android:layout_gravity="top|right" android:layout_marginRight="48dp" android:layout_marginTop="6dp"
-  android:gravity="center" android:paddingLeft="9dp" android:paddingRight="9dp"
-  android:background="@drawable/bg_fishing_outline" android:textSize="13sp" android:textColor="#30221E" android:text="+"/>
+  android:padding="7dp" android:src="@drawable/ic_fishing_shop" android:contentDescription="Магазин рыбалки"/>
  <TextView android:id="@+id/fishing_close" android:layout_width="36dp" android:layout_height="36dp"
   android:layout_gravity="top|right" android:layout_marginTop="6dp" android:layout_marginRight="6dp"
   android:gravity="center" android:background="@drawable/bg_fishing_outline"
@@ -39,27 +38,26 @@
   android:layout_gravity="top|center_horizontal" android:layout_marginTop="57dp"
   android:gravity="center" android:textSize="17sp" android:textStyle="bold" android:text="Рыба клюнула!"
   android:visibility="gone"/>
- <FrameLayout android:id="@+id/fishing_catch_panel" android:layout_width="96dp" android:layout_height="240dp"
-  android:layout_gravity="right|center_vertical" android:layout_marginRight="12dp"
-  android:background="@drawable/bg_fishing_outline" android:visibility="gone">
-   <FrameLayout android:id="@+id/fishing_track" android:layout_width="62dp" android:layout_height="214dp"
-    android:layout_gravity="top|left" android:layout_margin="12dp"
-    android:background="@drawable/bg_fishing_track" android:clipChildren="false">
-    <ImageView android:id="@+id/fishing_zone" android:layout_width="match_parent" android:layout_height="54dp"
+ <!-- Full-height OPAQUE theme surface covers the entire lake while fishing. -->
+ <FrameLayout android:id="@+id/fishing_catch_panel" android:layout_width="match_parent" android:layout_height="match_parent"
+  android:background="@drawable/bg_fishing_stage" android:visibility="gone">
+   <FrameLayout android:id="@+id/fishing_track" android:layout_width="76dp" android:layout_height="match_parent"
+    android:layout_gravity="right|center_vertical" android:layout_marginTop="10dp" android:layout_marginBottom="26dp"
+    android:layout_marginRight="20dp" android:background="@drawable/bg_fishing_track" android:clipChildren="false">
+    <ImageView android:id="@+id/fishing_zone" android:layout_width="match_parent" android:layout_height="72dp"
      android:src="@drawable/bg_fishing_accent" android:contentDescription="Акцентная зона поимки"/>
     <ImageView android:id="@+id/fishing_catch_shimmer" android:layout_width="70dp" android:layout_height="70dp"
      android:layout_gravity="top|center_horizontal" android:src="@drawable/ic_fishing_sparkles"
      android:visibility="gone" android:contentDescription="Мерцающие искры"/>
     <ImageView android:id="@+id/fishing_fish" android:layout_width="42dp" android:layout_height="48dp"
-     android:layout_gravity="left|top" android:layout_marginLeft="10dp"
-     android:src="@drawable/ic_fishing_fish_common" android:contentDescription="Рыба"/>
+     android:layout_gravity="left|top" android:layout_marginLeft="17dp"
+     android:src="@drawable/ic_fishing_catch_silhouette" android:contentDescription="Тёмный силуэт улова"/>
    </FrameLayout>
+   <ProgressBar android:id="@+id/fishing_catch_progress" style="?android:attr/progressBarStyleHorizontal"
+    android:layout_width="match_parent" android:layout_height="9dp" android:layout_gravity="bottom"
+    android:layout_marginLeft="16dp" android:layout_marginRight="16dp" android:layout_marginBottom="11dp"
+    android:progressDrawable="@drawable/bg_fishing_progress" android:max="100" android:progress="0" android:visibility="gone"/>
  </FrameLayout>
- <ProgressBar android:id="@+id/fishing_catch_progress" style="?android:attr/progressBarStyleHorizontal"
-  android:layout_width="match_parent" android:layout_height="9dp"
-  android:layout_gravity="bottom" android:layout_marginLeft="16dp" android:layout_marginRight="16dp"
-  android:layout_marginBottom="50dp" android:progressDrawable="@drawable/bg_fishing_progress"
-  android:max="100" android:progress="0" android:visibility="gone"/>
  <LinearLayout android:id="@+id/fishing_result_panel" android:orientation="vertical"
   android:layout_width="match_parent" android:layout_height="match_parent"
   android:layout_gravity="center" android:layout_marginLeft="0dp" android:layout_marginRight="0dp"
@@ -87,8 +85,9 @@
    android:background="@drawable/bg_fishing_outline" android:text="Продолжить"
    android:textColor="#30221E" android:textStyle="bold" android:textSize="16sp"/>
  </LinearLayout>
- <TextView android:id="@+id/fishing_status" android:layout_width="match_parent" android:layout_height="wrap_content"
-  android:layout_gravity="bottom" android:layout_marginLeft="15dp" android:layout_marginRight="15dp"
-  android:layout_marginBottom="12dp" android:gravity="center" android:maxLines="2"
+ <!-- Tutorial bubble stays opaque and centred; hidden except when training rod is equipped. -->
+ <TextView android:id="@+id/fishing_status" android:layout_width="240dp" android:layout_height="wrap_content"
+  android:layout_gravity="center" android:layout_marginRight="66dp" android:padding="12dp"
+  android:gravity="center" android:maxLines="4" android:background="@drawable/bg_fishing_stage"
   android:text="Нажмите для заброса" android:textSize="13sp" android:textColor="#30221E"/>
 </FrameLayout>

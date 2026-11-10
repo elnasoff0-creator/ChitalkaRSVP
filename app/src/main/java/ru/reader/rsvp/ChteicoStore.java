@@ -242,11 +242,13 @@ public final class ChteicoStore {
         }
         e.apply();
     }
-    /** Old boots are not fish: no XP, no gold and no contribution to fish mass. */
-    public static synchronized void recordFishingBoot(Context c){
+    /** The old-item count retains its legacy preference key so previous catches are preserved. */
+    public static synchronized void recordFishingOldCover(Context c){
         SharedPreferences p=prefs(c);
         p.edit().putInt("fishing_old_boots",p.getInt("fishing_old_boots",0)+1).apply();
     }
+    /** Compatibility for older callers; stored finds are now called "Старая обложка". */
+    @Deprecated public static void recordFishingBoot(Context c){recordFishingOldCover(c);}
     private static String stableRewardId(String kind,String source,int ordinal){
         // Hashing keeps SharedPreferences keys short even for long content:// URIs.
         String text=kind+"|"+source+"|"+ordinal;

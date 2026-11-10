@@ -13,8 +13,8 @@ stats=(java/'ChteicoActivity.java').read_text()
 layout=ET.parse(res/'layout/view_chteico_fishing.xml').getroot()
 ns='{http://schemas.android.com/apk/res/android}'
 ids={v.get(ns+'id') for v in layout.iter()}
-assert "versionCode 14600" in (r/'app/build.gradle').read_text()
-assert "versionName '1.11.146-beta'" in (r/'app/build.gradle').read_text()
+assert "versionCode 14700" in (r/'app/build.gradle').read_text()
+assert "versionName '1.11.147-beta'" in (r/'app/build.gradle').read_text()
 # Taps outside the result button do NOT dismiss results.
 assert '@+id/fishing_result_continue' in ids
 assert 'resultContinue.setOnClickListener(v->closeResult())' in source
@@ -33,7 +33,7 @@ assert 'hookedBoot?.70f:FILL_TIME[rarity]' in source
 assert 'hookedBoot?1.2f:CATCH_ZONE_WIDTH[rarity]' in source
 # Hidden rarity during catching, real XML art at result.
 assert 'ic_fishing_catch_silhouette' in source
-assert 'ic_fishing_boot_silhouette' in source
+assert 'fish.setImageResource(R.drawable.ic_fishing_catch_silhouette)' in source
 assert 'resultFish.setImageResource(FISH_ART[rarity])' in source
 assert 'resultFish.setRotation(rarity==0?-90f:0f)' in source
 assert 'CATCH_ZONE_WIDTH={1f,.90f,.80f,.70f,.60f}' in source
@@ -59,7 +59,7 @@ assert 'ChteicoStore.purchaseFishingRod(getContext(),rod)' in source
 assert 'ChteicoStore.equipFishingRod(getContext(),rod)' in source
 # No imported raster graphics; new sprites are Android XML vectors.
 required=[
- 'ic_fishing_catch_silhouette','ic_fishing_boot_silhouette','ic_fishing_sparkles',
+ 'ic_fishing_catch_silhouette','ic_fishing_old_cover','ic_fishing_sparkles',
  'ic_fishing_rod_training','ic_fishing_rod_novice','ic_fishing_rod_good',
  'ic_fishing_rod_master','ic_fishing_rod_spinning','ic_fishing_bite_7'
 ]
@@ -72,5 +72,5 @@ assert (res/'animator/fishing_bite_7s.xml').is_file()
 assert not [p for p in res.rglob('*') if p.suffix.lower() in {'.png','.jpg','.jpeg','.webp','.gif'}]
 for xml in res.rglob('*.xml'):ET.parse(xml)
 assert 'Экран результата закрывается только кнопкой' in helptext
-assert 'спиннинг за 8000' in helptext
+assert 'удочка прочитателя за 8000' in helptext
 print('PASS: v1.11.146 reward, boot catching, black silhouette, flight, slowdown, shimmer, rods and XML')

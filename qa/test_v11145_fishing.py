@@ -13,7 +13,7 @@ activity=(j/'ChteicoActivity.java').read_text()
 helptext=(j/'ActivityInfo.java').read_text()
 gradle=(root/'app/build.gradle').read_text()
 layout=(root/'app/src/main/res/layout/view_chteico_fishing.xml').read_text()
-assert 'versionCode 14600' in gradle and "versionName '1.11.146-beta'" in gradle
+assert 'versionCode 14700' in gradle and "versionName '1.11.147-beta'" in gradle
 # A reward requires the explicit Continue control: no tap-to-dismiss in the game root.
 assert 'resultContinue.setOnClickListener(v->closeResult())' in source
 assert 'if(phase==RESULT)return true;' in source
@@ -30,10 +30,10 @@ assert 'fishing_rarity_best_grams_'+'' in store
 # Boot is not counted as fish and offers nothing; chance only for unsuccessful casts.
 assert 'hookedBoot=castGrade==4&&random.nextFloat()<.25f' in source
 boot_method=source[source.index('private void showBootResult()'):source.index('private void successfulCatch()')]
-assert 'recordFishingBoot' in boot_method
+assert 'recordFishingOldCover' in boot_method
 assert 'recordFishingCatch' not in boot_method
-assert 'ic_fishing_old_boot' in boot_method and '0 XP' in boot_method and '0 золота' in boot_method
-boot_record=store[store.index('void recordFishingBoot('):store.index('private static String stableRewardId(')]
+assert 'ic_fishing_old_cover' in boot_method and '0 XP' in boot_method and '0 золота' in boot_method
+boot_record=store[store.index('void recordFishingOldCover('):store.index('void recordFishingBoot(')]
 assert 'fishing_old_boots' in boot_record and 'fishing_caught' not in boot_record and 'fishing_total_grams' not in boot_record
 assert 'fishing_old_boots' in activity
 assert 'BOOT_BROWN' in source
@@ -52,10 +52,10 @@ for multiplier in (1.8,1.4,1.0,.7,.4):
     p_rare.append(p)
 assert all(p_rare[i]>p_rare[i+1] for i in range(len(p_rare)-1))
 # Boot vector is valid XML, brown, and no new raster images were added.
-xml=root/'app/src/main/res/drawable/ic_fishing_old_boot.xml'
+xml=root/'app/src/main/res/drawable/ic_fishing_old_cover.xml'
 vector=ET.parse(xml).getroot()
 assert vector.tag=='vector' and vector.findall('path')
 assert '#8B5A2B' in xml.read_text()
 assert not [p for p in (root/'app/src/main/res').rglob('*') if p.suffix.lower() in ('.png','.jpg','.jpeg','.webp','.gif')]
-assert 'Старый башмак' in helptext and 'общую массу' in helptext
+assert 'Старая обложка' in helptext and 'общую массу' in helptext
 print('PASS: v1.11.145 reward dismissal, totals, boot, cast weighting, fish rotations, XML resources')

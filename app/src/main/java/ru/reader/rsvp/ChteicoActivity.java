@@ -293,6 +293,11 @@ public final class ChteicoActivity extends NavigationActivity {
         if(previewAll || p.getInt("finished_books_count",0)>=10){rewardRow(rewards,R.drawable.ic_reward_books10,"10 прочитанных книг");any=true;}
         if(previewAll || p.getInt("finished_audio_count",0)>=10){rewardRow(rewards,R.drawable.ic_reward_audio10,"10 аудиокниг");any=true;}
         if(previewAll || p.getInt("best_streak",0)>=30){rewardRow(rewards,R.drawable.ic_reward_streak30,"30 дней подряд");any=true;}
+        // Fishing achievements are derived from persisted catches/rod ownership, including pre-update progress.
+        if(previewAll || p.getInt("fishing_caught",0)>0){rewardRow(rewards,R.drawable.ic_reward_fishing,"Рыбак");any=true;}
+        if(previewAll || p.getInt("fishing_shimmer_count",0)>0){rewardRow(rewards,R.drawable.ic_reward_fishing_shimmer,"Охотник за мерцанием");any=true;}
+        if(previewAll || p.getInt("fishing_rarity_3",0)>0){rewardRow(rewards,R.drawable.ic_reward_fishing_legendary,"Легендарный улов");any=true;}
+        if(previewAll || ChteicoStore.hasFishingRod(this,4)){rewardRow(rewards,R.drawable.ic_reward_reader_rod,"Удочка прочитателя");any=true;}
         finishRewardGrid();
         if(!any){
             TextView none=text("Новые награды будут появляться по мере чтения и прослушивания аудиокниг.",14,false);
@@ -469,22 +474,18 @@ public final class ChteicoActivity extends NavigationActivity {
             TextView header=text(names[i]+" × "+count,15,true);header.setTextColor(colors[i]);labels.addView(header);
             String mass=count==0?"Пока нет улова":best>0?
                 String.format(java.util.Locale.forLanguageTag("ru"),"Максимум: %.2f кг",best/1000.0):
-                "Максимум: нет данных для старых уловов";
+                "Максимум: —";
             labels.addView(text(mass,12,false));
             long categoryGrams=p.getLong("fishing_rarity_total_grams_"+i,0L);
             labels.addView(text(String.format(java.util.Locale.forLanguageTag("ru"),
                 "Суммарная масса: %.2f кг",categoryGrams/1000.0),12,false));
             line.addView(labels,new LinearLayout.LayoutParams(0,-2,1));rows.addView(line);
         }
-        if(p.getInt("fishing_caught",0)>0){
-            rows.addView(text("Масса учитывается с v1.11.145: для старых уловов без сохранённой массы исторические значения неизвестны.",11,false));
-            gap(rows,10);
-        }
         LinearLayout boots=new LinearLayout(this);boots.setGravity(Gravity.CENTER_VERTICAL);
         boots.setPadding(0,dp(7),0,dp(7));
-        ImageView bootIcon=new ImageView(this);bootIcon.setImageResource(R.drawable.ic_fishing_old_boot);
+        ImageView bootIcon=new ImageView(this);bootIcon.setImageResource(R.drawable.ic_fishing_old_cover);
         boots.addView(bootIcon,new LinearLayout.LayoutParams(dp(55),dp(35)));
-        TextView bootCount=text("Старые башмаки × "+p.getInt("fishing_old_boots",0),15,true);
+        TextView bootCount=text("Старые обложки × "+p.getInt("fishing_old_boots",0),15,true);
         bootCount.setTextColor(0xff8b5a2b);bootCount.setPadding(dp(9),0,0,0);
         boots.addView(bootCount);rows.addView(boots);
         int shimmerCount=p.getInt("fishing_shimmer_count",0);
