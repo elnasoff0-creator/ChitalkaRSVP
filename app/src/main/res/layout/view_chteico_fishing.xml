@@ -38,20 +38,24 @@
   android:layout_gravity="top|center_horizontal" android:layout_marginTop="57dp"
   android:gravity="center" android:textSize="17sp" android:textStyle="bold" android:text="Рыба клюнула!"
   android:visibility="gone"/>
- <!-- Full-height OPAQUE theme surface covers the entire lake while fishing. -->
- <FrameLayout android:id="@+id/fishing_catch_panel" android:layout_width="match_parent" android:layout_height="match_parent"
+ <!-- Narrow, fully opaque panel on the RIGHT, with the theme-coloured lake still visible. -->
+ <FrameLayout android:id="@+id/fishing_catch_panel" android:layout_width="120dp" android:layout_height="match_parent"
+  android:layout_gravity="right|center_vertical" android:layout_marginRight="6dp"
   android:background="@drawable/bg_fishing_stage" android:visibility="gone">
    <FrameLayout android:id="@+id/fishing_track" android:layout_width="76dp" android:layout_height="match_parent"
     android:layout_gravity="right|center_vertical" android:layout_marginTop="10dp" android:layout_marginBottom="26dp"
-    android:layout_marginRight="20dp" android:background="@drawable/bg_fishing_track" android:clipChildren="false">
+    android:layout_marginRight="12dp" android:background="@drawable/bg_fishing_track" android:clipChildren="false">
     <ImageView android:id="@+id/fishing_zone" android:layout_width="match_parent" android:layout_height="72dp"
      android:src="@drawable/bg_fishing_accent" android:contentDescription="Акцентная зона поимки"/>
-    <ImageView android:id="@+id/fishing_catch_shimmer" android:layout_width="70dp" android:layout_height="70dp"
-     android:layout_gravity="top|center_horizontal" android:src="@drawable/ic_fishing_sparkles"
-     android:visibility="gone" android:contentDescription="Мерцающие искры"/>
     <ImageView android:id="@+id/fishing_fish" android:layout_width="42dp" android:layout_height="48dp"
      android:layout_gravity="left|top" android:layout_marginLeft="17dp"
      android:src="@drawable/ic_fishing_catch_silhouette" android:contentDescription="Тёмный силуэт улова"/>
+    <!-- Draw sparkle layers ABOVE fish as separate peers; Java anchors them to the fish. -->
+    <ImageView android:id="@+id/fishing_catch_shimmer" android:layout_width="62dp" android:layout_height="62dp"
+     android:src="@drawable/ic_fishing_sparkles" android:visibility="gone"
+     android:contentDescription="Мерцающий шлейф"/>
+    <ImageView android:id="@+id/fishing_catch_shimmer_trail" android:layout_width="62dp" android:layout_height="62dp"
+     android:src="@drawable/ic_fishing_sparkles" android:visibility="gone"/>
    </FrameLayout>
    <ProgressBar android:id="@+id/fishing_catch_progress" style="?android:attr/progressBarStyleHorizontal"
     android:layout_width="match_parent" android:layout_height="9dp" android:layout_gravity="bottom"
@@ -66,12 +70,14 @@
   <TextView android:id="@+id/fishing_result_title" android:layout_width="wrap_content" android:layout_height="wrap_content"
    android:text="Рыба поймана!" android:textStyle="bold" android:textSize="19sp" android:textColor="#30221E"/>
   <FrameLayout android:layout_width="match_parent" android:layout_height="136dp">
-   <ImageView android:id="@+id/fishing_result_shimmer" android:layout_width="160dp" android:layout_height="125dp"
-    android:layout_gravity="center" android:src="@drawable/ic_fishing_sparkles"
-    android:visibility="gone" android:contentDescription="Мерцающие блёстки вокруг улова"/>
    <ImageView android:id="@+id/fishing_result_fish" android:layout_width="120dp" android:layout_height="76dp"
     android:layout_gravity="center" android:scaleType="fitCenter" android:src="@drawable/ic_fishing_fish_rare"
     android:contentDescription="Горизонтальная рыба, размер по массе"/>
+   <ImageView android:id="@+id/fishing_result_shimmer" android:layout_width="160dp" android:layout_height="125dp"
+    android:layout_gravity="center" android:src="@drawable/ic_fishing_sparkles"
+    android:visibility="gone" android:contentDescription="Мерцающие блёстки вокруг улова"/>
+   <ImageView android:id="@+id/fishing_result_shimmer_trail" android:layout_width="160dp" android:layout_height="125dp"
+    android:layout_gravity="center" android:src="@drawable/ic_fishing_sparkles" android:visibility="gone"/>
   </FrameLayout>
   <TextView android:id="@+id/fishing_result_rarity" android:layout_width="wrap_content" android:layout_height="wrap_content"
    android:text="Редкая" android:textStyle="bold" android:textSize="17sp"/>

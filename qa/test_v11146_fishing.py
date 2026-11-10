@@ -13,8 +13,8 @@ stats=(java/'ChteicoActivity.java').read_text()
 layout=ET.parse(res/'layout/view_chteico_fishing.xml').getroot()
 ns='{http://schemas.android.com/apk/res/android}'
 ids={v.get(ns+'id') for v in layout.iter()}
-assert "versionCode 14700" in (r/'app/build.gradle').read_text()
-assert "versionName '1.11.147-beta'" in (r/'app/build.gradle').read_text()
+assert "versionCode 14800" in (r/'app/build.gradle').read_text()
+assert "versionName '1.11.148-beta'" in (r/'app/build.gradle').read_text()
 # Taps outside the result button do NOT dismiss results.
 assert '@+id/fishing_result_continue' in ids
 assert 'resultContinue.setOnClickListener(v->closeResult())' in source
@@ -42,7 +42,7 @@ assert 'phase=FLYING' in source and 'flightProgress+dt/flightDuration' in source
 assert 'Math.sin(Math.PI*t)' in source
 assert 'phase=FLOATING;vibrate(40);post(this::playWaves)' in source
 # Final catch progress is slower than initial progress.
-assert 'catchAmount>=.90f?.70f:catchAmount>=.70f?.85f:1f' in source
+assert 'progress>=.90f?.70f:progress>=.70f?.85f:1f' in source and 'float slow=endgameSlow;' in source
 # 1% shimmering chance, sparkle UI, stats and no change to base rewards.
 assert 'random.nextFloat()<.01f' in source
 assert 'shimmering?.75f:1f' in source

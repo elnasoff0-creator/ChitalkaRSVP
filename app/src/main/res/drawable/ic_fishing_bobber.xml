@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="36dp" android:height="48dp" android:viewportWidth="36" android:viewportHeight="48">
- <path android:fillColor="@android:color/transparent" android:strokeColor="#30221E" android:strokeWidth="1.8" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M18,5 L18,15 M14,15 C10,17 8,22 8,28 C8,36 12,39 18,39 C24,39 28,36 28,28 C28,22 26,17 22,15 Z M8,28 L28,28 M5,41 Q18,46 31,41"/>
- <path android:fillColor="#FFFFFF" android:strokeColor="#30221E" android:strokeWidth="1.4" android:pathData="M14,15 L22,15 L20,11 L16,11 Z"/>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+ android:width="36dp" android:height="48dp" android:viewportWidth="36" android:viewportHeight="48">
+ <!-- Solid buoy body: no transparent fill inside the outline. -->
+ <path android:fillColor="#FFF9F2" android:strokeColor="#30221E" android:strokeWidth="1.8"
+  android:strokeLineCap="round" android:strokeLineJoin="round"
+  android:pathData="M14,15 C10,18 8,22 8,28 C8,36 12,39 18,39 C24,39 28,36 28,28 C28,22 26,18 22,15 Z"/>
+ <!-- Opaque contrasting upper section. -->
+ <path android:fillColor="#D85F49" android:pathData="M14,15 C10,18 8,22 8,28 L28,28 C28,22 26,18 22,15 Z"/>
+ <path android:fillColor="#FFF9F2" android:strokeColor="#30221E" android:strokeWidth="1.4"
+  android:pathData="M14,15 L22,15 L20,11 L16,11 Z"/>
+ <path android:fillColor="@android:color/transparent" android:strokeColor="#30221E"
+  android:strokeWidth="1.8" android:strokeLineCap="round" android:strokeLineJoin="round"
+  android:pathData="M18,5 L18,11 M8,28 L28,28 M5,41 Q18,46 31,41"/>
 </vector>

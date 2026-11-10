@@ -55,7 +55,8 @@ public final class ChteicoActivity extends NavigationActivity {
     private int contrast(int c){return (.299*Color.red(c)+.587*Color.green(c)+.114*Color.blue(c))<135?Color.WHITE:0xff30221e;}
     private TextView text(String s,int sp,boolean bold){TextView t=new TextView(this);t.setText(s);t.setTextSize(sp);t.setTextColor(fg);if(bold)t.setTypeface(Typeface.DEFAULT,Typeface.BOLD);return t;}
     private LinearLayout column(){LinearLayout l=new LinearLayout(this);l.setOrientation(1);return l;}
-    private LinearLayout card(){LinearLayout l=column();l.setPadding(dp(16),dp(15),dp(16),dp(15));l.setBackground(shape(ReadingThemeCycle.isDark(bg)?0xff373538:0xfffff9f2,18));
+    private int petCardColor(){return ReadingThemeCycle.isDark(bg)?0xff373538:0xfffff9f2;}
+    private LinearLayout card(){LinearLayout l=column();l.setPadding(dp(16),dp(15),dp(16),dp(15));l.setBackground(shape(petCardColor(),18));
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(11));content.addView(l,lp);return l;}
     private void gap(LinearLayout l,int n){View v=new View(this);l.addView(v,new LinearLayout.LayoutParams(-1,dp(n)));}
     private TextView button(String s,Runnable click){TextView t=text(s,14,true);t.setGravity(Gravity.CENTER);t.setTextColor(contrast(accent));t.setBackground(shape(accent,14));t.setPadding(dp(10),dp(13),dp(10),dp(13));t.setOnClickListener(v->click.run());return t;}
@@ -217,7 +218,7 @@ public final class ChteicoActivity extends NavigationActivity {
         activePetFrame=frame;
         ChteicoFishingView game;
         try {
-            game=new ChteicoFishingView(this,()->closeMiniGame());
+            game=new ChteicoFishingView(this,()->closeMiniGame(),petCardColor());
         } catch (RuntimeException error) {
             android.util.Log.e("ChteicoFishing", "Could not initialize fishing UI", error);
             android.widget.Toast.makeText(this,
