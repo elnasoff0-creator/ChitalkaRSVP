@@ -67,12 +67,6 @@ package ru.reader.rsvp; public class EdgeFolderPicker{
  public static android.net.Uri selected(android.content.Context c){return null;}
 }
 JAVA
-cat > "$T/src/ru/reader/rsvp/BookChapterIndex.java" <<'JAVA'
-package ru.reader.rsvp;public class BookChapterIndex{
- public static class Chapter{public int startChar;public String title;}
- public int size(){return 0;}public Chapter get(int i){return null;}
-}
-JAVA
 cat > "$T/src/ru/reader/rsvp/EdgeWordTimings.java" <<'JAVA'
 package ru.reader.rsvp;public class EdgeWordTimings{
  public static class Word{public long startMs,durationMs;public int from,to;
@@ -81,10 +75,35 @@ package ru.reader.rsvp;public class EdgeWordTimings{
  public static void storeAligned(java.io.File f,String s,java.util.List<Word> words){}
 }
 JAVA
+mkdir -p "$T/src/android/provider"
+cat > "$T/src/android/provider/DocumentsContract.java" <<'JAVA'
+package android.provider;public class DocumentsContract{
+ public static String getDocumentId(android.net.Uri uri){return "folder";}
+}
+JAVA
+cat > "$T/src/ru/reader/rsvp/AudioLibrary.java" <<'JAVA'
+package ru.reader.rsvp;public class AudioLibrary{
+ public static class Book{public String id="",name="";public long updated;
+ public java.util.ArrayList<String> uris=new java.util.ArrayList<>(),chapters=new java.util.ArrayList<>();}
+ public static int naturalCompare(String a,String b){return a.compareTo(b);}
+ public static String clean(String name){return name.replaceAll("(?i)\\.mp3$","");}
+ public static void merge(android.content.Context c,java.util.ArrayList<Book> books){}
+}
+JAVA
 cat > "$T/src/ru/reader/rsvp/FrameProbe.java" <<'JAVA'
 package ru.reader.rsvp;
 public final class FrameProbe{
  public static void main(String[] args)throws Exception{
+  if(!"001.mp3".equals(EdgeChapterArchive.chapterAudioName(0,BookChapterIndex.empty())))
+   throw new Exception("No TOC must yield only a chapter number");
+  java.util.ArrayList<BookChapterIndex.Chapter> toc=new java.util.ArrayList<>();
+  toc.add(new BookChapterIndex.Chapter("Начало",0,0,0));
+  toc.add(new BookChapterIndex.Chapter("Финал",300,0,0));
+  BookChapterIndex index=BookChapterIndex.build(toc,500);
+  if(!"001 - Начало.mp3".equals(EdgeChapterArchive.chapterAudioName(0,index))
+     ||!"002 - Финал.mp3".equals(EdgeChapterArchive.chapterAudioName(1,index)))
+   throw new Exception("TOC chapter names must be numbered and titled");
+  System.out.println("PASS: New MP3 naming with TOC and without TOC");
   Class<?> c=Class.forName("ru.reader.rsvp.EdgeChapterArchive");
   java.lang.reflect.Method m=c.getDeclaredMethod("audioFrames",java.io.File.class);m.setAccessible(true);
   java.io.ByteArrayOutputStream combined=new java.io.ByteArrayOutputStream();long duration=0;
@@ -101,7 +120,7 @@ public final class FrameProbe{
 }
 JAVA
 javac -encoding UTF-8 -source 17 -target 17 -d "$T/bin" \
- $(find "$T/src" -name '*.java') app/src/main/java/ru/reader/rsvp/EdgeChapterArchive.java
+ $(find "$T/src" -name '*.java') app/src/main/java/ru/reader/rsvp/EdgeChapterArchive.java app/src/main/java/ru/reader/rsvp/BookChapterIndex.java
 if command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1;then
  ffmpeg -nostdin -hide_banner -loglevel error -f lavfi -i sine=frequency=330:duration=1 -ar 24000 -ac 1 -b:a 48k -y "$T/one.mp3"
  ffmpeg -nostdin -hide_banner -loglevel error -f lavfi -i sine=frequency=660:duration=1 -ar 24000 -ac 1 -b:a 48k -y "$T/two.mp3"

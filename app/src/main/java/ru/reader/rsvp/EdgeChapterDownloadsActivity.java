@@ -96,9 +96,6 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
         pauseButton=button("Пауза",this::toggle);pauseButton.setSingleLine(true);
         LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(0,dp(47),1);
         pp.leftMargin=dp(8);controls.addView(pauseButton,pp);
-        TextView hint=text("Нажмите главу для подготовки. Готовые главы сохраняются одним MP3 с разметкой WordBoundary в выбранную папку Edge TTS.",12,false);
-        hint.setText("Нажмите на главу для подготовки. Доступны перезагрузка, удаление и ручное объединение MP3.");
-        hint.setTextColor(MUTED);LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);hp.topMargin=dp(9);root.addView(hint,hp);
         ScrollView scroll=new ScrollView(this);LinearLayout.LayoutParams sl=new LinearLayout.LayoutParams(-1,0,1);
         sl.topMargin=dp(10);root.addView(scroll,sl);
         entries=new LinearLayout(this);entries.setOrientation(LinearLayout.VERTICAL);scroll.addView(entries);

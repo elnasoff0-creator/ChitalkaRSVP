@@ -14,7 +14,7 @@ help=get('ActivityInfo.java')
 reader=get('ReaderActivity.java')
 comic=get('ComicReaderActivity.java')
 audio=get('AudioPlaybackService.java')
-assert "versionCode 15200" in (r/'app/build.gradle').read_text()
+assert "versionCode 15300" in (r/'app/build.gradle').read_text()
 assert not (java/'ChteicoMiniGameView.java').exists()
 assert 'new ChteicoFishingView(this,()->closeMiniGame(),petCardColor())' in activity
 assert 'ChteicoFishingView activeMiniGame' in activity

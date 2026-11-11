@@ -13,7 +13,7 @@ ui=(java/'ChteicoActivity.java').read_text()
 store=(java/'ChteicoStore.java').read_text()
 help=(java/'ActivityInfo.java').read_text()
 version=(base/'app/build.gradle').read_text()
-assert 'versionCode 15200' in version and '1.11.152-beta' in version
+assert 'versionCode 15300' in version and '1.11.153-beta' in version
 # 1: rod renamed but persisted rod tier four remains untouched
 assert '"Удочка прочитателя"' in game and '"Спиннинг"' not in game
 assert 'удочка прочитателя за 8000' in help

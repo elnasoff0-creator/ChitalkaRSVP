@@ -11,7 +11,7 @@ activity=(src/'ChteicoActivity.java').read_text()
 game=(src/'ChteicoFishingView.java').read_text()
 build=(root/'app/build.gradle').read_text()
 a='{http://schemas.android.com/apk/res/android}'
-assert 'versionCode 15200' in build and "versionName '1.11.152-beta'" in build
+assert 'versionCode 15300' in build and "versionName '1.11.153-beta'" in build
 # 1: Pet hero card, lake and game root share ONE source-of-truth opaque surface.
 assert 'l.setBackground(shape(petCardColor(),18))' in activity
 assert 'new ChteicoFishingView(this,()->closeMiniGame(),petCardColor())' in activity

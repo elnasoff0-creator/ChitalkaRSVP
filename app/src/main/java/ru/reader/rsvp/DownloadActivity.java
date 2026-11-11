@@ -28,6 +28,12 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.ItemTouchHelper;
+import androidx.recyclerview.widget.DefaultItemAnimator;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.Rect;
+import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -42,6 +48,8 @@ import java.util.concurrent.Executors;
 public final class DownloadActivity extends NavigationActivity {
     private static final int BG=0xfff3e7d5,PANEL=0xfffff9f0,INK=0xff30221e,MUTED=0xff716259,ACCENT=0xffa26949,GREEN=0xff2b6145;
     private static final int TRANSFER_REQUEST=12521;
+    private static final int EDGE_AUDIOBOOK_REQUEST=12522;
+    private DownloadsRepository.Item pendingEdgeAudiobook;
     private DownloadsRepository.Item pendingTransfer;
     private static final String FILTER_KEY="downloads_filter_v2";
     private final Handler main=new Handler(Looper.getMainLooper());
@@ -57,6 +65,7 @@ public final class DownloadActivity extends NavigationActivity {
     private static volatile ArrayList<DownloadsRepository.Item> sharedSnapshot;
     private long diskScannedAt;
     private long mangaCoversAt;
+    private int archiveRevision;
     private final Runnable ticker=new Runnable(){@Override public void run(){if(!visible)return;refresh();main.postDelayed(this,2600);}};
     private final ServiceConnection edgeConnection=new ServiceConnection(){
         @Override public void onServiceConnected(ComponentName n,IBinder b){edge=((EdgeStreamingService.LocalBinder)b).getService();refresh();}
@@ -77,12 +86,16 @@ public final class DownloadActivity extends NavigationActivity {
             String id=saved.getString("transfer_item_id","");
             if(!id.isEmpty())for(DownloadsRepository.Item candidate:DownloadsRepository.load(this,null))
                 if(id.equals(candidate.id)){pendingTransfer=candidate;break;}
+            String exportId=saved.getString("edge_audiobook_item_id","");
+            if(!exportId.isEmpty())for(DownloadsRepository.Item candidate:DownloadsRepository.load(this,null))
+                if(exportId.equals(candidate.id)){pendingEdgeAudiobook=candidate;break;}
         }
         build();
         bound=bindService(new Intent(this,EdgeStreamingService.class),edgeConnection,BIND_AUTO_CREATE);
     }
     @Override protected void onSaveInstanceState(Bundle state){
         if(pendingTransfer!=null)state.putString("transfer_item_id",pendingTransfer.id);
+        if(pendingEdgeAudiobook!=null)state.putString("edge_audiobook_item_id",pendingEdgeAudiobook.id);
         super.onSaveInstanceState(state);
     }
     private void build(){
@@ -97,6 +110,7 @@ public final class DownloadActivity extends NavigationActivity {
         toolbarAction(toolbar,R.drawable.ic_manga_search,"Поиск манги · MangaLib",()->startActivity(new Intent(this,MangaLibSearchActivity.class)));
         toolbarAction(toolbar,R.drawable.ic_import_link,"Импорт по ссылке",()->startActivity(new Intent(this,LinkDownloadActivity.class)));
         toolbarAction(toolbar,R.drawable.ic_autoload,"Подготовить книгу Edge",()->startActivity(new Intent(this,EdgeFullBookActivity.class)));
+        toolbarAction(toolbar,R.drawable.ic_download_archive,"Архив загрузок",()->startActivity(new Intent(this,DownloadArchiveActivity.class)));
         TextView heading=text("Загрузки",25,true);heading.setTypeface(Typeface.SERIF,Typeface.BOLD);
         LinearLayout.LayoutParams hl=new LinearLayout.LayoutParams(-1,-2);hl.topMargin=dp(14);root.addView(heading,hl);
         String[] currentFilters={"Все загрузки","В процессе","Аудиокниги","Edge TTS","По ссылке","Манга"};
@@ -117,7 +131,11 @@ public final class DownloadActivity extends NavigationActivity {
         summary=text("Загрузка данных…",13,false);summary.setTextColor(MUTED);summary.setGravity(Gravity.CENTER);
         summary.setPadding(0,dp(11),0,dp(11));root.addView(summary);
         list=new RecyclerView(this);list.setLayoutManager(new LinearLayoutManager(this));
-        adapter=new JobsAdapter();adapter.setHasStableIds(true);list.setItemAnimator(null);list.setAdapter(adapter);root.addView(list,new LinearLayout.LayoutParams(-1,0,1));
+        adapter=new JobsAdapter();adapter.setHasStableIds(true);
+        DefaultItemAnimator animations=new DefaultItemAnimator();
+        animations.setSupportsChangeAnimations(false);animations.setRemoveDuration(170);animations.setMoveDuration(170);
+        list.setItemAnimator(animations);list.setAdapter(adapter);root.addView(list,new LinearLayout.LayoutParams(-1,0,1));
+        attachArchiveSwipe();
     }
     private void toolbarAction(LinearLayout toolbar,int drawable,String hint,Runnable action){
         ImageView button=icon(drawable,hint,44);
@@ -155,6 +173,7 @@ public final class DownloadActivity extends NavigationActivity {
         if(!lastAll.isEmpty()&&now-diskScannedAt<7000L)return;
         refreshInFlight=true;
         final int currentFilter=filter;
+        final int scannedRevision=archiveRevision;
         // Read the bound Service only on the main thread. Background scanning
         // receives immutable values and never touches its mutable playback state.
         final String liveUri=edge!=null&&edge.isActive()?edge.bookUri():"";
@@ -188,8 +207,12 @@ public final class DownloadActivity extends NavigationActivity {
                     }
                 }
                 int active=0,done=0;
-                for(DownloadsRepository.Item item:all){if(item.ready)done++;else active++;}
-                ArrayList<DisplayRow> after=makeRows(all,currentFilter);
+                java.util.Set<String> hiddenForSummary=DownloadArchiveStore.hiddenIds(getApplicationContext());
+                for(DownloadsRepository.Item item:all){
+                    if(hiddenForSummary.contains(item.id))continue;
+                    if(item.ready)done++;else active++;
+                }
+                ArrayList<DisplayRow> after=makeRows(all,currentFilter,DownloadArchiveStore.hiddenIds(getApplicationContext()));
                 DiffUtil.DiffResult changes=DiffUtil.calculateDiff(new DiffUtil.Callback(){
                     @Override public int getOldListSize(){return before.size();}
                     @Override public int getNewListSize(){return after.size();}
@@ -208,9 +231,9 @@ public final class DownloadActivity extends NavigationActivity {
                     if(coversDue)mangaCoversAt=diskScannedAt;
                     sharedSnapshot=new ArrayList<>(all);
                     lastAll=all;
-                    if(filter!=currentFilter){showCachedFilter();return;}
+                    if(filter!=currentFilter||archiveRevision!=scannedRevision){diskScannedAt=0;showCachedFilter();return;}
                     rows.clear();rows.addAll(after);
-                    summary.setText("Онлайн-загрузки: "+all.size()+"  ·  В процессе: "+running+"  ·  Готово: "+complete);
+                    summary.setText("Онлайн-загрузки: "+(running+complete)+"  ·  В процессе: "+running+"  ·  Готово: "+complete);
                     changes.dispatchUpdatesTo(adapter);
                 });
             }catch(Exception error){
@@ -222,7 +245,7 @@ public final class DownloadActivity extends NavigationActivity {
     /** Filter changes only touch the already indexed snapshot, never wait on storage. */
     private void showCachedFilter(){
         if(lastAll.isEmpty()){refresh();return;}
-        ArrayList<DisplayRow> next=makeRows(lastAll,filter);
+        ArrayList<DisplayRow> next=makeRows(lastAll,filter,DownloadArchiveStore.hiddenIds(this));
         ArrayList<DisplayRow> previous=new ArrayList<>(rows);
         DiffUtil.DiffResult diff=DiffUtil.calculateDiff(new DiffUtil.Callback(){
             @Override public int getOldListSize(){return previous.size();}
@@ -245,10 +268,11 @@ public final class DownloadActivity extends NavigationActivity {
         return i.title+"\n"+i.description+"\n"+i.status+"\n"+i.cover+"\n"+
             i.ready+":"+i.running+":"+i.failed+":"+i.paused+":"+i.done+":"+i.total+":"+i.coveragePercent;
     }
-    private static ArrayList<DisplayRow> makeRows(ArrayList<DownloadsRepository.Item> all,int filter){
+    private static ArrayList<DisplayRow> makeRows(ArrayList<DownloadsRepository.Item> all,int filter,java.util.Set<String> hidden){
         ArrayList<DisplayRow> result=new ArrayList<>();
         ArrayList<DownloadsRepository.Item> unfinished=new ArrayList<>(),ready=new ArrayList<>();
         for(DownloadsRepository.Item item:all){
+            if(hidden.contains(item.id))continue;
             if(filter==1&&item.ready)continue;
             if(filter==2&&!DownloadsRepository.AUDIO.equals(item.type))continue;
             if(filter==3&&!DownloadsRepository.EDGE.equals(item.type))continue;
@@ -525,6 +549,7 @@ public final class DownloadActivity extends NavigationActivity {
     private void menu(View anchor,DownloadsRepository.Item item){
         if(DownloadsRepository.MANGA.equals(item.type)){
             PopupMenu p=new PopupMenu(this,anchor);
+            if(item.ready)p.getMenu().add(0,81,0,"В архив").setOnMenuItemClickListener(m->{archive(item);return true;});
             p.getMenu().add(0,1,0,"Главы и загрузка").setOnMenuItemClickListener(m->{openMangaChapters(item);return true;});
             p.getMenu().add(0,4,1,"Найти другие главы").setOnMenuItemClickListener(m->{
                 startActivity(new Intent(this,MangaLibSearchActivity.class)
@@ -554,11 +579,13 @@ public final class DownloadActivity extends NavigationActivity {
         }
         if(DownloadsRepository.LINK.equals(item.type)){
             PopupMenu p=new PopupMenu(this,anchor);
+            if(item.ready)p.getMenu().add(0,81,0,"В архив");
             p.getMenu().add(0,1,0,"Список файлов");p.getMenu().add(0,2,1,"Добавить MP3 в библиотеку");
             if(!item.ready)p.getMenu().add(0,3,2,"Продолжить загрузку");
             p.getMenu().add(0,4,3,"Удалить из библиотеки/аудиотеки");p.getMenu().add(0,5,4,"Удалить скачанные файлы");
             p.getMenu().add(0,31,5,"Перенести файлы");
             p.setOnMenuItemClickListener(m->{switch(m.getItemId()){
+                case 81:archive(item);break;
                 case 1:open(item);break;
                 case 2:LinkDownloadStore.addToLibrary(this,item.link);Toast.makeText(this,"Добавлено в библиотеку",Toast.LENGTH_SHORT).show();break;
                 case 3:linkCommand(item,DirectLinkDownloadService.START);break;
@@ -570,9 +597,11 @@ public final class DownloadActivity extends NavigationActivity {
             }return true;});p.show();return;
         }
         PopupMenu popup=new PopupMenu(this,anchor);
+        if(item.ready)popup.getMenu().add(0,81,0,"В архив");
         if(DownloadsRepository.EDGE.equals(item.type)){
             popup.getMenu().add(0,1,0,"Главы и загрузка");
             popup.getMenu().add(0,9,1,"Открыть Edge-плеер");
+            if(item.ready)popup.getMenu().add(0,42,2,"Перенести в аудиокниги");
             if(item.fullJob!=null&&!item.ready)
                 popup.getMenu().add(0,8,1,item.running?"Пауза полной подготовки":"Продолжить полную подготовку");
         }else{
@@ -587,6 +616,7 @@ public final class DownloadActivity extends NavigationActivity {
         popup.getMenu().add(0,31,5,"Перенести файлы");
         popup.setOnMenuItemClickListener(m->{
             switch(m.getItemId()){
+                case 81:archive(item);break;
                 case 1:open(item);break;
                 case 3:openFolder(item);break;
                 case 4:confirmDelete(item,true);break;
@@ -596,8 +626,67 @@ public final class DownloadActivity extends NavigationActivity {
                 case 9:listenEdge(item);break;
                 case 31:transferDialog(item);break;
                 case 41:EdgeFolderPicker.show(this);break;
+                case 42:transferEdgeAudiobook(item);break;
             }return true;
         });popup.show();
+    }
+    private void transferEdgeAudiobook(DownloadsRepository.Item item){
+        if(!DownloadsRepository.EDGE.equals(item.type)||!item.ready||item.running){
+            Toast.makeText(this,"Книга ещё подготавливается",Toast.LENGTH_LONG).show();return;
+        }
+        new SwipeDialogs.Builder(this).setTitle("Перенести в аудиокниги")
+            .setMessage("Выберите папку аудиокниг. В ней будет создана папка с названием книги, " +
+                "содержащая только готовые MP3 всех глав. JSON не копируются. " +
+                "Исходные файлы Edge TTS сохраняются для подсветки в ReaderActivity.")
+            .setNegativeButton("Отмена",null)
+            .setPositiveButton("Выбрать папку",(d,w)->{
+                pendingEdgeAudiobook=item;
+                Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                startActivityForResult(intent,EDGE_AUDIOBOOK_REQUEST);
+            }).show();
+    }
+    private void archive(DownloadsRepository.Item item){
+        if(!item.ready){Toast.makeText(this,"Можно архивировать только готовую загрузку",Toast.LENGTH_SHORT).show();return;}
+        if(!DownloadArchiveStore.archive(getApplicationContext(),item)){
+            Toast.makeText(this,"Не удалось сохранить запись архива",Toast.LENGTH_LONG).show();refresh();return;
+        }
+        archiveRevision++;
+        showCachedFilter();
+        Toast.makeText(this,"Перемещено в архив · файлы сохранены",Toast.LENGTH_SHORT).show();
+    }
+    /** ItemTouchHelper moves the entire download card with the finger, while its
+     * standard horizontal gesture detector preserves vertical RecyclerView scroll. */
+    private void attachArchiveSwipe(){
+        ItemTouchHelper.Callback callback=new ItemTouchHelper.SimpleCallback(0,ItemTouchHelper.RIGHT){
+            private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
+            @Override public boolean isLongPressDragEnabled(){return false;}
+            @Override public float getSwipeThreshold(RecyclerView.ViewHolder holder){return .34f;}
+            @Override public int getSwipeDirs(RecyclerView rv,RecyclerView.ViewHolder holder){
+                int p=holder.getBindingAdapterPosition();
+                return p>=0&&p<rows.size()&&rows.get(p).item!=null&&rows.get(p).item.ready?ItemTouchHelper.RIGHT:0;
+            }
+            @Override public void onSwiped(RecyclerView.ViewHolder holder,int direction){
+                int p=holder.getBindingAdapterPosition();
+                if(p<0||p>=rows.size()||rows.get(p).item==null){adapter.notifyDataSetChanged();return;}
+                DownloadsRepository.Item item=rows.get(p).item;
+                archive(item);
+            }
+            @Override public void onChildDraw(Canvas canvas,RecyclerView rv,RecyclerView.ViewHolder holder,
+                float dx,float dy,int actionState,boolean active){
+                View v=holder.itemView;
+                if(dx>0&&actionState==ItemTouchHelper.ACTION_STATE_SWIPE){
+                    paint.setColor(0xffdeede2);
+                    canvas.drawRoundRect(v.getLeft(),v.getTop()+dp(2),v.getLeft()+dx,v.getBottom()-dp(10),dp(14),dp(14),paint);
+                    android.graphics.drawable.Drawable icon=ContextCompat.getDrawable(DownloadActivity.this,R.drawable.ic_download_archive);
+                    if(icon!=null){int x=v.getLeft()+dp(18),y=v.getTop()+(v.getHeight()-dp(26))/2;
+                        icon.setBounds(x,y,x+dp(26),y+dp(26));icon.draw(canvas);}
+                }
+                super.onChildDraw(canvas,rv,holder,dx,dy,actionState,active);
+            }
+        };
+        new ItemTouchHelper(callback).attachToRecyclerView(list);
     }
     private final class JobsAdapter extends RecyclerView.Adapter<JobsAdapter.Holder>{
         @Override public long getItemId(int position){return rowId(rows.get(position)).hashCode();}
@@ -660,6 +749,26 @@ public final class DownloadActivity extends NavigationActivity {
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
         if(EdgeFolderPicker.accept(this,request,result,data))return;
+        if(request==EDGE_AUDIOBOOK_REQUEST){
+            DownloadsRepository.Item selected=pendingEdgeAudiobook;pendingEdgeAudiobook=null;
+            if(result!=RESULT_OK||data==null||data.getData()==null||selected==null)return;
+            Uri destination=data.getData();
+            try{getContentResolver().takePersistableUriPermission(destination,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);}
+            catch(Exception e){Toast.makeText(this,"Папка аудиокниг недоступна",Toast.LENGTH_LONG).show();return;}
+            Toast.makeText(this,"Проверяем готовность MP3 глав…",Toast.LENGTH_SHORT).show();
+            new Thread(()->{
+                try{
+                    BookLoader.Book book=BookLoader.load(this,Uri.parse(selected.bookUri));
+                    int moved=EdgeChapterArchive.exportAudiobook(getApplicationContext(),
+                        selected.bookUri,selected.title,destination,book.chapters);
+                    runOnUiThread(()->Toast.makeText(this,
+                        "В аудиокниги добавлено MP3-глав: "+moved,Toast.LENGTH_LONG).show());
+                }catch(Exception ex){runOnUiThread(()->Toast.makeText(this,
+                    "Перенос не выполнен: "+ex.getMessage(),Toast.LENGTH_LONG).show());}
+            },"edge-audiobook-transfer").start();
+            return;
+        }
         if(request==TRANSFER_REQUEST){
             DownloadsRepository.Item selected=pendingTransfer;pendingTransfer=null;
             if(result!=RESULT_OK||data==null||data.getData()==null||selected==null)return;

@@ -37,5 +37,5 @@ for field, tag in expected.items():
 assert 'private final View resultPanel;' in src
 assert not re.search(r'FrameLayout[^;]*\bresultPanel\s*;',src)
 assert 'Could not initialize fishing UI' in activity
-assert 'versionCode 15200' in gradle and "versionName '1.11.152-beta'" in gradle
+assert 'versionCode 15300' in gradle and "versionName '1.11.153-beta'" in gradle
 print('PASS: Fishing startup widget types, recovery path, release version')
