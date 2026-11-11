@@ -87,7 +87,7 @@ final class DownloadsRepository {
         if(item.downloadedBytes>0)item.description+=" · "+String.format(Locale.ROOT,"%.1f МБ",item.downloadedBytes/1048576.0);
         return item;
     }
-    private static Item fromEdge(File bookDir,String uri,String title,int totalWords,EdgeStreamingService live){
+    private static Item fromEdge(Context ctx,File bookDir,String uri,String title,int totalWords,EdgeStreamingService live){
         File audio=new File(bookDir,"EdgeTTS");
         EdgeFullBookStore.Job full=EdgeFullBookStore.find(ctx,uri,title);
         ArrayList<EdgeOfflineIndex.Segment> saved=EdgeAudioManager.segments(audio);
@@ -201,14 +201,14 @@ final class DownloadsRepository {
             JSONObject meta=readJson(new File(dir,"book.json"));
             if(meta==null)continue;
             String uri=meta.optString("bookUri","");if(uri.isEmpty()||hidden.contains(uri)||!included.add(uri))continue;
-            Item item=fromEdge(dir,uri,meta.optString("title",""),meta.optInt("words",0),live);
+            Item item=fromEdge(ctx,dir,uri,meta.optString("title",""),meta.optInt("words",0),live);
             if(item!=null)all.add(item);
         }
         // Persisted jobs must remain visible after Android evicts the MP3 work cache.
         for(EdgeFullBookStore.Job persisted:EdgeFullBookStore.list(ctx)){
             if(persisted.uri.isEmpty()||included.contains(persisted.uri)||hidden.contains(persisted.uri))continue;
             File work=EdgeBookStorage.bookFolder(ctx,persisted.uri,persisted.title);
-            Item restored=fromEdge(work,persisted.uri,persisted.title,0,live);
+            Item restored=fromEdge(ctx,work,persisted.uri,persisted.title,0,live);
             if(restored!=null){included.add(persisted.uri);all.add(restored);}
         }
         // A completed SAF chapter must remain discoverable even after Android
@@ -238,7 +238,7 @@ final class DownloadsRepository {
             String uri=book.optString("uri","");if(uri.isEmpty()||included.contains(uri)||hidden.contains(uri))continue;
             String title=book.optString("title","Книга");
             File dir=EdgeBookStorage.bookFolder(ctx,uri,title);
-            Item item=fromEdge(dir,uri,title,0,live);
+            Item item=fromEdge(ctx,dir,uri,title,0,live);
             if(item!=null){included.add(uri);all.add(item);}
         }
         all.sort((a,b)->{
