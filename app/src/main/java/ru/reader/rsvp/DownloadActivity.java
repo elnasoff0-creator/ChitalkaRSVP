@@ -661,6 +661,10 @@ public final class DownloadActivity extends NavigationActivity {
     private void attachArchiveSwipe(){
         ItemTouchHelper.Callback callback=new ItemTouchHelper.SimpleCallback(0,ItemTouchHelper.RIGHT){
             private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
+            // No drag-and-drop reordering: onMove is required by SimpleCallback.
+            @Override public boolean onMove(RecyclerView rv,RecyclerView.ViewHolder from,RecyclerView.ViewHolder to){
+                return false;
+            }
             @Override public boolean isLongPressDragEnabled(){return false;}
             @Override public float getSwipeThreshold(RecyclerView.ViewHolder holder){return .34f;}
             @Override public int getSwipeDirs(RecyclerView rv,RecyclerView.ViewHolder holder){
