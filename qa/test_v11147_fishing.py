@@ -13,7 +13,7 @@ ui=(java/'ChteicoActivity.java').read_text()
 store=(java/'ChteicoStore.java').read_text()
 help=(java/'ActivityInfo.java').read_text()
 version=(base/'app/build.gradle').read_text()
-assert 'versionCode 15000' in version and '1.11.150-beta' in version
+assert 'versionCode 15100' in version and '1.11.151-beta' in version
 # 1: rod renamed but persisted rod tier four remains untouched
 assert '"Удочка прочитателя"' in game and '"Спиннинг"' not in game
 assert 'удочка прочитателя за 8000' in help
@@ -34,7 +34,7 @@ assert 'M20,21 L125,21' in pond and 'M36,297' in pond
 assert 'fishing_pond' in game and 'pond.setColorFilter(ink)' in game
 # 4: v148 revises the former fullscreen layer into an opaque right-side panel
 panel=idmap[ident('fishing_catch_panel')]
-assert panel.get(ns+'layout_height')=='match_parent' and panel.get(ns+'layout_width')=='120dp'
+assert panel.get(ns+'layout_height')=='match_parent' and panel.get(ns+'layout_width')=='match_parent' and idmap[ident('fishing_catch_viewport')].get(ns+'layout_width')=='112dp'
 assert panel.get(ns+'background')=='@drawable/bg_fishing_stage'
 assert 'catchPanel.setBackground(panelBackground(themeBg,accent,dp(14)))' in game
 assert {e.get(ns+'id') for e in panel.iter()} >= {ident('fishing_track'),ident('fishing_zone'),ident('fishing_fish'),ident('fishing_catch_progress')}

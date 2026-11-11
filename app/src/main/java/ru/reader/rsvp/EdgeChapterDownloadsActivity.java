@@ -12,6 +12,10 @@ import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.LinearLayout;
+import android.widget.ImageView;
+import android.widget.Toast;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -34,11 +38,17 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
     private TextView summary,pauseButton;
     private LinearLayout entries;
     private boolean visible,loading;
+    private long lastSegmentsAt;
+    private ArrayList<EdgeOfflineIndex.Segment> lastSegments=new ArrayList<>();
+    private final java.util.Set<Integer> merging=new java.util.HashSet<>();
     private final ArrayList<Entry> displayed=new ArrayList<>();
     private final ArrayList<ChapterViews> chapterViews=new ArrayList<>();
     private ArrayList<Integer> offsets=new ArrayList<>();
     private BookChapterIndex toc=BookChapterIndex.empty();
-    private static final class Entry {String title; int chapter,from,to; EdgeOfflineIndex.Stats stats;}
+    private static final class Entry {
+        String title,state="",error="";int chapter,from,to,saved;
+        EdgeOfflineIndex.Stats stats;
+    }
     private final Runnable ticker=new Runnable(){@Override public void run(){
         if(!visible)return;reload();main.postDelayed(this,3000);
     }};
@@ -74,6 +84,7 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
         LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(0,dp(47),1);
         pp.leftMargin=dp(8);controls.addView(pauseButton,pp);
         TextView hint=text("Нажмите главу для подготовки. Готовые главы сохраняются одним MP3 с разметкой WordBoundary в выбранную папку Edge TTS.",12,false);
+        hint.setText("Нажмите на главу для подготовки. Доступны перезагрузка, удаление и ручное объединение MP3.");
         hint.setTextColor(MUTED);LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);hp.topMargin=dp(9);root.addView(hint,hp);
         ScrollView scroll=new ScrollView(this);LinearLayout.LayoutParams sl=new LinearLayout.LayoutParams(-1,0,1);
         sl.topMargin=dp(10);root.addView(scroll,sl);
@@ -94,7 +105,8 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
             if(chapter!=-2&&EdgeFolderPicker.available(this))command(chapter);
         }
     }
-    private void command(int chapter){
+    private void command(int chapter){command(chapter,false);}
+    private void command(int chapter,boolean force){
         if(!EdgeFolderPicker.available(this)){
             pendingFolderChapter=chapter;
             new SwipeDialogs.Builder(this).setTitle("Папка Edge TTS")
@@ -103,13 +115,18 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
                 .setPositiveButton("Использовать эту папку",(d,w)->EdgeFolderPicker.choose(this)).show();
             return;
         }
+        for(int i=0;i<displayed.size();i++)if(chapter==-1||displayed.get(i).chapter==chapter){
+            displayed.get(i).state=force?"Перезагрузка":"В очереди";
+            if(i<chapterViews.size())chapterViews.get(i).details.setText(displayed.get(i).state);
+        }
         android.content.SharedPreferences pref=getSharedPreferences("reader",0);
         Intent intent=new Intent(this,EdgeFullBookService.class).setAction(EdgeFullBookService.ADD)
             .putExtra(EdgeFullBookService.EXTRA_URI,uri).putExtra(EdgeFullBookService.EXTRA_TITLE,title)
             .putExtra(EdgeFullBookService.EXTRA_VOICE,pref.getString("edge_voice","ru-RU-SvetlanaNeural"))
             .putExtra(EdgeFullBookService.EXTRA_RATE,pref.getString("edge_rate","+0%"))
             .putExtra(EdgeFullBookService.EXTRA_CHARS,EdgeSegmentSettings.get(pref))
-            .putExtra(EdgeFullBookService.EXTRA_CHAPTER,chapter);
+            .putExtra(EdgeFullBookService.EXTRA_CHAPTER,chapter)
+            .putExtra(EdgeFullBookService.EXTRA_FORCE,force);
         launch(intent);
     }
     private void toggle(){
@@ -131,55 +148,81 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
         final ArrayList<Integer> positions=new ArrayList<>(offsets);
         final BookChapterIndex chapters=toc;
         worker.execute(()->{
-            ArrayList<EdgeOfflineIndex.Segment> segments=EdgeAudioManager.segments(audio);
-            EdgeOfflineIndex.Stats total=EdgeOfflineIndex.stats(segments,0,positions.size());
-            ArrayList<Entry> result=new ArrayList<>();
-            if(chapters.size()==0){
-                Entry entry=new Entry();entry.title="Вся книга";entry.chapter=-1;entry.from=0;entry.to=positions.size();
-                entry.stats=total;result.add(entry);
-            }else for(int i=0;i<chapters.size();i++){
-                BookChapterIndex.Chapter chapter=chapters.get(i);Entry entry=new Entry();
-                entry.title=chapter.title;entry.chapter=i;
-                entry.from=SentenceChunks.lowerBound(positions,chapter.startChar);
-                entry.to=Math.max(entry.from,SentenceChunks.lowerBound(positions,chapter.endChar));
-                entry.stats=EdgeOfflineIndex.stats(segments,entry.from,entry.to);result.add(entry);
-            }
-            EdgeFullBookStore.Job job=EdgeFullBookStore.find(this,uri,title);
-            int safeChapters=0;
-            for(EdgeChapterArchive.SavedBook saved:EdgeChapterArchive.savedBooks(this))
-                if(uri.equals(saved.uri)){safeChapters=saved.chapters;break;}
-            final int published=safeChapters;
-            main.post(()->{loading=false;if(!visible)return;
-                boolean running=job!=null&&(EdgeFullBookStore.RUNNING.equals(job.status)||EdgeFullBookStore.QUEUED.equals(job.status));
-                if(pauseButton!=null)pauseButton.setText(running?"Пауза":"Продолжить");
-                String localized=job==null?"":EdgeFullBookStore.RUNNING.equals(job.status)?"загрузка":
-                    EdgeFullBookStore.QUEUED.equals(job.status)?"в очереди":
-                    EdgeFullBookStore.PAUSED.equals(job.status)?"приостановлено":
-                    EdgeFullBookStore.FAILED.equals(job.status)?"ошибка":job.status;
-                String status=localized.isEmpty()?"":" · "+localized;
-                summary.setText("Сохранено "+total.percent()+"% текста · "+total.files+" MP3 · "+
-                    String.format(Locale.ROOT,"%.1f МБ",total.bytes/1048576.0)+
-                    " · MP3-глав в выбранной папке: "+published+status);
-                if(chapterViews.size()!=result.size()||!sameChapters(result)){
-                    entries.removeAllViews();chapterViews.clear();displayed.clear();
-                    for(Entry entry:result){addEntry(entry);displayed.add(entry);}
-                }else{
-                    for(int i=0;i<result.size();i++){
-                        Entry entry=result.get(i);
-                        ChapterViews view=chapterViews.get(i);
-                        if(!sameStats(displayed.get(i),entry)){
-                            view.percent.setText(entry.stats.percent()+"%");
-                            view.bar.setProgress(entry.stats.percent());
-                            view.details.setText(details(entry));
-                        }
-                        displayed.set(i,entry);
-                    }
+            try{
+                EdgeFullBookStore.Job job=EdgeFullBookStore.find(this,uri,title);
+                long now=android.os.SystemClock.elapsedRealtime();
+                // File scans are throttled. Job states refresh independently on each tick.
+                if(lastSegmentsAt==0||now-lastSegmentsAt>11000L){
+                    lastSegments=EdgeAudioManager.segments(audio);lastSegmentsAt=now;
                 }
-            });
+                ArrayList<EdgeOfflineIndex.Segment> segments=lastSegments;
+                EdgeOfflineIndex.Stats total=EdgeOfflineIndex.stats(segments,0,positions.size());
+                EdgeChapterArchive.ChapterSnapshot saved=EdgeChapterArchive.snapshot(this,uri,title);
+                ArrayList<Entry> result=new ArrayList<>();
+                if(chapters.size()==0){
+                    Entry item=new Entry();item.title="Вся книга";item.chapter=-1;
+                    item.from=0;item.to=positions.size();item.stats=total;result.add(item);
+                }else for(int i=0;i<chapters.size();i++){
+                    BookChapterIndex.Chapter chapter=chapters.get(i);Entry item=new Entry();
+                    item.title=chapter.title;item.chapter=i;
+                    item.from=SentenceChunks.lowerBound(positions,chapter.startChar);
+                    item.to=Math.max(item.from,SentenceChunks.lowerBound(positions,chapter.endChar));
+                    item.stats=EdgeOfflineIndex.stats(segments,item.from,item.to);result.add(item);
+                }
+                for(Entry item:result){
+                    item.saved=saved.state(Math.max(0,item.chapter));
+                    if(merging.contains(item.chapter)){item.state="Объединение MP3";continue;}
+                    boolean inProgress=job!=null&&
+                        (job.chapter==-1||job.chapter==item.chapter)&&
+                        (EdgeFullBookStore.QUEUED.equals(job.status)||EdgeFullBookStore.RUNNING.equals(job.status));
+                    // A retry supersedes a previously published chapter's visible status.
+                    if(!inProgress&&item.saved==2){item.state="Готов единый MP3";continue;}
+                    if(!inProgress&&item.saved==1){item.state="Фрагменты готовы";continue;}
+                    if(job!=null&&(job.chapter==-1||job.chapter==item.chapter)){
+                        if(EdgeFullBookStore.QUEUED.equals(job.status))item.state="В очереди";
+                        else if(EdgeFullBookStore.RUNNING.equals(job.status))item.state="Идёт загрузка";
+                        else if(EdgeFullBookStore.PAUSED.equals(job.status))item.state="Приостановлено";
+                        else if(EdgeFullBookStore.FAILED.equals(job.status)){
+                            item.state="Ошибка";item.error=job.error;
+                        }else if(EdgeFullBookStore.DONE.equals(job.status))item.state="Подготовка завершена";
+                    }
+                    if(item.state.isEmpty())item.state=item.stats.complete()?"Фрагменты во временном кэше":"Нажмите для загрузки";
+                }
+                int published=0;for(Entry entry:result)if(entry.saved>0)published++;
+                final int finalPublished=published;
+                main.post(()->{
+                    loading=false;if(!visible)return;
+                    boolean running=job!=null&&(EdgeFullBookStore.RUNNING.equals(job.status)||EdgeFullBookStore.QUEUED.equals(job.status));
+                    if(pauseButton!=null)pauseButton.setText(running?"Пауза":"Продолжить");
+                    summary.setText("Сохранено глав: "+finalPublished+" · MP3 в кэше: "+total.files+
+                        " · "+String.format(Locale.ROOT,"%.1f МБ",total.bytes/1048576.0));
+                    if(chapterViews.size()!=result.size()||!sameChapters(result)){
+                        entries.removeAllViews();chapterViews.clear();displayed.clear();
+                        for(Entry entry:result){addEntry(entry);displayed.add(entry);}
+                    }else for(int i=0;i<result.size();i++){
+                        Entry item=result.get(i),old=displayed.get(i);
+                        ChapterViews view=chapterViews.get(i);
+                        if(!sameStats(old,item)){
+                            boolean updating="В очереди".equals(item.state)||"Идёт загрузка".equals(item.state);
+                            int pct=item.saved>0&&!updating?100:item.stats.percent();
+                            view.percent.setText(updating&&item.saved>0?"↻":pct+"%");view.bar.setProgress(updating&&item.saved>0?0:pct);
+                            view.details.setText(details(item));
+                            view.details.setTextColor(stateColor(item));
+                            view.percent.setTextColor(stateColor(item));
+                            view.merge.setVisibility(item.saved==1?View.VISIBLE:View.GONE);
+                            view.merge.setEnabled(item.saved==1);
+                        }
+                        displayed.set(i,item);
+                    }
+                });
+            }catch(Exception error){
+                main.post(()->{loading=false;if(visible)summary.setText("Ошибка проверки глав: "+error.getMessage());});
+            }
         });
     }
     private static boolean sameStats(Entry a,Entry b){
-        return a.stats.covered==b.stats.covered&&a.stats.bytes==b.stats.bytes&&a.stats.files==b.stats.files;
+        return a.saved==b.saved&&a.stats.covered==b.stats.covered&&a.stats.bytes==b.stats.bytes&&
+            a.stats.files==b.stats.files&&a.state.equals(b.state)&&a.error.equals(b.error);
     }
     private boolean sameChapters(ArrayList<Entry> next){
         if(displayed.size()!=next.size())return false;
@@ -187,13 +230,27 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
             ||!displayed.get(i).title.equals(next.get(i).title))return false;
         return true;
     }
+    private static int stateColor(Entry item){
+        if("Ошибка".equals(item.state))return 0xffa13d36;
+        if(item.saved>0)return 0xff2b6145;
+        if("В очереди".equals(item.state)||"Идёт загрузка".equals(item.state)||
+            "Объединение MP3".equals(item.state))return 0xff276db1;
+        return MUTED;
+    }
     private static String details(Entry item){
-        return item.stats.files+" MP3 · "+String.format(Locale.ROOT,"%.1f МБ",item.stats.bytes/1048576.0)
-            +(item.stats.complete()?" · готово":" · нажмите для загрузки");
+        return item.state+((item.error==null||item.error.isEmpty())?"":" · "+item.error)+
+            (item.saved>0?"":" · "+item.stats.files+" MP3");
     }
     private static final class ChapterViews {
-        final TextView percent,details;final ProgressBar bar;
-        ChapterViews(TextView percent,TextView details,ProgressBar bar){this.percent=percent;this.details=details;this.bar=bar;}
+        final TextView percent,details;final ProgressBar bar;final ImageView merge;
+        ChapterViews(TextView percent,TextView details,ProgressBar bar,ImageView merge){
+            this.percent=percent;this.details=details;this.bar=bar;this.merge=merge;
+        }
+    }
+    private ImageView actionIcon(int resource,String hint,Runnable action){
+        ImageView view=new ImageView(this);view.setImageResource(resource);view.setColorFilter(INK);
+        view.setContentDescription(hint);view.setPadding(dp(7),dp(7),dp(7),dp(7));
+        view.setBackground(rounded(BG));view.setOnClickListener(v->action.run());return view;
     }
     private void addEntry(Entry item){
         LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);
@@ -201,15 +258,90 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
         LinearLayout.LayoutParams outer=new LinearLayout.LayoutParams(-1,-2);outer.bottomMargin=dp(8);
         entries.addView(card,outer);
         LinearLayout headline=new LinearLayout(this);headline.setGravity(Gravity.CENTER_VERTICAL);card.addView(headline);
-        TextView titleText=text(item.title,15,true);headline.addView(titleText,new LinearLayout.LayoutParams(0,-2,1));
-        TextView progressText=text(item.stats.percent()+"%",14,true);progressText.setTextColor(ACCENT);headline.addView(progressText);
+        TextView name=text(item.title,15,true);headline.addView(name,new LinearLayout.LayoutParams(0,-2,1));
+        TextView percent=text((item.saved>0?100:item.stats.percent())+"%",14,true);
+        percent.setTextColor(stateColor(item));headline.addView(percent);
         ProgressBar progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
-        progress.setMax(100);progress.setProgress(item.stats.percent());
+        progress.setMax(100);progress.setProgress(item.saved>0?100:item.stats.percent());
         LinearLayout.LayoutParams bar=new LinearLayout.LayoutParams(-1,dp(6));bar.topMargin=dp(7);card.addView(progress,bar);
         TextView meta=text(details(item),12,false);
-        meta.setTextColor(MUTED);LinearLayout.LayoutParams ml=new LinearLayout.LayoutParams(-1,-2);ml.topMargin=dp(5);card.addView(meta,ml);
-        card.setOnClickListener(v->command(item.chapter));
-        chapterViews.add(new ChapterViews(progressText,meta,progress));
+        meta.setTextColor(stateColor(item));LinearLayout.LayoutParams ml=new LinearLayout.LayoutParams(-1,-2);ml.topMargin=dp(5);card.addView(meta,ml);
+        LinearLayout actions=new LinearLayout(this);actions.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,-2);ap.topMargin=dp(6);card.addView(actions,ap);
+        ImageView merge=actionIcon(R.drawable.ic_edge_merge_chapter,"Преобразовать файлы главы в один MP3",
+            ()->mergeChapter(item.chapter));
+        merge.setVisibility(item.saved==1?View.VISIBLE:View.GONE);
+        actions.addView(merge,new LinearLayout.LayoutParams(dp(38),dp(38)));
+        ImageView reload=actionIcon(R.drawable.ic_retry_fragment,"Перезагрузить главу",()->confirmReload(item.chapter));
+        LinearLayout.LayoutParams rr=new LinearLayout.LayoutParams(dp(38),dp(38));rr.leftMargin=dp(8);actions.addView(reload,rr);
+        ImageView delete=actionIcon(R.drawable.ic_edge_delete_chapter,"Удалить главу",()->confirmDelete(item.chapter));
+        LinearLayout.LayoutParams dd=new LinearLayout.LayoutParams(dp(38),dp(38));dd.leftMargin=dp(8);actions.addView(delete,dd);
+        card.setOnClickListener(v->{
+            Entry current=item;
+            for(Entry cached:displayed)if(cached.chapter==item.chapter){current=cached;break;}
+            if(current.saved==0)command(item.chapter);
+            else Toast.makeText(this,current.state,Toast.LENGTH_SHORT).show();
+        });
+        chapterViews.add(new ChapterViews(percent,meta,progress,merge));
+    }
+    private void confirmReload(int chapter){
+        new SwipeDialogs.Builder(this).setTitle("Перезагрузить главу?")
+            .setMessage("Глава будет озвучена заново. Предыдущая сохранённая версия останется до завершения обновления.")
+            .setNegativeButton("Отмена",null)
+            .setPositiveButton("Перезагрузить",(d,w)->command(chapter,true)).show();
+    }
+    private void confirmDelete(int chapter){
+        new SwipeDialogs.Builder(this).setTitle("Удалить главу?")
+            .setMessage("Будут удалены MP3, фрагменты и WordBoundary только выбранной главы.")
+            .setNegativeButton("Отмена",null)
+            .setPositiveButton("Удалить",(d,w)->{
+                EdgeFullBookStore.Job job=EdgeFullBookStore.find(this,uri,title);
+                if(job!=null&&(job.chapter==-1||job.chapter==chapter)&&
+                    (EdgeFullBookStore.RUNNING.equals(job.status)||EdgeFullBookStore.QUEUED.equals(job.status))){
+                    launch(new Intent(this,EdgeFullBookService.class).setAction(EdgeFullBookService.PAUSE)
+                        .putExtra(EdgeFullBookService.EXTRA_URI,uri));
+                }
+                worker.execute(()->{
+                    boolean removed=EdgeChapterArchive.deleteChapter(this,uri,title,Math.max(0,chapter));
+                    if(removed){
+                        EdgeFullBookStore.forgetChapter(this,uri,title,chapter);
+                        EdgeFullBookStore.Job current=EdgeFullBookStore.find(this,uri,title);
+                        if(current!=null){
+                            JSONArray queue=EdgeFullBookStore.queue(current);
+                            for(int i=0;i<queue.length();i++){
+                                JSONObject row=queue.optJSONObject(i);if(row==null)continue;
+                                if(chapter>=0&&chapter<toc.size()){
+                                    int start=SentenceChunks.lowerBound(offsets,toc.get(chapter).startChar);
+                                    int end=SentenceChunks.lowerBound(offsets,toc.get(chapter).endChar);
+                                    if(row.optInt("end")<=start||row.optInt("start")>=end)continue;
+                                }
+                                String key=row.optString("key","");if(!key.matches("[a-f0-9]{64}"))continue;
+                                new File(current.mp3Folder(),key+".mp3").delete();
+                                new File(current.mp3Folder(),key+".mp3.words.json").delete();
+                            }
+                        }
+                    }
+                    lastSegmentsAt=0;
+                    main.post(()->{Toast.makeText(this,removed?"Глава удалена":"Не удалось удалить главу",Toast.LENGTH_SHORT).show();reload();});
+                });
+            }).show();
+    }
+    private void mergeChapter(int chapter){
+        merging.add(chapter);
+        for(int i=0;i<displayed.size();i++)if(displayed.get(i).chapter==chapter&&i<chapterViews.size())
+            chapterViews.get(i).details.setText("Объединение MP3");
+        worker.execute(()->{
+            EdgeFullBookStore.Job job=EdgeFullBookStore.find(this,uri,title);
+            JSONArray queue=job==null?new JSONArray():EdgeFullBookStore.queue(job);
+            if(queue.length()==0)queue=EdgeChapterArchive.queueFromSAF(this,uri,title,Math.max(0,chapter));
+            File folder=new File(EdgeBookStorage.bookFolder(this,uri,title),"EdgeTTS");
+            boolean merged=EdgeChapterArchive.mergeChapter(this,uri,title,Math.max(0,chapter),folder,queue,toc,offsets);
+            lastSegmentsAt=0;
+            main.post(()->{
+                merging.remove(chapter);
+                Toast.makeText(this,merged?"Глава преобразована в MP3":"Не удалось объединить файлы главы",Toast.LENGTH_LONG).show();reload();
+            });
+        });
     }
     @Override protected void onResume(){super.onResume();visible=true;main.post(ticker);}
     @Override protected void onPause(){visible=false;main.removeCallbacks(ticker);super.onPause();}

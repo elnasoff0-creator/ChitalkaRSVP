@@ -619,7 +619,18 @@ public class SettingsActivity extends NavigationActivity {
     private void audioToggle(int icon,String title,String info,String key,boolean initial){
         android.widget.Switch sw=new android.widget.Switch(this);sw.setShowText(false);
         sw.setChecked(prefs.getBoolean(key,initial));
-        sw.setOnCheckedChangeListener((v,on)->prefs.edit().putBoolean(key,on).apply());
+        sw.setOnCheckedChangeListener((v,on)->{
+            prefs.edit().putBoolean(key,on).apply();
+            // Newly enabled auto-merge applies to future chapters. Offer access
+            // to pre-existing complete fragment archives without deleting them.
+            if(on&&EdgeChapterArchive.AUTO_MERGE_PREF.equals(key)){
+                new SwipeDialogs.Builder(this).setTitle("Объединение глав Edge TTS")
+                    .setMessage("Следующие полностью озвученные главы будут объединяться автоматически. Уже сохранённые фрагменты можно преобразовать в разделе «Загрузки → Edge TTS → Главы».")
+                    .setNegativeButton("Позже",null)
+                    .setPositiveButton("Открыть загрузки",(d,w)->startActivity(new Intent(this,DownloadActivity.class)))
+                    .show();
+            }
+        });
         LinearLayout row=audioCard(icon,title,null,sw,()->sw.setChecked(!sw.isChecked()));
         addInlineHelp(row,title,info);
     }
@@ -653,6 +664,9 @@ public class SettingsActivity extends NavigationActivity {
         audioLink(R.drawable.ic_downloads,"Путь к файлам Edge TTS",
             "Постоянная папка сохранения озвученных глав",EdgeFolderPicker.available(this)?"Изменить":"Выбрать",
             ()->EdgeFolderPicker.show(this));
+        audioToggle(R.drawable.ic_edge_merge_chapter,"Автопреобразование озвучки главы в единый файл MP3",
+            "Когда глава озвучена полностью, собрать один MP3 с разметкой WordBoundary",
+            EdgeChapterArchive.AUTO_MERGE_PREF,true);
         audioDivider();
         header("Аудиокниги MP3 / M4A");
         audioLink(R.drawable.ic_equalizer,"Эквалайзер","Настройка звучания аудиокниг",equalizerLabel(),this::equalizerDialog);

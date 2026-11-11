@@ -10,16 +10,16 @@ game=read('ChteicoFishingView.java')
 root=ET.parse(res/'layout/view_chteico_fishing.xml').getroot()
 a='{http://schemas.android.com/apk/res/android}'
 ids={v.get(a+'id','').split('/')[-1]:v for v in root.iter() if v.get(a+'id')}
-assert "versionCode 15000" in (r/'app/build.gradle').read_text()
-assert "versionName '1.11.150-beta'" in (r/'app/build.gradle').read_text()
+assert "versionCode 15100" in (r/'app/build.gradle').read_text()
+assert "versionName '1.11.151-beta'" in (r/'app/build.gradle').read_text()
 # 1. Heading removed and all inner frame margins aligned. No fullscreen panel.
 panel=ids['fishing_catch_panel'];progress=ids['fishing_catch_progress'];track=ids['fishing_track']
 assert 'fishing_catch_header' not in ids and 'catchHeader' not in game
-assert panel.get(a+'layout_width')=='120dp' and 'right' in panel.get(a+'layout_gravity')
+assert panel.get(a+'layout_width')=='match_parent' and ids['fishing_catch_viewport'].get(a+'layout_width')=='112dp' 
 assert progress.get(a+'layout_marginTop')==progress.get(a+'layout_marginBottom')=='8dp'
 assert track.get(a+'layout_marginTop')==track.get(a+'layout_marginBottom')=='8dp'
 assert 'catchPanel.setBackground(panelBackground(themeBg,accent,dp(14)))' in game
-assert list(root).index(ids['fishing_pond'])<list(root).index(panel)
+assert list(root).index(ids['fishing_pond'])<list(root).index(ids['fishing_catch_viewport'])
 # 2. Only training rod has late-stage progress reduction; advanced rods keep fish fatigue.
 assert 'float slow=ChteicoStore.fishingRodEquipped(getContext())==0?endgameSlow:1f;' in game
 assert 'ChteicoStore.fishingRodEquipped(getContext())>=2' in game
@@ -49,7 +49,7 @@ assert 'meta.put("offset",combinedBytes)' in archive
 assert 'EdgeWordTimings.storeAligned' in archive and 'static synchronized int restore(' in archive
 assert 'EdgeChapterArchive.restore(this,requested,name,dir)' in read('EdgeStreamingService.java')
 assert 'EdgeChapterArchive.publish(this,job.uri,job.title' in read('EdgeFullBookService.java')
-assert 'chapterWriter.execute(()->EdgeChapterArchive.publish(' in read('EdgeStreamingService.java')
+assert 'EdgeChapterArchive.publish(getApplicationContext(),saveUri' in read('EdgeStreamingService.java')
 assert 'EdgeChapterArchive.savedBooks(ctx)' in read('DownloadsRepository.java')
 assert 'EdgeChapterArchive.deleteSavedBook(context,uri)' in storage
 assert not [p for p in res.rglob('*') if p.suffix.lower() in ('.png','.jpg','.jpeg','.webp','.gif')]

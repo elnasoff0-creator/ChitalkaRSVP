@@ -19,16 +19,20 @@ final class EdgeFullBookStore {
     static final class Job {
         String uri="",title="",voice="",rate="+0%",status=QUEUED,error="";
         int chars=EdgeSpeechSegments.MAX,done,total,chapter=-1;
+        boolean forceReload;
         long modified;
-        File directory;
-        File mp3Folder(){return new File(directory,"EdgeTTS");}
+        File directory,mp3Dir;
+        File mp3Folder(){return mp3Dir!=null?mp3Dir:new File(directory,"EdgeTTS");}
     }
     private EdgeFullBookStore(){}
     static Job create(Context ctx,String uri,String title,String voice,String rate,int chars){
         Job j=new Job();j.uri=uri;j.title=title;j.voice=voice;j.rate=rate;j.chars=chars;
-        j.directory=EdgeBookStorage.bookFolder(ctx,uri,title);
+        // Persist JOB state in filesDir, not in Android's evictable cacheDir.
+        // MP3 synthesis clips remain disposable and separate from job metadata.
+        j.directory=jobFolder(ctx,uri);
+        j.mp3Dir=new File(EdgeBookStorage.bookFolder(ctx,uri,title),"EdgeTTS");
         j.directory.mkdirs();j.mp3Folder().mkdirs();
-        DownloadsRepository.storeEdgeMeta(j.directory,uri,title,0);
+        DownloadsRepository.storeEdgeMeta(EdgeBookStorage.bookFolder(ctx,uri,title),uri,title,0);
         save(j);DownloadsRepository.showEdge(ctx,uri);return j;
     }
     static synchronized void save(Job j){
@@ -36,7 +40,7 @@ final class EdgeFullBookStore {
         try{
             JSONObject o=new JSONObject();o.put("uri",j.uri).put("title",j.title)
                 .put("voice",j.voice).put("rate",j.rate).put("chars",j.chars)
-                .put("status",j.status).put("chapter",j.chapter).put("done",j.done).put("total",j.total)
+                .put("status",j.status).put("chapter",j.chapter).put("forceReload",j.forceReload).put("mp3Dir",j.mp3Folder().getAbsolutePath()).put("done",j.done).put("total",j.total)
                 .put("error",j.error).put("modified",System.currentTimeMillis());
             atomic(new File(j.directory,"full_job.json"),o.toString());
         }catch(Exception ignored){}
@@ -46,23 +50,37 @@ final class EdgeFullBookStore {
             File f=new File(bookFolder,"full_job.json");
             JSONObject o=new JSONObject(readText(f,8192));
             Job j=new Job();j.directory=bookFolder;j.uri=o.optString("uri","");
+            String work=o.optString("mp3Dir","");if(!work.isEmpty())j.mp3Dir=new File(work);
             if(j.uri.isEmpty())return null;
             j.title=o.optString("title","Книга");j.voice=o.optString("voice","ru-RU-SvetlanaNeural");
             j.rate=o.optString("rate","+0%");j.chars=o.optInt("chars",EdgeSpeechSegments.MAX);
-            j.chapter=o.optInt("chapter",-1);j.status=o.optString("status",PAUSED);j.done=o.optInt("done",0);j.total=o.optInt("total",0);
+            j.chapter=o.optInt("chapter",-1);j.forceReload=o.optBoolean("forceReload",false);j.status=o.optString("status",PAUSED);j.done=o.optInt("done",0);j.total=o.optInt("total",0);
             j.error=o.optString("error","");j.modified=o.optLong("modified",0);return j;
         }catch(Exception ignored){return null;}
     }
-    static synchronized Job find(Context ctx,String uri,String title){return read(EdgeBookStorage.bookFolder(ctx,uri,title));}
+    private static File jobFolder(Context ctx,String uri){
+        String stable=Integer.toHexString(uri.hashCode())+"-"+Integer.toHexString((uri+"job").hashCode());
+        return new File(new File(ctx.getFilesDir(),"EdgeJobs"),stable);
+    }
+    static synchronized Job find(Context ctx,String uri,String title){return read(jobFolder(ctx,uri));}
     static ArrayList<Job> list(Context ctx){
         ArrayList<Job> result=new ArrayList<>();
-        File[] dirs=EdgeBookStorage.booksRoot(ctx).listFiles(File::isDirectory);
+        File[] dirs=new File(ctx.getFilesDir(),"EdgeJobs").listFiles(File::isDirectory);
         if(dirs!=null)for(File f:dirs){Job j=read(f);if(j!=null)result.add(j);}
         result.sort((a,b)->Long.compare(b.modified,a.modified));return result;
     }
-    static synchronized void chooseChapter(Job j,int chapter){
+    static synchronized void clearForce(Job j){
+        Job stored=read(j.directory);if(stored==null)return;
+        stored.forceReload=false;save(stored);
+    }
+    static synchronized void forgetChapter(Context ctx,String uri,String title,int chapter){
+        Job job=find(ctx,uri,title);if(job==null)return;
+        if(job.chapter==chapter){job.status=PAUSED;job.done=0;job.error="";save(job);}
+    }
+    static synchronized void chooseChapter(Job j,int chapter){chooseChapter(j,chapter,false);}
+    static synchronized void chooseChapter(Job j,int chapter,boolean force){
         Job current=read(j.directory);if(current==null)return;
-        current.chapter=chapter;current.status=QUEUED;current.error="";
+        current.chapter=chapter;current.forceReload=force;current.status=QUEUED;current.error="";
         save(current);
     }
     static synchronized void status(Job j,String status){

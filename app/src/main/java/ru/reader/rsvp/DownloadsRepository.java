@@ -89,7 +89,7 @@ final class DownloadsRepository {
     }
     private static Item fromEdge(File bookDir,String uri,String title,int totalWords,EdgeStreamingService live){
         File audio=new File(bookDir,"EdgeTTS");
-        EdgeFullBookStore.Job full=EdgeFullBookStore.read(bookDir);
+        EdgeFullBookStore.Job full=EdgeFullBookStore.find(ctx,uri,title);
         ArrayList<EdgeOfflineIndex.Segment> saved=EdgeAudioManager.segments(audio);
         if(saved.isEmpty()&&full==null&&(live==null||!uri.equals(live.bookUri())||live.snapshot().isEmpty()))return null;
         Item item=new Item();item.type=EDGE;item.bookUri=uri;item.id="edge:"+uri;
@@ -204,10 +204,28 @@ final class DownloadsRepository {
             Item item=fromEdge(dir,uri,meta.optString("title",""),meta.optInt("words",0),live);
             if(item!=null)all.add(item);
         }
+        // Persisted jobs must remain visible after Android evicts the MP3 work cache.
+        for(EdgeFullBookStore.Job persisted:EdgeFullBookStore.list(ctx)){
+            if(persisted.uri.isEmpty()||included.contains(persisted.uri)||hidden.contains(persisted.uri))continue;
+            File work=EdgeBookStorage.bookFolder(ctx,persisted.uri,persisted.title);
+            Item restored=fromEdge(work,persisted.uri,persisted.title,0,live);
+            if(restored!=null){included.add(persisted.uri);all.add(restored);}
+        }
         // A completed SAF chapter must remain discoverable even after Android
         // evicts temporary audio files from our internal cache.
         for(EdgeChapterArchive.SavedBook stored:EdgeChapterArchive.savedBooks(ctx)){
-            if(stored.uri.isEmpty()||included.contains(stored.uri)||hidden.contains(stored.uri))continue;
+            if(stored.uri.isEmpty()||hidden.contains(stored.uri))continue;
+            if(included.contains(stored.uri)){
+                for(Item existing:all)if(EDGE.equals(existing.type)&&stored.uri.equals(existing.bookUri)){
+                    if(existing.fullJob==null||!existing.running){
+                        existing.ready=stored.chapters>0;
+                        if(existing.ready){existing.status="Сохранены главы Edge TTS";
+                            existing.description="Готовые главы в выбранной папке: "+stored.chapters;}
+                    }
+                    break;
+                }
+                continue;
+            }
             Item saved=new Item();saved.type=EDGE;saved.id="edge:"+stored.uri;
             saved.bookUri=stored.uri;saved.title=stored.title;
             saved.ready=true;saved.status="Сохранено";

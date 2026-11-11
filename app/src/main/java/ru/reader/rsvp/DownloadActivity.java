@@ -54,6 +54,9 @@ public final class DownloadActivity extends NavigationActivity {
     private int filter;
     private final ArrayList<DisplayRow> rows=new ArrayList<>();
     private ArrayList<DownloadsRepository.Item> lastAll=new ArrayList<>();
+    private static volatile ArrayList<DownloadsRepository.Item> sharedSnapshot;
+    private long diskScannedAt;
+    private long mangaCoversAt;
     private final Runnable ticker=new Runnable(){@Override public void run(){if(!visible)return;refresh();main.postDelayed(this,2600);}};
     private final ServiceConnection edgeConnection=new ServiceConnection(){
         @Override public void onServiceConnected(ComponentName n,IBinder b){edge=((EdgeStreamingService.LocalBinder)b).getService();refresh();}
@@ -133,6 +136,11 @@ public final class DownloadActivity extends NavigationActivity {
     }
 
     @Override protected void onResume(){super.onResume();visible=true;
+        // Render a cached dashboard immediately. Disk/SAF is verified off-thread.
+        ArrayList<DownloadsRepository.Item> previous=sharedSnapshot;
+        if(previous!=null&&!previous.isEmpty()){
+            lastAll=new ArrayList<>(previous);showCachedFilter();
+        }
         AudiobookCoverStore.backfill(this,()->{if(visible)refresh();});
         main.post(ticker);}
     @Override protected void onPause(){visible=false;main.removeCallbacks(ticker);super.onPause();}
@@ -143,6 +151,8 @@ public final class DownloadActivity extends NavigationActivity {
      */
     private void refresh(){
         if(!visible||adapter==null||refreshInFlight||scan.isShutdown())return;
+        long now=android.os.SystemClock.elapsedRealtime();
+        if(!lastAll.isEmpty()&&now-diskScannedAt<7000L)return;
         refreshInFlight=true;
         final int currentFilter=filter;
         // Read the bound Service only on the main thread. Background scanning
@@ -153,7 +163,8 @@ public final class DownloadActivity extends NavigationActivity {
         scan.execute(()->{
             try{
                 ArrayList<DownloadsRepository.Item> all=DownloadsRepository.load(getApplicationContext(),null);
-                for(DownloadsRepository.Item entry:all)if(DownloadsRepository.MANGA.equals(entry.type)){
+                boolean coversDue=android.os.SystemClock.elapsedRealtime()-mangaCoversAt>30000L;
+                for(DownloadsRepository.Item entry:all)if(coversDue&&DownloadsRepository.MANGA.equals(entry.type)){
                     java.util.ArrayList<MangaLibStorage.Job> chapters=MangaLibStorage.seriesJobs(getApplicationContext(),entry.source);
                     if(!chapters.isEmpty()){
                         MangaDownloadCover.ensure(getApplicationContext(),chapters.get(0));
@@ -165,7 +176,7 @@ public final class DownloadActivity extends NavigationActivity {
                     boolean found=false;
                     for(DownloadsRepository.Item item:all)if(liveUri.equals(item.bookUri)){
                         found=true;item.running=true;item.ready=false;
-                        item.status="Идёт озвучивание";
+                        item.status="Идёт озвучивание";item.failed=false;
                         break;
                     }
                     if(!found){
@@ -193,6 +204,9 @@ public final class DownloadActivity extends NavigationActivity {
                 main.post(()->{
                     refreshInFlight=false;
                     if(!visible||adapter==null)return;
+                    diskScannedAt=android.os.SystemClock.elapsedRealtime();
+                    if(coversDue)mangaCoversAt=diskScannedAt;
+                    sharedSnapshot=new ArrayList<>(all);
                     lastAll=all;
                     if(filter!=currentFilter){showCachedFilter();return;}
                     rows.clear();rows.addAll(after);
@@ -615,7 +629,7 @@ public final class DownloadActivity extends NavigationActivity {
             LinearLayout.LayoutParams tagParams=new LinearLayout.LayoutParams(-2,-2);tagParams.topMargin=dp(5);detail.addView(type,tagParams);
             TextView info=text(item.description,12,false);info.setTextColor(MUTED);
             LinearLayout.LayoutParams il=new LinearLayout.LayoutParams(-1,-2);il.topMargin=dp(6);detail.addView(info,il);
-            TextView status=text(item.status,12,true);status.setTextColor(item.ready?GREEN:item.failed?0xffa13d36:ACCENT);detail.addView(status);
+            TextView status=text(item.status,12,true);status.setTextColor(item.failed?0xffa13d36:item.ready||"Идёт озвучивание".equals(item.status)?GREEN:item.running?0xff276db1:ACCENT);detail.addView(status);
             if(!item.ready){
                 ProgressBar progress=new ProgressBar(DownloadActivity.this,null,android.R.attr.progressBarStyleHorizontal);
                 if(DownloadsRepository.EDGE.equals(item.type)){

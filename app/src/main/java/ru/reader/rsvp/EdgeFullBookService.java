@@ -31,6 +31,7 @@ public final class EdgeFullBookService extends Service {
     static final String PAUSE="ru.reader.rsvp.edge.full.PAUSE";
     static final String EXTRA_URI="book_uri",EXTRA_TITLE="book_title",EXTRA_VOICE="edge_voice";
     static final String EXTRA_RATE="edge_rate",EXTRA_CHARS="edge_chars",EXTRA_CHAPTER="edge_chapter";
+    static final String EXTRA_FORCE="edge_force_reload";
     private static final String CHANNEL="edge_full_book";
     private static final int NOTIFICATION_ID=1472;
     private final ExecutorService worker=Executors.newSingleThreadExecutor();
@@ -56,7 +57,8 @@ public final class EdgeFullBookService extends Service {
                 int chars=EdgeSegmentSettings.clamp(intent.getIntExtra(EXTRA_CHARS,EdgeSegmentSettings.DEFAULT));
                 EdgeFullBookStore.Job created=EdgeFullBookStore.create(this,uri,title==null?"Книга":title,
                     voice==null?"ru-RU-SvetlanaNeural":voice,rate==null?"+0%":rate,chars);
-                EdgeFullBookStore.chooseChapter(created,intent.getIntExtra(EXTRA_CHAPTER,-1));
+                EdgeFullBookStore.chooseChapter(created,intent.getIntExtra(EXTRA_CHAPTER,-1),
+                    intent.getBooleanExtra(EXTRA_FORCE,false));
                 if(uri.equals(synthesizingUri)){
                     EdgeTtsClient old=currentClient;if(old!=null)old.cancel();
                 }
@@ -145,7 +147,8 @@ public final class EdgeFullBookService extends Service {
                 index.put(o);
             }
             EdgeFullBookStore.writeQueue(job,index);
-            DownloadsRepository.storeEdgeMeta(job.directory,job.uri,job.title,EdgeTextSegments.positions(raw).size());
+            DownloadsRepository.storeEdgeMeta(EdgeBookStorage.bookFolder(this,job.uri,job.title),
+                job.uri,job.title,EdgeTextSegments.positions(raw).size());
             int count=index.length();job.total=count;
             BookChapterIndex.Chapter only=job.chapter>=0 && job.chapter<book.chapters.size()
                 ?book.chapters.get(job.chapter):null;
@@ -153,6 +156,19 @@ public final class EdgeFullBookService extends Service {
             int chapterStart=only==null?0:SentenceChunks.lowerBound(wordOffsets,only.startChar);
             int chapterEnd=only==null?wordOffsets.size():SentenceChunks.lowerBound(wordOffsets,only.endChar);
             if(job.chapter>=0&&only==null)throw new Exception("Выбранная глава недоступна");
+            // Restore known persistent fragments after cache eviction, before synthesis.
+            if(!job.forceReload)EdgeChapterArchive.restore(this,job.uri,job.title,job.mp3Folder());
+            if(job.forceReload){
+                for(int k=0;k<index.length();k++){
+                    JSONObject row=index.getJSONObject(k);
+                    if(only!=null&&(row.optInt("end",0)<=chapterStart||row.optInt("start",0)>=chapterEnd))continue;
+                    File old=new File(job.mp3Folder(),row.getString("key")+".mp3");
+                    if(old.isFile())old.delete();
+                    File wordFile=new File(old.getAbsolutePath()+".words.json");
+                    if(wordFile.isFile())wordFile.delete();
+                }
+                EdgeFullBookStore.clearForce(job);
+            }
             int completed=EdgeFullBookStore.readyCount(job);
             EdgeFullBookStore.progress(job,completed,count,null);
             for(int i=0;i<count&&!destroyed;){
@@ -231,8 +247,9 @@ public final class EdgeFullBookService extends Service {
             }
             // Complete chapters are saved as one MP3 + WordBoundary JSON under
             // the user's SAF tree. Per-clip audio is ONLY disposable playback cache.
-            int exported=EdgeChapterArchive.publish(this,job.uri,job.title,
-                job.mp3Folder(),index,book.chapters,wordOffsets);
+            int exported=EdgeChapterArchive.autoMerge(this)?
+                EdgeChapterArchive.publish(this,job.uri,job.title,job.mp3Folder(),index,book.chapters,wordOffsets):
+                EdgeChapterArchive.publishFragments(this,job.uri,job.title,job.mp3Folder(),index,book.chapters,wordOffsets);
             Log.i("EdgeFullBook","Verified chapters in SAF: "+exported);
             if(exported==0)throw new Exception("Не удалось записать завершённую главу в выбранную папку Edge TTS");
             // Keep the pre-existing in-app chapter dashboard functional while

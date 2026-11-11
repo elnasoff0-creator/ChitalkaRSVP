@@ -9,7 +9,7 @@ gradle=(r/'app/build.gradle').read_text()
 a='{http://schemas.android.com/apk/res/android}'
 layout=ET.parse(res/'layout/view_chteico_fishing.xml').getroot()
 byid={n.get(a+'id','').split('/')[-1]:n for n in layout.iter() if n.get(a+'id')}
-assert "versionCode 15000" in gradle and "versionName '1.11.150-beta'" in gradle
+assert "versionCode 15100" in gradle and "versionName '1.11.151-beta'" in gradle
 # compact toolbar stands on its own and occupies space ABOVE the now-shortened lake
 bar=byid['fishing_toolbar']; pond=byid['fishing_pond']
 assert bar.tag=='LinearLayout' and bar.get(a+'layout_height')=='48dp'
@@ -26,8 +26,8 @@ for kind in ('bait','gold'):
  assert icon.tag=='vector' and icon.get(a+'viewportWidth')=='24' and icon.get(a+'viewportHeight')=='24'
 # fish swims in right-hand opaque panel without a title/header
 panel=byid['fishing_catch_panel']
-assert panel.get(a+'layout_width')=='120dp' and panel.get(a+'layout_height')=='match_parent'
-assert panel.get(a+'layout_marginTop')=='62dp'
+assert panel.get(a+'layout_width')=='match_parent' and panel.get(a+'layout_height')=='match_parent' and byid['fishing_catch_viewport'].get(a+'layout_width')=='112dp'
+assert byid['fishing_catch_viewport'].get(a+'layout_marginTop')=='62dp'
 assert 'fishing_catch_header' not in byid
 track=byid['fishing_track']
 assert track.get(a+'layout_marginTop')==track.get(a+'layout_marginBottom')=='8dp'

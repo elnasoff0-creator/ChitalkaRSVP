@@ -8,7 +8,14 @@ trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/src/android/content" "$T/src/android/net" "$T/src/android/util" "$T/src/androidx/documentfile/provider" "$T/src/org/json" "$T/src/ru/reader/rsvp" "$T/bin"
 cat > "$T/src/android/content/Context.java" <<'JAVA'
 package android.content;
-public class Context{public ContentResolver getContentResolver(){return new ContentResolver();}public java.io.File getCacheDir(){return new java.io.File(".");}}
+public class Context{public ContentResolver getContentResolver(){return new ContentResolver();}public java.io.File getCacheDir(){return new java.io.File(".");}public android.content.SharedPreferences getSharedPreferences(String s,int mode){return null;}}
+JAVA
+cat > "$T/src/android/content/SharedPreferences.java" <<'JAVA'
+package android.content; public interface SharedPreferences {boolean getBoolean(String key,boolean def);}
+JAVA
+mkdir -p "$T/src/android/os"
+cat > "$T/src/android/os/SystemClock.java" <<'JAVA'
+package android.os;public class SystemClock {public static long elapsedRealtime(){return 0L;}}
 JAVA
 cat > "$T/src/android/content/ContentResolver.java" <<'JAVA'
 package android.content;

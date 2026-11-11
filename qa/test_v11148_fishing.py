@@ -11,7 +11,7 @@ activity=(src/'ChteicoActivity.java').read_text()
 game=(src/'ChteicoFishingView.java').read_text()
 build=(root/'app/build.gradle').read_text()
 a='{http://schemas.android.com/apk/res/android}'
-assert 'versionCode 15000' in build and "versionName '1.11.150-beta'" in build
+assert 'versionCode 15100' in build and "versionName '1.11.151-beta'" in build
 # 1: Pet hero card, lake and game root share ONE source-of-truth opaque surface.
 assert 'l.setBackground(shape(petCardColor(),18))' in activity
 assert 'new ChteicoFishingView(this,()->closeMiniGame(),petCardColor())' in activity
@@ -23,14 +23,14 @@ layout=ET.parse(res/'layout/view_chteico_fishing.xml').getroot()
 ids={el.get(a+'id'):el for el in layout.iter() if el.get(a+'id')}
 get=lambda key:ids['@+id/'+key]
 panel=get('fishing_catch_panel')
-assert panel.get(a+'layout_width')=='120dp'
+assert panel.get(a+'layout_width')=='match_parent' and get('fishing_catch_viewport').get(a+'layout_width')=='112dp'
 assert panel.get(a+'layout_height')=='match_parent'
-assert 'right' in panel.get(a+'layout_gravity')
+assert 'right' in get('fishing_catch_viewport').get(a+'layout_gravity')
 assert panel.get(a+'background')=='@drawable/bg_fishing_stage'
 assert 'catchPanel.setBackground(panelBackground(themeBg,accent,dp(14)))' in game
 assert {'fishing_track','fishing_fish','fishing_zone','fishing_catch_progress'} <= {
     el.get(a+'id').split('/')[-1] for el in panel.iter() if el.get(a+'id')}
-assert list(layout).index(get('fishing_pond')) < list(layout).index(panel)
+assert list(layout).index(get('fishing_pond')) < list(layout).index(get('fishing_catch_viewport'))
 # 3: exactly x3 GOLD only if shimmering, without accidentally multiplying experience.
 assert re.search(r'int gold=Math\.max\(1,Math\.round\(mass\*5\*mul2\[rarity\]/2f\*\(shimmering\?3f:1f\)\)\)',game)
 assert 'int xp=Math.round(mass*20*mul2[rarity]/2f);' in game

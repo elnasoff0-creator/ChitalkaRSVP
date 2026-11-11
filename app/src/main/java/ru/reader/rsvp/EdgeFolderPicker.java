@@ -63,6 +63,7 @@ public final class EdgeFolderPicker {
             if(folder==null||!folder.isDirectory()||!folder.canWrite())
                 throw new Exception("Выбранная папка недоступна для записи");
             activity.getSharedPreferences("reader",0).edit().putString(PREF,uri.toString()).apply();
+            EdgeChapterArchive.invalidate();
             Toast.makeText(activity,"Папка Edge TTS сохранена",Toast.LENGTH_SHORT).show();
         }catch(Exception ex){Toast.makeText(activity,"Не удалось выбрать папку: "+ex.getMessage(),Toast.LENGTH_LONG).show();}
         return true;

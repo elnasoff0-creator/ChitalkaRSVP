@@ -957,9 +957,13 @@ public final class EdgeStreamingService extends Service {
                                     final File saveDir=directory;
                                     final BookChapterIndex saveChapters=chapters;
                                     final ArrayList<Integer> saveOffsets=new ArrayList<>(offsets);
-                                    if(saveDir!=null)chapterWriter.execute(()->EdgeChapterArchive.publish(
-                                        getApplicationContext(),saveUri,saveTitle,saveDir,
-                                        pending,saveChapters,saveOffsets));
+                                    if(saveDir!=null)chapterWriter.execute(()->{
+                                        if(EdgeChapterArchive.autoMerge(getApplicationContext()))
+                                            EdgeChapterArchive.publish(getApplicationContext(),saveUri,saveTitle,saveDir,
+                                                pending,saveChapters,saveOffsets);
+                                        else EdgeChapterArchive.publishFragments(getApplicationContext(),saveUri,saveTitle,
+                                                saveDir,pending,saveChapters,saveOffsets);
+                                    });
                                 }catch(Exception ex){Log.w("EdgeChapterArchive","Could not schedule chapter",ex);}
                                 ReaderDiagnosticLog.event("CACHE","saved mp3 bytes="+clip.bytes+
                                     " start="+clip.start+" end="+clip.end);
