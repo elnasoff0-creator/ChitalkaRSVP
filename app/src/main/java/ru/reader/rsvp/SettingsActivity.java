@@ -54,6 +54,9 @@ public class SettingsActivity extends NavigationActivity {
     }
     @Override protected void onActivityResult(int request,int result,android.content.Intent data){
         super.onActivityResult(request,result,data);
+        if(EdgeFolderPicker.accept(this,request,result,data)){
+            draw();return;
+        }
         if(request!=12122||result!=RESULT_OK||data==null||data.getData()==null)return;
         try{String name=ReaderFontLibrary.importFont(this,data.getData());prefs.edit().putString(ReaderFontLibrary.KEY,name).apply();draw();}
         catch(Exception ex){android.widget.Toast.makeText(this,ex.getMessage(),android.widget.Toast.LENGTH_LONG).show();}
@@ -647,6 +650,9 @@ public class SettingsActivity extends NavigationActivity {
         audioToggle(R.drawable.ic_tts_autoplay,"Автовоспроизведение при касании","Начинать озвучку сразу после выбора предложения","tts_tap_autoplay",false);
         audioLink(R.drawable.ic_edge_dictionary,"Словарь MS Edge",
             "", "",()->startActivity(new android.content.Intent(this,EdgeDictionaryActivity.class)));
+        audioLink(R.drawable.ic_downloads,"Путь к файлам Edge TTS",
+            "Постоянная папка сохранения озвученных глав",EdgeFolderPicker.available(this)?"Изменить":"Выбрать",
+            ()->EdgeFolderPicker.show(this));
         audioDivider();
         header("Аудиокниги MP3 / M4A");
         audioLink(R.drawable.ic_equalizer,"Эквалайзер","Настройка звучания аудиокниг",equalizerLabel(),this::equalizerDialog);

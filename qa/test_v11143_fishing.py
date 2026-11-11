@@ -11,7 +11,7 @@ c=(j/'ChteicoActivity.java').read_text()
 h=(j/'ActivityInfo.java').read_text()
 manifest=(r/'app/src/main/AndroidManifest.xml').read_text()
 gradle=(r/'app/build.gradle').read_text()
-assert 'versionCode 14900' in gradle and "versionName '1.11.149-beta'" in gradle
+assert 'versionCode 15000' in gradle and "versionName '1.11.150-beta'" in gradle
 assert 'android.permission.VIBRATE' in manifest
 assert 'QUICK_TAP_MS=220L' in g and 'castWaitingSecondTap' in g and 'finishCast();ignoreUp=true;' in g
 assert 'Math.abs(cast-.80f)' in g and 'bobberX=' in g and 'getWidth()*bobberX' in g

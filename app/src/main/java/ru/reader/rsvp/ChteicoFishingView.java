@@ -44,7 +44,7 @@ public final class ChteicoFishingView extends FrameLayout {
     private final Handler handler=new Handler(Looper.getMainLooper());
     private final Random random=new Random();
     private final Runnable exit;
-    private final TextView hud,goldCount,catchHeader,status,feedback,biteMessage,resultName,resultRarity,resultMass,resultRewards,resultContinue;
+    private final TextView hud,goldCount,status,feedback,biteMessage,resultName,resultRarity,resultMass,resultRewards,resultContinue;
     private final ImageView bobber,fish,zone,castMark,castCursor,ring,wave1,wave2,resultFish,catchShimmer,catchShimmerTrail,resultShimmer,resultShimmerTrail;
     private final FrameLayout meter,catchPanel,track;
     // The result panel is a LinearLayout in XML; only common View methods are needed.
@@ -70,7 +70,7 @@ public final class ChteicoFishingView extends FrameLayout {
         super(context);exit=onExit;
         LayoutInflater.from(context).inflate(R.layout.view_chteico_fishing,this,true);
         hud=findViewById(R.id.fishing_hud);goldCount=findViewById(R.id.fishing_gold_count);
-        catchHeader=findViewById(R.id.fishing_catch_header);status=findViewById(R.id.fishing_status);
+        status=findViewById(R.id.fishing_status);
         bobber=findViewById(R.id.fishing_bobber);fish=findViewById(R.id.fishing_fish);zone=findViewById(R.id.fishing_zone);
         meter=findViewById(R.id.fishing_cast_meter);castMark=findViewById(R.id.fishing_cast_optimum);
         castCursor=findViewById(R.id.fishing_cast_indicator);catchPanel=findViewById(R.id.fishing_catch_panel);
@@ -103,8 +103,6 @@ public final class ChteicoFishingView extends FrameLayout {
         // The RIGHT-HAND fishing panel is fully opaque, but never covers the lake.
         catchPanel.setBackground(panelBackground(themeBg,accent,dp(14)));
         gameToolbar.setBackground(panelBackground(surface,ink,dp(13)));
-        catchHeader.setBackground(panelBackground(surface,0,dp(12)));
-        catchHeader.setTextColor(ink);
         catchProgress.setBackground(panelBackground(surface,ink,dp(7)));
         catchProgressFill.setBackground(panelBackground(accent,0,dp(5)));
         resultPanel.setBackground(panelBackground(themeBg,accent,0));
@@ -192,7 +190,8 @@ public final class ChteicoFishingView extends FrameLayout {
             float zoneCenter=(trackHeight-zone.getHeight())*zoneY/.75f+zone.getHeight()/2f;
             float zoneFactor=(hookedBoot?1.2f:CATCH_ZONE_WIDTH[rarity])*(shimmering?.85f:1f);
             boolean inside=Math.abs(fishCenter-zoneCenter)<=zone.getHeight()*zoneFactor/2f;
-            float slow=endgameSlow;
+            // Only the training rod retains the late-stage fill slowdown.
+            float slow=ChteicoStore.fishingRodEquipped(getContext())==0?endgameSlow:1f;
             float fillTime=hookedBoot?.70f:FILL_TIME[rarity];
             float shimmerFactor=shimmering?.75f:1f;
             catchAmount=Math.max(0,Math.min(1,catchAmount+dt*(inside?.26f*slow*shimmerFactor/fillTime:-.12f)));
@@ -207,7 +206,7 @@ public final class ChteicoFishingView extends FrameLayout {
         // An old worn book cover is possible only after a failed cast and gives no rewards.
         hookedBoot=castGrade==4&&random.nextFloat()<.25f;
         rarity=hookedBoot?0:chooseRarity();
-        shimmering=!hookedBoot&&(ChteicoStore.developerUnlocked(getContext())||random.nextFloat()<.01f);
+        shimmering=!hookedBoot&&(ChteicoStore.developerUnlocked(getContext())||random.nextFloat()<(ChteicoStore.fishingRodEquipped(getContext())==4?.06f:.01f));
         phase=BITE;held=false;biteNeedsRelease=true;biteStartedMs=now;
         biteMessage.setText(hookedBoot?"Что-то зацепилось!":"Рыба клюнула!");
         ring.setImageResource(hookedBoot?R.drawable.ic_fishing_bite_7:BITE_DRAWABLES[rarity]);ring.setColorFilter(accent);

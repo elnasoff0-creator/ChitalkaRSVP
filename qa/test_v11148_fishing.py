@@ -11,7 +11,7 @@ activity=(src/'ChteicoActivity.java').read_text()
 game=(src/'ChteicoFishingView.java').read_text()
 build=(root/'app/build.gradle').read_text()
 a='{http://schemas.android.com/apk/res/android}'
-assert 'versionCode 14900' in build and "versionName '1.11.149-beta'" in build
+assert 'versionCode 15000' in build and "versionName '1.11.150-beta'" in build
 # 1: Pet hero card, lake and game root share ONE source-of-truth opaque surface.
 assert 'l.setBackground(shape(petCardColor(),18))' in activity
 assert 'new ChteicoFishingView(this,()->closeMiniGame(),petCardColor())' in activity
@@ -52,7 +52,7 @@ assert 'progress>=.90f?.70f:progress>=.70f?.85f:1f' in game
 assert 'ChteicoStore.fishingRodEquipped(getContext())>=2' in game
 assert 'float movementFactor=!hookedBoot' in game
 assert 'fishY+=fishVelocity*dt*movementFactor' in game
-assert 'float slow=endgameSlow' in game
+assert 'float slow=ChteicoStore.fishingRodEquipped(getContext())==0?endgameSlow:1f;' in game
 # 6: Bobber has a visibly SOLID hull and separate nontransparent top stripe.
 bobber=ET.parse(res/'drawable/ic_fishing_bobber.xml').getroot()
 paths=bobber.findall('path')

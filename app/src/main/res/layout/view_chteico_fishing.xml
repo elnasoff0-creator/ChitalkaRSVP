@@ -52,24 +52,21 @@
   android:layout_gravity="top|center_horizontal" android:layout_marginTop="71dp"
   android:gravity="center" android:textSize="17sp" android:textStyle="bold" android:text="Рыба клюнула!"
   android:visibility="gone"/>
- <!-- Opaque narrow right panel. Its thicker header reduces fish swim travel from the top. -->
+ <!-- Opaque narrow right panel with uniform perimeter; lake remains visible. -->
  <FrameLayout android:id="@+id/fishing_catch_panel" android:layout_width="120dp" android:layout_height="match_parent"
   android:layout_gravity="right|center_vertical" android:layout_marginTop="62dp" android:layout_marginBottom="7dp"
   android:layout_marginRight="6dp" android:background="@drawable/bg_fishing_stage" android:visibility="gone">
-  <TextView android:id="@+id/fishing_catch_header" android:layout_width="match_parent" android:layout_height="44dp"
-   android:layout_gravity="top" android:gravity="center" android:text="Вываживание"
-   android:textSize="12sp" android:textStyle="bold" android:textColor="#30221E"/>
   <!-- True bottom-up VERTICAL catch progress, separate from the fish/moving accent target. -->
   <FrameLayout android:id="@+id/fishing_catch_progress" android:layout_width="13dp" android:layout_height="match_parent"
-   android:layout_gravity="left|center_vertical" android:layout_marginTop="54dp" android:layout_marginBottom="16dp"
-   android:layout_marginLeft="10dp" android:padding="2dp" android:background="@drawable/bg_fishing_track"
+   android:layout_gravity="left|center_vertical" android:layout_marginTop="8dp" android:layout_marginBottom="8dp"
+   android:layout_marginLeft="8dp" android:padding="2dp" android:background="@drawable/bg_fishing_track"
    android:contentDescription="Вертикальный прогресс поимки">
    <View android:id="@+id/fishing_catch_progress_fill" android:layout_width="match_parent" android:layout_height="0dp"
     android:layout_gravity="bottom" android:background="@drawable/bg_fishing_accent"/>
   </FrameLayout>
   <FrameLayout android:id="@+id/fishing_track" android:layout_width="76dp" android:layout_height="match_parent"
-   android:layout_gravity="right|center_vertical" android:layout_marginTop="54dp" android:layout_marginBottom="16dp"
-   android:layout_marginRight="7dp" android:background="@drawable/bg_fishing_track" android:clipChildren="false">
+   android:layout_gravity="right|center_vertical" android:layout_marginTop="8dp" android:layout_marginBottom="8dp"
+   android:layout_marginRight="8dp" android:background="@drawable/bg_fishing_track" android:clipChildren="false">
    <ImageView android:id="@+id/fishing_zone" android:layout_width="match_parent" android:layout_height="72dp"
     android:src="@drawable/bg_fishing_accent" android:contentDescription="Акцентная зона поимки"/>
    <ImageView android:id="@+id/fishing_fish" android:layout_width="42dp" android:layout_height="48dp"

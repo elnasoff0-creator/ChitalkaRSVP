@@ -204,6 +204,17 @@ final class DownloadsRepository {
             Item item=fromEdge(dir,uri,meta.optString("title",""),meta.optInt("words",0),live);
             if(item!=null)all.add(item);
         }
+        // A completed SAF chapter must remain discoverable even after Android
+        // evicts temporary audio files from our internal cache.
+        for(EdgeChapterArchive.SavedBook stored:EdgeChapterArchive.savedBooks(ctx)){
+            if(stored.uri.isEmpty()||included.contains(stored.uri)||hidden.contains(stored.uri))continue;
+            Item saved=new Item();saved.type=EDGE;saved.id="edge:"+stored.uri;
+            saved.bookUri=stored.uri;saved.title=stored.title;
+            saved.ready=true;saved.status="Сохранено";
+            saved.done=stored.chapters;saved.total=stored.chapters;saved.coveragePercent=100;
+            saved.description="Готовые MP3-главы во внешней папке: "+stored.chapters;
+            all.add(saved);included.add(stored.uri);
+        }
         // Migration: older versions only stored Edge queue.json and a MainActivity library entry.
         for(JSONObject book:index.values()){
             String uri=book.optString("uri","");if(uri.isEmpty()||included.contains(uri)||hidden.contains(uri))continue;

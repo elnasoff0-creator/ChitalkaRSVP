@@ -28,13 +28,14 @@ expected={
     'bobber':'ImageView','fish':'ImageView','zone':'ImageView',
     'ring':'ImageView','resultFish':'ImageView',
     'catchProgress':'FrameLayout', 'catchProgressFill':'View',
-    'gameToolbar':'LinearLayout', 'goldCount':'TextView', 'catchHeader':'TextView'
+    'gameToolbar':'LinearLayout', 'goldCount':'TextView'
 }
+assert 'catchHeader' not in assignments and 'fishing_catch_header' not in elements
 for field, tag in expected.items():
     assert elements[assignments[field]]==tag, f'{field}: expected {tag}, got {elements[assignments[field]]}'
 # The result panel is a LinearLayout in XML, so it must not be cast to FrameLayout.
 assert 'private final View resultPanel;' in src
 assert not re.search(r'FrameLayout[^;]*\bresultPanel\s*;',src)
 assert 'Could not initialize fishing UI' in activity
-assert 'versionCode 14900' in gradle and "versionName '1.11.149-beta'" in gradle
+assert 'versionCode 15000' in gradle and "versionName '1.11.150-beta'" in gradle
 print('PASS: Fishing startup widget types, recovery path, release version')

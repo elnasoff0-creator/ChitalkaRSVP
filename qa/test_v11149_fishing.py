@@ -9,7 +9,7 @@ gradle=(r/'app/build.gradle').read_text()
 a='{http://schemas.android.com/apk/res/android}'
 layout=ET.parse(res/'layout/view_chteico_fishing.xml').getroot()
 byid={n.get(a+'id','').split('/')[-1]:n for n in layout.iter() if n.get(a+'id')}
-assert "versionCode 14900" in gradle and "versionName '1.11.149-beta'" in gradle
+assert "versionCode 15000" in gradle and "versionName '1.11.150-beta'" in gradle
 # compact toolbar stands on its own and occupies space ABOVE the now-shortened lake
 bar=byid['fishing_toolbar']; pond=byid['fishing_pond']
 assert bar.tag=='LinearLayout' and bar.get(a+'layout_height')=='48dp'
@@ -24,13 +24,13 @@ assert 'gameToolbar.setBackground(panelBackground(surface,ink,dp(13)))' in java
 for kind in ('bait','gold'):
  icon=ET.parse(res/f'drawable/ic_fishing_{kind}_counter.xml').getroot()
  assert icon.tag=='vector' and icon.get(a+'viewportWidth')=='24' and icon.get(a+'viewportHeight')=='24'
-# fish swims in right-hand opaque panel, behind the header not the toolbar
+# fish swims in right-hand opaque panel without a title/header
 panel=byid['fishing_catch_panel']
 assert panel.get(a+'layout_width')=='120dp' and panel.get(a+'layout_height')=='match_parent'
 assert panel.get(a+'layout_marginTop')=='62dp'
-assert byid['fishing_catch_header'].get(a+'layout_height')=='44dp'
+assert 'fishing_catch_header' not in byid
 track=byid['fishing_track']
-assert track.get(a+'layout_marginTop')=='54dp'
+assert track.get(a+'layout_marginTop')==track.get(a+'layout_marginBottom')=='8dp'
 assert track.get(a+'layout_marginTop')==byid['fishing_catch_progress'].get(a+'layout_marginTop')
 assert panel.get(a+'background')=='@drawable/bg_fishing_stage' and 'catchPanel.setBackground(panelBackground(themeBg,accent,dp(14)))' in java
 # Real vertical bar: bottom-aligned fill, not a rotated horizontal ProgressBar.
@@ -45,4 +45,4 @@ assert 'catchProgressFill.setBackground(panelBackground(accent,0,dp(5)))' in jav
 assert 'ProgressBar' not in java
 for p in res.rglob('*.xml'):ET.parse(p)
 assert not [p for p in res.rglob('*') if p.suffix.lower() in ('.png','.jpeg','.jpg','.gif','.webp')]
-print('PASS: v1.11.149 vertical progress, larger catch header, compact toolbar and smaller lake, XML icons and themes')
+print('PASS: v1.11.149+ vertical progress, title-free uniform catch panel, compact toolbar, XML icons and themes')

@@ -118,6 +118,11 @@ public final class EdgeFullBookService extends Service {
         }
     }
     private void runJob(EdgeFullBookStore.Job job){
+        if(!EdgeFolderPicker.available(this)){
+            EdgeFullBookStore.status(job,EdgeFullBookStore.FAILED);
+            EdgeFullBookStore.progress(job,0,0,"Сначала выберите папку Edge TTS");
+            return;
+        }
         EdgeFullBookStore.status(job,EdgeFullBookStore.RUNNING);
         try{
             BookLoader.Book book=BookLoader.load(this,Uri.parse(job.uri));
@@ -224,8 +229,14 @@ public final class EdgeFullBookService extends Service {
                 EdgeFullBookStore.progress(job,completed,count,null);
                 notifyProgress(job.title,completed,count);
             }
-            // Organize downloaded files by numbered chapter while leaving
-            // canonical hash-keyed cache paths valid for existing playback.
+            // Complete chapters are saved as one MP3 + WordBoundary JSON under
+            // the user's SAF tree. Per-clip audio is ONLY disposable playback cache.
+            int exported=EdgeChapterArchive.publish(this,job.uri,job.title,
+                job.mp3Folder(),index,book.chapters,wordOffsets);
+            Log.i("EdgeFullBook","Verified chapters in SAF: "+exported);
+            if(exported==0)throw new Exception("Не удалось записать завершённую главу в выбранную папку Edge TTS");
+            // Keep the pre-existing in-app chapter dashboard functional while
+            // all of its source files live in disposable internal cache.
             EdgeChapterLayout.publish(job,index,book.chapters,wordOffsets);
             if(EdgeFullBookStore.running(job)){
                 completed=EdgeFullBookStore.readyCount(job);

@@ -267,7 +267,9 @@ public final class DownloadActivity extends NavigationActivity {
         }
         if(DownloadsRepository.LINK.equals(item.type)){startActivity(new Intent(this,LinkDownloadDetailsActivity.class).putExtra(DirectLinkDownloadService.EXTRA_ID,item.link.id));}
         else if(DownloadsRepository.EDGE.equals(item.type)){
-            openEdgeChapters(item);
+            // After cache eviction a SAF-only book has no local job; ReaderActivity
+            // rehydrates the saved chapter's clips and WordBoundary on opening.
+            if(item.folder==null)listenEdge(item);else openEdgeChapters(item);
         }else if(item.ready){
             startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_book_id","url:"+item.source));
         }else startActivity(new Intent(this,UrlImportActivity.class).putExtra("source",item.source));
@@ -311,6 +313,9 @@ public final class DownloadActivity extends NavigationActivity {
         new Thread(()->{BookImportManager.remove(this,item.job,files);runOnUiThread(this::refresh);},"remove-audiobook-task").start();
     }
     private void openFolder(DownloadsRepository.Item item){
+        if(DownloadsRepository.EDGE.equals(item.type)){
+            EdgeFolderPicker.browse(this);return;
+        }
         if(item.folder==null||!item.folder.isDirectory()){Toast.makeText(this,"Папка аудио пока не создана",Toast.LENGTH_SHORT).show();return;}
         startActivity(new Intent(this,EdgeFileExplorerActivity.class).putExtra("book_folder",item.folder.getAbsolutePath()));
     }
@@ -544,6 +549,7 @@ public final class DownloadActivity extends NavigationActivity {
                 case 2:LinkDownloadStore.addToLibrary(this,item.link);Toast.makeText(this,"Добавлено в библиотеку",Toast.LENGTH_SHORT).show();break;
                 case 3:linkCommand(item,DirectLinkDownloadService.START);break;
                 case 31:transferDialog(item);break;
+                case 41:EdgeFolderPicker.show(this);break;
                 case 4:case 5:final boolean erase=m.getItemId()==5;new SwipeDialogs.Builder(this).setTitle(erase?"Удалить загруженные MP3?":"Убрать задание из списка?")
                     .setMessage(erase?"Будут удалены файлы этого задания в выбранной папке.":"Файлы останутся на устройстве.")
                     .setNegativeButton("Отмена",null).setPositiveButton("Удалить",(d,w)->deleteLink(item,erase)).show();break;
@@ -559,6 +565,8 @@ public final class DownloadActivity extends NavigationActivity {
             popup.getMenu().add(0,1,0,item.ready?"Слушать аудиокнигу":"Подробнее / главы");
             if(!item.ready)popup.getMenu().add(0,5,1,item.running?"Приостановить":"Продолжить загрузку");
         }
+        if(DownloadsRepository.EDGE.equals(item.type))
+            popup.getMenu().add(0,41,2,"Путь к файлам");
         popup.getMenu().add(0,3,2,"Открыть файлы");
         popup.getMenu().add(0,6,3,"Убрать из списка");
         popup.getMenu().add(0,4,4,"Удалить скачанные файлы");
@@ -573,6 +581,7 @@ public final class DownloadActivity extends NavigationActivity {
                 case 8:fullCommand(item,item.running);break;
                 case 9:listenEdge(item);break;
                 case 31:transferDialog(item);break;
+                case 41:EdgeFolderPicker.show(this);break;
             }return true;
         });popup.show();
     }
@@ -636,6 +645,7 @@ public final class DownloadActivity extends NavigationActivity {
     }
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
+        if(EdgeFolderPicker.accept(this,request,result,data))return;
         if(request==TRANSFER_REQUEST){
             DownloadsRepository.Item selected=pendingTransfer;pendingTransfer=null;
             if(result!=RESULT_OK||data==null||data.getData()==null||selected==null)return;

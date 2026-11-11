@@ -13,7 +13,7 @@ activity=(j/'ChteicoActivity.java').read_text()
 helptext=(j/'ActivityInfo.java').read_text()
 gradle=(root/'app/build.gradle').read_text()
 layout=(root/'app/src/main/res/layout/view_chteico_fishing.xml').read_text()
-assert 'versionCode 14900' in gradle and "versionName '1.11.149-beta'" in gradle
+assert 'versionCode 15000' in gradle and "versionName '1.11.150-beta'" in gradle
 # A reward requires the explicit Continue control: no tap-to-dismiss in the game root.
 assert 'resultContinue.setOnClickListener(v->closeResult())' in source
 assert 'if(phase==RESULT)return true;' in source

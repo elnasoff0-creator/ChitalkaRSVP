@@ -13,7 +13,7 @@ ui=(java/'ChteicoActivity.java').read_text()
 store=(java/'ChteicoStore.java').read_text()
 help=(java/'ActivityInfo.java').read_text()
 version=(base/'app/build.gradle').read_text()
-assert 'versionCode 14900' in version and '1.11.149-beta' in version
+assert 'versionCode 15000' in version and '1.11.150-beta' in version
 # 1: rod renamed but persisted rod tier four remains untouched
 assert '"Удочка прочитателя"' in game and '"Спиннинг"' not in game
 assert 'удочка прочитателя за 8000' in help
@@ -62,7 +62,7 @@ assert '#8B5A2B' in (res/'drawable/ic_fishing_old_cover.xml').read_text()
 # 8: no version banner within catch list
 assert 'Масса учитывается с v1.' not in ui
 # 9: every fish is shimmering in dev mode; never the old cover
-assert 'shimmering=!hookedBoot&&(ChteicoStore.developerUnlocked(getContext())||random.nextFloat()<.01f)' in game
+assert 'ChteicoStore.developerUnlocked(getContext())||random.nextFloat()<(ChteicoStore.fishingRodEquipped(getContext())==4?.06f:.01f)' in game
 assert 'if(shimmering)' in store
 # 10: badges derived from persisted counts and rod ownership, with individual vectors
 expected={'ic_reward_fishing':'"Рыбак"','ic_reward_fishing_shimmer':'"Охотник за мерцанием"',

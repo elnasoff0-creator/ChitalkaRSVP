@@ -30,6 +30,7 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
     private final Handler main=new Handler(Looper.getMainLooper());
     private final ExecutorService worker=Executors.newSingleThreadExecutor();
     private String uri="",title="";
+    private int pendingFolderChapter=-2;
     private TextView summary,pauseButton;
     private LinearLayout entries;
     private boolean visible,loading;
@@ -72,7 +73,7 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
         pauseButton=button("Пауза",this::toggle);pauseButton.setSingleLine(true);
         LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(0,dp(47),1);
         pp.leftMargin=dp(8);controls.addView(pauseButton,pp);
-        TextView hint=text("Нажмите на главу, чтобы подготовить только её. Скачанные MP3 сохраняются и при повторном запуске используются из кэша.",12,false);
+        TextView hint=text("Нажмите главу для подготовки. Готовые главы сохраняются одним MP3 с разметкой WordBoundary в выбранную папку Edge TTS.",12,false);
         hint.setTextColor(MUTED);LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);hp.topMargin=dp(9);root.addView(hint,hp);
         ScrollView scroll=new ScrollView(this);LinearLayout.LayoutParams sl=new LinearLayout.LayoutParams(-1,0,1);
         sl.topMargin=dp(10);root.addView(scroll,sl);
@@ -86,7 +87,22 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
             }catch(Exception e){main.post(()->summary.setText("Не удалось открыть оглавление: "+e.getMessage()));}
         });
     }
+    @Override protected void onActivityResult(int req,int result,Intent data){
+        super.onActivityResult(req,result,data);
+        if(EdgeFolderPicker.accept(this,req,result,data)){
+            int chapter=pendingFolderChapter;pendingFolderChapter=-2;
+            if(chapter!=-2&&EdgeFolderPicker.available(this))command(chapter);
+        }
+    }
     private void command(int chapter){
+        if(!EdgeFolderPicker.available(this)){
+            pendingFolderChapter=chapter;
+            new SwipeDialogs.Builder(this).setTitle("Папка Edge TTS")
+                .setMessage("Выберите папку для сохранения завершённых аудиоглав.")
+                .setNegativeButton("Отмена",(d,w)->pendingFolderChapter=-2)
+                .setPositiveButton("Использовать эту папку",(d,w)->EdgeFolderPicker.choose(this)).show();
+            return;
+        }
         android.content.SharedPreferences pref=getSharedPreferences("reader",0);
         Intent intent=new Intent(this,EdgeFullBookService.class).setAction(EdgeFullBookService.ADD)
             .putExtra(EdgeFullBookService.EXTRA_URI,uri).putExtra(EdgeFullBookService.EXTRA_TITLE,title)
@@ -129,6 +145,10 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
                 entry.stats=EdgeOfflineIndex.stats(segments,entry.from,entry.to);result.add(entry);
             }
             EdgeFullBookStore.Job job=EdgeFullBookStore.find(this,uri,title);
+            int safeChapters=0;
+            for(EdgeChapterArchive.SavedBook saved:EdgeChapterArchive.savedBooks(this))
+                if(uri.equals(saved.uri)){safeChapters=saved.chapters;break;}
+            final int published=safeChapters;
             main.post(()->{loading=false;if(!visible)return;
                 boolean running=job!=null&&(EdgeFullBookStore.RUNNING.equals(job.status)||EdgeFullBookStore.QUEUED.equals(job.status));
                 if(pauseButton!=null)pauseButton.setText(running?"Пауза":"Продолжить");
@@ -138,7 +158,8 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
                     EdgeFullBookStore.FAILED.equals(job.status)?"ошибка":job.status;
                 String status=localized.isEmpty()?"":" · "+localized;
                 summary.setText("Сохранено "+total.percent()+"% текста · "+total.files+" MP3 · "+
-                    String.format(Locale.ROOT,"%.1f МБ",total.bytes/1048576.0)+status);
+                    String.format(Locale.ROOT,"%.1f МБ",total.bytes/1048576.0)+
+                    " · MP3-глав в выбранной папке: "+published+status);
                 if(chapterViews.size()!=result.size()||!sameChapters(result)){
                     entries.removeAllViews();chapterViews.clear();displayed.clear();
                     for(Entry entry:result){addEntry(entry);displayed.add(entry);}

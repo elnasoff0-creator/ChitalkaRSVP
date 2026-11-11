@@ -59,6 +59,7 @@ public class ReaderActivity extends NavigationActivity {
     private ImageView playIcon,selectWordButton,modeIcon;
     private ImageButton toolbarModeAction,toolbarEngineAction,toolbarVoiceAction,toolbarThemeAction;
     private boolean rsvpScrollWords=false;
+    private boolean resumeEdgeAfterFolderPick=false;
     private boolean ttsLocal=true,ttsBoundPlayer=false,ttsBoundStream=false,ttsPendingPlay=false;
     private EdgePlaybackService ttsPlayer;
     private EdgeStreamingService ttsStreamer;
@@ -428,6 +429,7 @@ public class ReaderActivity extends NavigationActivity {
                     else if(mode==TTS&&which==2)chooseTtsVoice();
                     else if(which==(mode==TTS?4:3))openEdgeDictionary();
                     else if(which==(mode==TTS?5:4))showBookSearch();
+                    else if(which==(mode==TTS?6:5))EdgeFolderPicker.show(this);
                     else if(!docUri.isEmpty())startActivity(new Intent(this,EdgeChapterDownloadsActivity.class)
                         .putExtra("book_uri",docUri).putExtra("book_title",title));});
         }),settingsLp);
@@ -1324,6 +1326,13 @@ public class ReaderActivity extends NavigationActivity {
         startActivityForResult(intent,7);
     }
     @Override protected void onActivityResult(int req,int result,Intent data){super.onActivityResult(req,result,data);
+        if(req==EdgeFolderPicker.REQUEST){
+            EdgeFolderPicker.accept(this,req,result,data);
+            boolean shouldResume=resumeEdgeAfterFolderPick;
+            resumeEdgeAfterFolderPick=false;
+            if(EdgeFolderPicker.available(this)&&shouldResume)toggleTtsPlayback();
+            return;
+        }
         if(req==12212&&result==RESULT_OK&&data!=null&&ttsStreamer!=null&&words.length>0){
             int selected=map.clamp(data.getIntExtra("dictionary_selected_word_index",index));
             // New speech revision makes every affected clip's key change; old audio
@@ -1446,6 +1455,14 @@ public class ReaderActivity extends NavigationActivity {
             &&("edge:"+docUri).equals(ttsPlayer.currentBookId());
     }
     private void toggleTtsPlayback(){
+        if(!ttsLocal&&!EdgeFolderPicker.available(this)&&!ttsCurrentlyPlaying()){
+            resumeEdgeAfterFolderPick=true;
+            new SwipeDialogs.Builder(this).setTitle("Папка аудиофайлов Edge TTS")
+                .setMessage("Перед первой озвучкой выберите папку для сохранения MP3 по книгам и главам. Без выбора сохранение в Android/data не начинается.")
+                .setNegativeButton("Отмена",(d,w)->resumeEdgeAfterFolderPick=false)
+                .setPositiveButton("Использовать эту папку",(d,w)->EdgeFolderPicker.choose(this)).show();
+            return;
+        }
         // Rewind is owned by the playback services, not the on-screen button.
         // This also covers Bluetooth/headset and MediaSession commands.
         if(!ttsCurrentlyPlaying())returnToActiveWord();

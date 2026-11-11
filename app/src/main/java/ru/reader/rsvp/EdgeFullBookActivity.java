@@ -22,6 +22,7 @@ import org.json.JSONObject;
 
 /** Choose a text book and a fixed voice before creating an offline Edge synthesis job. */
 public final class EdgeFullBookActivity extends NavigationActivity {
+    private String pendingFolderBookUri="",pendingFolderBookTitle="";
     private static final int BG=0xfff3e7d5,PANEL=0xfffff9f0,INK=0xff30221e,ACCENT=0xffa26949;
     private int dp(int v){return Math.round(getResources().getDisplayMetrics().density*v);}
     private GradientDrawable rounded(int color){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(18));return d;}
@@ -41,7 +42,7 @@ public final class EdgeFullBookActivity extends NavigationActivity {
         head.addView(back,new LinearLayout.LayoutParams(dp(50),dp(50)));back.setOnClickListener(v->UniversalDrawer.show(this));
         TextView title=label("Подготовить аудиокнигу",23,true);title.setTypeface(Typeface.SERIF,Typeface.BOLD);
         LinearLayout.LayoutParams ht=new LinearLayout.LayoutParams(0,-2,1);ht.leftMargin=dp(12);head.addView(title,ht);
-        TextView help=label("Выберите FB2 или EPUB из библиотеки. Edge TTS подготовит все недостающие MP3 в фоне. Существующие аудиофайлы останутся на месте.",14,false);
+        TextView help=label("Выберите FB2 или EPUB из библиотеки. Edge TTS подготовит главы и сохранит каждую готовую главу одним MP3 с WordBoundary в выбранной папке.",14,false);
         LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);hp.topMargin=dp(16);outer.addView(help,hp);
         ScrollView scroll=new ScrollView(this);LinearLayout.LayoutParams scp=new LinearLayout.LayoutParams(-1,0,1);scp.topMargin=dp(14);outer.addView(scroll,scp);
         LinearLayout items=new LinearLayout(this);items.setOrientation(LinearLayout.VERTICAL);scroll.addView(items);
@@ -73,7 +74,24 @@ public final class EdgeFullBookActivity extends NavigationActivity {
         if(count==0){TextView empty=label("В текстовой библиотеке пока нет EPUB или FB2. Добавьте книгу через кнопку + на главном экране.",16,false);
             empty.setPadding(dp(12),dp(25),dp(12),dp(25));items.addView(empty);}
     }
+    @Override protected void onActivityResult(int request,int result,Intent data){
+        super.onActivityResult(request,result,data);
+        if(EdgeFolderPicker.accept(this,request,result,data)&&EdgeFolderPicker.available(this)){
+            String uri=pendingFolderBookUri,title=pendingFolderBookTitle;
+            pendingFolderBookUri="";pendingFolderBookTitle="";
+            if(!uri.isEmpty())choose(uri,title);
+        }
+    }
     private void choose(String uri,String title){
+        if(!EdgeFolderPicker.available(this)){
+            pendingFolderBookUri=uri;pendingFolderBookTitle=title;
+            new SwipeDialogs.Builder(this).setTitle("Папка Edge TTS")
+                .setMessage("Сначала выберите папку, в которой будут храниться готовые главы.")
+                .setNegativeButton("Отмена",null)
+                .setPositiveButton("Использовать эту папку",(d,w)->EdgeFolderPicker.choose(this)).show();
+            return;
+        }
+
         String[] voiceNames={"Светлана · ru-RU","Дмитрий · ru-RU"};
         String[] voices={"ru-RU-SvetlanaNeural","ru-RU-DmitryNeural"};
         SharedPreferences prefs=getSharedPreferences("reader",0);

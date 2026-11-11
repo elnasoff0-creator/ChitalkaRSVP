@@ -45,6 +45,10 @@ public final class EdgeStreamingService extends Service {
     public static final String EXTRA_ANCHOR="anchor_word";
     private final Handler main=new Handler(Looper.getMainLooper());
     private final ExecutorService io=Executors.newSingleThreadExecutor();
+    // SAF chapter publication must never hold the active speech/cache IO queue.
+    private final ExecutorService chapterWriter=Executors.newSingleThreadExecutor(r->{
+        Thread t=new Thread(r,"EdgeChapterPublisher");t.setPriority(Thread.MIN_PRIORITY);return t;
+    });
     // MP3 decode must never hold the queue responsible for producing playable files.
     private final ExecutorService tailAnalysis=Executors.newSingleThreadExecutor(r->{
         Thread thread=new Thread(r,"EdgeCoverage");
@@ -432,6 +436,10 @@ public final class EdgeStreamingService extends Service {
                 ArrayList<SentenceChunks.Chunk> newParts=session.edgeGroups();
                 File bookDir=EdgeBookStorage.bookFolder(this,requested,name);
                 File dir=new File(bookDir,"EdgeTTS");dir.mkdirs();
+                // Rehydrate SAF-only complete chapters to temporary playback clips.
+                // ReaderActivity keeps its exact per-fragment WordBoundary semantics.
+                if(EdgeFolderPicker.available(this))
+                    EdgeChapterArchive.restore(this,requested,name,dir);
                 DownloadsRepository.storeEdgeMeta(bookDir,requested,name,positions.size());
                 main.post(()->{
                     if(destroyed||!requested.equals(bookUri))return;
@@ -501,6 +509,7 @@ public final class EdgeStreamingService extends Service {
      * A subsequent Play can attach to the very same buffered live MP3.
      */
     private void warmCurrent(){
+        if(!EdgeFolderPicker.available(this))return; // Never synthesize without a selected tree.
         if(!bookReady||directory==null)return;
         if(!idlePrefetchRequested && !(active && player!=null&&!player.playRequested()))return;
         if(active&&player!=null&&player.playRequested())return;
@@ -830,6 +839,9 @@ public final class EdgeStreamingService extends Service {
     private void startLive(Clip clip){startLive(clip,false,false);}
     private void startLive(Clip clip,boolean warmup){startLive(clip,warmup,false);}
     private void startLive(Clip clip,boolean warmup,boolean ahead){
+        if(!EdgeFolderPicker.available(this)){
+            error="Выберите папку Edge TTS в настройках";changed();return;
+        }
         if(clip==null||clip.ready()||directory==null||liveFor(clip)!=null||shouldIgnore(clip))return;
         ReaderDiagnosticLog.event("CACHE","cache_miss schedule start="+clip.start+" end="+clip.end+
             " warmup="+warmup+" ahead="+ahead);
@@ -930,6 +942,25 @@ public final class EdgeStreamingService extends Service {
                                 getSharedPreferences("reader",0).edit().remove(
                                     "edge_v2_retry_after_epoch_ms").apply();
                                 clip.file=ready;clip.bytes=ready.length();clip.chunks=parts;
+                                // Every newly completed fragment can finish a chapter.
+                                // Publication runs off the UI thread; the reader continues
+                                // using its temporary per-clip audio without a source jump.
+                                try{
+                                    org.json.JSONArray pending=new org.json.JSONArray();
+                                    for(Clip part:archive){
+                                        org.json.JSONObject row=new org.json.JSONObject();
+                                        row.put("key",part.key==null?"":part.key);
+                                        row.put("start",part.start);row.put("end",part.end);
+                                        row.put("text",part.text);pending.put(row);
+                                    }
+                                    final String saveUri=bookUri,saveTitle=title;
+                                    final File saveDir=directory;
+                                    final BookChapterIndex saveChapters=chapters;
+                                    final ArrayList<Integer> saveOffsets=new ArrayList<>(offsets);
+                                    if(saveDir!=null)chapterWriter.execute(()->EdgeChapterArchive.publish(
+                                        getApplicationContext(),saveUri,saveTitle,saveDir,
+                                        pending,saveChapters,saveOffsets));
+                                }catch(Exception ex){Log.w("EdgeChapterArchive","Could not schedule chapter",ex);}
                                 ReaderDiagnosticLog.event("CACHE","saved mp3 bytes="+clip.bytes+
                                     " start="+clip.start+" end="+clip.end);
                                 SentenceChunks.Chunk basePart=SentenceChunks.forWord(sentenceParts,clip.start);
@@ -1108,7 +1139,7 @@ public final class EdgeStreamingService extends Service {
         main.removeCallbacks(idleExpiry);
         main.removeCallbacks(saveIndex);
         persistNow(); // Last selected sentence / interrupted work survives process shutdown.
-        destroyed=true;main.removeCallbacks(refreshReady);
+        destroyed=true;chapterWriter.shutdown();main.removeCallbacks(refreshReady);
         EdgeSpeechQueue.setInteractivePlayback(false);
         cancelLiveExcept(null);
         liveJobs.clear();
