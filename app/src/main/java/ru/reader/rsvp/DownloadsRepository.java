@@ -112,15 +112,20 @@ final class DownloadsRepository {
             item.done=Math.min(item.total,Math.max(0,full.done));
             item.ready=coverage.complete();
             item.running=EdgeFullBookService.isServiceAlive()&&(
-                EdgeFullBookStore.RUNNING.equals(full.status)||EdgeFullBookStore.QUEUED.equals(full.status));
+                EdgeFullBookStore.RUNNING.equals(full.status)||EdgeFullBookStore.QUEUED.equals(full.status)||
+                EdgeFullBookStore.WAITING.equals(full.status)||EdgeFullBookStore.SAVING.equals(full.status));
             item.paused=EdgeFullBookStore.PAUSED.equals(full.status)
-                ||(!EdgeFullBookService.isServiceAlive()&&EdgeFullBookStore.RUNNING.equals(full.status));
+                ||(!EdgeFullBookService.isServiceAlive()&&(
+                    EdgeFullBookStore.RUNNING.equals(full.status)||EdgeFullBookStore.QUEUED.equals(full.status)||
+                    EdgeFullBookStore.WAITING.equals(full.status)||EdgeFullBookStore.SAVING.equals(full.status)));
             item.failed=EdgeFullBookStore.FAILED.equals(full.status);
             item.unknownTotal=item.total==0;
             if(item.ready)item.status="Подготовлено полностью";
             else if(item.failed)item.status="Ошибка подготовки";
             else if(item.paused)item.status="Приостановлено";
-            else if(item.running)item.status="Готовится вся книга";
+            else if(item.running&&EdgeFullBookStore.WAITING.equals(full.status))item.status="Ожидание Edge TTS";
+            else if(item.running&&EdgeFullBookStore.SAVING.equals(full.status))item.status="Сохранение главы";
+            else if(item.running)item.status="Подготовка аудиокниги";
             else item.status="Частично подготовлено";
             item.description="Сохранено "+coverage.percent()+"% текста · "+coverage.files+" MP3 · "+String.format(Locale.ROOT,"%.1f МБ",coverage.bytes/1048576.0)+" · подготовка "+item.done+"/"+item.total;
             if(item.failed&&!full.error.isEmpty())item.description+=" · "+full.error;

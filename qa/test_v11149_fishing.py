@@ -9,7 +9,7 @@ gradle=(r/'app/build.gradle').read_text()
 a='{http://schemas.android.com/apk/res/android}'
 layout=ET.parse(res/'layout/view_chteico_fishing.xml').getroot()
 byid={n.get(a+'id','').split('/')[-1]:n for n in layout.iter() if n.get(a+'id')}
-assert "versionCode 15100" in gradle and "versionName '1.11.151-beta'" in gradle
+assert "versionCode 15200" in gradle and "versionName '1.11.152-beta'" in gradle
 # compact toolbar stands on its own and occupies space ABOVE the now-shortened lake
 bar=byid['fishing_toolbar']; pond=byid['fishing_pond']
 assert bar.tag=='LinearLayout' and bar.get(a+'layout_height')=='48dp'

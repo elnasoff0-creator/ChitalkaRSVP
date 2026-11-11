@@ -33,6 +33,11 @@ JAVA
 cat > "$P/androidx/documentfile/provider/DocumentFile.java" <<'JAVA'
 package androidx.documentfile.provider;public class DocumentFile{public static DocumentFile fromTreeUri(android.content.Context c,android.net.Uri u){return null;}public boolean exists(){return true;}public boolean isDirectory(){return true;}public boolean canWrite(){return true;}}
 JAVA
+cat > "$P/ru/reader/rsvp/EdgeChapterArchive.java" <<'JAVA'
+package ru.reader.rsvp;public class EdgeChapterArchive{
+ public static void invalidate(){}
+}
+JAVA
 cat > "$P/ru/reader/rsvp/SwipeDialogs.java" <<'JAVA'
 package ru.reader.rsvp; public class SwipeDialogs{public static class Builder{public Builder(android.app.Activity a){}public Builder setTitle(String s){return this;}public Builder setMessage(String s){return this;}public Builder setNegativeButton(String s,Click c){return this;}public Builder setPositiveButton(String s,Click c){return this;}public void show(){}}public interface Click{void click(Object dialog,int number);}}
 JAVA

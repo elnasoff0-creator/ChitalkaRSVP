@@ -35,7 +35,8 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
     private final ExecutorService worker=Executors.newSingleThreadExecutor();
     private String uri="",title="";
     private int pendingFolderChapter=-2;
-    private TextView summary,pauseButton;
+    private TextView summary,pauseButton,totalPercent,totalDetail;
+    private ProgressBar totalProgress;
     private LinearLayout entries;
     private boolean visible,loading;
     private long lastSegmentsAt;
@@ -46,7 +47,7 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
     private ArrayList<Integer> offsets=new ArrayList<>();
     private BookChapterIndex toc=BookChapterIndex.empty();
     private static final class Entry {
-        String title,state="",error="";int chapter,from,to,saved;
+        String title,state="",error="";int chapter,from,to,saved,jobDone,jobTotal;
         EdgeOfflineIndex.Stats stats;
     }
     private final Runnable ticker=new Runnable(){@Override public void run(){
@@ -77,6 +78,18 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
         bookLp.topMargin=dp(13);root.addView(book,bookLp);
         summary=text("Проверка сохранённых MP3…",14,false);LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,-2);
         sp.topMargin=dp(12);root.addView(summary,sp);
+        LinearLayout overall=new LinearLayout(this);overall.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams ol=new LinearLayout.LayoutParams(-1,-2);ol.topMargin=dp(9);
+        root.addView(overall,ol);
+        TextView overallTitle=text("Общий прогресс книги",14,true);
+        overall.addView(overallTitle,new LinearLayout.LayoutParams(0,-2,1));
+        totalPercent=text("0%",14,true);overall.addView(totalPercent);
+        totalProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
+        totalProgress.setMax(100);LinearLayout.LayoutParams op=new LinearLayout.LayoutParams(-1,dp(8));
+        op.topMargin=dp(6);root.addView(totalProgress,op);
+        totalDetail=text("Ожидаем подготовку глав",12,false);totalDetail.setTextColor(MUTED);
+        LinearLayout.LayoutParams od=new LinearLayout.LayoutParams(-1,-2);od.topMargin=dp(5);
+        root.addView(totalDetail,od);
         LinearLayout controls=new LinearLayout(this);LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,-2);
         cp.topMargin=dp(12);root.addView(controls,cp);
         TextView all=button("Подготовить все",()->command(-1));controls.addView(all,new LinearLayout.LayoutParams(0,dp(47),1));
@@ -132,7 +145,9 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
     private void toggle(){
         EdgeFullBookStore.Job job=EdgeFullBookStore.find(this,uri,title);
         if(job==null){command(-1);return;}
-        boolean running=EdgeFullBookStore.RUNNING.equals(job.status)||EdgeFullBookStore.QUEUED.equals(job.status);
+        boolean running=EdgeFullBookService.isServiceAlive()&&
+            (EdgeFullBookStore.RUNNING.equals(job.status)||EdgeFullBookStore.QUEUED.equals(job.status)
+            ||EdgeFullBookStore.WAITING.equals(job.status)||EdgeFullBookStore.SAVING.equals(job.status));
         launch(new Intent(this,EdgeFullBookService.class)
             .setAction(running?EdgeFullBookService.PAUSE:EdgeFullBookService.RESUME)
             .putExtra(EdgeFullBookService.EXTRA_URI,uri));
@@ -172,30 +187,66 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
                 for(Entry item:result){
                     item.saved=saved.state(Math.max(0,item.chapter));
                     if(merging.contains(item.chapter)){item.state="Объединение MP3";continue;}
-                    boolean inProgress=job!=null&&
-                        (job.chapter==-1||job.chapter==item.chapter)&&
-                        (EdgeFullBookStore.QUEUED.equals(job.status)||EdgeFullBookStore.RUNNING.equals(job.status));
-                    // A retry supersedes a previously published chapter's visible status.
-                    if(!inProgress&&item.saved==2){item.state="Готов единый MP3";continue;}
-                    if(!inProgress&&item.saved==1){item.state="Фрагменты готовы";continue;}
-                    if(job!=null&&(job.chapter==-1||job.chapter==item.chapter)){
-                        if(EdgeFullBookStore.QUEUED.equals(job.status))item.state="В очереди";
-                        else if(EdgeFullBookStore.RUNNING.equals(job.status))item.state="Идёт загрузка";
-                        else if(EdgeFullBookStore.PAUSED.equals(job.status))item.state="Приостановлено";
-                        else if(EdgeFullBookStore.FAILED.equals(job.status)){
-                            item.state="Ошибка";item.error=job.error;
-                        }else if(EdgeFullBookStore.DONE.equals(job.status))item.state="Подготовка завершена";
+                    EdgeFullBookStore.Task task=EdgeFullBookStore.task(job,item.chapter);
+                    if(task!=null){item.jobDone=task.done;item.jobTotal=task.total;}
+                    boolean pending=task!=null&&(EdgeFullBookStore.QUEUED.equals(task.status)||
+                        EdgeFullBookStore.RUNNING.equals(task.status)||
+                        EdgeFullBookStore.WAITING.equals(task.status)||
+                        EdgeFullBookStore.SAVING.equals(task.status));
+                    // A running/failed reload takes precedence over the old
+                    // published MP3; keep error feedback even if the backup is playable.
+                    boolean failed=task!=null&&EdgeFullBookStore.FAILED.equals(task.status);
+                    if(!pending&&!failed&&item.saved==2){item.state="Готов единый MP3";continue;}
+                    if(!pending&&!failed&&item.saved==1){item.state="Фрагменты готовы";continue;}
+                    if(task!=null){
+                        if(EdgeFullBookStore.QUEUED.equals(task.status))item.state="В очереди";
+                        else if(EdgeFullBookStore.RUNNING.equals(task.status))item.state="Идёт загрузка";
+                        else if(EdgeFullBookStore.WAITING.equals(task.status))item.state="Ожидание Edge TTS";
+                        else if(EdgeFullBookStore.SAVING.equals(task.status))item.state="Сохранение / сборка MP3";
+                        else if(EdgeFullBookStore.PAUSED.equals(task.status)){
+                            item.state="Приостановлено";item.error=task.error;
+                        }
+                        else if(EdgeFullBookStore.FAILED.equals(task.status)){
+                            item.state="Ошибка";item.error=task.error;
+                        }else if(EdgeFullBookStore.DONE.equals(task.status))item.state="Подготовка завершена";
                     }
                     if(item.state.isEmpty())item.state=item.stats.complete()?"Фрагменты во временном кэше":"Нажмите для загрузки";
                 }
-                int published=0;for(Entry entry:result)if(entry.saved>0)published++;
-                final int finalPublished=published;
+                int published=0,pendingCount=0,activeChapter=-1;
+                long weighted=0,weightTotal=0;
+                String activeState="";
+                for(Entry entry:result){
+                    if(entry.saved>0)published++;
+                    EdgeFullBookStore.Task task=EdgeFullBookStore.task(job,entry.chapter);
+                    int pct=entry.saved>0?100:entry.stats.percent();
+                    if(task!=null){
+                        if(task.total>0&&!EdgeFullBookStore.DONE.equals(task.status))
+                            pct=Math.max(pct,Math.min(98,task.done*100/task.total));
+                        if(EdgeFullBookStore.QUEUED.equals(task.status)||EdgeFullBookStore.RUNNING.equals(task.status)||
+                            EdgeFullBookStore.WAITING.equals(task.status)||EdgeFullBookStore.SAVING.equals(task.status))pendingCount++;
+                        if(activeChapter==-1&&(EdgeFullBookStore.RUNNING.equals(task.status)||
+                            EdgeFullBookStore.WAITING.equals(task.status)||EdgeFullBookStore.SAVING.equals(task.status))){
+                            activeChapter=entry.chapter;activeState=entry.title+" · "+entry.state;
+                        }
+                    }
+                    if(entry.saved==0)pct=Math.min(pct,99); // 100% only after SAF publication
+                    long w=Math.max(1,entry.to-entry.from);weighted+=w*pct;weightTotal+=w;
+                }
+                final int finalPublished=published,finalPending=pendingCount;
+                final int bookPercent=weightTotal==0?0:(int)(weighted/weightTotal);
+                final String currentStage=activeState;
                 main.post(()->{
                     loading=false;if(!visible)return;
-                    boolean running=job!=null&&(EdgeFullBookStore.RUNNING.equals(job.status)||EdgeFullBookStore.QUEUED.equals(job.status));
+                    boolean running=EdgeFullBookService.isServiceAlive()&&job!=null&&
+                        (EdgeFullBookStore.RUNNING.equals(job.status)||
+                        EdgeFullBookStore.QUEUED.equals(job.status)||EdgeFullBookStore.WAITING.equals(job.status)||
+                        EdgeFullBookStore.SAVING.equals(job.status));
                     if(pauseButton!=null)pauseButton.setText(running?"Пауза":"Продолжить");
-                    summary.setText("Сохранено глав: "+finalPublished+" · MP3 в кэше: "+total.files+
-                        " · "+String.format(Locale.ROOT,"%.1f МБ",total.bytes/1048576.0));
+                    summary.setText("Сохранено глав: "+finalPublished+" из "+result.size()+
+                        " · MP3 в кэше: "+total.files+" · "+String.format(Locale.ROOT,"%.1f МБ",total.bytes/1048576.0));
+                    totalProgress.setProgress(bookPercent);totalPercent.setText(bookPercent+"%");
+                    totalDetail.setText("Готово: "+finalPublished+" из "+result.size()+" · В очереди/работе: "+
+                        finalPending+(currentStage.isEmpty()?"":" · "+currentStage));
                     if(chapterViews.size()!=result.size()||!sameChapters(result)){
                         entries.removeAllViews();chapterViews.clear();displayed.clear();
                         for(Entry entry:result){addEntry(entry);displayed.add(entry);}
@@ -203,8 +254,13 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
                         Entry item=result.get(i),old=displayed.get(i);
                         ChapterViews view=chapterViews.get(i);
                         if(!sameStats(old,item)){
-                            boolean updating="В очереди".equals(item.state)||"Идёт загрузка".equals(item.state);
+                            boolean updating="В очереди".equals(item.state)||"Идёт загрузка".equals(item.state)||
+                                "Ожидание Edge TTS".equals(item.state)||"Сохранение / сборка MP3".equals(item.state);
+                            EdgeFullBookStore.Task currentTask=EdgeFullBookStore.task(job,item.chapter);
                             int pct=item.saved>0&&!updating?100:item.stats.percent();
+                            if(currentTask!=null&&currentTask.total>0&&updating)
+                                pct=Math.max(pct,Math.min(98,currentTask.done*100/currentTask.total));
+                            if(item.saved==0)pct=Math.min(pct,99);
                             view.percent.setText(updating&&item.saved>0?"↻":pct+"%");view.bar.setProgress(updating&&item.saved>0?0:pct);
                             view.details.setText(details(item));
                             view.details.setTextColor(stateColor(item));
@@ -222,7 +278,8 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
     }
     private static boolean sameStats(Entry a,Entry b){
         return a.saved==b.saved&&a.stats.covered==b.stats.covered&&a.stats.bytes==b.stats.bytes&&
-            a.stats.files==b.stats.files&&a.state.equals(b.state)&&a.error.equals(b.error);
+            a.stats.files==b.stats.files&&a.jobDone==b.jobDone&&a.jobTotal==b.jobTotal&&
+            a.state.equals(b.state)&&a.error.equals(b.error);
     }
     private boolean sameChapters(ArrayList<Entry> next){
         if(displayed.size()!=next.size())return false;
@@ -234,6 +291,7 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
         if("Ошибка".equals(item.state))return 0xffa13d36;
         if(item.saved>0)return 0xff2b6145;
         if("В очереди".equals(item.state)||"Идёт загрузка".equals(item.state)||
+            "Ожидание Edge TTS".equals(item.state)||"Сохранение / сборка MP3".equals(item.state)||
             "Объединение MP3".equals(item.state))return 0xff276db1;
         return MUTED;
     }
@@ -259,10 +317,13 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
         entries.addView(card,outer);
         LinearLayout headline=new LinearLayout(this);headline.setGravity(Gravity.CENTER_VERTICAL);card.addView(headline);
         TextView name=text(item.title,15,true);headline.addView(name,new LinearLayout.LayoutParams(0,-2,1));
-        TextView percent=text((item.saved>0?100:item.stats.percent())+"%",14,true);
+        int initialPct=item.saved>0?100:item.stats.percent();
+        if(item.jobTotal>0&&item.saved==0)initialPct=Math.max(initialPct,Math.min(98,item.jobDone*100/item.jobTotal));
+        if(item.saved==0)initialPct=Math.min(initialPct,99);
+        TextView percent=text(initialPct+"%",14,true);
         percent.setTextColor(stateColor(item));headline.addView(percent);
         ProgressBar progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
-        progress.setMax(100);progress.setProgress(item.saved>0?100:item.stats.percent());
+        progress.setMax(100);progress.setProgress(initialPct);
         LinearLayout.LayoutParams bar=new LinearLayout.LayoutParams(-1,dp(6));bar.topMargin=dp(7);card.addView(progress,bar);
         TextView meta=text(details(item),12,false);
         meta.setTextColor(stateColor(item));LinearLayout.LayoutParams ml=new LinearLayout.LayoutParams(-1,-2);ml.topMargin=dp(5);card.addView(meta,ml);
@@ -296,11 +357,10 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
             .setNegativeButton("Отмена",null)
             .setPositiveButton("Удалить",(d,w)->{
                 EdgeFullBookStore.Job job=EdgeFullBookStore.find(this,uri,title);
-                if(job!=null&&(job.chapter==-1||job.chapter==chapter)&&
-                    (EdgeFullBookStore.RUNNING.equals(job.status)||EdgeFullBookStore.QUEUED.equals(job.status))){
-                    launch(new Intent(this,EdgeFullBookService.class).setAction(EdgeFullBookService.PAUSE)
-                        .putExtra(EdgeFullBookService.EXTRA_URI,uri));
-                }
+                // Cancel only the selected chapter: never interrupt another book chapter.
+                launch(new Intent(this,EdgeFullBookService.class).setAction(EdgeFullBookService.STOP_CHAPTER)
+                    .putExtra(EdgeFullBookService.EXTRA_URI,uri)
+                    .putExtra(EdgeFullBookService.EXTRA_CHAPTER,chapter));
                 worker.execute(()->{
                     boolean removed=EdgeChapterArchive.deleteChapter(this,uri,title,Math.max(0,chapter));
                     if(removed){

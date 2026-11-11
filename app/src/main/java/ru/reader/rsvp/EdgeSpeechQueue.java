@@ -31,6 +31,7 @@ final class EdgeSpeechQueue {
     private static final long MAX_LOCAL_DELAY_MS=500L;
     private static final long BACKGROUND_GAP_MS=500L;
     private EdgeSpeechQueue(){}
+    static synchronized boolean interactivePlaybackActive(){return interactivePlayback;}
     static synchronized void setInteractivePlayback(boolean playing){
         if(interactivePlayback!=playing){interactivePlayback=playing;schedule();}
     }

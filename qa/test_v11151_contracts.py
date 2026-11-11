@@ -7,7 +7,7 @@ j=r/'app/src/main/java/ru/reader/rsvp'
 d=r/'app/src/main/res/drawable'
 read=lambda name:(j/name).read_text()
 s=(r/'app/build.gradle').read_text()
-assert 'versionCode 15100' in s and "versionName '1.11.151-beta'" in s
+assert 'versionCode 15200' in s and "versionName '1.11.152-beta'" in s
 # User-supplied XML icons must replace corresponding sources byte-for-byte.
 for name in ('ic_search_audiobook','ic_manga_search','ic_fishing_bait_counter','ic_fishing_gold_counter'):
     x=ET.parse(d/(name+'.xml')).getroot();a='{http://schemas.android.com/apk/res/android}'

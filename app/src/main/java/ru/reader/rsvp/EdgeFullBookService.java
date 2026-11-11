@@ -29,6 +29,7 @@ public final class EdgeFullBookService extends Service {
     static final String ADD="ru.reader.rsvp.edge.full.ADD";
     static final String RESUME="ru.reader.rsvp.edge.full.RESUME";
     static final String PAUSE="ru.reader.rsvp.edge.full.PAUSE";
+    static final String STOP_CHAPTER="ru.reader.rsvp.edge.full.STOP_CHAPTER";
     static final String EXTRA_URI="book_uri",EXTRA_TITLE="book_title",EXTRA_VOICE="edge_voice";
     static final String EXTRA_RATE="edge_rate",EXTRA_CHARS="edge_chars",EXTRA_CHAPTER="edge_chapter";
     static final String EXTRA_FORCE="edge_force_reload";
@@ -40,9 +41,11 @@ public final class EdgeFullBookService extends Service {
     static boolean isServiceAlive(){return serviceAlive;}
     private volatile EdgeTtsClient currentClient;
     private volatile String synthesizingUri="";
+    private volatile int synthesizingChapter=EdgeFullBookStore.PLAN;
     private int notificationCounter;
 
-    @Override public void onCreate(){super.onCreate();serviceAlive=true;
+    @Override public void onCreate(){super.onCreate();
+        EdgeFullBookStore.recoverInterrupted(this);serviceAlive=true;
         EdgeSpeechQueue.restoreCooldown(getSharedPreferences("reader",0)
                 .getLong("edge_v2_retry_after_epoch_ms",0));
         if(Build.VERSION.SDK_INT>=26){NotificationManager nm=getSystemService(NotificationManager.class);
@@ -59,12 +62,18 @@ public final class EdgeFullBookService extends Service {
                     voice==null?"ru-RU-SvetlanaNeural":voice,rate==null?"+0%":rate,chars);
                 EdgeFullBookStore.chooseChapter(created,intent.getIntExtra(EXTRA_CHAPTER,-1),
                     intent.getBooleanExtra(EXTRA_FORCE,false));
-                if(uri.equals(synthesizingUri)){
-                    EdgeTtsClient old=currentClient;if(old!=null)old.cancel();
+                // Multiple chapter taps append independent durable tasks.
+                // Never interrupt another chapter simply because it shares a book URI.
+            }else if(STOP_CHAPTER.equals(action)&&uri!=null){
+                int selected=intent.getIntExtra(EXTRA_CHAPTER,EdgeFullBookStore.PLAN);
+                EdgeFullBookStore.stopChapter(this,uri,"",selected);
+                if(uri.equals(synthesizingUri)&&selected==synthesizingChapter){
+                    EdgeTtsClient active=currentClient;if(active!=null)active.cancel();
                 }
             }else if((RESUME.equals(action)||PAUSE.equals(action))&&uri!=null){
                 for(EdgeFullBookStore.Job job:EdgeFullBookStore.list(this))if(uri.equals(job.uri)){
-                    EdgeFullBookStore.status(job,PAUSE.equals(action)?EdgeFullBookStore.PAUSED:EdgeFullBookStore.QUEUED);
+                    if(PAUSE.equals(action))EdgeFullBookStore.pauseAll(job);
+                    else EdgeFullBookStore.resumeAll(job);
                     if(PAUSE.equals(action)&&uri.equals(synthesizingUri)){
                         EdgeTtsClient client=currentClient;if(client!=null)client.cancel();
                     }
@@ -99,12 +108,7 @@ public final class EdgeFullBookService extends Service {
         try{
             // Only one full-book synth job runs at once; queued books follow it automatically.
             while(!destroyed){
-                EdgeFullBookStore.Job next=null;
-                for(EdgeFullBookStore.Job job:EdgeFullBookStore.list(this)){
-                    if(EdgeFullBookStore.QUEUED.equals(job.status)||EdgeFullBookStore.RUNNING.equals(job.status)){
-                        next=job;break;
-                    }
-                }
+                EdgeFullBookStore.Job next=EdgeFullBookStore.next(this);
                 if(next==null)break;
                 runJob(next);
             }
@@ -120,6 +124,18 @@ public final class EdgeFullBookService extends Service {
         }
     }
     private void runJob(EdgeFullBookStore.Job job){
+        if(job.chapter==EdgeFullBookStore.PLAN){
+            try{
+                BookLoader.Book book=BookLoader.load(this,Uri.parse(job.uri));
+                EdgeChapterArchive.invalidate(); // avoid using a stale 9-second SAF snapshot
+                EdgeChapterArchive.ChapterSnapshot snapshot=EdgeChapterArchive.snapshot(this,job.uri,job.title);
+                EdgeFullBookStore.planMissing(job,book.chapters,snapshot);
+            }catch(Exception error){
+                EdgeFullBookStore.progress(job,0,0,"Не удалось открыть оглавление: "+error.getMessage());
+                EdgeFullBookStore.status(job,EdgeFullBookStore.FAILED);
+            }
+            return;
+        }
         if(!EdgeFolderPicker.available(this)){
             EdgeFullBookStore.status(job,EdgeFullBookStore.FAILED);
             EdgeFullBookStore.progress(job,0,0,"Сначала выберите папку Edge TTS");
@@ -149,13 +165,19 @@ public final class EdgeFullBookService extends Service {
             EdgeFullBookStore.writeQueue(job,index);
             DownloadsRepository.storeEdgeMeta(EdgeBookStorage.bookFolder(this,job.uri,job.title),
                 job.uri,job.title,EdgeTextSegments.positions(raw).size());
-            int count=index.length();job.total=count;
+            int count=index.length();
             BookChapterIndex.Chapter only=job.chapter>=0 && job.chapter<book.chapters.size()
                 ?book.chapters.get(job.chapter):null;
             ArrayList<Integer> wordOffsets=EdgeTextSegments.positions(raw);
             int chapterStart=only==null?0:SentenceChunks.lowerBound(wordOffsets,only.startChar);
             int chapterEnd=only==null?wordOffsets.size():SentenceChunks.lowerBound(wordOffsets,only.endChar);
             if(job.chapter>=0&&only==null)throw new Exception("Выбранная глава недоступна");
+            int eligible=0;
+            for(int k=0;k<count;k++){
+                JSONObject row=index.getJSONObject(k);
+                if(only!=null&&(row.optInt("end",0)<=chapterStart||row.optInt("start",0)>=chapterEnd))continue;
+                eligible++;
+            }
             // Restore known persistent fragments after cache eviction, before synthesis.
             if(!job.forceReload)EdgeChapterArchive.restore(this,job.uri,job.title,job.mp3Folder());
             if(job.forceReload){
@@ -169,8 +191,8 @@ public final class EdgeFullBookService extends Service {
                 }
                 EdgeFullBookStore.clearForce(job);
             }
-            int completed=EdgeFullBookStore.readyCount(job);
-            EdgeFullBookStore.progress(job,completed,count,null);
+            int completed=readyInRange(job,index,chapterStart,chapterEnd,only!=null);
+            EdgeFullBookStore.progress(job,completed,eligible,null);
             for(int i=0;i<count&&!destroyed;){
                 if(!EdgeFullBookStore.running(job))return;
                 JSONObject o=index.getJSONObject(i);String key=o.getString("key");
@@ -189,11 +211,12 @@ public final class EdgeFullBookService extends Service {
                     for(int attempt=0;attempt<4&&!destroyed;attempt++){
                         if(!EdgeFullBookStore.running(job))return;
                         if(EdgeSpeechQueue.remainingMs()>0){
-                            long seconds=(EdgeSpeechQueue.remainingMs()+999)/1000;
-                            EdgeFullBookStore.progress(job,EdgeFullBookStore.readyCount(job),count,
-                                "Подготовка приостановлена");
-                            EdgeFullBookStore.status(job,EdgeFullBookStore.PAUSED);
-                            return;
+                            // Short scheduler cooldown is not a failed chapter.
+                            EdgeFullBookStore.status(job,EdgeFullBookStore.WAITING);
+                            Thread.sleep(Math.min(500L,EdgeSpeechQueue.remainingMs()));
+                            if(!EdgeFullBookStore.running(job))return;
+                            EdgeFullBookStore.status(job,EdgeFullBookStore.RUNNING);
+                            attempt--;continue;
                         }
                         Result result=synthesize(o.getString("text"),job,speechOptions);
                         if(!EdgeFullBookStore.running(job))return;
@@ -215,8 +238,15 @@ public final class EdgeFullBookService extends Service {
                         }else problem=result.error==null?"Сервис вернул не MP3":result.error;
                         if(saved)break;
                         if(problem!=null&&problem.contains("прерван ради активного чтения")){
-                            EdgeFullBookStore.status(job,EdgeFullBookStore.PAUSED);
-                            return;
+                            // ReaderActivity preempted us; do not drop this chapter.
+                            EdgeFullBookStore.status(job,EdgeFullBookStore.WAITING);
+                            while(EdgeSpeechQueue.interactivePlaybackActive()&&!destroyed){
+                                if(!EdgeFullBookStore.running(job))return;
+                                Thread.sleep(500);
+                            }
+                            if(!EdgeFullBookStore.running(job))return;
+                            EdgeFullBookStore.status(job,EdgeFullBookStore.RUNNING);
+                            attempt--;continue;
                         }
                         if(problem!=null&&problem.contains("HTTP 429")){
                             getSharedPreferences("reader",0).edit().putLong(
@@ -226,46 +256,50 @@ public final class EdgeFullBookService extends Service {
                             // asked us to reduce the request rate.
                             Log.w("EdgeFullBook","HTTP 429; Retry-After="+
                                 EdgeSpeechQueue.remainingMs()+"ms");
-                            EdgeFullBookStore.progress(job,EdgeFullBookStore.readyCount(job),count,
-                                "Подготовка приостановлена");
-                            EdgeFullBookStore.status(job,EdgeFullBookStore.PAUSED);
+                            EdgeFullBookStore.progress(job,readyInRange(job,index,chapterStart,chapterEnd,only!=null),eligible,
+                                "HTTP 429 · повторите после паузы");
+                            EdgeFullBookStore.pauseAll(job); // avoid hammering 429 across queued chapters
                             return;
                         }
                         Thread.sleep(500L); // fixed local retry gap; 429 never auto-retries
                     }
                     if(!saved){
-                        EdgeFullBookStore.progress(job,EdgeFullBookStore.readyCount(job),count,
+                        EdgeFullBookStore.progress(job,readyInRange(job,index,chapterStart,chapterEnd,only!=null),eligible,
                             "Фрагмент "+(i+1)+": "+problem);
                         EdgeFullBookStore.status(job,EdgeFullBookStore.FAILED);
                         return;
                     }
                 }finally{EdgeGenerationGuard.release(target.getAbsolutePath());}
                 i++;
-                completed=EdgeFullBookStore.readyCount(job);
-                EdgeFullBookStore.progress(job,completed,count,null);
-                notifyProgress(job.title,completed,count);
+                completed=readyInRange(job,index,chapterStart,chapterEnd,only!=null);
+                EdgeFullBookStore.progress(job,completed,eligible,null);
+                notifyProgress(job.title,completed,eligible);
             }
             // Complete chapters are saved as one MP3 + WordBoundary JSON under
             // the user's SAF tree. Per-clip audio is ONLY disposable playback cache.
+            if(!EdgeFullBookStore.running(job))return;
+            EdgeFullBookStore.status(job,EdgeFullBookStore.SAVING);
             int exported=EdgeChapterArchive.autoMerge(this)?
                 EdgeChapterArchive.publish(this,job.uri,job.title,job.mp3Folder(),index,book.chapters,wordOffsets):
                 EdgeChapterArchive.publishFragments(this,job.uri,job.title,job.mp3Folder(),index,book.chapters,wordOffsets);
             Log.i("EdgeFullBook","Verified chapters in SAF: "+exported);
-            if(exported==0)throw new Exception("Не удалось записать завершённую главу в выбранную папку Edge TTS");
+            EdgeChapterArchive.invalidate();
+            if(exported==0||job.chapter>=0&&
+                EdgeChapterArchive.snapshot(this,job.uri,job.title).state(job.chapter)==0)
+                throw new Exception("Не удалось записать завершённую главу в выбранную папку Edge TTS");
             // Keep the pre-existing in-app chapter dashboard functional while
             // all of its source files live in disposable internal cache.
             EdgeChapterLayout.publish(job,index,book.chapters,wordOffsets);
             if(EdgeFullBookStore.running(job)){
-                completed=EdgeFullBookStore.readyCount(job);
-                EdgeFullBookStore.progress(job,completed,count,null);
+                completed=readyInRange(job,index,chapterStart,chapterEnd,only!=null);
+                EdgeFullBookStore.progress(job,completed,eligible,null);
                 // Ignored segments have no MP3 by design; count only actual
                 // eligible queue entries when determining completion.
-                int eligible=0,ready=0;
+                int ready=0;
                 for(int k=0;k<index.length();k++){
                     JSONObject row=index.getJSONObject(k);
                     if(only!=null&&(row.optInt("end",0)<=chapterStart ||
                         row.optInt("start",0)>=chapterEnd))continue;
-                    eligible++;
                     if(EdgeFullBookStore.ready(new File(job.mp3Folder(),row.getString("key")+".mp3")))ready++;
                 }
                 EdgeFullBookStore.status(job,ready==eligible?EdgeFullBookStore.DONE:EdgeFullBookStore.FAILED);
@@ -273,11 +307,26 @@ public final class EdgeFullBookService extends Service {
         }catch(InterruptedException e){Thread.currentThread().interrupt();}
         catch(Exception e){
             if(EdgeFullBookStore.running(job)){
-                EdgeFullBookStore.progress(job,EdgeFullBookStore.readyCount(job),job.total,"Ошибка: "+e.getMessage());
+                EdgeFullBookStore.Job refreshed=EdgeFullBookStore.find(this,job.uri,job.title);
+                EdgeFullBookStore.Task current=EdgeFullBookStore.task(refreshed,job.chapter);
+                EdgeFullBookStore.progress(job,current==null?0:current.done,
+                    current==null?0:current.total,"Ошибка: "+e.getMessage());
                 EdgeFullBookStore.status(job,EdgeFullBookStore.FAILED);
             }
             Log.w("EdgeFullBook","Cannot prepare book",e);
-        }finally{synthesizingUri="";currentClient=null;}
+        }finally{synthesizingUri="";synthesizingChapter=EdgeFullBookStore.PLAN;currentClient=null;}
+    }
+    private static int readyInRange(EdgeFullBookStore.Job job,JSONArray index,
+                                   int start,int end,boolean filtered){
+        int count=0;
+        for(int k=0;k<index.length();k++){
+            JSONObject row=index.optJSONObject(k);if(row==null)continue;
+            if(filtered&&(row.optInt("end",0)<=start||row.optInt("start",0)>=end))continue;
+            String key=row.optString("key","");
+            if(key.matches("[a-f0-9]{64}")&&EdgeFullBookStore.ready(
+                new File(job.mp3Folder(),key+".mp3")))count++;
+        }
+        return count;
     }
     private static final class Result{volatile byte[] data;volatile String error;
         EdgeSpeechTextTransform.Result transformation;
@@ -289,7 +338,7 @@ public final class EdgeFullBookService extends Service {
         if(result.transformation.skipSynthesis()){
             result.data=new byte[0];return result;
         }
-        synthesizingUri=job.uri;
+        synthesizingUri=job.uri;synthesizingChapter=job.chapter;
         currentClient=EdgeTtsClient.synthesize(result.transformation.spoken,job.voice,job.rate,
             EdgeSpeechQueue.BULK,new EdgeTtsClient.Callback(){
             @Override public void progress(int chunks,long bytes){}
@@ -299,24 +348,42 @@ public final class EdgeFullBookService extends Service {
                 result.boundaries=boundaries;finished(mp3,chunks,error);
             }
         });
-        // A full-book request can wait behind live playback without being
-        // considered a failed network handshake before it gets a permit.
-        if(!done.await(600,TimeUnit.SECONDS)){
+        // BULK waits behind live ReaderActivity playback. Publish that fact
+        // to the chapter card and resume the status without timing out early.
+        boolean wasWaiting=false,finished=false;
+        int activeSeconds=0;
+        while(activeSeconds<600&&!destroyed){
+            if(done.await(1,TimeUnit.SECONDS)){finished=true;break;}
+            if(!EdgeFullBookStore.running(job)){
+                EdgeTtsClient client=currentClient;if(client!=null)client.cancel();
+                result.error="Подготовка остановлена";break;
+            }
+            boolean waiting=EdgeSpeechQueue.interactivePlaybackActive();
+            if(!waiting)activeSeconds++; // live playback wait does not consume timeout
+            if(waiting!=wasWaiting){
+                EdgeFullBookStore.status(job,waiting?EdgeFullBookStore.WAITING:EdgeFullBookStore.RUNNING);
+                wasWaiting=waiting;
+            }
+        }
+        if(!finished&&result.error==null){
             EdgeTtsClient client=currentClient;if(client!=null)client.cancel();
             result.error="Тайм-аут синтеза Edge TTS";
         }
-        currentClient=null;synthesizingUri="";
+        if(EdgeFullBookStore.running(job)&&wasWaiting)EdgeFullBookStore.status(job,EdgeFullBookStore.RUNNING);
+        currentClient=null;synthesizingUri="";synthesizingChapter=EdgeFullBookStore.PLAN;
         return result;
     }
     @Override public void onTimeout(int startId,int fgsType){
         for(EdgeFullBookStore.Job job:EdgeFullBookStore.list(this))
             if(EdgeFullBookStore.RUNNING.equals(job.status)||EdgeFullBookStore.QUEUED.equals(job.status))
-                EdgeFullBookStore.status(job,EdgeFullBookStore.PAUSED);
+                EdgeFullBookStore.pauseAll(job);
         EdgeTtsClient client=currentClient;if(client!=null)client.cancel();
         stopForeground(STOP_FOREGROUND_REMOVE);stopSelf();
     }
-    @Override public void onDestroy(){destroyed=true;serviceAlive=false;
+    @Override public void onDestroy(){destroyed=true;
         for(EdgeFullBookStore.Job job:EdgeFullBookStore.list(this))
-            if(EdgeFullBookStore.RUNNING.equals(job.status))EdgeFullBookStore.status(job,EdgeFullBookStore.PAUSED);
+            if(EdgeFullBookStore.RUNNING.equals(job.status)||EdgeFullBookStore.WAITING.equals(job.status)||
+                EdgeFullBookStore.SAVING.equals(job.status))EdgeFullBookStore.pauseRunning(job);
+        serviceAlive=false;
         EdgeTtsClient client=currentClient;if(client!=null)client.cancel();worker.shutdownNow();super.onDestroy();}
 }

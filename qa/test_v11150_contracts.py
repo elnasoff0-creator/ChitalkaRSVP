@@ -10,8 +10,8 @@ game=read('ChteicoFishingView.java')
 root=ET.parse(res/'layout/view_chteico_fishing.xml').getroot()
 a='{http://schemas.android.com/apk/res/android}'
 ids={v.get(a+'id','').split('/')[-1]:v for v in root.iter() if v.get(a+'id')}
-assert "versionCode 15100" in (r/'app/build.gradle').read_text()
-assert "versionName '1.11.151-beta'" in (r/'app/build.gradle').read_text()
+assert "versionCode 15200" in (r/'app/build.gradle').read_text()
+assert "versionName '1.11.152-beta'" in (r/'app/build.gradle').read_text()
 # 1. Heading removed and all inner frame margins aligned. No fullscreen panel.
 panel=ids['fishing_catch_panel'];progress=ids['fishing_catch_progress'];track=ids['fishing_track']
 assert 'fishing_catch_header' not in ids and 'catchHeader' not in game

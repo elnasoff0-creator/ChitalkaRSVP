@@ -28,5 +28,5 @@ assert '.putExtra("reading_mode_override",0)' not in s('UniversalDrawer.java')
 assert 'void openReadingFromDrawer(){' in s('ReaderActivity.java') and 'setMode(NORMAL);' not in s('ReaderActivity.java').split('void openReadingFromDrawer(){',1)[1].split('}',1)[0]
 assert 'MangaDownloadCover.ensure(ctx,job)' in s('MangaLibDownloadWorker.java')
 assert 'MangaDownloadCover.file(ctx,item.source)' in s('DownloadsRepository.java')
-assert "versionCode 15100" in (r/'app/build.gradle').read_text()
+assert "versionCode 15200" in (r/'app/build.gradle').read_text()
 print('PASS: 14 release source contracts (not runtime verification)')
