@@ -134,6 +134,9 @@ public class BookLoader {
             if (in == null) throw new IOException("Файл недоступен");
             input = readAll(in);
         }
+        // file:// URIs normally do not support OpenableColumns queries.
+        if ("Книга".equals(filename) && uri.getLastPathSegment()!=null)
+            filename=uri.getLastPathSegment();
         String lower = filename.toLowerCase(Locale.ROOT);
         if (lower.endsWith(".epub")) return epub(input, filename);
         if (lower.endsWith(".fb2")) {
@@ -144,8 +147,31 @@ public class BookLoader {
             if (body == null) throw new IOException("В FB2 нет текста");
             return fb2Book(title.isEmpty()?filename:title,author,body);
         }
-        if (lower.endsWith(".html") || lower.endsWith(".htm")) return new Book(filename, "", htmlToText(decode(input)));
+        if (lower.endsWith(".html") || lower.endsWith(".htm")) {
+            String html=decode(input);
+            if (html.contains("ranobe-chapter"))return ranobeHtml(html,filename);
+            return new Book(filename, "", htmlToText(html));
+        }
         throw new IOException("Поддерживаются EPUB, FB2, HTML");
+    }
+
+    /** Chapter markers emitted by RanobeLibStorage become real ReaderActivity TOC entries. */
+    static Book ranobeHtml(String markup,String fallback){
+        org.jsoup.nodes.Document doc=Jsoup.parse(markup);
+        String title=doc.title().trim();if(title.isEmpty())title=fallback;
+        org.jsoup.nodes.Element authorMeta=doc.selectFirst("meta[name=author]");
+        String author=authorMeta==null?"":authorMeta.attr("content");
+        StringBuilder raw=new StringBuilder();ArrayList<BookChapterIndex.Chapter> markers=new ArrayList<>();
+        for(org.jsoup.nodes.Element section:doc.select("section.ranobe-chapter")){
+            org.jsoup.nodes.Element heading=section.selectFirst("h2");
+            String name=heading==null?"Глава":heading.text();
+            String part=htmlToText(section.html()).trim();
+            if(part.isEmpty())continue;
+            int begin=raw.length();markers.add(new BookChapterIndex.Chapter(name,begin,0,0));
+            raw.append(part).append("\n\n");
+        }
+        String plain=raw.toString().trim();
+        return new Book(title,author,plain,BookChapterIndex.build(markers,plain.length()));
     }
 
     private static final class ChapterStart {

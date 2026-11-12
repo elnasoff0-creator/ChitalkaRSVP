@@ -71,6 +71,9 @@ final class CoverImageLoader {
                         HttpURLConnection c=(HttpURLConnection)u.toURL().openConnection();
                         c.setConnectTimeout(9000);c.setReadTimeout(11000);c.setInstanceFollowRedirects(false);
                         c.setRequestProperty("User-Agent","Mozilla/5.0");
+                        String host=u.getHost().toLowerCase(java.util.Locale.ROOT);
+                        if(host.endsWith(".cdnlibs.org")||host.equals("ranobelib.me")||host.endsWith(".ranobelib.me"))
+                            c.setRequestProperty("Referer","https://ranobelib.me/");
                         try{if(c.getResponseCode()!=200||c.getContentLengthLong()>4*1024*1024)return;
                             String mime=c.getContentType();if(mime==null||!mime.startsWith("image/"))return;
                             try(InputStream in=c.getInputStream()){

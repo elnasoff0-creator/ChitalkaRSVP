@@ -37,6 +37,13 @@ final class DownloadArchiveDelete {
                 ArrayList<AudioLibrary.Book> linked=AudioLibrary.load(c);
                 linked.removeIf(b->b.id.equals("direct:"+batch.id));AudioLibrary.save(c,linked);
                 break;
+            case DownloadsRepository.RANOBE:
+                String novelSlug=archived.source;
+                if(novelSlug.isEmpty())novelSlug=archived.id.replaceFirst("^ranobe:","");
+                if(RanobeLibStorage.series(c,novelSlug).isEmpty())
+                    throw new Exception("Задание ранобэ отсутствует; удаление отменено");
+                RanobeLibStorage.deleteSeries(c,novelSlug);
+                break;
             case DownloadsRepository.MANGA:
                 String slug=archived.source;
                 if(slug.isEmpty())slug=archived.id.replaceFirst("^manga:","");

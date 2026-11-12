@@ -12,15 +12,15 @@ import java.io.*;
 
 /** SAF save folder for each download source, with persistent access grants. */
 final class DownloadFolderPicker {
-    static final int AUDIO_REQUEST=3811, MANGA_REQUEST=3812;
-    static final String AUDIO="audiobook_search_tree", MANGA="mangalib_search_tree";
+    static final int AUDIO_REQUEST=3811, MANGA_REQUEST=3812, RANOBE_REQUEST=3813;
+    static final String AUDIO="audiobook_search_tree", MANGA="mangalib_search_tree", RANOBE="ranobelib_search_tree";
     static String sourceKey(String provider){return "download_provider_tree:"+provider;}
     private DownloadFolderPicker(){}
     static void choose(Activity activity,int request,String key){
         Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
         String saved=activity.getSharedPreferences("reader",0).getString(key,
-            activity.getSharedPreferences("reader",0).getString(key.contains("mangalib")?MANGA:AUDIO,""));
+            activity.getSharedPreferences("reader",0).getString(key.contains("ranobelib")?RANOBE:key.contains("mangalib")?MANGA:AUDIO,""));
         if(Build.VERSION.SDK_INT>=26&&!saved.isEmpty())intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI,Uri.parse(saved));
         activity.startActivityForResult(intent,request);
     }
@@ -35,6 +35,7 @@ final class DownloadFolderPicker {
                 android.content.SharedPreferences.Editor editor=activity.getSharedPreferences("reader",0).edit().putString(key,uri.toString());
                 if(key.contains("mangalib"))editor.putString(MANGA,uri.toString());
                 else if(key.contains("kvuhe"))editor.putString(AUDIO,uri.toString());
+                else if(key.contains("ranobelib"))editor.putString(RANOBE,uri.toString());
                 editor.apply();
                 Toast.makeText(activity,"Папка сохранения: "+folder.getName(),Toast.LENGTH_SHORT).show();
             }catch(Exception ex){Toast.makeText(activity,"Не удалось выбрать папку: "+ex.getMessage(),Toast.LENGTH_LONG).show();}
@@ -56,7 +57,7 @@ final class DownloadFolderPicker {
         }
         DocumentFile target=dir.findFile(source.getName());
         if(target!=null&&target.isFile()&&target.length()==source.length())return;
-        if(target==null)target=dir.createFile(source.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".cbz")?"application/vnd.comicbook+zip":"audio/mpeg",source.getName());
+        if(target==null)target=dir.createFile(source.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".cbz")?"application/vnd.comicbook+zip":source.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".html")?"text/html":source.getName().toLowerCase(java.util.Locale.ROOT).matches(".*\\.(jpg|jpeg)")?"image/jpeg":source.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".png")?"image/png":source.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".webp")?"image/webp":source.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".gif")?"image/gif":"audio/mpeg",source.getName());
         if(target==null)throw new IOException("Не удалось создать файл: "+source.getName());
         try(InputStream in=new FileInputStream(source);OutputStream out=context.getContentResolver().openOutputStream(target.getUri(),"wt")){
             if(out==null)throw new IOException("Папка не позволяет запись");

@@ -37,6 +37,12 @@ public final class ReaderBookCache {
         return new File(dir,digest(uri.toString())+".bin");
     }
     private static long sourceSize(Context context,Uri uri){
+        if("file".equalsIgnoreCase(uri.getScheme())){
+            try{File source=new File(uri.getPath());
+                if(source.isFile())return (source.length()*31L)^source.lastModified();
+            }catch(Exception ignored){}
+            return -1;
+        }
         try(Cursor c=context.getContentResolver().query(uri,new String[]{OpenableColumns.SIZE},null,null,null)){
             if(c!=null&&c.moveToFirst()&&!c.isNull(0))return c.getLong(0);
         }catch(Exception ignored){}
@@ -58,7 +64,7 @@ public final class ReaderBookCache {
         try(DataInputStream in=new DataInputStream(new BufferedInputStream(new FileInputStream(f)))){
             if(in.readInt()!=MAGIC)return null;
             long original=in.readLong(),actual=sourceSize(context,uri);
-            if(original>=0&&actual>=0&&original!=actual)return null;
+            if(actual>=0&&original!=actual)return null;
             String title=readString(in,2_000_000),author=readString(in,2_000_000),text=readString(in,60_000_000);
             int count=in.readInt();
             if(count<=0||count>MAX_WORDS)return null;

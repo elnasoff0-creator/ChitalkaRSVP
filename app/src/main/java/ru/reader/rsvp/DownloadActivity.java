@@ -98,28 +98,32 @@ public final class DownloadActivity extends NavigationActivity {
     }
     private void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(12),dp(25),dp(12),dp(12));root.setBackgroundColor(BG);setContentView(root);SafeSystemBars.matchBackground(this,BG);
+        HorizontalScrollView toolbarScroll=new HorizontalScrollView(this);
+        toolbarScroll.setHorizontalScrollBarEnabled(false);
+        root.addView(toolbarScroll,new LinearLayout.LayoutParams(-1,dp(52)));
         LinearLayout toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);
-        root.addView(toolbar,new LinearLayout.LayoutParams(-1,dp(52)));
+        toolbarScroll.addView(toolbar,new HorizontalScrollView.LayoutParams(-2,dp(52)));
         ImageView back=icon(R.drawable.ic_menu_lines,"Главное меню",44);
         toolbar.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));
         back.setOnClickListener(v->UniversalDrawer.show(this));
         toolbar.addView(new View(this),new LinearLayout.LayoutParams(0,dp(1),1));
         toolbarAction(toolbar,R.drawable.ic_search_audiobook,"Поиск аудиокниг",()->startActivity(new Intent(this,KvuheSearchActivity.class)));
         toolbarAction(toolbar,R.drawable.ic_manga_search,"Поиск манги · MangaLib",()->startActivity(new Intent(this,MangaLibSearchActivity.class)));
+        toolbarAction(toolbar,R.drawable.ic_ranobelib_search,"Поиск ранобэ · RanobeLIB",()->startActivity(new Intent(this,RanobeLibSearchActivity.class)));
         toolbarAction(toolbar,R.drawable.ic_import_link,"Импорт по ссылке",()->startActivity(new Intent(this,LinkDownloadActivity.class)));
         toolbarAction(toolbar,R.drawable.ic_autoload,"Подготовить книгу Edge",()->startActivity(new Intent(this,EdgeFullBookActivity.class)));
         toolbarAction(toolbar,R.drawable.ic_download_archive,"Архив загрузок",()->startActivity(new Intent(this,DownloadArchiveActivity.class)));
         TextView heading=text("Загрузки",25,true);heading.setTypeface(Typeface.SERIF,Typeface.BOLD);
         LinearLayout.LayoutParams hl=new LinearLayout.LayoutParams(-1,-2);hl.topMargin=dp(14);root.addView(heading,hl);
-        String[] currentFilters={"Все загрузки","В процессе","Аудиокниги","Edge TTS","По ссылке","Манга"};
-        TextView filterSelect=center(currentFilters[Math.max(0,Math.min(filter,5))]+"  ▾",16);
+        String[] currentFilters={"Все загрузки","В процессе","Аудиокниги","Edge TTS","По ссылке","Манга","Ранобэ"};
+        TextView filterSelect=center(currentFilters[Math.max(0,Math.min(filter,6))]+"  ▾",16);
         filterSelect.setGravity(Gravity.CENTER_VERTICAL|Gravity.CENTER_HORIZONTAL);
         filterSelect.setBackground(bg(ReaderButtonColors.neutral(this,PANEL),15));
         filterSelect.setTextColor(ReaderButtonColors.contrastingText(ReaderButtonColors.neutral(this,PANEL)));
         LinearLayout.LayoutParams fl=new LinearLayout.LayoutParams(-1,dp(49));fl.topMargin=dp(14);root.addView(filterSelect,fl);
         filterSelect.setOnClickListener(v->{
             PopupMenu menu=new PopupMenu(this,filterSelect);
-            String[] names={"Все загрузки","В процессе","Аудиокниги","Edge TTS","По ссылке","Манга"};
+            String[] names={"Все загрузки","В процессе","Аудиокниги","Edge TTS","По ссылке","Манга","Ранобэ"};
             for(int i=0;i<names.length;i++){final int ix=i;menu.getMenu().add(names[i]).setOnMenuItemClickListener(item->{
                 filter=ix;filterSelect.setText(names[ix]+"  ▾");getSharedPreferences("reader",0).edit().putInt(FILTER_KEY,ix).apply();showCachedFilter();return true;});}
             menu.getMenu().add(1,101,99,"Удалить скачанные файлы")
@@ -287,6 +291,7 @@ public final class DownloadActivity extends NavigationActivity {
             if(filter==3&&!DownloadsRepository.EDGE.equals(item.type))continue;
             if(filter==4&&!DownloadsRepository.LINK.equals(item.type))continue;
             if(filter==5&&!DownloadsRepository.MANGA.equals(item.type))continue;
+            if(filter==6&&!DownloadsRepository.RANOBE.equals(item.type))continue;
             (item.ready?ready:unfinished).add(item);
         }
         if(!unfinished.isEmpty()){
@@ -308,6 +313,10 @@ public final class DownloadActivity extends NavigationActivity {
     }
     private void open(DownloadsRepository.Item item){
         if(item.previewOnly){Toast.makeText(this,"Обновляем сведения о загрузке…",Toast.LENGTH_SHORT).show();return;}
+        if(DownloadsRepository.RANOBE.equals(item.type)){
+            startActivity(new Intent(this,RanobeLibBookActivity.class).putExtra("ranobelib_slug",item.source));
+            return;
+        }
         if(DownloadsRepository.MANGA.equals(item.type)){
             // A series card always opens its volume/chapter manager, like audio downloads.
             openMangaChapters(item);
@@ -558,6 +567,28 @@ public final class DownloadActivity extends NavigationActivity {
     }
     private void menu(View anchor,DownloadsRepository.Item item){
         if(item.previewOnly){Toast.makeText(this,"Проверяем состояние загрузки…",Toast.LENGTH_SHORT).show();return;}
+        if(DownloadsRepository.RANOBE.equals(item.type)){
+            PopupMenu popup=new PopupMenu(this,anchor);
+            if(item.ready)popup.getMenu().add("В архив").setOnMenuItemClickListener(m->{archive(item);return true;});
+            popup.getMenu().add("Тома и главы").setOnMenuItemClickListener(m->{open(item);return true;});
+            if(new File(RanobeLibStorage.book(this,item.source).getAbsolutePath()).isFile())
+                popup.getMenu().add("Читать HTML").setOnMenuItemClickListener(m->{
+                    startActivity(new Intent(this,ReaderActivity.class).putExtra("book_uri",item.bookUri));return true;});
+            popup.getMenu().add(item.running?"Пауза":"Продолжить / повторить ошибки").setOnMenuItemClickListener(m->{
+                if(item.running)RanobeLibQueue.pause(this,item.source);
+                else RanobeLibQueue.resume(this,item.source);
+                diskScannedAt=0;refresh();return true;});
+            if(!item.ready)popup.getMenu().add("Отменить очередь").setOnMenuItemClickListener(m->{
+                RanobeLibQueue.cancel(this,item.source);diskScannedAt=0;refresh();return true;});
+            popup.getMenu().add("Удалить скачанную книгу и задания").setOnMenuItemClickListener(m->{
+                new SwipeDialogs.Builder(this).setTitle("Удалить книгу RanobeLIB?")
+                    .setMessage("HTML, главы и обложка этой книги будут удалены. Остальные произведения не затрагиваются.")
+                    .setNegativeButton("Отмена",null).setPositiveButton("Удалить",(d,w)->{
+                        RanobeLibQueue.cancel(this,item.source);
+                        scan.execute(()->{RanobeLibStorage.deleteSeries(getApplicationContext(),item.source);main.post(()->{diskScannedAt=0;refresh();});});
+                    }).show();return true;});
+            popup.show();return;
+        }
         if(DownloadsRepository.MANGA.equals(item.type)){
             PopupMenu p=new PopupMenu(this,anchor);
             if(item.ready)p.getMenu().add(0,81,0,"В архив").setOnMenuItemClickListener(m->{archive(item);return true;});
@@ -725,13 +756,13 @@ public final class DownloadActivity extends NavigationActivity {
             LinearLayout top=new LinearLayout(DownloadActivity.this);top.setGravity(Gravity.TOP);card.addView(top);
             FrameLayout coverFrame=new FrameLayout(DownloadActivity.this);coverFrame.setBackground(bg(0xffe7d7c7,12));
             top.addView(coverFrame,new LinearLayout.LayoutParams(dp(item.ready?75:92),dp(item.ready?106:124)));
-            TextView placeholder=text(DownloadsRepository.MANGA.equals(item.type)?"▣":"♫",27,true);placeholder.setGravity(Gravity.CENTER);coverFrame.addView(placeholder,new FrameLayout.LayoutParams(-1,-1));
+            TextView placeholder=text(DownloadsRepository.MANGA.equals(item.type)?"▣":DownloadsRepository.RANOBE.equals(item.type)?"▤":"♫",27,true);placeholder.setGravity(Gravity.CENTER);coverFrame.addView(placeholder,new FrameLayout.LayoutParams(-1,-1));
             ImageView cover=new ImageView(DownloadActivity.this);cover.setScaleType(ImageView.ScaleType.CENTER_CROP);coverFrame.addView(cover,new FrameLayout.LayoutParams(-1,-1));
             CoverImageLoader.show(cover,item.cover,DownloadsRepository.EDGE.equals(item.type));
             LinearLayout detail=new LinearLayout(DownloadActivity.this);detail.setOrientation(LinearLayout.VERTICAL);
             LinearLayout.LayoutParams d=new LinearLayout.LayoutParams(0,-2,1);d.leftMargin=dp(12);top.addView(detail,d);
             TextView title=text(item.title,17,true);title.setTypeface(Typeface.SERIF,Typeface.BOLD);title.setMaxLines(2);detail.addView(title);
-            TextView type=text(DownloadsRepository.LINK.equals(item.type)?"↓ По ссылке":DownloadsRepository.EDGE.equals(item.type)?"▥ Edge TTS":DownloadsRepository.MANGA.equals(item.type)?"▣ Манга · MangaLib":"▤ Аудиокнига",12,false);type.setTextColor(ACCENT);
+            TextView type=text(DownloadsRepository.LINK.equals(item.type)?"↓ По ссылке":DownloadsRepository.EDGE.equals(item.type)?"▥ Edge TTS":DownloadsRepository.MANGA.equals(item.type)?"▣ Манга · MangaLib":DownloadsRepository.RANOBE.equals(item.type)?"▤ Ранобэ · RanobeLIB":"▤ Аудиокнига",12,false);type.setTextColor(ACCENT);
             LinearLayout.LayoutParams tagParams=new LinearLayout.LayoutParams(-2,-2);tagParams.topMargin=dp(5);detail.addView(type,tagParams);
             TextView info=text(item.description,12,false);info.setTextColor(MUTED);
             LinearLayout.LayoutParams il=new LinearLayout.LayoutParams(-1,-2);il.topMargin=dp(6);detail.addView(info,il);

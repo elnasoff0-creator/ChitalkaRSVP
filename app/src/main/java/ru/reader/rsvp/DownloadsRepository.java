@@ -20,7 +20,7 @@ import java.util.Set;
 
 /** Read-only projection of two INDEPENDENT downloader stores. Never copies downloaded MP3. */
 final class DownloadsRepository {
-    static final String AUDIO="audiobook",EDGE="edge",LINK="direct_link",MANGA="mangalib";
+    static final String AUDIO="audiobook",EDGE="edge",LINK="direct_link",MANGA="mangalib",RANOBE="ranobelib";
     static final String HIDDEN_EDGE="hidden_edge_downloads_v1";
     static final class Item {
         String type="",id="",title="",cover="",source="",bookUri="",status="",description="";
@@ -197,6 +197,39 @@ final class DownloadsRepository {
             item.failed=group.failed&&!item.running;
             item.status=group.status();item.description=group.description();
             all.add(item);
+        }
+        // One RanobeLIB row per title, not a separate download card per chapter.
+        java.util.LinkedHashMap<String,Item> novels=new java.util.LinkedHashMap<>();
+        for(RanobeLibStorage.Job job:RanobeLibStorage.jobs(ctx)){
+            if(job.slug.isEmpty())continue;
+            Item entry=novels.get(job.slug);
+            if(entry==null){entry=new Item();entry.id="ranobe:"+job.slug;
+                entry.type=RANOBE;entry.source=job.slug;entry.title=job.title;
+                entry.bookUri=RanobeLibStorage.bookUri(ctx,job.slug);
+                entry.folder=RanobeLibStorage.folder(ctx,job.slug);
+                novels.put(job.slug,entry);
+            }
+            if(entry.title.isEmpty())entry.title=job.title;
+            entry.total++;
+            if("complete".equals(job.status)&&new File(job.file).isFile())entry.done++;
+            else if("running".equals(job.status)||"queued".equals(job.status))entry.running=true;
+            else if("paused".equals(job.status))entry.paused=true;
+            else if("failed".equals(job.status)||"blocked".equals(job.status))entry.failed=true;
+            entry.downloadedBytes+=job.bytes;
+        }
+        for(Item novel:novels.values()){
+            File cover=RanobeLibStorage.cover(ctx,novel.source);
+            if(cover.isFile()&&cover.length()>100)novel.cover=cover.toURI().toString();
+            else novel.cover=RanobeLibStorage.savedTitle(ctx,novel.source).cover;
+            novel.ready=novel.total>0&&novel.done==novel.total;
+            novel.coveragePercent=novel.total==0?0:novel.done*100/novel.total;
+            if(novel.ready){novel.running=false;novel.status="Скачано";}
+            else if(novel.running)novel.status="Скачивается";
+            else if(novel.paused)novel.status="Приостановлено";
+            else if(novel.failed)novel.status="Ошибка глав";
+            else novel.status="Ожидает";
+            novel.description="Глав: "+novel.done+" из "+novel.total+" · HTML";
+            all.add(novel);
         }
         HashMap<String,JSONObject> index=new HashMap<>();
         try{

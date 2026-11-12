@@ -14,6 +14,9 @@ public class CoverLoader {
     static File target(Context ctx,String uri){return new File(ctx.getCacheDir(),"cover_"+Integer.toHexString(uri.hashCode())+".img");}
     static byte[] get(Context ctx,String uri){
         try{
+            // RanobeLIB HTML stores its real artwork next to book.html, not in EPUB/FB2.
+            byte[] artwork=RanobeLibStorage.localCover(ctx,uri);
+            if(artwork!=null)return artwork;
             File f=target(ctx,uri);
             if(f.isFile() && f.length()>0){try(FileInputStream in=new FileInputStream(f)){return BookLoader.readAll(in);}}
             byte[] bytes;

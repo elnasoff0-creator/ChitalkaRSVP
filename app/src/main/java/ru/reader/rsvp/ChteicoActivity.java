@@ -211,7 +211,8 @@ public final class ChteicoActivity extends NavigationActivity {
     private void showGameChoices(FrameLayout petFrame){openMiniGame(petFrame);}
     private void openMiniGame(FrameLayout frame){
         if(frame==null)return;
-        if(activeMiniGame!=null){activeMiniGame.stopClock();frame.removeView(activeMiniGame);activeMiniGame=null;}
+        // Only one embedded game may exist. Repeated taps do not append windows.
+        if(activeMiniGame!=null)return;
         if(pendingSpeechHide!=null){ui.removeCallbacks(pendingSpeechHide);pendingSpeechHide=null;}
         if(sleepAnimation!=null){ui.removeCallbacks(sleepAnimation);sleepAnimation=null;}
         frame.animate().cancel();
@@ -312,7 +313,30 @@ public final class ChteicoActivity extends NavigationActivity {
         ImageView icon=new ImageView(this);icon.setImageResource(R.drawable.ic_stats_nav);icon.setColorFilter(accent);
         hero.addView(icon,new LinearLayout.LayoutParams(dp(54),dp(54)));
         gap(hero,10);
-        TextView title=text("Статистика и награды",21,true);title.setGravity(Gravity.CENTER);hero.addView(title);
+        LinearLayout header=new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title=text("Статистика и награды",21,true);
+        title.setGravity(Gravity.CENTER);
+        header.addView(title,new LinearLayout.LayoutParams(0,-2,1));
+        ImageView gameButton=new ImageView(this);
+        gameButton.setImageResource(R.drawable.ic_chteico_game);
+        gameButton.setColorFilter(fg);
+        gameButton.setBackground(shape(ReadingThemeCycle.isDark(bg)?0xff444349:0xfff0e6dc,12));
+        gameButton.setPadding(dp(10),dp(10),dp(10),dp(10));
+        gameButton.setContentDescription("Открыть рыбалку в статистике и наградах");
+        LinearLayout.LayoutParams buttonLp=new LinearLayout.LayoutParams(dp(43),dp(43));
+        buttonLp.leftMargin=dp(10);
+        header.addView(gameButton,buttonLp);
+        hero.addView(header,new LinearLayout.LayoutParams(-1,-2));
+        // The game is embedded in this very card, never appended as a new card.
+        FrameLayout gameFrame=new FrameLayout(this);
+        hero.addView(gameFrame,new LinearLayout.LayoutParams(-1,0));
+        gameButton.setOnClickListener(v->{
+            if(activeMiniGame!=null)return;
+            gameFrame.getLayoutParams().height=dp(260);
+            gameFrame.requestLayout();
+            openMiniGame(gameFrame);
+        });
 
         addStatsCard();
         addRewardsCard();
@@ -447,22 +471,6 @@ public final class ChteicoActivity extends NavigationActivity {
         stat(third,"Рекорд массы",String.format(java.util.Locale.forLanguageTag("ru"),"%.1f кг",p.getInt("fishing_best_grams",0)/1000.0));
         panel.addView(third);gap(panel,9);
         panel.addView(button("Улов",this::showFishingCatchCollection));
-        gap(panel,10);
-        panel.addView(button("Игры",this::showFishingFromStats));
-    }
-    /** Fishing remains available in statistics even when the pet is disabled. */
-    private void showFishingFromStats(){
-        LinearLayout holder=card();
-        holder.addView(text("Рыбалка",18,true));gap(holder,8);
-        FrameLayout playArea=new FrameLayout(this);
-        holder.addView(playArea,new LinearLayout.LayoutParams(-1,dp(260)));
-        showGameChoices(playArea);
-        // The games card is appended beneath the fishing statistics; reveal it
-        // immediately so the user can play even when the pet is switched off.
-        final ScrollView scroll=mainScroll;
-        if(scroll!=null)scroll.post(()->{
-            if(holder.getParent()!=null)scroll.smoothScrollTo(0,holder.getTop());
-        });
     }
     /** Separate persisted counts and best mass per rarity. Old catches keep their counts. */
     private void showFishingCatchCollection(){
