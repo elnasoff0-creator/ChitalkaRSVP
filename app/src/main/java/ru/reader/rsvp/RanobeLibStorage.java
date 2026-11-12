@@ -59,7 +59,7 @@ final class RanobeLibStorage {
     static synchronized void putAll(Context c,List<Job> jobs){ArrayList<Job> all=readJobs(c);java.util.HashMap<String,Integer> positions=new java.util.HashMap<>();for(int i=0;i<all.size();i++)positions.put(all.get(i).id(),i);
         for(Job job:jobs){Integer pos=positions.get(job.id());if(pos==null){positions.put(job.id(),all.size());all.add(job);}else all.set(pos,job);}saveJobs(c,all);}
     private static void saveJobs(Context c,List<Job> jobs){JSONArray a=new JSONArray();for(Job j:jobs)a.put(j.json());try{writeAtomic(jobsFile(c),a.toString());}catch(IOException ex){android.util.Log.e("RanobeLibStorage","Jobs not saved",ex);throw new IllegalStateException("Не удалось сохранить очередь RanobeLIB",ex);}}
-    static void rememberTitle(Context c,RanobeLibApi.Title title){try{writeAtomic(new File(folder(c,title.slug),"book.json"),title.json().toString(2));}catch(IOException error){android.util.Log.w("RanobeLibStorage","Metadata",error);}}
+    static void rememberTitle(Context c,RanobeLibApi.Title title){try{writeAtomic(new File(folder(c,title.slug),"book.json"),title.json().toString(2));}catch(IOException | org.json.JSONException error){android.util.Log.w("RanobeLibStorage","Metadata",error);}}
     static RanobeLibApi.Title savedTitle(Context c,String slug){try{return RanobeLibApi.Title.fromJson(new JSONObject(readText(new File(folder(c,slug),"book.json"))));}catch(Exception ignored){return new RanobeLibApi.Title(slug,slug);}}
     static boolean hasCover(Context c,String slug){File f=cover(c,slug);return f.isFile()&&f.length()>100;}
     static void ensureCover(Context c,RanobeLibApi.Title t,RanobeLibApi api){
@@ -140,10 +140,10 @@ final class RanobeLibStorage {
         android.content.SharedPreferences prefs=c.getSharedPreferences("reader",0);
         try{JSONArray saved=new JSONArray(prefs.getString("library","[]"));JSONArray updated=new JSONArray();boolean has=false;
             for(int i=0;i<saved.length();i++){JSONObject old=saved.optJSONObject(i);if(old==null)continue;
-                if(uri.equals(old.optString("uri"))){has=true;old.put("title",title.title);if(!title.author.isEmpty())old.put("author",title.author);old.put("format","HTML");if(old.optString("excerpt").isEmpty())old.put("excerpt",title.description);}
+                if(uri.equals(old.optString("uri"))){has=true;old.put("title",BookTitleStore.title(c,BookTitleStore.TEXT,uri,title.title));if(!title.author.isEmpty())old.put("author",title.author);old.put("format","HTML");if(old.optString("excerpt").isEmpty())old.put("excerpt",title.description);}
                 updated.put(old);
             }
-            if(!has){MainActivity.BookMeta meta=new MainActivity.BookMeta();meta.uri=uri;meta.title=title.title;meta.author=title.author;meta.excerpt=title.description;meta.format="HTML";updated.put(meta.toJson());}
+            if(!has){MainActivity.BookMeta meta=new MainActivity.BookMeta();meta.uri=uri;meta.title=BookTitleStore.title(c,BookTitleStore.TEXT,uri,title.title);meta.author=title.author;meta.excerpt=title.description;meta.format="HTML";updated.put(meta.toJson());}
             prefs.edit().putString("library",updated.toString()).commit();
         }catch(Exception error){android.util.Log.e("RanobeLibStorage","Library registration",error);}
     }

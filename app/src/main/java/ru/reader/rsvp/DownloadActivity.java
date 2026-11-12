@@ -209,11 +209,12 @@ public final class DownloadActivity extends NavigationActivity {
                     if(!found){
                         DownloadsRepository.Item live=new DownloadsRepository.Item();
                         live.type=DownloadsRepository.EDGE;live.id="edge:"+liveUri;
-                        live.bookUri=liveUri;live.cover=liveUri;live.title=liveTitle;
+                        live.bookUri=liveUri;live.cover=liveUri;live.title=liveTitle;live.sourceTitle=liveTitle;
                         live.status="Идёт озвучивание";live.description="Текущий аудиофрагмент";
                         live.running=true;all.add(0,live);
                     }
                 }
+                for(DownloadsRepository.Item item:all)item.title=BookTitleStore.downloadTitle(getApplicationContext(),item);
                 int active=0,done=0;
                 java.util.Set<String> hiddenForSummary=DownloadArchiveStore.hiddenIds(getApplicationContext());
                 for(DownloadsRepository.Item item:all){
@@ -565,10 +566,21 @@ public final class DownloadActivity extends NavigationActivity {
                     }).show();
             }).show();
     }
+    private void renameDownload(DownloadsRepository.Item item){
+        BookRenameDialog.show(this,item.title,newName->{
+            if(!BookTitleStore.renameDownload(this,item.id,item.type,item.bookUri,item.source,newName))return false;
+            item.title=newName;
+            for(DownloadsRepository.Item entry:lastAll)if(item.id.equals(entry.id))entry.title=newName;
+            if(adapter!=null)adapter.notifyDataSetChanged();
+            // A disk scan will restore stable job identities and reapply aliases.
+            diskScannedAt=0;refresh();return true;
+        });
+    }
     private void menu(View anchor,DownloadsRepository.Item item){
         if(item.previewOnly){Toast.makeText(this,"Проверяем состояние загрузки…",Toast.LENGTH_SHORT).show();return;}
         if(DownloadsRepository.RANOBE.equals(item.type)){
             PopupMenu popup=new PopupMenu(this,anchor);
+            popup.getMenu().add("Переименовать").setOnMenuItemClickListener(m->{renameDownload(item);return true;});
             if(item.ready)popup.getMenu().add("В архив").setOnMenuItemClickListener(m->{archive(item);return true;});
             popup.getMenu().add("Тома и главы").setOnMenuItemClickListener(m->{open(item);return true;});
             if(new File(RanobeLibStorage.book(this,item.source).getAbsolutePath()).isFile())
@@ -591,6 +603,7 @@ public final class DownloadActivity extends NavigationActivity {
         }
         if(DownloadsRepository.MANGA.equals(item.type)){
             PopupMenu p=new PopupMenu(this,anchor);
+            p.getMenu().add("Переименовать").setOnMenuItemClickListener(m->{renameDownload(item);return true;});
             if(item.ready)p.getMenu().add(0,81,0,"В архив").setOnMenuItemClickListener(m->{archive(item);return true;});
             p.getMenu().add(0,1,0,"Главы и загрузка").setOnMenuItemClickListener(m->{openMangaChapters(item);return true;});
             p.getMenu().add(0,4,1,"Найти другие главы").setOnMenuItemClickListener(m->{
@@ -621,12 +634,14 @@ public final class DownloadActivity extends NavigationActivity {
         }
         if(DownloadsRepository.LINK.equals(item.type)){
             PopupMenu p=new PopupMenu(this,anchor);
+            p.getMenu().add(0,77,0,"Переименовать");
             if(item.ready)p.getMenu().add(0,81,0,"В архив");
             p.getMenu().add(0,1,0,"Список файлов");p.getMenu().add(0,2,1,"Добавить MP3 в библиотеку");
             if(!item.ready)p.getMenu().add(0,3,2,"Продолжить загрузку");
             p.getMenu().add(0,4,3,"Удалить из библиотеки/аудиотеки");p.getMenu().add(0,5,4,"Удалить скачанные файлы");
             p.getMenu().add(0,31,5,"Перенести файлы");
             p.setOnMenuItemClickListener(m->{switch(m.getItemId()){
+                case 77:renameDownload(item);break;
                 case 81:archive(item);break;
                 case 1:open(item);break;
                 case 2:LinkDownloadStore.addToLibrary(this,item.link);Toast.makeText(this,"Добавлено в библиотеку",Toast.LENGTH_SHORT).show();break;
@@ -639,6 +654,7 @@ public final class DownloadActivity extends NavigationActivity {
             }return true;});p.show();return;
         }
         PopupMenu popup=new PopupMenu(this,anchor);
+        popup.getMenu().add(0,77,0,"Переименовать");
         if(item.ready)popup.getMenu().add(0,81,0,"В архив");
         if(DownloadsRepository.EDGE.equals(item.type)){
             popup.getMenu().add(0,1,0,"Главы и загрузка");
@@ -658,6 +674,7 @@ public final class DownloadActivity extends NavigationActivity {
         popup.getMenu().add(0,31,5,"Перенести файлы");
         popup.setOnMenuItemClickListener(m->{
             switch(m.getItemId()){
+                case 77:renameDownload(item);break;
                 case 81:archive(item);break;
                 case 1:open(item);break;
                 case 3:openFolder(item);break;

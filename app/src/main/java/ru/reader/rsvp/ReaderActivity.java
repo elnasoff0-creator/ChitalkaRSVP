@@ -1369,7 +1369,7 @@ public class ReaderActivity extends NavigationActivity {
             ReaderDiagnosticLog.event("READER_STARTUP","book_prepare_ms="+(openedAt-requestAt)+" words="+session.words.words.length);
             BookLoader.Book book=session.book;
             final String loadedText=book.text;
-            final String loadedTitle=book.title;
+            final String loadedTitle=BookTitleStore.title(this,BookTitleStore.TEXT,uri.toString(),book.title);
             final String loadedAuthor=book.author;
             final ReadingWordMap prepared=session.words;
             final BookChapterIndex parsedChapters=book.chapters;

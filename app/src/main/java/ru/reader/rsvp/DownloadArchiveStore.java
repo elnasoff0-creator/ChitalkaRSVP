@@ -15,16 +15,16 @@ final class DownloadArchiveStore {
     private static final String DISMISSED="dismissed";
 
     static final class Entry {
-        String id="",type="",title="",cover="",description="",source="",bookUri="";
+        String id="",type="",title="",sourceTitle="",displayTitle="",cover="",description="",source="",bookUri="";
         long archivedAt;
         JSONObject json()throws Exception{
             JSONObject v=new JSONObject();v.put("id",id);v.put("type",type);v.put("title",title);
-            v.put("cover",cover);v.put("description",description);v.put("source",source);
+            v.put("cover",cover);v.put("sourceTitle",sourceTitle);v.put("description",description);v.put("source",source);
             v.put("bookUri",bookUri);v.put("archivedAt",archivedAt);return v;
         }
         static Entry from(JSONObject o){
             Entry r=new Entry();r.id=o.optString("id","");r.type=o.optString("type","");
-            r.title=o.optString("title","");r.cover=o.optString("cover","");
+            r.title=o.optString("title","");r.sourceTitle=o.optString("sourceTitle",r.title);r.displayTitle=r.title;r.cover=o.optString("cover","");
             r.description=o.optString("description","");r.source=o.optString("source","");
             r.bookUri=o.optString("bookUri","");r.archivedAt=o.optLong("archivedAt",0);return r;
         }
@@ -34,7 +34,10 @@ final class DownloadArchiveStore {
     static synchronized ArrayList<Entry> entries(Context c){
         ArrayList<Entry> out=new ArrayList<>();
         try{JSONArray a=new JSONArray(pref(c).getString(ITEMS,"[]"));
-            for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);if(o!=null){Entry e=Entry.from(o);if(!e.id.isEmpty())out.add(e);}}
+            for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);if(o!=null){Entry e=Entry.from(o);if(!e.id.isEmpty()){
+                    e.displayTitle=BookTitleStore.title(c,BookTitleStore.DOWNLOAD,e.id,e.title);
+                    out.add(e);
+                }}}
         }catch(Exception ignored){}return out;
     }
     static synchronized Set<String> hiddenIds(Context c){
@@ -51,7 +54,7 @@ final class DownloadArchiveStore {
         if(item==null||!item.ready||item.id==null||item.id.isEmpty())return false;
         ArrayList<Entry> all=entries(c);
         for(Entry e:all)if(item.id.equals(e.id))return true;
-        Entry e=new Entry();e.id=item.id;e.type=item.type;e.title=item.title;e.cover=item.cover;
+        Entry e=new Entry();e.id=item.id;e.type=item.type;e.title=item.title;e.sourceTitle=item.sourceTitle.isEmpty()?item.title:item.sourceTitle;e.displayTitle=item.title;e.cover=item.cover;
         e.description=item.description;e.source=item.source;e.bookUri=item.bookUri;
         e.archivedAt=System.currentTimeMillis();all.add(e);
         Set<String> discarded=new HashSet<>(pref(c).getStringSet(DISMISSED,java.util.Collections.emptySet()));

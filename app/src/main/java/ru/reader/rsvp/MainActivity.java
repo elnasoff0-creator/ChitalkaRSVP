@@ -185,7 +185,11 @@ public class MainActivity extends NavigationActivity {
         library.clear();
         try {
             JSONArray arr = new JSONArray(data);
-            for (int i = 0; i < arr.length(); i++) library.add(BookMeta.fromJson(arr.optJSONObject(i)));
+            for (int i = 0; i < arr.length(); i++) {
+                BookMeta m=BookMeta.fromJson(arr.optJSONObject(i));
+                m.title=BookTitleStore.title(this,BookTitleStore.TEXT,m.uri,m.title);
+                library.add(m);
+            }
         } catch (Exception ignored) {}
     }
 
@@ -215,7 +219,7 @@ public class MainActivity extends NavigationActivity {
             m.uri = currentUri;
             library.add(0, m);
         }
-        m.title = title.isEmpty() ? m.title : title;
+        m.title = BookTitleStore.title(this,BookTitleStore.TEXT,m.uri,title.isEmpty() ? m.title : title);
         m.author = author == null ? "" : author;
         m.progress = words.length == 0 ? 0 : Math.max(0, Math.min(100, (index + 1) * 100 / Math.max(1, words.length)));
                     m.wordCount=words.length;
@@ -1424,9 +1428,19 @@ public class MainActivity extends NavigationActivity {
     }
     private void audioMenu(AudioLibrary.Book book){
         new SwipeDialogs.Builder(this).setTitle(book.name)
-            .setItems(new String[]{"Открыть / Продолжить","Сделать текущей","Изменить обложку","Убрать из библиотеки"},(d,which)->{
+            .setItems(new String[]{"Открыть / Продолжить","Сделать текущей","Переименовать","Изменить обложку","Убрать из библиотеки"},(d,which)->{
                 if(which==0)openAudioBook(book.id);
                 else if(which==1){prefs.edit().putString("audio_last_book",book.id).apply();draw();}
+                else if(which==2)BookRenameDialog.show(this,book.name,newName->{
+                    if(!BookTitleStore.renameAudio(this,book.id,newName))return false;
+                    book.name=newName;book.customName=true;
+                    ArrayList<AudioLibrary.Book> all=AudioLibrary.load(this);
+                    for(AudioLibrary.Book candidate:all)if(book.id.equals(candidate.id)){
+                        candidate.name=newName;candidate.customName=true;break;
+                    }
+                    AudioLibrary.save(this,all);draw();return true;
+                });
+                else if(which==3)Toast.makeText(this,"Изменение обложки здесь пока недоступно",Toast.LENGTH_SHORT).show();
                 else confirmForget(book.name,()->{
                     ArrayList<AudioLibrary.Book> all=AudioLibrary.load(this);
                     all.removeIf(item->book.id.equals(item.id));AudioLibrary.save(this,all);
@@ -1440,10 +1454,14 @@ public class MainActivity extends NavigationActivity {
     }
     private void comicMenu(ComicLibrary.Comic item){
         new SwipeDialogs.Builder(this).setTitle(item.title)
-            .setItems(new String[]{"Открыть / Продолжить","Сделать текущей","Изменить обложку","Убрать из библиотеки"},(d,which)->{
+            .setItems(new String[]{"Открыть / Продолжить","Сделать текущей","Переименовать","Изменить обложку","Убрать из библиотеки"},(d,which)->{
                 if(which==0)openComic(item.uri);
                 else if(which==1){item.opened=System.currentTimeMillis();ComicLibrary.save(this,item);draw();}
-                else if(which==2)chooseComicCover(item);
+                else if(which==2)BookRenameDialog.show(this,item.title,newName->{
+                    if(!BookTitleStore.renameComic(this,item.uri,newName))return false;
+                    item.title=newName;ComicLibrary.save(this,item);draw();return true;
+                });
+                else if(which==3)chooseComicCover(item);
                 else confirmForget(item.title,()->{ComicLibrary.remove(this,item.uri);draw();});
             }).show();
     }
@@ -1567,7 +1585,7 @@ public class MainActivity extends NavigationActivity {
                     stop();
                     if (!currentUri.isEmpty() && !currentUri.equals(uriString)) saveAll();
                     currentUri = uriString;
-                    title = book.title == null ? "Книга" : book.title;
+                    title = BookTitleStore.title(this,BookTitleStore.TEXT,uriString,book.title == null ? "Книга" : book.title);
                     author = book.author == null ? "" : book.author;
                     body = book.text == null ? "" : book.text;
                     prepareWords();
@@ -1743,7 +1761,7 @@ public class MainActivity extends NavigationActivity {
     }
 
     void bookMenu(BookMeta m) {
-        String[] items = {"Открыть / Продолжить", "Сделать текущей", "Убрать из библиотеки"};
+        String[] items = {"Открыть / Продолжить", "Сделать текущей", "Переименовать", "Убрать из библиотеки"};
         new SwipeDialogs.Builder(this)
                 .setTitle(m.title)
                 .setItems(items, (d, which) -> {
@@ -1755,6 +1773,13 @@ public class MainActivity extends NavigationActivity {
                         Toast.makeText(this, "Книга отмечена как текущая", Toast.LENGTH_SHORT).show();
                         draw();
                     } else if (which == 2) {
+                        BookRenameDialog.show(this,m.title,newName->{
+                            if(!BookTitleStore.renameText(this,m.uri,newName))return false;
+                            m.title=newName;
+                            if(m.uri.equals(currentUri))title=newName;
+                            saveAll();draw();return true;
+                        });
+                    } else if (which == 3) {
                         confirmForget(m.title,()->{
                             library.remove(m);
                             if(m.uri.equals(currentUri)){

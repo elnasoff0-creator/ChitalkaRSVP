@@ -41,7 +41,7 @@ final class ComicLibrary {
         String title="";String type="html";DocumentFile htmlFile,archiveFile;int pageCount=-1;ArrayList<String> imagePaths=new ArrayList<>();
     }
 
-    static ArrayList<Comic> list(Context c){ArrayList<Comic> out=new ArrayList<>();try{JSONArray arr=new JSONArray(c.getSharedPreferences("reader",0).getString("comics_v1","[]"));for(int i=0;i<arr.length();i++){JSONObject o=arr.optJSONObject(i);if(o!=null)out.add(Comic.read(o));}}catch(Exception ignored){}return out;}
+    static ArrayList<Comic> list(Context c){ArrayList<Comic> out=new ArrayList<>();try{JSONArray arr=new JSONArray(c.getSharedPreferences("reader",0).getString("comics_v1","[]"));for(int i=0;i<arr.length();i++){JSONObject o=arr.optJSONObject(i);if(o!=null){Comic item=Comic.read(o);item.title=BookTitleStore.title(c,BookTitleStore.COMIC,item.uri,item.title);out.add(item);}}}catch(Exception ignored){}return out;}
     static synchronized void save(Context c,Comic comic){ArrayList<Comic> all=list(c);for(int i=0;i<all.size();i++)if(all.get(i).uri.equals(comic.uri)){
             Comic previous=all.get(i);
             if(comic.pageCounts.isEmpty()&&!previous.pageCounts.isEmpty())comic.pageCounts.addAll(previous.pageCounts);

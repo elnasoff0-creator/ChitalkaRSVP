@@ -9,7 +9,7 @@ src=root/'app/src/main/java/ru/reader/rsvp'
 res=root/'app/src/main/res/drawable'
 java=lambda n: (src/n).read_text(encoding='utf-8')
 
-assert "versionCode 15500; versionName '1.11.155-beta'" in (root/'app/build.gradle').read_text()
+assert "versionCode 15600; versionName '1.11.156-beta'" in (root/'app/build.gradle').read_text()
 manifest=ET.parse(root/'app/src/main/AndroidManifest.xml').getroot()
 namespace='{http://schemas.android.com/apk/res/android}'
 activities={a.attrib.get(namespace+'name') for a in manifest.iter('activity')}

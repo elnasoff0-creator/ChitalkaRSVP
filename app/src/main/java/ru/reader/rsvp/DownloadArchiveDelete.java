@@ -69,7 +69,7 @@ final class DownloadArchiveDelete {
                 String uri=archived.bookUri;
                 if(uri.isEmpty())uri=archived.id.replaceFirst("^edge:","");
                 if(EdgeFullBookService.isServiceAlive()){
-                    EdgeFullBookStore.Job work=EdgeFullBookStore.find(c,uri,archived.title);
+                    EdgeFullBookStore.Job work=EdgeFullBookStore.find(c,uri,archived.sourceTitle);
                     if(work!=null&&(EdgeFullBookStore.RUNNING.equals(work.status)
                         ||EdgeFullBookStore.QUEUED.equals(work.status)
                         ||EdgeFullBookStore.WAITING.equals(work.status)
@@ -80,14 +80,14 @@ final class DownloadArchiveDelete {
                 if(!EdgeChapterArchive.deleteSavedBook(c,uri))
                     throw new Exception("Не удалось удалить сохранённые главы в выбранной папке Edge TTS");
                 // Remove only this book's task metadata and temporary synthesis cache.
-                EdgeFullBookStore.Job edgeJob=EdgeFullBookStore.find(c,uri,archived.title);
+                EdgeFullBookStore.Job edgeJob=EdgeFullBookStore.find(c,uri,archived.sourceTitle);
                 if(edgeJob!=null&&edgeJob.directory!=null){
                     String root=new File(c.getFilesDir(),"EdgeJobs").getCanonicalPath()+File.separator;
                     if(!edgeJob.directory.getCanonicalPath().startsWith(root))
                         throw new Exception("Недопустимый путь задания Edge TTS");
                     deleteFiles(edgeJob.directory);
                 }
-                File cached=EdgeBookStorage.bookFolder(c,uri,archived.title);
+                File cached=EdgeBookStorage.bookFolder(c,uri,archived.sourceTitle);
                 if(cached.getCanonicalPath().startsWith(EdgeBookStorage.booksRoot(c).getCanonicalPath()+File.separator))deleteFiles(cached);
                 DownloadsRepository.hideEdge(c,uri);
                 EdgeChapterArchive.invalidate();

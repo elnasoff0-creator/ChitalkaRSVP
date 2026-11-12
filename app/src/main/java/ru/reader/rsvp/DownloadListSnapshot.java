@@ -43,6 +43,7 @@ final class DownloadListSnapshot {
                 item.paused=o.optBoolean("paused");item.failed=o.optBoolean("failed");
                 item.done=o.optInt("done");item.total=o.optInt("total");
                 item.coveragePercent=o.optInt("coverage");item.previewOnly=true;
+                item.title=BookTitleStore.downloadTitle(context,item);
                 result.add(item);
             }
         }catch(Exception ignored){}

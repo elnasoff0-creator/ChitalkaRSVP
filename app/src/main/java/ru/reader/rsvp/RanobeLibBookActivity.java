@@ -69,7 +69,7 @@ public final class RanobeLibBookActivity extends NavigationActivity {
         ImageView cover=new ImageView(this);cover.setScaleType(ImageView.ScaleType.CENTER_CROP);coverRow.addView(cover,new LinearLayout.LayoutParams(dp(112),dp(160)));
         java.io.File image=RanobeLibStorage.cover(this,slug);CoverImageLoader.show(cover,image.isFile()?image.toURI().toString():title.cover,false);
         LinearLayout description=new LinearLayout(this);description.setOrientation(LinearLayout.VERTICAL);description.setPadding(dp(12),0,0,0);coverRow.addView(description,new LinearLayout.LayoutParams(0,-2,1));
-        description.addView(label(title.title.isEmpty()?slug:title.title,21,true));
+        description.addView(label(BookTitleStore.title(this,BookTitleStore.TEXT,RanobeLibStorage.bookUri(this,slug),title.title.isEmpty()?slug:title.title),21,true));
         if(!title.author.isEmpty())description.addView(label("Автор: "+title.author,13,false));
         if(!title.status.isEmpty())description.addView(label("Статус: "+title.status,12,false));
         if(!title.genres.isEmpty())description.addView(label(title.genres,12,false));

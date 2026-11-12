@@ -87,17 +87,17 @@ public final class DownloadArchiveActivity extends NavigationActivity {
         ArrayList<DownloadArchiveStore.Entry> next=new ArrayList<>();
         for(DownloadArchiveStore.Entry e:records){
             String type=typeName(e.type);
-            if(needle.isEmpty()||(e.title+" "+e.description+" "+type).toLowerCase(Locale.ROOT).contains(needle))next.add(e);
+            if(needle.isEmpty()||(e.displayTitle+" "+e.description+" "+type).toLowerCase(Locale.ROOT).contains(needle))next.add(e);
         }
         Comparator<DownloadArchiveStore.Entry> cmp;
         if(order<2)cmp=Comparator.comparingLong(e->e.archivedAt);
-        else cmp=Comparator.comparing(e->e.title.toLowerCase(Locale.ROOT),String.CASE_INSENSITIVE_ORDER);
+        else cmp=Comparator.comparing(e->e.displayTitle.toLowerCase(Locale.ROOT),String.CASE_INSENSITIVE_ORDER);
         if(order==0||order==3)cmp=cmp.reversed();next.sort(cmp.thenComparing(e->e.id));
         ArrayList<DownloadArchiveStore.Entry> old=new ArrayList<>(shown);
         DiffUtil.DiffResult diff=DiffUtil.calculateDiff(new DiffUtil.Callback(){
             public int getOldListSize(){return old.size();}public int getNewListSize(){return next.size();}
             public boolean areItemsTheSame(int a,int b){return old.get(a).id.equals(next.get(b).id);}
-            public boolean areContentsTheSame(int a,int b){return old.get(a).archivedAt==next.get(b).archivedAt;}
+            public boolean areContentsTheSame(int a,int b){return old.get(a).archivedAt==next.get(b).archivedAt && old.get(a).displayTitle.equals(next.get(b).displayTitle);}
         },false);
         shown.clear();shown.addAll(next);diff.dispatchUpdatesTo(adapter);
         count.setText(shown.size()+" из "+records.size());
@@ -125,6 +125,12 @@ public final class DownloadArchiveActivity extends NavigationActivity {
                 }
                 Toast.makeText(this,"Восстановлено в «Готовые»",Toast.LENGTH_SHORT).show();reload();
             });
+        });
+    }
+    private void rename(DownloadArchiveStore.Entry entry){
+        BookRenameDialog.show(this,entry.displayTitle,newName->{
+            if(!BookTitleStore.renameDownload(this,entry.id,entry.type,entry.bookUri,entry.source,newName))return false;
+            reload();return true;
         });
     }
     private void delete(DownloadArchiveStore.Entry entry){
@@ -169,7 +175,7 @@ public final class DownloadArchiveActivity extends NavigationActivity {
             LinearLayout card=new LinearLayout(DownloadArchiveActivity.this);card.setOrientation(LinearLayout.VERTICAL);
             card.setPadding(dp(13),dp(12),dp(13),dp(12));card.setBackground(background(PANEL,17));
             LinearLayout.LayoutParams cardLp=new LinearLayout.LayoutParams(-1,-2);cardLp.bottomMargin=dp(9);root.addView(card,cardLp);
-            TextView title=text(e.title,17,true);title.setTypeface(Typeface.SERIF,Typeface.BOLD);card.addView(title);
+            TextView title=text(e.displayTitle,17,true);title.setTypeface(Typeface.SERIF,Typeface.BOLD);card.addView(title);
             String date=new SimpleDateFormat("dd.MM.yyyy HH:mm",new Locale("ru")).format(new java.util.Date(e.archivedAt));
             TextView sub=text(typeName(e.type)+" · В архиве с "+date,12,false);sub.setTextColor(MUTED);
             LinearLayout.LayoutParams subLp=new LinearLayout.LayoutParams(-1,-2);subLp.topMargin=dp(5);card.addView(sub,subLp);
@@ -179,8 +185,15 @@ public final class DownloadArchiveActivity extends NavigationActivity {
             actions.addView(restore,new LinearLayout.LayoutParams(dp(46),dp(46)));
             TextView restoreText=text("Восстановить",13,true);restoreText.setGravity(Gravity.CENTER_VERTICAL);
             LinearLayout.LayoutParams rsp=new LinearLayout.LayoutParams(0,-1,1);rsp.leftMargin=dp(7);actions.addView(restoreText,rsp);
+            ImageView rename=image(R.drawable.ic_more_vertical,"Меню загрузки");
+            actions.addView(rename,new LinearLayout.LayoutParams(dp(46),dp(46)));
             ImageView delete=image(R.drawable.ic_download_archive_delete,"Удалить файлы");
             actions.addView(delete,new LinearLayout.LayoutParams(dp(46),dp(46)));
+            rename.setOnClickListener(v->{
+                PopupMenu menu=new PopupMenu(DownloadArchiveActivity.this,rename);
+                menu.getMenu().add("Переименовать").setOnMenuItemClickListener(action->{rename(e);return true;});
+                menu.show();
+            });
             restore.setOnClickListener(v->restore(e));restoreText.setOnClickListener(v->restore(e));delete.setOnClickListener(v->delete(e));
         }
         final class Holder extends RecyclerView.ViewHolder{Holder(View v){super(v);}}

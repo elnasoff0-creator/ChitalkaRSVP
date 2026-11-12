@@ -6,7 +6,7 @@ r=Path(__file__).resolve().parents[1]
 j=r/'app/src/main/java/ru/reader/rsvp'
 read=lambda f:(j/f).read_text(encoding='utf-8')
 gradle=(r/'app/build.gradle').read_text()
-assert any("versionCode %d00" % v in gradle and "versionName '1.11.%d-beta'" % v in gradle for v in (153,154))
+assert any("versionCode %d00" % v in gradle and "versionName '1.11.%d-beta'" % v in gradle for v in (153,154,155,156))
 store=read('EdgeFullBookStore.java')
 service=read('EdgeFullBookService.java')
 ui=read('EdgeChapterDownloadsActivity.java')

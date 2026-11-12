@@ -23,7 +23,7 @@ final class DownloadsRepository {
     static final String AUDIO="audiobook",EDGE="edge",LINK="direct_link",MANGA="mangalib",RANOBE="ranobelib";
     static final String HIDDEN_EDGE="hidden_edge_downloads_v1";
     static final class Item {
-        String type="",id="",title="",cover="",source="",bookUri="",status="",description="";
+        String type="",id="",title="",sourceTitle="",cover="",source="",bookUri="",status="",description="";
         String voice="";
         int done,total,coveragePercent;
         long downloadedBytes,totalBytes;
@@ -291,6 +291,9 @@ final class DownloadsRepository {
             Item item=fromEdge(ctx,dir,uri,title,0,live);
             if(item!=null){included.add(uri);all.add(item);}
         }
+        // Apply user-visible aliases after scanning native stores. Folder paths,
+        // job IDs and original source titles remain untouched.
+        for(Item item:all){item.sourceTitle=item.title;item.title=BookTitleStore.downloadTitle(ctx,item);}
         all.sort((a,b)->{
             if(a.ready!=b.ready)return a.ready?1:-1;
             long left=a.folder==null?0:a.folder.lastModified();
