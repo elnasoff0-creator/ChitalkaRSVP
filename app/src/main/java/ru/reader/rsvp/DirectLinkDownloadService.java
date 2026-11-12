@@ -70,6 +70,8 @@ public final class DirectLinkDownloadService extends Service {
             if(out==null)throw new Exception("Нет разрешения на запись");byte[] buffer=new byte[65536];int n;while((n=in.read(buffer))>=0){if(halt)throw new InterruptedException("Загрузка остановлена");out.write(buffer,0,n);}out.flush();
         }catch(Exception ex){document.delete();throw ex;}
         e.savedUri=document.getUri().toString();e.name=filename;e.status="completed";e.bytes=temp.length();temp.delete();
+        if("epub".equals(e.format)||"fb2".equals(e.format))
+            e.displayTitle=EbookTitleExtractor.extract(this,document.getUri(),e.format);
         if(!"mp3".equals(e.format))LinkDownloadStore.registerTextBook(this,e);
     }
     private void download(LinkDownloadStore.Batch b,int index)throws Exception{

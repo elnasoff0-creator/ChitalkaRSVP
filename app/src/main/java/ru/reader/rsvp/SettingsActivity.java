@@ -102,7 +102,7 @@ public class SettingsActivity extends NavigationActivity {
     TextView text(String str,int sp,boolean bold){TextView t=new TextView(this);t.setText(str);t.setTextSize(sp);t.setTextColor(contrast(bg));t.setTypeface(Typeface.DEFAULT,bold?Typeface.BOLD:Typeface.NORMAL);return t;}
     void gap(int height){View v=new View(this);list.addView(v,new LinearLayout.LayoutParams(-1,dp(height)));}
     void header(String name){TextView t=text(name,18,true);t.setPadding(0,dp(14),0,dp(9));list.addView(t);}    
-    TextView action(String name,Runnable click){TextView t=text(name,16,false);t.setBackground(rounded(cardColor(),15));t.setPadding(dp(14),dp(14),dp(14),dp(14));t.setOnClickListener(v->click.run());return t;}
+    TextView action(String name,Runnable click){TextView t=text(name,16,false);t.setBackground(rounded(cardColor(),15));t.setPadding(dp(14),dp(14),dp(14),dp(14));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,dp(5),0,dp(5));t.setLayoutParams(lp);t.setOnClickListener(v->click.run());return t;}
     TextView action(String name,int icon,Runnable click){TextView t=action(name,click);t.setCompoundDrawablesWithIntrinsicBounds(icon,0,0,0);t.setCompoundDrawablePadding(dp(10));for(android.graphics.drawable.Drawable d:t.getCompoundDrawables())if(d!=null)d.mutate().setTint(contrast(bg));return t;}
     TextView tabAction(String name,int icon,boolean active,Runnable click){
         TextView t=text(name,11,false);t.setGravity(Gravity.CENTER);
@@ -139,6 +139,7 @@ public class SettingsActivity extends NavigationActivity {
         preview=new TextView(this);preview.setText("Предпросмотр текста");preview.setGravity(Gravity.CENTER);preview.setLineSpacing(dp(5),1.18f);preview.setPadding(dp(19),dp(21),dp(19),dp(21));LinearLayout.LayoutParams previewLp=new LinearLayout.LayoutParams(-1,dp(90));previewLp.topMargin=dp(15);list.addView(preview,previewLp);applyPreview();
         header("Шрифт");
         list.addView(action(ReaderFontLibrary.choice(this,prefs)+"   ▾",this::fontDialog));
+        gap(9);
         list.addView(action("＋ Добавить шрифт TTF / OTF",this::pickFont));
         gap(9);header("Размер шрифта");
         LinearLayout sizing=new LinearLayout(this);sizing.setGravity(Gravity.CENTER_VERTICAL);
@@ -174,7 +175,7 @@ public class SettingsActivity extends NavigationActivity {
         help.setPadding(dp(10),dp(10),dp(10),dp(10));
         help.setContentDescription("Справка: "+section);
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(dp(40),dp(40));
-        lp.topMargin=dp(3);lp.bottomMargin=dp(3);
+        lp.topMargin=dp(5);lp.bottomMargin=dp(7);lp.gravity=Gravity.END;
         list.addView(help,lp);
         help.setOnClickListener(v->startActivity(new Intent(this,ActivityInfo.class).putExtra("help_section",section)));
     }
@@ -547,7 +548,9 @@ public class SettingsActivity extends NavigationActivity {
         toggle.setChecked(prefs.getBoolean(key,fallback));
         toggle.setPadding(dp(4),dp(12),dp(4),dp(12));
         toggle.setOnCheckedChangeListener((button,enabled)->prefs.edit().putBoolean(key,enabled).apply());
-        list.addView(toggle);
+        LinearLayout.LayoutParams spacing=new LinearLayout.LayoutParams(-1,-2);
+        spacing.setMargins(0,dp(5),0,dp(5));
+        list.addView(toggle,spacing);
     }
     // Matching minimal, outlined 24dp icons with the supplied Audio screen mockup.
     private LinearLayout audioCard(int icon,String title,String subtitle,View accessory,Runnable action){
@@ -576,7 +579,7 @@ public class SettingsActivity extends NavigationActivity {
         }
         if(action!=null){row.setOnClickListener(v->action.run());row.setContentDescription(title);}
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);
-        lp.bottomMargin=dp(5);list.addView(row,lp);
+        lp.topMargin=dp(5);lp.bottomMargin=dp(6);list.addView(row,lp);
         return row;
     }
     private void addInlineHelp(LinearLayout row,String title,String explanation){
@@ -850,7 +853,7 @@ public class SettingsActivity extends NavigationActivity {
         LinearLayout sample=col();sample.setPadding(dp(12),dp(11),dp(12),dp(11));
         sample.setBackground(rounded(UiColorScheme.neutral(this),12));
         TextView selected=text("✓  Выбранная глава — образец",15,true);
-        selected.setTextColor(contrast(bg));GradientDrawable selectedOutline=rounded(UiColorScheme.neutral(this),10);selectedOutline.setStroke(dp(2),UiColorScheme.accent(this));selected.setBackground(selectedOutline);
+        selected.setTextColor(contrast(bg));GradientDrawable selectedOutline=rounded(UiColorScheme.neutral(this),10);selectedOutline.setStroke(dp(4),UiColorScheme.accent(this));selected.setBackground(selectedOutline);
         selected.setPadding(dp(12),dp(12),dp(12),dp(12));sample.addView(selected);
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=dp(8);list.addView(sample,lp);
     }

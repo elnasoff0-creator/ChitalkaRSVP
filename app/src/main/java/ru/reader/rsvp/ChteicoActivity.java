@@ -29,6 +29,7 @@ import java.util.Random;
 /** Reading companion screen with spoiler-free evolution, stats and earned rewards. */
 public final class ChteicoActivity extends NavigationActivity {
     private LinearLayout root,content;
+    private ScrollView mainScroll;
     private ProgressBar progressBar;
     private TextView progressLabel;
     private ChteicoPetView pet;
@@ -298,6 +299,7 @@ public final class ChteicoActivity extends NavigationActivity {
         if(previewAll || p.getInt("fishing_caught",0)>0){rewardRow(rewards,R.drawable.ic_reward_fishing,"Рыбак");any=true;}
         if(previewAll || p.getInt("fishing_shimmer_count",0)>0){rewardRow(rewards,R.drawable.ic_reward_fishing_shimmer,"Охотник за мерцанием");any=true;}
         if(previewAll || p.getInt("fishing_rarity_3",0)>0){rewardRow(rewards,R.drawable.ic_reward_fishing_legendary,"Легендарный улов");any=true;}
+        if(previewAll || p.getInt("fishing_rarity_4",0)>0){rewardRow(rewards,R.drawable.ic_reward_fishing_mythical,"Мифический улов");any=true;}
         if(previewAll || ChteicoStore.hasFishingRod(this,4)){rewardRow(rewards,R.drawable.ic_reward_reader_rod,"Удочка прочитателя");any=true;}
         finishRewardGrid();
         if(!any){
@@ -311,12 +313,7 @@ public final class ChteicoActivity extends NavigationActivity {
         hero.addView(icon,new LinearLayout.LayoutParams(dp(54),dp(54)));
         gap(hero,10);
         TextView title=text("Статистика и награды",21,true);title.setGravity(Gravity.CENTER);hero.addView(title);
-        gap(hero,6);
-        TextView sub=text("Чтейцо сейчас отключено. Здесь сохраняются ваши достижения, а включить спутника можно в настройках.",14,false);
-        sub.setGravity(Gravity.CENTER);hero.addView(sub);
-        gap(hero,12);
-        TextView hint=text("Настройки питомца доступны в боковом меню.",13,false);
-        hint.setGravity(Gravity.CENTER);hero.addView(hint);
+
         addStatsCard();
         addRewardsCard();
         addGameStatistics();
@@ -342,7 +339,7 @@ public final class ChteicoActivity extends NavigationActivity {
         top.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));
         View spacer=new View(this);top.addView(spacer,new LinearLayout.LayoutParams(0,dp(20),1));
         root.addView(top);
-        ScrollView scroll=new ScrollView(this);content=column();content.setPadding(dp(2),dp(5),dp(2),dp(3));scroll.addView(content);
+        ScrollView scroll=new ScrollView(this);mainScroll=scroll;content=column();content.setPadding(dp(2),dp(5),dp(2),dp(3));scroll.addView(content);
         root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         if(!ChteicoStore.enabled(this)){showDisabledSummary();return;}
         int stage=ChteicoStore.stage(this);
@@ -450,6 +447,22 @@ public final class ChteicoActivity extends NavigationActivity {
         stat(third,"Рекорд массы",String.format(java.util.Locale.forLanguageTag("ru"),"%.1f кг",p.getInt("fishing_best_grams",0)/1000.0));
         panel.addView(third);gap(panel,9);
         panel.addView(button("Улов",this::showFishingCatchCollection));
+        gap(panel,10);
+        panel.addView(button("Игры",this::showFishingFromStats));
+    }
+    /** Fishing remains available in statistics even when the pet is disabled. */
+    private void showFishingFromStats(){
+        LinearLayout holder=card();
+        holder.addView(text("Рыбалка",18,true));gap(holder,8);
+        FrameLayout playArea=new FrameLayout(this);
+        holder.addView(playArea,new LinearLayout.LayoutParams(-1,dp(260)));
+        showGameChoices(playArea);
+        // The games card is appended beneath the fishing statistics; reveal it
+        // immediately so the user can play even when the pet is switched off.
+        final ScrollView scroll=mainScroll;
+        if(scroll!=null)scroll.post(()->{
+            if(holder.getParent()!=null)scroll.smoothScrollTo(0,holder.getTop());
+        });
     }
     /** Separate persisted counts and best mass per rarity. Old catches keep their counts. */
     private void showFishingCatchCollection(){

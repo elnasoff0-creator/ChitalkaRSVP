@@ -51,6 +51,7 @@ public final class DownloadActivity extends NavigationActivity {
     private static final int EDGE_AUDIOBOOK_REQUEST=12522;
     private DownloadsRepository.Item pendingEdgeAudiobook;
     private DownloadsRepository.Item pendingTransfer;
+    private String pendingTransferId="",pendingEdgeAudiobookId="";
     private static final String FILTER_KEY="downloads_filter_v2";
     private final Handler main=new Handler(Looper.getMainLooper());
     private boolean visible,bound,refreshInFlight;
@@ -83,19 +84,16 @@ public final class DownloadActivity extends NavigationActivity {
     @Override public void onCreate(Bundle saved){super.onCreate(saved);
         filter=getSharedPreferences("reader",0).getInt(FILTER_KEY,0);
         if(saved!=null){
-            String id=saved.getString("transfer_item_id","");
-            if(!id.isEmpty())for(DownloadsRepository.Item candidate:DownloadsRepository.load(this,null))
-                if(id.equals(candidate.id)){pendingTransfer=candidate;break;}
-            String exportId=saved.getString("edge_audiobook_item_id","");
-            if(!exportId.isEmpty())for(DownloadsRepository.Item candidate:DownloadsRepository.load(this,null))
-                if(exportId.equals(candidate.id)){pendingEdgeAudiobook=candidate;break;}
+            // Restoring an Activity must never traverse SAF directories on the UI thread.
+            pendingTransferId=saved.getString("transfer_item_id","");
+            pendingEdgeAudiobookId=saved.getString("edge_audiobook_item_id","");
         }
         build();
         bound=bindService(new Intent(this,EdgeStreamingService.class),edgeConnection,BIND_AUTO_CREATE);
     }
     @Override protected void onSaveInstanceState(Bundle state){
-        if(pendingTransfer!=null)state.putString("transfer_item_id",pendingTransfer.id);
-        if(pendingEdgeAudiobook!=null)state.putString("edge_audiobook_item_id",pendingEdgeAudiobook.id);
+        if(pendingTransfer!=null||!pendingTransferId.isEmpty())state.putString("transfer_item_id",pendingTransfer==null?pendingTransferId:pendingTransfer.id);
+        if(pendingEdgeAudiobook!=null||!pendingEdgeAudiobookId.isEmpty())state.putString("edge_audiobook_item_id",pendingEdgeAudiobook==null?pendingEdgeAudiobookId:pendingEdgeAudiobook.id);
         super.onSaveInstanceState(state);
     }
     private void build(){
@@ -128,7 +126,7 @@ public final class DownloadActivity extends NavigationActivity {
                 .setOnMenuItemClickListener(item->{confirmDeleteAllDownloads();return true;});
             menu.show();
         });
-        summary=text("Загрузка данных…",13,false);summary.setTextColor(MUTED);summary.setGravity(Gravity.CENTER);
+        summary=text("Данные обновляются в фоне",13,false);summary.setTextColor(MUTED);summary.setGravity(Gravity.CENTER);
         summary.setPadding(0,dp(11),0,dp(11));root.addView(summary);
         list=new RecyclerView(this);list.setLayoutManager(new LinearLayoutManager(this));
         adapter=new JobsAdapter();adapter.setHasStableIds(true);
@@ -156,10 +154,16 @@ public final class DownloadActivity extends NavigationActivity {
     @Override protected void onResume(){super.onResume();visible=true;
         // Render a cached dashboard immediately. Disk/SAF is verified off-thread.
         ArrayList<DownloadsRepository.Item> previous=sharedSnapshot;
+        if(previous==null||previous.isEmpty())previous=DownloadListSnapshot.load(this);
         if(previous!=null&&!previous.isEmpty()){
             lastAll=new ArrayList<>(previous);showCachedFilter();
+            int finished=0;for(DownloadsRepository.Item item:lastAll)if(item.ready)finished++;
+            summary.setText("Загрузок: "+lastAll.size()+" · Готово: "+finished+" · Обновляем…");
         }
-        AudiobookCoverStore.backfill(this,()->{if(visible)refresh();});
+        // Cover indexing previously traversed all downloaded tracks on the UI thread.
+        // Move discovery and artwork checks away from Activity startup.
+        new Thread(()->AudiobookCoverStore.backfill(getApplicationContext(),
+            ()->{if(visible)refresh();}),"DownloadCoverIndex").start();
         main.post(ticker);}
     @Override protected void onPause(){visible=false;main.removeCallbacks(ticker);super.onPause();}
     @Override protected void onDestroy(){if(bound)unbindService(edgeConnection);main.removeCallbacksAndMessages(null);scan.shutdownNow();super.onDestroy();}
@@ -223,6 +227,7 @@ public final class DownloadActivity extends NavigationActivity {
                         return rowState(before.get(a)).equals(rowState(after.get(b)));
                     }
                 },false);
+                DownloadListSnapshot.save(getApplicationContext(),all);
                 final int running=active,complete=done;
                 main.post(()->{
                     refreshInFlight=false;
@@ -231,6 +236,10 @@ public final class DownloadActivity extends NavigationActivity {
                     if(coversDue)mangaCoversAt=diskScannedAt;
                     sharedSnapshot=new ArrayList<>(all);
                     lastAll=all;
+                    if(!pendingTransferId.isEmpty()||!pendingEdgeAudiobookId.isEmpty())for(DownloadsRepository.Item found:all){
+                        if(found.id.equals(pendingTransferId))pendingTransfer=found;
+                        if(found.id.equals(pendingEdgeAudiobookId))pendingEdgeAudiobook=found;
+                    }
                     if(filter!=currentFilter||archiveRevision!=scannedRevision){diskScannedAt=0;showCachedFilter();return;}
                     rows.clear();rows.addAll(after);
                     summary.setText("Онлайн-загрузки: "+(running+complete)+"  ·  В процессе: "+running+"  ·  Готово: "+complete);
@@ -298,6 +307,7 @@ public final class DownloadActivity extends NavigationActivity {
         main.postDelayed(this::refresh,250);
     }
     private void open(DownloadsRepository.Item item){
+        if(item.previewOnly){Toast.makeText(this,"Обновляем сведения о загрузке…",Toast.LENGTH_SHORT).show();return;}
         if(DownloadsRepository.MANGA.equals(item.type)){
             // A series card always opens its volume/chapter manager, like audio downloads.
             openMangaChapters(item);
@@ -547,6 +557,7 @@ public final class DownloadActivity extends NavigationActivity {
             }).show();
     }
     private void menu(View anchor,DownloadsRepository.Item item){
+        if(item.previewOnly){Toast.makeText(this,"Проверяем состояние загрузки…",Toast.LENGTH_SHORT).show();return;}
         if(DownloadsRepository.MANGA.equals(item.type)){
             PopupMenu p=new PopupMenu(this,anchor);
             if(item.ready)p.getMenu().add(0,81,0,"В архив").setOnMenuItemClickListener(m->{archive(item);return true;});
@@ -648,6 +659,7 @@ public final class DownloadActivity extends NavigationActivity {
             }).show();
     }
     private void archive(DownloadsRepository.Item item){
+        if(item.previewOnly){Toast.makeText(this,"Проверяем состояние загрузки…",Toast.LENGTH_SHORT).show();return;}
         if(!item.ready){Toast.makeText(this,"Можно архивировать только готовую загрузку",Toast.LENGTH_SHORT).show();return;}
         if(!DownloadArchiveStore.archive(getApplicationContext(),item)){
             Toast.makeText(this,"Не удалось сохранить запись архива",Toast.LENGTH_LONG).show();refresh();return;
@@ -669,7 +681,8 @@ public final class DownloadActivity extends NavigationActivity {
             @Override public float getSwipeThreshold(RecyclerView.ViewHolder holder){return .34f;}
             @Override public int getSwipeDirs(RecyclerView rv,RecyclerView.ViewHolder holder){
                 int p=holder.getBindingAdapterPosition();
-                return p>=0&&p<rows.size()&&rows.get(p).item!=null&&rows.get(p).item.ready?ItemTouchHelper.RIGHT:0;
+                return p>=0&&p<rows.size()&&rows.get(p).item!=null&&
+                    rows.get(p).item.ready&&!rows.get(p).item.previewOnly?ItemTouchHelper.RIGHT:0;
             }
             @Override public void onSwiped(RecyclerView.ViewHolder holder,int direction){
                 int p=holder.getBindingAdapterPosition();

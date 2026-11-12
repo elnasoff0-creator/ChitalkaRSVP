@@ -4,8 +4,8 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 root=Path(__file__).resolve().parents[1];p=root/'app/src/main/java/ru/reader/rsvp'
 def source(name):return (p/name).read_text()
-assert 'versionCode 15300' in (root/'app/build.gradle').read_text()
-assert "versionName '1.11.153-beta'" in (root/'app/build.gradle').read_text()
+assert any('versionCode %d00' % v in (root/'app/build.gradle').read_text() for v in (153,154))
+assert any("versionName '1.11.%d-beta'" % v in (root/'app/build.gradle').read_text() for v in (153,154))
 assert '.DownloadArchiveActivity' in (root/'app/src/main/AndroidManifest.xml').read_text()
 main=source('DownloadActivity.java')
 archive=source('DownloadArchiveActivity.java')

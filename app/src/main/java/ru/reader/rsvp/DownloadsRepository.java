@@ -27,7 +27,7 @@ final class DownloadsRepository {
         String voice="";
         int done,total,coveragePercent;
         long downloadedBytes,totalBytes;
-        boolean ready,running,paused,failed,unknownTotal;
+        boolean ready,running,paused,failed,unknownTotal,previewOnly;
         File folder;
         BookImportManager.Job job;
         LinkDownloadStore.Batch link;
@@ -120,7 +120,7 @@ final class DownloadsRepository {
                     EdgeFullBookStore.WAITING.equals(full.status)||EdgeFullBookStore.SAVING.equals(full.status)));
             item.failed=EdgeFullBookStore.FAILED.equals(full.status);
             item.unknownTotal=item.total==0;
-            if(item.ready)item.status="Подготовлено полностью";
+            if(item.ready)item.status="Завершено";
             else if(item.failed)item.status="Ошибка подготовки";
             else if(item.paused)item.status="Приостановлено";
             else if(item.running&&EdgeFullBookStore.WAITING.equals(full.status))item.status="Ожидание Edge TTS";
@@ -138,7 +138,14 @@ final class DownloadsRepository {
     }
     private static Item fromLink(LinkDownloadStore.Batch b){
         Item item=new Item();item.type=LINK;item.id="link:"+b.id;item.link=b;
-        item.title=b.title;item.status="Скачивание по ссылке";item.total=b.files.size();item.done=b.completed();
+        // Prefer the actual file name (book metadata when available) over a generic batch title.
+        if(b.files.isEmpty())item.title=b.title;
+        else {
+            LinkDownloadStore.Entry first=b.files.get(0);
+            item.title=first.displayTitle.isEmpty()?first.name:first.displayTitle;
+            if(b.files.size()>1)item.title+=" · ещё "+(b.files.size()-1)+" файлов";
+        }
+        item.status="Скачивание по ссылке";item.total=b.files.size();item.done=b.completed();
         item.ready=item.total>0&&item.done==item.total;
         item.running="running".equals(b.status);item.paused="paused".equals(b.status);
         item.failed="error".equals(b.status);item.unknownTotal=true;
@@ -223,9 +230,12 @@ final class DownloadsRepository {
             if(included.contains(stored.uri)){
                 for(Item existing:all)if(EDGE.equals(existing.type)&&stored.uri.equals(existing.bookUri)){
                     if(existing.fullJob==null||!existing.running){
-                        existing.ready=stored.chapters>0;
-                        if(existing.ready){existing.status="Сохранены главы Edge TTS";
-                            existing.description="Готовые главы в выбранной папке: "+stored.chapters;}
+                        boolean full=hasFinishedBook(existing.fullJob,stored.chapters);
+                        existing.ready=full||existing.ready;
+                        if(full){existing.coveragePercent=100;existing.status="Завершено";
+                            existing.description="Все главы сохранены · "+stored.chapters+" MP3";}
+                        else if(stored.chapters>0){existing.status="Частично подготовлено";
+                            existing.description="Готовых глав в выбранной папке: "+stored.chapters;}
                     }
                     break;
                 }
@@ -233,8 +243,10 @@ final class DownloadsRepository {
             }
             Item saved=new Item();saved.type=EDGE;saved.id="edge:"+stored.uri;
             saved.bookUri=stored.uri;saved.title=stored.title;
-            saved.ready=true;saved.status="Сохранено";
-            saved.done=stored.chapters;saved.total=stored.chapters;saved.coveragePercent=100;
+            EdgeFullBookStore.Job completedJob=EdgeFullBookStore.find(ctx,stored.uri,stored.title);
+            saved.ready=hasFinishedBook(completedJob,stored.chapters);
+            saved.status=saved.ready?"Завершено":"Сохранены отдельные главы";
+            saved.done=stored.chapters;saved.total=stored.chapters;saved.coveragePercent=saved.ready?100:0;
             saved.description="Готовые MP3-главы во внешней папке: "+stored.chapters;
             all.add(saved);included.add(stored.uri);
         }
@@ -253,6 +265,17 @@ final class DownloadsRepository {
             return Long.compare(right,left);
         });
         return all;
+    }
+    /** A partial external folder is never incorrectly treated as a finished book. */
+    private static boolean hasFinishedBook(EdgeFullBookStore.Job job,int published){
+        if(job==null||!job.autoContinue||!EdgeFullBookStore.DONE.equals(job.status))return false;
+        int expected=0;
+        for(EdgeFullBookStore.Task task:job.tasks){
+            if(task.chapter<0)continue;
+            expected++;
+            if(!EdgeFullBookStore.DONE.equals(task.status))return false;
+        }
+        return expected>0&&published>=expected;
     }
     static void hideEdge(Context ctx,String uri){
         SharedPreferences prefs=ctx.getSharedPreferences("reader",0);

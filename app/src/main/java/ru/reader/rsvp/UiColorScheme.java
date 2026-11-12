@@ -52,7 +52,7 @@ public final class UiColorScheme {
         GradientDrawable g=new GradientDrawable();
         g.setColor(normalColor);
         g.setCornerRadius(radiusDp*density);
-        if(isSelected)g.setStroke(Math.max(1,(int)(2*density+.5f)),accent(c));
+        if(isSelected)g.setStroke(Math.max(1,(int)(4*density+.5f)),accent(c));
         return g;
     }
     public static int onAccent(Context c){return ReaderButtonColors.contrastingText(accent(c));}

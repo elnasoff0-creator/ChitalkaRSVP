@@ -59,7 +59,7 @@ final class EdgeChapterArchive {
                 int number=row.optInt("chapter",0)-1;
                 if(number<0)continue;
                 boolean merged=mergedPresent(chapter,row);
-                boolean clips=chapter.findFile("fragments")!=null&&row.optJSONArray("segments")!=null;
+                boolean clips=fragmentsPresent(chapter,row);
                 if(merged||clips)result.states.put(number,merged?2:1);
             }
         }catch(Exception error){Log.w(TAG,"SAF chapter snapshot error",error);}
@@ -86,6 +86,21 @@ final class EdgeChapterArchive {
     private static String wordsName(JSONObject index){
         String name=index.optString("wordsFile","");
         return simpleFileName(name,".json")?name:"Глава.words.json";
+    }
+    /** A fragment chapter is complete only when every indexed MP3 and its word timings exist. */
+    private static boolean fragmentsPresent(DocumentFile chapter,JSONObject index){
+        if(!"fragments".equals(index.optString("mode")))return false;
+        JSONArray parts=index.optJSONArray("segments");
+        if(parts==null||parts.length()==0)return false;
+        DocumentFile folder=chapter.findFile("fragments");
+        if(folder==null||!folder.isDirectory())return false;
+        java.util.HashSet<String> names=new java.util.HashSet<>();
+        for(DocumentFile f:folder.listFiles())if(f!=null&&f.isFile()&&f.getName()!=null)names.add(f.getName());
+        for(int i=0;i<parts.length();i++){
+            String no=String.format(Locale.ROOT,"%04d",i+1);
+            if(!names.contains(no+".mp3")||!names.contains(no+".words.json"))return false;
+        }
+        return true;
     }
     private static boolean mergedPresent(DocumentFile chapter,JSONObject index){
         return index.optString("audioSha256","").length()==64

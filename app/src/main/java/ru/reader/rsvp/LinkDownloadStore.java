@@ -11,10 +11,10 @@ import java.util.UUID;
 final class LinkDownloadStore {
     private static final String KEY="direct_link_batches_v1";
     static final class Entry {
-        String source="",cloudPath="",url="",name="",format="mp3",status="queued",error="",savedUri="";
+        String source="",cloudPath="",url="",name="",displayTitle="",format="mp3",status="queued",error="",savedUri="";
         long size=-1,bytes=0;
-        JSONObject json() throws Exception {JSONObject o=new JSONObject();o.put("source",source);o.put("cloudPath",cloudPath);o.put("url",url);o.put("name",name);o.put("format",format);o.put("status",status);o.put("error",error);o.put("savedUri",savedUri);o.put("size",size);o.put("bytes",bytes);return o;}
-        static Entry parse(JSONObject o){Entry e=new Entry();e.source=o.optString("source");e.cloudPath=o.optString("cloudPath");e.url=o.optString("url");e.name=o.optString("name");e.format=o.optString("format",LinkFileTypes.extension(e.name));if(!LinkFileTypes.supported("file."+e.format))e.format="mp3";e.status=o.optString("status","queued");e.error=o.optString("error");e.savedUri=o.optString("savedUri");e.size=o.optLong("size",-1);e.bytes=o.optLong("bytes");return e;}
+        JSONObject json() throws Exception {JSONObject o=new JSONObject();o.put("source",source);o.put("cloudPath",cloudPath);o.put("url",url);o.put("name",name);o.put("displayTitle",displayTitle);o.put("format",format);o.put("status",status);o.put("error",error);o.put("savedUri",savedUri);o.put("size",size);o.put("bytes",bytes);return o;}
+        static Entry parse(JSONObject o){Entry e=new Entry();e.source=o.optString("source");e.cloudPath=o.optString("cloudPath");e.url=o.optString("url");e.name=o.optString("name");e.displayTitle=o.optString("displayTitle");e.format=o.optString("format",LinkFileTypes.extension(e.name));if(!LinkFileTypes.supported("file."+e.format))e.format="mp3";e.status=o.optString("status","queued");e.error=o.optString("error");e.savedUri=o.optString("savedUri");e.size=o.optLong("size",-1);e.bytes=o.optLong("bytes");return e;}
     }
     static final class Batch {
         String id=UUID.randomUUID().toString(),title="Загрузка по ссылке",treeUri="",treeLabel="",subfolder="",status="queued",error="";
@@ -52,7 +52,7 @@ final class LinkDownloadStore {
                 if(row!=null&&!entry.savedUri.equals(row.optString("uri")))result.put(row);
             }
             JSONObject book=new JSONObject();book.put("uri",entry.savedUri);
-            book.put("title",entry.name.replaceFirst("(?i)\\.(fb2|epub)$",""));
+            book.put("title",entry.displayTitle.isEmpty()?entry.name.replaceFirst("(?i)\\.(fb2|epub)$",""):entry.displayTitle);
             book.put("format",entry.format);book.put("index",0);book.put("progress",0);
             book.put("openedAt",0);result.put(book);
             prefs.edit().putString("library",result.toString()).commit();

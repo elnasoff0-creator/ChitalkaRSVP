@@ -230,7 +230,8 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
                     long w=Math.max(1,entry.to-entry.from);weighted+=w*pct;weightTotal+=w;
                 }
                 final int finalPublished=published,finalPending=pendingCount;
-                final int bookPercent=weightTotal==0?0:(int)(weighted/weightTotal);
+                final boolean allPublished=!result.isEmpty()&&published==result.size();
+                final int bookPercent=allPublished?100:weightTotal==0?0:(int)(weighted/weightTotal);
                 final String currentStage=activeState;
                 main.post(()->{
                     loading=false;if(!visible)return;
@@ -239,10 +240,12 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
                         EdgeFullBookStore.QUEUED.equals(job.status)||EdgeFullBookStore.WAITING.equals(job.status)||
                         EdgeFullBookStore.SAVING.equals(job.status));
                     if(pauseButton!=null)pauseButton.setText(running?"Пауза":"Продолжить");
-                    summary.setText("Сохранено глав: "+finalPublished+" из "+result.size()+
+                    summary.setText(allPublished?"Завершено · Все главы сохранены":
+                        "Сохранено глав: "+finalPublished+" из "+result.size()+
                         " · MP3 в кэше: "+total.files+" · "+String.format(Locale.ROOT,"%.1f МБ",total.bytes/1048576.0));
                     totalProgress.setProgress(bookPercent);totalPercent.setText(bookPercent+"%");
-                    totalDetail.setText("Готово: "+finalPublished+" из "+result.size()+" · В очереди/работе: "+
+                    totalDetail.setText(allPublished?"Завершено · Готово глав: "+finalPublished+" из "+result.size():
+                        "Готово: "+finalPublished+" из "+result.size()+" · В очереди/работе: "+
                         finalPending+(currentStage.isEmpty()?"":" · "+currentStage));
                     if(chapterViews.size()!=result.size()||!sameChapters(result)){
                         entries.removeAllViews();chapterViews.clear();displayed.clear();

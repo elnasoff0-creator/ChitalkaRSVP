@@ -29,6 +29,10 @@ public final class ChteicoFishingView extends FrameLayout {
     private static final int[] RARITY_COLORS={Color.WHITE,0xff65c96b,0xff55c8ef,0xfff49a45,0xffb478e7};
     private static final float[] SPEED={1f,1.15f,1.35f,1.60f,1.90f};
     private static final float[] FILL_TIME={1f,1.15f,1.35f,1.65f,2f};
+    // Maximum weight per rarity, kilograms; the paired lower bound avoids zero-sized specimens.
+    private static final float[] FISH_MASS_MIN_KG={.2f,.5f,1f,2f,3f};
+    private static final float[] FISH_MASS_MAX_KG={1f,2f,5f,10f,20f};
+    private static final float[] SHIMMER_CHANCES={.01f,.025f,.05f,.10f,.15f};
     // Smaller visual target for more valuable fish, without altering the catch-zone collision rule.
     private static final float[] FISH_SCALE={1f,.90f,.80f,.70f,.60f};
     // Grade order: Super, Excellent, Good, Fair, Failed. One quality modifier, not a double bonus.
@@ -56,7 +60,7 @@ public final class ChteicoFishingView extends FrameLayout {
     private int phase=READY,rarity=0,castGrade=2;
     private boolean held=false,paused=false,stopped=false,castWaitingSecondTap=false,ignoreUp=false,biteNeedsRelease=false,hookedBoot=false,fishHeadingUp=true,shimmering=false;
     private float cast=0f,castDirection=1f,distance=0f,depth=0f,zoneY=.62f,fishY=.45f;
-    private float fishVelocity=.27f,fishSteer=0f,catchAmount=.28f,bobberX=.5f,flightProgress=0f,flightDuration=.5f;
+    private float fishVelocity=.27f,fishSteer=0f,turnBoostLeft=0f,hookedMassKg=0f,catchAmount=.28f,bobberX=.5f,flightProgress=0f,flightDuration=.5f;
     private long lastMs=0,castPressTime=0,biteStartedMs=0,feedbackUntil=0;
     private String outcome="",feedbackText="";
     private int feedbackColor=0xff16a34a,displayedBait=Integer.MIN_VALUE,displayedGold=Integer.MIN_VALUE;
@@ -171,15 +175,20 @@ public final class ChteicoFishingView extends FrameLayout {
         if(phase==CATCHING){
             fishSteer-=dt;
             if(fishSteer<=0){fishSteer=.27f+random.nextFloat()*.43f;
-                fishVelocity=(random.nextFloat()-.5f)*1.18f*(hookedBoot?.65f:SPEED[rarity])*(shimmering?1.2f:1f);}
+                float previous=fishVelocity;
+                fishVelocity=(random.nextFloat()-.5f)*1.18f*(hookedBoot?.65f:SPEED[rarity])*(shimmering?1.2f:1f);
+                if(previous*fishVelocity<0f)turnBoostLeft=.30f;}
             float endgameSlow=catchFillFactor(catchAmount);
             // A better rod tires fish as the progress approaches completion.
             // Training/novice rods and the old cover receive no movement bonus.
             float movementFactor=!hookedBoot&&ChteicoStore.fishingRodEquipped(getContext())>=2
                 ?endgameSlow:1f;
-            fishY+=fishVelocity*dt*movementFactor;
-            if(fishY<.07f){fishY=.07f;fishVelocity=Math.abs(fishVelocity);}
-            if(fishY>.91f){fishY=.91f;fishVelocity=-Math.abs(fishVelocity);}
+            // A short acceleration immediately after a reversal; velocity itself stays unchanged.
+            turnBoostLeft=Math.max(0f,turnBoostLeft-dt);
+            float turnBoost=1f+.22f*(turnBoostLeft/.30f);
+            fishY+=fishVelocity*dt*movementFactor*turnBoost;
+            if(fishY<.07f){fishY=.07f;fishVelocity=Math.abs(fishVelocity);turnBoostLeft=.30f;}
+            if(fishY>.91f){fishY=.91f;fishVelocity=-Math.abs(fishVelocity);turnBoostLeft=.30f;}
             // Head points in the actual travel direction (positive Y = down).
             updateFishHeading(fishVelocity<0f);
             zoneY+=dt*(held?-.53f:.34f);
@@ -192,7 +201,11 @@ public final class ChteicoFishingView extends FrameLayout {
             boolean inside=Math.abs(fishCenter-zoneCenter)<=zone.getHeight()*zoneFactor/2f;
             // Only the training rod retains the late-stage fill slowdown.
             float slow=ChteicoStore.fishingRodEquipped(getContext())==0?endgameSlow:1f;
-            float fillTime=hookedBoot?.70f:FILL_TIME[rarity];
+            // Even the heaviest fish adds at most 12% to the fill time.
+            float massRatio=hookedBoot?0f:Math.max(0f,Math.min(1f,
+                (hookedMassKg-FISH_MASS_MIN_KG[rarity])/
+                (FISH_MASS_MAX_KG[rarity]-FISH_MASS_MIN_KG[rarity])));
+            float fillTime=(hookedBoot?.70f:FILL_TIME[rarity])*(1f+.12f*massRatio);
             float shimmerFactor=shimmering?.75f:1f;
             catchAmount=Math.max(0,Math.min(1,catchAmount+dt*(inside?.26f*slow*shimmerFactor/fillTime:-.12f)));
             if(catchAmount>=1f){if(hookedBoot)showBootResult();else successfulCatch();return;}
@@ -206,7 +219,10 @@ public final class ChteicoFishingView extends FrameLayout {
         // An old worn book cover is possible only after a failed cast and gives no rewards.
         hookedBoot=castGrade==4&&random.nextFloat()<.25f;
         rarity=hookedBoot?0:chooseRarity();
-        shimmering=!hookedBoot&&(ChteicoStore.developerUnlocked(getContext())||random.nextFloat()<(ChteicoStore.fishingRodEquipped(getContext())==4?.06f:.01f));
+        // Rarity governs base sparkle chance; the best rod retains its +5 pp perk.
+        float shimmerChance=Math.min(1f,SHIMMER_CHANCES[rarity]+(ChteicoStore.fishingRodEquipped(getContext())==4?.05f:0f));
+        shimmering=!hookedBoot&&(ChteicoStore.developerUnlocked(getContext())||random.nextFloat()<shimmerChance);
+        hookedMassKg=hookedBoot?0f:FISH_MASS_MIN_KG[rarity]+random.nextFloat()*(FISH_MASS_MAX_KG[rarity]-FISH_MASS_MIN_KG[rarity]);
         phase=BITE;held=false;biteNeedsRelease=true;biteStartedMs=now;
         biteMessage.setText(hookedBoot?"Что-то зацепилось!":"Рыба клюнула!");
         ring.setImageResource(hookedBoot?R.drawable.ic_fishing_bite_7:BITE_DRAWABLES[rarity]);ring.setColorFilter(accent);
@@ -239,7 +255,7 @@ public final class ChteicoFishingView extends FrameLayout {
     private void beginCatch(){
         stopRing();ring.setVisibility(GONE);
         phase=CATCHING;held=true;
-        zoneY=.58f;fishY=.52f;fishSteer=.25f;catchAmount=.28f;
+        zoneY=.58f;fishY=.52f;fishSteer=.25f;turnBoostLeft=0f;catchAmount=.28f;
         fishVelocity=random.nextBoolean()?-.27f:.27f;
         // Keep the real item hidden until the reward: old covers use the same fish silhouette.
         fish.setImageResource(R.drawable.ic_fishing_catch_silhouette);
@@ -268,18 +284,20 @@ public final class ChteicoFishingView extends FrameLayout {
         finish("Старая обложка найдена!");
     }
     private void successfulCatch(){
-        float[] min={.2f,.5f,1f,2f,3f},max={2f,3.5f,5f,8f,12f};
-        float mass=min[rarity]+random.nextFloat()*(max[rarity]-min[rarity]);
+        float mass=hookedMassKg>0f?hookedMassKg:FISH_MASS_MIN_KG[rarity];
         int[] mul2={2,3,5,8,14};
         int xp=Math.round(mass*20*mul2[rarity]/2f);
         int gold=Math.max(1,Math.round(mass*5*mul2[rarity]/2f*(shimmering?3f:1f)));
+        boolean firstMythic=rarity==4&&ChteicoStore.prefs(getContext()).getInt("fishing_rarity_4",0)==0;
         ChteicoStore.recordFishingCatch(getContext(),Math.round(mass*1000),xp,gold,rarity,shimmering);
+        if(firstMythic)android.widget.Toast.makeText(getContext(),"Достижение открыто: Мифический улов!",android.widget.Toast.LENGTH_LONG).show();
         resultName.setText(shimmering?"Мерцающая рыба поймана!":"Рыба поймана!");resultName.setTextColor(ink);
         resultMass.setTextColor(ink);resultRewards.setTextColor(ink);
         resultRarity.setText(shimmering?"Мерцающая · "+RARITY_NAMES[rarity]:RARITY_NAMES[rarity]);
         resultRarity.setTextColor(rarity==0?ink:RARITY_COLORS[rarity]);
         resultMass.setText(String.format(Locale.forLanguageTag("ru"),"Масса: %.2f кг",mass));
-        resultRewards.setText("+"+xp+" XP   ·   +"+gold+" золота");
+        resultRewards.setText("+"+xp+" XP   ·   +"+gold+" золота"+
+            (firstMythic?"\nДостижение: Мифический улов!":""));
         resultFish.setImageResource(FISH_ART[rarity]);
         resultShimmer.setVisibility(shimmering?VISIBLE:GONE);
         resultShimmerTrail.setVisibility(shimmering?VISIBLE:GONE);

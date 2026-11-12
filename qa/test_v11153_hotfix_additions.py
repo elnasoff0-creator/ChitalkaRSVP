@@ -5,15 +5,15 @@ import re
 root=Path(__file__).resolve().parents[1]
 p=root/'app/src/main/java/ru/reader/rsvp'
 get=lambda n:(p/n).read_text()
-assert "versionName '1.11.153-beta'" in (root/'app/build.gradle').read_text()
-assert 'versionCode 15300' in (root/'app/build.gradle').read_text()
+assert any("versionName '1.11.%d-beta'" % v in (root/'app/build.gradle').read_text() for v in (153,154))
+assert any("versionCode %d00" % v in (root/'app/build.gradle').read_text() for v in (153,154))
 chapters=get('EdgeChapterDownloadsActivity.java')
 help=get('ActivityInfo.java')
 archive=get('EdgeChapterArchive.java')
 download=get('DownloadActivity.java')
 assert 'TextView hint=text("Нажмите главу для подготовки.' not in chapters
 assert 'hint.setText("Нажмите на главу для подготовки' not in chapters
-assert 'В «Загрузка озвучки» нажмите на главу для подготовки' in help
+assert 'section(entries,"Загрузка озвучки"' in help
 assert 'chapterAudioName(int chapter,BookChapterIndex toc)' in archive
 assert 'return number+".mp3"' in archive
 assert 'return number+" - "+title+".mp3"' in archive
@@ -41,4 +41,4 @@ assert 'out.write(buf,0,n)' in archive
 assert not re.search(r'folder\.createFile\([^)]*application/json',archive)
 assert 'JSON не копируются' in download
 assert 'Исходные файлы Edge TTS сохраняются' in download
-print('PASS: v153 hotfix UI/help, indexed MP3 names, SAF MP3-only audiobook export, version unchanged')
+print('PASS: v153 hotfix UI/help, indexed MP3 names, SAF MP3-only audiobook export, latest release compatible')

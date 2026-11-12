@@ -54,8 +54,7 @@
   android:visibility="gone"/>
  <!-- Position the panel inside an INSET viewport: its height cannot extend below the pond. -->
  <FrameLayout android:id="@+id/fishing_catch_viewport" android:layout_width="112dp" android:layout_height="match_parent"
-  android:layout_gravity="top|right" android:layout_marginTop="62dp" android:layout_marginBottom="7dp"
-  android:layout_marginRight="8dp" android:clipChildren="true" android:clipToPadding="true">
+  android:layout_gravity="top|center_horizontal" android:layout_marginTop="62dp" android:layout_marginBottom="7dp" android:clipChildren="true" android:clipToPadding="true">
  <FrameLayout android:id="@+id/fishing_catch_panel" android:layout_width="match_parent" android:layout_height="match_parent"
   android:layout_gravity="fill" android:background="@drawable/bg_fishing_stage" android:visibility="gone">
   <!-- True bottom-up VERTICAL catch progress, separate from the fish/moving accent target. -->
@@ -103,11 +102,11 @@
    android:layout_marginTop="5dp" android:text="Масса" android:textSize="16sp" android:textColor="#30221E"/>
   <TextView android:id="@+id/fishing_result_rewards" android:layout_width="wrap_content" android:layout_height="wrap_content"
    android:layout_marginTop="5dp" android:text="XP · золото" android:textSize="15sp" android:textStyle="bold" android:textColor="#30221E"/>
-  <TextView android:id="@+id/fishing_result_continue" android:layout_width="match_parent" android:layout_height="48dp"
-   android:layout_marginTop="16dp" android:layout_marginLeft="30dp" android:layout_marginRight="30dp"
+  <TextView android:id="@+id/fishing_result_continue" android:layout_width="156dp" android:layout_height="40dp"
+   android:layout_marginTop="24dp"
    android:gravity="center" android:clickable="true" android:focusable="true"
    android:background="@drawable/bg_fishing_outline" android:text="Продолжить"
-   android:textColor="#30221E" android:textStyle="bold" android:textSize="16sp"/>
+   android:textColor="#30221E" android:textStyle="bold" android:textSize="14sp"/>
  </LinearLayout>
  <TextView android:id="@+id/fishing_status" android:layout_width="240dp" android:layout_height="wrap_content"
   android:layout_gravity="center" android:layout_marginRight="66dp" android:padding="12dp"
