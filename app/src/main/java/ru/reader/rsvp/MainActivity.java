@@ -100,6 +100,7 @@ public class MainActivity extends NavigationActivity {
 
     ArrayList<BookMeta> library = new ArrayList<>();
     private static final int MOVE_LIBRARY_REQUEST=12558;
+    private static final int IMPORT_HTML_FOLDER_REQUEST=15901;
     private String pendingMoveKind="",pendingMoveId="";
     String currentUri = "";
     String title = "";
@@ -175,7 +176,7 @@ public class MainActivity extends NavigationActivity {
         handler.post(()->showDrawerImport(action));
     }
     void showDrawerImport(String kind){
-        if("book".equals(kind))pick();
+        if("book".equals(kind))showBookImportMenu();
         else if("audio".equals(kind))chooseAudioFolder();
         else if("comic".equals(kind))showComicImportMenu();
     }
@@ -869,6 +870,7 @@ public class MainActivity extends NavigationActivity {
     }
 
     private static final android.util.LruCache<String,android.graphics.Bitmap> BOOK_COVERS = new android.util.LruCache<>(20);
+    static void invalidateBookCover(String uri){if(uri!=null)BOOK_COVERS.remove(uri);}
 
     View coverView(String title, String uri) {
         android.widget.FrameLayout frame=new android.widget.FrameLayout(this);
@@ -1318,12 +1320,69 @@ public class MainActivity extends NavigationActivity {
     void showAddMenu(){
         new SwipeDialogs.Builder(this).setTitle("Добавить")
             .setItems(new String[]{"Книгу","Аудиокнигу","Комикс"},(dialog,choice)->{
-                if(choice==0)pick();
+                if(choice==0)showBookImportMenu();
                 else if(choice==1)chooseAudioFolder();
                 else showComicImportMenu();
             }).setNegativeButton("Отмена",null).show();
     }
 
+    /** + -> Книгу -> Импортировать папку с HTML. */
+    private void showBookImportMenu(){
+        new SwipeDialogs.Builder(this).setTitle("Добавить книгу")
+            .setItems(new String[]{"Выбрать EPUB / FB2 / HTML файл", "Импортировать папку с HTML"},(d,which)->{
+                if(which==0)pick();
+                else{
+                    Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        |Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                    startActivityForResult(intent,IMPORT_HTML_FOLDER_REQUEST);
+                }
+            }).setNegativeButton("Отмена",null).show();
+    }
+    private void importHtmlFolder(Uri tree){
+        Toast.makeText(this,"Проверка HTML-глав и подготовка книги…",Toast.LENGTH_LONG).show();
+        new Thread(()->{
+            try{
+                HtmlFolderLibrary.Result result=HtmlFolderLibrary.importFolder(getApplicationContext(),tree);
+                runOnUiThread(()->{
+                    if(isFinishing())return;
+                    loadPrefs();
+                    BookMeta found=meta(result.uri);
+                    if(found==null){found=new BookMeta();found.uri=result.uri;library.add(0,found);}
+                    found.title=BookTitleStore.title(this,BookTitleStore.TEXT,result.uri,result.title);
+                    found.format="HTML";
+                    saveAll();draw();
+                    Toast.makeText(this,"Импортировано HTML-глав: "+result.chapterCount,Toast.LENGTH_LONG).show();
+                    openBook(result.uri,false,true);
+                });
+            }catch(Exception error){runOnUiThread(()->{
+                if(isFinishing())return;
+                new SwipeDialogs.Builder(this).setTitle("Импорт HTML не завершён")
+                    .setMessage(error.getMessage()+"\n\nИсходные файлы не изменены.")
+                    .setPositiveButton("Понятно",null).show();
+            });}
+        },"html-folder-import-v159").start();
+    }
+    private void checkHtmlUpdates(BookMeta book){
+        Toast.makeText(this,"Проверяю изменённые HTML-главы…",Toast.LENGTH_SHORT).show();
+        new Thread(()->{
+            boolean changed=false;String error=null;
+            try{
+                if(HtmlFolderLibrary.manages(getApplicationContext(),book.uri))
+                    changed=HtmlFolderLibrary.checkChanges(getApplicationContext(),book.uri);
+                else if(!RanobeLibStorage.slugForBookUri(getApplicationContext(),book.uri).isEmpty())
+                    changed=RanobeLibStorage.syncManualEdits(getApplicationContext(),book.uri);
+            }catch(Exception e){error=e.getMessage();}
+            final String message=error!=null?"Обновление не завершено: "+error
+                :(changed?"HTML-книга обновлена. Позиция сопоставлена с обновлённым текстом, резервная копия сохранена. Проверьте место остановки."
+                    :"Изменений HTML-глав не найдено.");
+            runOnUiThread(()->{if(!isFinishing()){
+                loadPrefs();draw();
+                new SwipeDialogs.Builder(this).setTitle("Проверка HTML-глав")
+                    .setMessage(message).setPositiveButton("Понятно",null).show();
+            }});
+        },"html-refresh-v159").start();
+    }
     private void importComicFolder(){
         Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
@@ -1578,6 +1637,19 @@ public class MainActivity extends NavigationActivity {
     @Override protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
         if(req==MOVE_LIBRARY_REQUEST){finishLibraryMove(req,res,data);return;}
+        if(req==IMPORT_HTML_FOLDER_REQUEST){
+            if(res==RESULT_OK&&data!=null&&data.getData()!=null){
+                Uri tree=data.getData();
+                try{getContentResolver().takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    importHtmlFolder(tree);
+                }catch(SecurityException error){
+                    new SwipeDialogs.Builder(this).setTitle("Нет доступа к папке")
+                        .setMessage("Выбранная папка не разрешает постоянное чтение HTML-файлов.")
+                        .setPositiveButton("OK",null).show();
+                }
+            }
+            return;
+        }
         if(req==12211&&res==RESULT_OK&&data!=null&&data.getData()!=null){
             Uri tree=data.getData();try{getContentResolver().takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}
             ComicLibrary.Comic comic=new ComicLibrary.Comic();comic.uri=tree.toString();
@@ -1823,40 +1895,39 @@ public class MainActivity extends NavigationActivity {
     }
 
     void bookMenu(BookMeta m) {
-        String[] items = {"Открыть / Продолжить", "Сделать текущей", "Переименовать", "Перенести в папку", "Убрать из библиотеки"};
-        new SwipeDialogs.Builder(this)
-                .setTitle(m.title)
-                .setItems(items, (d, which) -> {
-                    if (which == 0) openBook(m.uri, false, true);
-                    else if (which == 1) {
-                        currentUri = m.uri;
-                        screen = 0;
-                        saveAll();
-                        Toast.makeText(this, "Книга отмечена как текущая", Toast.LENGTH_SHORT).show();
-                        draw();
-                    } else if (which == 2) {
-                        BookRenameDialog.show(this,m.title,newName->{
-                            if(!BookTitleStore.renameText(this,m.uri,newName))return false;
-                            m.title=newName;
-                            if(m.uri.equals(currentUri))title=newName;
-                            saveAll();draw();return true;
-                        });
-                    } else if (which == 3) {
-                        chooseLibraryMove("text",m.uri,m.title);
-                    } else if (which == 4) {
-                        confirmForget(m.title,()->{
-                            library.remove(m);
-                            if(m.uri.equals(currentUri)){
-                                // A removed entry must never be shown as the current book.
-                                // Prefer another registered book; do not touch any source files.
-                                currentUri=library.isEmpty()?"":library.get(0).uri;
-                                body="";title="";author="";
-                                words=new String[0];wordStarts=new int[0];screen=0;
-                            }
-                            saveAll();draw();
-                        });
+        boolean htmlFolder=HtmlFolderLibrary.manages(this,m.uri);
+        boolean ranobe=!RanobeLibStorage.slugForBookUri(this,m.uri).isEmpty();
+        java.util.ArrayList<String> actions=new java.util.ArrayList<>();
+        actions.add("Открыть / Продолжить");
+        actions.add("Сделать текущей");
+        actions.add("Переименовать");
+        if(htmlFolder||ranobe)actions.add("Проверить изменения HTML");
+        actions.add("Перенести в папку");
+        actions.add("Убрать из библиотеки");
+        new SwipeDialogs.Builder(this).setTitle(m.title)
+            .setItems(actions.toArray(new String[0]), (d,which)->{
+                String action=actions.get(which);
+                if(action.equals("Открыть / Продолжить"))openBook(m.uri,false,true);
+                else if(action.equals("Сделать текущей")){
+                    currentUri=m.uri;screen=0;saveAll();
+                    Toast.makeText(this,"Книга отмечена как текущая",Toast.LENGTH_SHORT).show();draw();
+                }else if(action.equals("Переименовать")){
+                    BookRenameDialog.show(this,m.title,newName->{
+                        if(!BookTitleStore.renameText(this,m.uri,newName))return false;
+                        m.title=newName;if(m.uri.equals(currentUri))title=newName;
+                        saveAll();draw();return true;
+                    });
+                }else if(action.equals("Проверить изменения HTML"))checkHtmlUpdates(m);
+                else if(action.equals("Перенести в папку"))chooseLibraryMove("text",m.uri,m.title);
+                else if(action.equals("Убрать из библиотеки"))confirmForget(m.title,()->{
+                    library.remove(m);
+                    if(m.uri.equals(currentUri)){
+                        currentUri=library.isEmpty()?"":library.get(0).uri;
+                        body="";title="";author="";words=new String[0];wordStarts=new int[0];screen=0;
                     }
-                }).show();
+                    saveAll();draw();
+                });
+            }).show();
     }
 
     void displayDialog() {

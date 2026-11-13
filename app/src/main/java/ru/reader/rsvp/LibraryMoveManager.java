@@ -64,6 +64,8 @@ final class LibraryMoveManager {
         out.newUri=target.getUri().toString();
         // First update the persistent library and reading progress, then remove owned originals.
         BookUriMigration.text(ctx,original,out.newUri);
+        // The chapter folder remains the authoritative source after moving the assembled HTML.
+        if(HtmlFolderLibrary.manages(ctx,original))HtmlFolderLibrary.rememberTransfer(ctx,original,out.newUri,destination,bookDir.getName());
         out.copied=progress.copied;out.existing=progress.existing;
         if(file!=null&&SafeDownloadTransfer.appOwned(ctx,file)){
             if(!file.delete())out.note="Исходный файл оставлен: удаление не разрешено";

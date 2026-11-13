@@ -1219,7 +1219,7 @@ public class ReaderActivity extends NavigationActivity {
         if(prefs!=null&&!docUri.isEmpty())prefs.edit().putInt("viewport:"+docUri,viewportWord).apply();
     }
     private void showToc(){
-        UiNavigationSheet.showContents(this,chapters!=null&&chapters.size()>=3?chapters:BookChapterIndex.empty(),
+        UiNavigationSheet.showContents(this,chapters!=null&&chapters.size()>0?chapters:BookChapterIndex.empty(),
             chunks,body,map,viewportWord>=0?viewportWord:index,word->{
             if(word<0||word>=words.length)return;
             // TOC always browses the visible text. It never stops playback,
@@ -1379,12 +1379,19 @@ public class ReaderActivity extends NavigationActivity {
                 stop();title=loadedTitle;author=loadedAuthor==null?"":loadedAuthor;body=loadedText;
                 map=prepared;words=prepared.words;chunks=indexed;
                 actualChapters=parsedChapters==null?BookChapterIndex.empty():parsedChapters;
-                chapters=parsedChapters!=null&&parsedChapters.size()>=3?parsedChapters:BookChapterIndex.empty();
+                chapters=parsedChapters!=null&&parsedChapters.size()>0?parsedChapters:BookChapterIndex.empty();
                 ttsParts=session.speechSegments;ttsSentenceIndex=SentenceIndex.fromText(loadedText);docUri=uri.toString();
                 prefs.edit().putString("book_title:"+docUri,title)
                     .putString("book_author:"+docUri,author)
                     .putInt("book_words:"+docUri,words.length).apply();
-                if(reset)index=0;else index=map.clamp(index);
+                if(reset)index=0;
+                else if(!getIntent().hasExtra("word_index"))
+                    index=map.clamp(UnifiedReadingProgress.read(prefs,docUri,index));
+                else index=map.clamp(index);
+                if(!reset&&!getIntent().hasExtra("word_index")){
+                    viewportWord=prefs.getInt("viewport:"+docUri,-1);
+                    if(viewportWord<0)followSuspended=false;
+                }
                 chteicoInitialIndex=index;chteicoLastWordIndex=index;chteicoReadingSeconds=0;chteicoTouch();
                 ChteicoStore.openBook(this,docUri,mode);
                 draw();saveLight(true);

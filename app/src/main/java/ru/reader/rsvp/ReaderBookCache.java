@@ -11,7 +11,7 @@ import java.security.MessageDigest;
 
 /** Versioned compact index: stores book text ONCE and word offsets, not repeated word strings. */
 public final class ReaderBookCache {
-    private static final int MAGIC=0x52424933; // RBI3 includes structural chapters
+    private static final int MAGIC=0x52424934; // RBI4: also verifies SHA-256 for HTML
     private static final int MAX_WORDS=2_500_000;
     public static final class CachedBook {
         public final String title,author,text;
@@ -48,6 +48,29 @@ public final class ReaderBookCache {
         }catch(Exception ignored){}
         return -1;
     }
+    /** Content changes with the same byte length must invalidate imported HTML. */
+    static String revision(Context c,Uri uri){
+        String name=uri.getLastPathSegment();
+        if("content".equalsIgnoreCase(uri.getScheme()))try(Cursor cursor=c.getContentResolver().query(uri,
+                new String[]{OpenableColumns.DISPLAY_NAME},null,null,null)){
+            if(cursor!=null&&cursor.moveToFirst())name=cursor.getString(0);
+        }catch(Exception ignored){}
+        boolean html=name!=null&&(name.toLowerCase(java.util.Locale.ROOT).endsWith(".html")
+            ||name.toLowerCase(java.util.Locale.ROOT).endsWith(".htm"));
+        if(!html)return "size:"+sourceSize(c,uri);
+        try{
+            MessageDigest md=MessageDigest.getInstance("SHA-256");
+            try(InputStream in=c.getContentResolver().openInputStream(uri)){
+                if(in==null)return "";
+                byte[] buffer=new byte[32768];int n;long sum=0;
+                while((n=in.read(buffer))!=-1){sum+=n;if(sum>120_000_000L)return "";md.update(buffer,0,n);}
+            }
+            StringBuilder result=new StringBuilder("sha256:");
+            for(byte b:md.digest())result.append(String.format(java.util.Locale.ROOT,"%02x",b&255));
+            return result.toString();
+        }catch(Exception ex){return "";}
+    }
+    public static void invalidate(Context context,Uri uri){if(uri!=null)file(context,uri).delete();}
     private static void writeString(DataOutputStream out,String value)throws IOException{
         byte[] bytes=(value==null?"":value).getBytes(StandardCharsets.UTF_8);
         out.writeInt(bytes.length);out.write(bytes);
@@ -65,6 +88,8 @@ public final class ReaderBookCache {
             if(in.readInt()!=MAGIC)return null;
             long original=in.readLong(),actual=sourceSize(context,uri);
             if(actual>=0&&original!=actual)return null;
+            String storedRevision=readString(in,256),now=revision(context,uri);
+            if(now.isEmpty()||!storedRevision.equals(now))return null;
             String title=readString(in,2_000_000),author=readString(in,2_000_000),text=readString(in,60_000_000);
             int count=in.readInt();
             if(count<=0||count>MAX_WORDS)return null;
@@ -90,6 +115,7 @@ public final class ReaderBookCache {
         File destination=file(context,uri),temp=new File(destination.getParentFile(),destination.getName()+".tmp");
         try(DataOutputStream out=new DataOutputStream(new BufferedOutputStream(new FileOutputStream(temp)))){
             out.writeInt(MAGIC);out.writeLong(sourceSize(context,uri));
+            writeString(out,revision(context,uri));
             writeString(out,title);writeString(out,author);writeString(out,text);
             out.writeInt(map.size());
             for(int i=0;i<map.size();i++){out.writeInt(map.starts[i]);out.writeInt(map.ends[i]);}
