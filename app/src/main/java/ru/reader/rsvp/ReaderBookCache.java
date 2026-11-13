@@ -11,7 +11,7 @@ import java.security.MessageDigest;
 
 /** Versioned compact index: stores book text ONCE and word offsets, not repeated word strings. */
 public final class ReaderBookCache {
-    private static final int MAGIC=0x52424934; // RBI4: also verifies SHA-256 for HTML
+    private static final int MAGIC=0x52424934; // RBI4 cache format (fast metadata validation).
     private static final int MAX_WORDS=2_500_000;
     public static final class CachedBook {
         public final String title,author,text;
@@ -48,27 +48,13 @@ public final class ReaderBookCache {
         }catch(Exception ignored){}
         return -1;
     }
-    /** Content changes with the same byte length must invalidate imported HTML. */
+    /** Fast, non-reading revision. Never read or SHA-hash an HTML book simply
+     * because the user returned from Settings, the library or another screen.
+     * Local files include mtime; content:// providers supply their size.
+     * Explicit download/import updates invalidate the cache separately.
+     */
     static String revision(Context c,Uri uri){
-        String name=uri.getLastPathSegment();
-        if("content".equalsIgnoreCase(uri.getScheme()))try(Cursor cursor=c.getContentResolver().query(uri,
-                new String[]{OpenableColumns.DISPLAY_NAME},null,null,null)){
-            if(cursor!=null&&cursor.moveToFirst())name=cursor.getString(0);
-        }catch(Exception ignored){}
-        boolean html=name!=null&&(name.toLowerCase(java.util.Locale.ROOT).endsWith(".html")
-            ||name.toLowerCase(java.util.Locale.ROOT).endsWith(".htm"));
-        if(!html)return "size:"+sourceSize(c,uri);
-        try{
-            MessageDigest md=MessageDigest.getInstance("SHA-256");
-            try(InputStream in=c.getContentResolver().openInputStream(uri)){
-                if(in==null)return "";
-                byte[] buffer=new byte[32768];int n;long sum=0;
-                while((n=in.read(buffer))!=-1){sum+=n;if(sum>120_000_000L)return "";md.update(buffer,0,n);}
-            }
-            StringBuilder result=new StringBuilder("sha256:");
-            for(byte b:md.digest())result.append(String.format(java.util.Locale.ROOT,"%02x",b&255));
-            return result.toString();
-        }catch(Exception ex){return "";}
+        return "size:"+sourceSize(c,uri);
     }
     public static void invalidate(Context context,Uri uri){if(uri!=null)file(context,uri).delete();}
     private static void writeString(DataOutputStream out,String value)throws IOException{
@@ -89,7 +75,10 @@ public final class ReaderBookCache {
             long original=in.readLong(),actual=sourceSize(context,uri);
             if(actual>=0&&original!=actual)return null;
             String storedRevision=readString(in,256),now=revision(context,uri);
-            if(now.isEmpty()||!storedRevision.equals(now))return null;
+            // Reuse v159 SHA-index files without recomputing their hashes.
+            // The stored size/mtime has already been compared above.
+            boolean legacyHtmlIndex=storedRevision.startsWith("sha256:")&&actual>=0&&original==actual;
+            if(now.isEmpty()||(!storedRevision.equals(now)&&!legacyHtmlIndex))return null;
             String title=readString(in,2_000_000),author=readString(in,2_000_000),text=readString(in,60_000_000);
             int count=in.readInt();
             if(count<=0||count>MAX_WORDS)return null;

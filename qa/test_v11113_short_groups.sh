@@ -37,6 +37,7 @@ JAVA
 javac -encoding UTF-8 -d "$TMP" \
  "$ROOT/app/src/main/java/ru/reader/rsvp/SentenceChunks.java" \
  "$ROOT/app/src/main/java/ru/reader/rsvp/BookChapterIndex.java" \
+ "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeSentenceBoundary.java" \
  "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeSpeechSegments.java" \
  "$TMP/ru/reader/rsvp/TestShortGroups.java"
 java -cp "$TMP" ru.reader.rsvp.TestShortGroups

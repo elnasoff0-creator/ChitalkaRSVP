@@ -1340,7 +1340,7 @@ public class MainActivity extends NavigationActivity {
             }).setNegativeButton("Отмена",null).show();
     }
     private void importHtmlFolder(Uri tree){
-        Toast.makeText(this,"Проверка HTML-глав и подготовка книги…",Toast.LENGTH_LONG).show();
+        Toast.makeText(this,"Импорт HTML-глав в библиотеку…",Toast.LENGTH_LONG).show();
         new Thread(()->{
             try{
                 HtmlFolderLibrary.Result result=HtmlFolderLibrary.importFolder(getApplicationContext(),tree);
@@ -1362,26 +1362,6 @@ public class MainActivity extends NavigationActivity {
                     .setPositiveButton("Понятно",null).show();
             });}
         },"html-folder-import-v159").start();
-    }
-    private void checkHtmlUpdates(BookMeta book){
-        Toast.makeText(this,"Проверяю изменённые HTML-главы…",Toast.LENGTH_SHORT).show();
-        new Thread(()->{
-            boolean changed=false;String error=null;
-            try{
-                if(HtmlFolderLibrary.manages(getApplicationContext(),book.uri))
-                    changed=HtmlFolderLibrary.checkChanges(getApplicationContext(),book.uri);
-                else if(!RanobeLibStorage.slugForBookUri(getApplicationContext(),book.uri).isEmpty())
-                    changed=RanobeLibStorage.syncManualEdits(getApplicationContext(),book.uri);
-            }catch(Exception e){error=e.getMessage();}
-            final String message=error!=null?"Обновление не завершено: "+error
-                :(changed?"HTML-книга обновлена. Позиция сопоставлена с обновлённым текстом, резервная копия сохранена. Проверьте место остановки."
-                    :"Изменений HTML-глав не найдено.");
-            runOnUiThread(()->{if(!isFinishing()){
-                loadPrefs();draw();
-                new SwipeDialogs.Builder(this).setTitle("Проверка HTML-глав")
-                    .setMessage(message).setPositiveButton("Понятно",null).show();
-            }});
-        },"html-refresh-v159").start();
     }
     private void importComicFolder(){
         Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
@@ -1895,13 +1875,10 @@ public class MainActivity extends NavigationActivity {
     }
 
     void bookMenu(BookMeta m) {
-        boolean htmlFolder=HtmlFolderLibrary.manages(this,m.uri);
-        boolean ranobe=!RanobeLibStorage.slugForBookUri(this,m.uri).isEmpty();
         java.util.ArrayList<String> actions=new java.util.ArrayList<>();
         actions.add("Открыть / Продолжить");
         actions.add("Сделать текущей");
         actions.add("Переименовать");
-        if(htmlFolder||ranobe)actions.add("Проверить изменения HTML");
         actions.add("Перенести в папку");
         actions.add("Убрать из библиотеки");
         new SwipeDialogs.Builder(this).setTitle(m.title)
@@ -1917,8 +1894,7 @@ public class MainActivity extends NavigationActivity {
                         m.title=newName;if(m.uri.equals(currentUri))title=newName;
                         saveAll();draw();return true;
                     });
-                }else if(action.equals("Проверить изменения HTML"))checkHtmlUpdates(m);
-                else if(action.equals("Перенести в папку"))chooseLibraryMove("text",m.uri,m.title);
+                }else if(action.equals("Перенести в папку"))chooseLibraryMove("text",m.uri,m.title);
                 else if(action.equals("Убрать из библиотеки"))confirmForget(m.title,()->{
                     library.remove(m);
                     if(m.uri.equals(currentUri)){

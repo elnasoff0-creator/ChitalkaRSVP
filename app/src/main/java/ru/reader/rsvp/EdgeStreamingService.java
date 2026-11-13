@@ -443,7 +443,7 @@ public final class EdgeStreamingService extends Service {
                 DownloadsRepository.storeEdgeMeta(bookDir,requested,name,positions.size());
                 main.post(()->{
                     if(destroyed||!requested.equals(bookUri))return;
-                    bookText=raw;title=name;chapters=parsedChapters;offsets.addAll(positions);sentenceParts.addAll(newParts);sentenceIndex=SentenceIndex.fromText(raw);sentenceHistory.bind(sentenceIndex);directory=dir;
+                    bookText=raw;title=name;chapters=parsedChapters;offsets.addAll(positions);sentenceParts.addAll(newParts);sentenceIndex=session.sentenceIndex;sentenceHistory.bind(sentenceIndex);directory=dir;
                     bookReady=!offsets.isEmpty();restore();
                     // Recovery is pure disk I/O. It must never delay the first frame.
                     io.execute(()->{
@@ -676,10 +676,8 @@ public final class EdgeStreamingService extends Service {
             EdgeSentenceSeek.at(relative,EdgeWordTimings.read(base.file,base.text)):-1L;
         boolean exactLive=requested==base.start&&liveFor(base)!=null;
         if(position<0&&!exactLive){
-            // When jumping to an uncached position, start with up to 500
-            // characters instead of waiting for the normal 800-char group.
-            // Additional pieces cover the rest of the same normal group;
-            // this prevents replaying or skipping text on the next track.
+            // Manual selection starts at the chosen word. Never slice a
+            // sentence merely to reach a 500-character transport target.
             SentenceChunks.Chunk grouped=SentenceChunks.forWord(sentenceParts,requested);
             if(grouped!=null){
                 for(SentenceChunks.Chunk piece:EdgeSpeechSegments.priorityPieces(
@@ -699,7 +697,7 @@ public final class EdgeStreamingService extends Service {
         pendingStarts.clear();priorityStart=-1;
         persist();pump();
     }
-    /** The normal 800-character group, without temporary priority overrides. */
+    /** The normal whole-sentence Edge group, without priority overrides. */
     private Clip baseClipAt(int word){
         if(word<0||word>=offsets.size()||sentenceParts.isEmpty())return null;
         SentenceChunks.Chunk part=SentenceChunks.forWord(sentenceParts,word);

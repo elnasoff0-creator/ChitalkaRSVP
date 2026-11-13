@@ -1380,7 +1380,7 @@ public class ReaderActivity extends NavigationActivity {
                 map=prepared;words=prepared.words;chunks=indexed;
                 actualChapters=parsedChapters==null?BookChapterIndex.empty():parsedChapters;
                 chapters=parsedChapters!=null&&parsedChapters.size()>0?parsedChapters:BookChapterIndex.empty();
-                ttsParts=session.speechSegments;ttsSentenceIndex=SentenceIndex.fromText(loadedText);docUri=uri.toString();
+                ttsParts=session.speechSegments;ttsSentenceIndex=session.sentenceIndex;docUri=uri.toString();
                 prefs.edit().putString("book_title:"+docUri,title)
                     .putString("book_author:"+docUri,author)
                     .putInt("book_words:"+docUri,words.length).apply();

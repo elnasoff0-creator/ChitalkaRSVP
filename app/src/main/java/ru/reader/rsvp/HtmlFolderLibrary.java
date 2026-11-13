@@ -25,8 +25,8 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Locale;
 
-/** Import an Android SAF HTML chapter folder as one monitored, offline HTML book.
- * Original chapters remain untouched; generated book.html is rebuilt transactionally.
+/** Import an Android SAF HTML chapter folder once as an offline HTML book.
+ * The original chapter folder is NEVER polled or scanned when opening the book.
  */
 final class HtmlFolderLibrary {
     private static final int MAX_CHAPTERS=2500,MAX_DEPTH=8;
@@ -304,49 +304,32 @@ final class HtmlFolderLibrary {
         File file=new File(folder,"book.html"),backup=new File(folder,"book.html.bak");
         if(!file.isFile()&&backup.isFile())backup.renameTo(file);
     }
-    private static String signature(Context c,Scan scan)throws IOException{
-        MessageDigest md;
-        try{md=MessageDigest.getInstance("SHA-256");}catch(Exception e){throw new IOException(e);}
-        ArrayList<String> sources=new ArrayList<>();
-        for(Part part:scan.html)sources.add(part.path);
-        // Covers and inline images may change without any HTML filename/size change.
-        for(String path:scan.files.keySet())if(path.matches("(?i).+\\.(?:png|jpg|jpeg|webp|gif)"))sources.add(path);
-        sources.sort(HtmlChapterOrder::compare);
-        for(String name:sources){
-            DocumentFile document=scan.files.get(name.toLowerCase(Locale.ROOT));
-            if(document==null)throw new IOException("Исчез файл: "+name);
-            long bound=name.toLowerCase(Locale.ROOT).endsWith(".html")||name.toLowerCase(Locale.ROOT).endsWith(".htm")
-                ?MAX_CHAPTER_BYTES:15L*1024*1024;
-            md.update(name.getBytes(StandardCharsets.UTF_8));md.update((byte)0);
-            byte[] buf=new byte[16384];long nbytes=0;
-            try(InputStream in=c.getContentResolver().openInputStream(document.getUri())){
-                if(in==null)throw new IOException("Файл недоступен: "+name);
-                int n;while((n=in.read(buf))!=-1){nbytes+=n;
-                    if(nbytes>bound)throw new IOException("Файл слишком велик: "+name);
-                    md.update(buf,0,n);
-                }
-            }
-        }
-        return digest(md.digest());
-    }
     static Result importFolder(Context c,Uri tree)throws IOException{
-        synchronized(IO_LOCK){return sync(c,tree,true);}
+        synchronized(IO_LOCK){
+            File local=folder(c,tree),book=new File(local,"book.html");
+            recoverBook(local);
+            JSONObject existing=oldManifest(local);
+            String remote=existing.optString("externalUri","");
+            if(tree.toString().equals(existing.optString("sourceTree",""))
+                    &&(book.isFile()||!remote.isEmpty())){
+                JSONArray chapters=existing.optJSONArray("chapters");
+                return new Result(remote.isEmpty()?Uri.fromFile(book).toString():remote,
+                    existing.optString("title","Книга из HTML"),
+                    chapters==null?0:chapters.length(),false);
+            }
+            return sync(c,tree);
+        }
     }
-    private static Result sync(Context ctx,Uri tree,boolean initial)throws IOException{
+    /** Import only; not called from ReaderActivity or navigation. */
+    private static Result sync(Context ctx,Uri tree)throws IOException{
         DocumentFile source=DocumentFile.fromTreeUri(ctx,tree);
         Scan scan=scanTree(source);
         File local=folder(ctx,tree),book=new File(local,"book.html");
         recoverBook(local);
         String title=sanitizeName(source.getName());if(title.isEmpty())title="Книга из HTML";
         JSONObject previous=oldManifest(local);
-        String current=signature(ctx,scan);
         String externalUri=previous.optString("externalUri","");
         boolean external=!externalUri.isEmpty();
-        if(current.equals(previous.optString("fingerprint"))&&(book.isFile()||external))
-            return new Result(external?externalUri:Uri.fromFile(book).toString(),
-                previous.optString("title",title),scan.html.size(),false);
-        String readingUri=external?externalUri:Uri.fromFile(book).toString();
-        HtmlReadingAnchor.Snapshot anchor=(book.isFile()||external)?HtmlReadingAnchor.capture(ctx,readingUri):null;
         JSONArray chapters=new JSONArray();
         String assembled=bookHtml(ctx,scan,local,title,chapters);
         if(BookLoader.ranobeHtml(assembled,title).text.trim().isEmpty())throw new IOException("Пустая книга после сборки");
@@ -365,7 +348,7 @@ final class HtmlFolderLibrary {
                 manifest.put("externalTree",previous.optString("externalTree",""));
                 manifest.put("externalDirectory",previous.optString("externalDirectory",""));
             }
-            manifest.put("title",title);manifest.put("fingerprint",current);
+            manifest.put("title",title);
             manifest.put("chapters",chapters);manifest.put("updatedAt",System.currentTimeMillis());
             atomic(manifest(local),manifest.toString(2).getBytes(StandardCharsets.UTF_8),true);
         }catch(Exception error){
@@ -380,8 +363,9 @@ final class HtmlFolderLibrary {
         }
         String uri=external?externalUri:Uri.fromFile(book).toString();
         MainActivity.invalidateBookCover(uri);
-        if(anchor!=null)HtmlReadingAnchor.restore(ctx,uri,anchor,assembled);
-        else{ReaderBookCache.invalidate(ctx,Uri.parse(uri));UnifiedBookSession.invalidate(uri);}
+        // Only an EXPLICIT import invalidates the prepared reader. No auto-sync.
+        ReaderBookCache.invalidate(ctx,Uri.parse(uri));
+        UnifiedBookSession.invalidate(uri);
         // After migration keep the verified external copy; local temporary HTML is removable.
         if(external)book.delete();
         return new Result(uri,title,scan.html.size(),true);
@@ -415,30 +399,6 @@ final class HtmlFolderLibrary {
             if(!manifest(parent).isFile())return null;
             return parent;
         }catch(Exception e){return null;}
-    }
-    static boolean syncIfChanged(Context c,String bookUri)throws IOException{
-        return refresh(c,bookUri,false);
-    }
-    static boolean checkChanges(Context c,String bookUri)throws IOException{
-        return refresh(c,bookUri,true);
-    }
-    private static boolean refresh(Context c,String bookUri,boolean strict)throws IOException{
-        File dir=localFolder(c,bookUri);if(dir==null)return false;
-        JSONObject index=oldManifest(dir);
-        String origin=index.optString("sourceTree","");
-        if(origin.isEmpty()){
-            if(strict)throw new IOException("Нет ссылки на исходную папку HTML");
-            return false;
-        }
-        try{
-            synchronized(IO_LOCK){return sync(c,Uri.parse(origin),false).updated;}
-        }catch(Exception error){
-            // The generated book remains readable offline if the source SD card is absent.
-            if(strict||!new File(dir,"book.html").isFile())
-                throw error instanceof IOException?(IOException)error:new IOException(error);
-            android.util.Log.w("HtmlFolderLibrary","Offline book retained; source unavailable",error);
-            return false;
-        }
     }
     static byte[] coverBytes(Context ctx,String bookUri){
         File folder=localFolder(ctx,bookUri);if(folder==null)return null;

@@ -8,6 +8,8 @@ cat > "$WORK/src/android/net/Uri.java" <<'EOF'
 package android.net;
 public final class Uri {final String s;private Uri(String value){s=value;}
 public static Uri parse(String value){return new Uri(value);}
+public String getScheme(){int i=s.indexOf(':');return i<0?null:s.substring(0,i);}
+public String getPath(){return s.replaceFirst("^[^:]*:","");}
 @Override public String toString(){return s;}}
 EOF
 cat > "$WORK/src/android/provider/OpenableColumns.java" <<'EOF'
@@ -58,6 +60,7 @@ public class TestSharedBook {
   check(UnifiedBookSession.open(context,uri)==first,"mode switch is zero-reload");
   check(BookLoader.parsed==1,"mode switch never reopened EPUB");
   check(first.edgeGroups()==first.edgeGroups(),"Edge grouped sentence list reused between mode switches");
+  check(UnifiedBookSession.open(context,uri).sentenceIndex==first.sentenceIndex,"Sentence index should be reused");
   Field active=UnifiedBookSession.class.getDeclaredField("active");active.setAccessible(true);active.set(null,null);
   UnifiedBookSession disk=UnifiedBookSession.open(context,uri);
   check(BookLoader.parsed==1,"cold app start used disk cache without original EPUB");
@@ -78,6 +81,8 @@ javac -encoding UTF-8 -d "$WORK/classes" \
  app/src/main/java/ru/reader/rsvp/ReadingWordMap.java \
  app/src/main/java/ru/reader/rsvp/BookChunkIndex.java \
  app/src/main/java/ru/reader/rsvp/SentenceChunks.java \
+ app/src/main/java/ru/reader/rsvp/SentenceIndex.java \
+ app/src/main/java/ru/reader/rsvp/EdgeSentenceBoundary.java \
  app/src/main/java/ru/reader/rsvp/EdgeSpeechSegments.java \
  app/src/main/java/ru/reader/rsvp/UnifiedBookSession.java \
  "$WORK/src/ru/reader/rsvp/TestSharedBook.java"

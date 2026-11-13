@@ -99,23 +99,35 @@ public final class DownloadActivity extends NavigationActivity {
     }
     private void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(12),dp(25),dp(12),dp(12));root.setBackgroundColor(BG);setContentView(root);SafeSystemBars.matchBackground(this,BG);
+        LinearLayout topBar=new LinearLayout(this);topBar.setGravity(Gravity.CENTER_VERTICAL);
+        root.addView(topBar,new LinearLayout.LayoutParams(-1,dp(52)));
+        // The drawer icon stays fixed on the left. All other actions align right;
+        // the action strip scrolls on narrow screens without shifting the drawer.
+        ImageView back=icon(R.drawable.ic_menu_lines,"Главное меню",44);
+        topBar.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        back.setOnClickListener(v->UniversalDrawer.show(this));
         HorizontalScrollView toolbarScroll=new HorizontalScrollView(this);
         toolbarScroll.setHorizontalScrollBarEnabled(false);
-        root.addView(toolbarScroll,new LinearLayout.LayoutParams(-1,dp(52)));
-        LinearLayout toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);
+        toolbarScroll.setFillViewport(true);
+        topBar.addView(toolbarScroll,new LinearLayout.LayoutParams(0,dp(52),1));
+        LinearLayout toolbar=new LinearLayout(this);
+        toolbar.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
         toolbarScroll.addView(toolbar,new HorizontalScrollView.LayoutParams(-2,dp(52)));
-        ImageView back=icon(R.drawable.ic_menu_lines,"Главное меню",44);
-        toolbar.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));
-        back.setOnClickListener(v->UniversalDrawer.show(this));
-        toolbar.addView(new View(this),new LinearLayout.LayoutParams(0,dp(1),1));
         toolbarAction(toolbar,R.drawable.ic_search_audiobook,"Поиск аудиокниг",()->startActivity(new Intent(this,KvuheSearchActivity.class)));
         toolbarAction(toolbar,R.drawable.ic_manga_search,"Поиск манги · MangaLib",()->startActivity(new Intent(this,MangaLibSearchActivity.class)));
         toolbarAction(toolbar,R.drawable.ic_ranobelib_search,"Поиск ранобэ · RanobeLIB",()->startActivity(new Intent(this,RanobeLibSearchActivity.class)));
         toolbarAction(toolbar,R.drawable.ic_import_link,"Импорт по ссылке",()->startActivity(new Intent(this,LinkDownloadActivity.class)));
         toolbarAction(toolbar,R.drawable.ic_autoload,"Подготовить книгу Edge",()->startActivity(new Intent(this,EdgeFullBookActivity.class)));
-        toolbarAction(toolbar,R.drawable.ic_download_archive,"Архив загрузок",()->startActivity(new Intent(this,DownloadArchiveActivity.class)));
+        toolbarScroll.post(()->toolbarScroll.scrollTo(toolbar.getWidth(),0));
+        LinearLayout headingRow=new LinearLayout(this);
+        headingRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams hl=new LinearLayout.LayoutParams(-1,dp(52));hl.topMargin=dp(11);
+        root.addView(headingRow,hl);
         TextView heading=text("Загрузки",25,true);heading.setTypeface(Typeface.SERIF,Typeface.BOLD);
-        LinearLayout.LayoutParams hl=new LinearLayout.LayoutParams(-1,-2);hl.topMargin=dp(14);root.addView(heading,hl);
+        headingRow.addView(heading,new LinearLayout.LayoutParams(0,-2,1));
+        ImageView archive=icon(R.drawable.ic_download_archive,"Архив загрузок",44);
+        headingRow.addView(archive,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        archive.setOnClickListener(v->startActivity(new Intent(this,DownloadArchiveActivity.class)));
         String[] currentFilters={"Все загрузки","В процессе","Аудиокниги","Edge TTS","По ссылке","Манга","Ранобэ"};
         TextView filterSelect=center(currentFilters[Math.max(0,Math.min(filter,6))]+"  ▾",16);
         filterSelect.setGravity(Gravity.CENTER_VERTICAL|Gravity.CENTER_HORIZONTAL);

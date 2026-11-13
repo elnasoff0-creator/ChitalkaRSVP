@@ -576,7 +576,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     private void makeChunks(UnifiedBookSession session){
         chunks.clear();chunkWordPositions.clear();ttsChunkCharPositions.clear();
         java.util.ArrayList<SentenceChunks.Chunk> parts=session.speechSegments;
-        sentenceIndex=SentenceIndex.fromText(session.book.text);
+        sentenceIndex=session.sentenceIndex;
         sentenceHistory.bind(sentenceIndex);
         ttsWordCount=session.ttsWordPositions.size();
         sharedTtsChapters=session.book.chapters==null?BookChapterIndex.empty():session.book.chapters;

@@ -338,6 +338,11 @@ final class RanobeLibStorage {
                 publish(c,slug,local,"book.html");local.delete();
             }catch(Exception error){throw new IOException("Не удалось обновить перенесённую HTML-книгу",error);}
         }
+        String published=bookUri(c,slug);
+        // A real new download invalidates the *disk* index so the next cold
+        // session sees new chapters. Keep an already open immutable session
+        // intact: background downloading must not reparse a book on return.
+        ReaderBookCache.invalidate(c,Uri.parse(published));
         registerBook(c,title);
     }
     static synchronized void registerBook(Context c,RanobeLibApi.Title title){
@@ -352,67 +357,6 @@ final class RanobeLibStorage {
             if(!has){MainActivity.BookMeta meta=new MainActivity.BookMeta();meta.uri=uri;meta.title=BookTitleStore.title(c,BookTitleStore.TEXT,uri,title.title);meta.author=title.author;meta.excerpt=title.description;meta.format="HTML";updated.put(meta.toJson());}
             prefs.edit().putString("library",updated.toString()).commit();
         }catch(Exception error){android.util.Log.e("RanobeLibStorage","Library registration",error);}
-    }
-    /** Detect manually replaced chapter HTML, even if filenames and sizes are identical.
-     * Rebuilds book.html, keeps .bak and remaps the current reading position.
-     */
-    static boolean syncManualEdits(Context c,String bookUri)throws IOException{
-        String slug=slugForBookUri(c,bookUri);if(slug.isEmpty())return false;
-        ArrayList<Job> entries=series(c,slug);
-        java.security.MessageDigest md;
-        try{md=java.security.MessageDigest.getInstance("SHA-256");}catch(Exception e){throw new IOException(e);}
-        int count=0;
-        for(Job job:entries){
-            if(!"complete".equals(job.status)||!stored(c,job.file))continue;
-            md.update(job.id().getBytes(StandardCharsets.UTF_8));md.update((byte)0);
-            byte[] buffer=new byte[16384];long size=0;
-            try(java.io.InputStream input=job.file.startsWith("content://")
-                    ?c.getContentResolver().openInputStream(Uri.parse(job.file))
-                    :new FileInputStream(new File(job.file))){
-                if(input==null)throw new IOException("Глава недоступна: "+job.file);
-                int n;while((n=input.read(buffer))!=-1){size+=n;
-                    if(size>40_000_000L)throw new IOException("HTML-глава слишком велика");
-                    md.update(buffer,0,n);
-                }
-            }
-            count++;
-        }
-        if(count==0)return false;
-        String signature=hash(java.util.Arrays.toString(md.digest()));
-        android.content.SharedPreferences settings=c.getSharedPreferences("ranobelib_html_sync_v159",0);
-        String storedSignature=settings.getString(slug,"");
-        if(storedSignature.equals(signature))return false;
-        HtmlReadingAnchor.Snapshot old=HtmlReadingAnchor.capture(c,bookUri);
-        if(externalDir(c,slug)!=null){
-            // The SAF publisher rotates its own temporary files; keep a recoverable
-            // copy of the previous assembled text when user-supplied chapters change.
-            File backup=new File(folder(c,slug),"book.html.bak");
-            File part=new File(backup.getAbsolutePath()+".part");
-            try(java.io.InputStream input=c.getContentResolver().openInputStream(Uri.parse(bookUri));
-                java.io.FileOutputStream out=new java.io.FileOutputStream(part)){
-                if(input==null)throw new IOException("Не удалось создать резервную копию книги");
-                byte[] bytes=new byte[32768];int n;long size=0;
-                while((n=input.read(bytes))!=-1){size+=n;
-                    if(size>150_000_000L)throw new IOException("HTML-книга слишком велика для копирования");
-                    out.write(bytes,0,n);
-                }
-                out.getFD().sync();
-            }
-            if(backup.exists()&&!backup.delete())throw new IOException("Резервная копия защищена от удаления");
-            if(!part.renameTo(backup))throw new IOException("Не удалось сохранить резервную HTML-копию");
-        }
-        synchronized(RanobeLibStorage.class){
-            // Do not overwrite the existing assembled book when its chapters disappeared.
-            rebuildBook(c,slug);
-        }
-        String now=bookUri(c,slug);
-        try{
-            String html=readStored(c,now.startsWith("file:")
-                ?new File(Uri.parse(now).getPath()).getAbsolutePath():now);
-            HtmlReadingAnchor.restore(c,now,old,html);
-        }catch(Exception error){throw new IOException("Книга пересобрана, но проверка положения не удалась",error);}
-        if(!settings.edit().putString(slug,signature).commit())throw new IOException("Не удалось сохранить контрольную сумму глав");
-        return true;
     }
     static synchronized void deleteSeries(Context c,String slug){
         ArrayList<Job> remaining=new ArrayList<>();for(Job j:jobs(c))if(!slug.equals(j.slug))remaining.add(j);saveJobs(c,remaining);

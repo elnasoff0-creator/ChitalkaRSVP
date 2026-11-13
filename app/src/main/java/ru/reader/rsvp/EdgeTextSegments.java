@@ -2,7 +2,7 @@ package ru.reader.rsvp;
 
 import java.util.ArrayList;
 
-/** Compatibility adapter: both TTS engines use SentenceChunks with a 800-char cap. */
+/** Adapter for the same complete-sentence Edge groups in live and offline TTS. */
 final class EdgeTextSegments {
     static final class Part {
         final int start,end;

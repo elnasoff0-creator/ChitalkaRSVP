@@ -15,6 +15,7 @@ final class UnifiedBookSession {
     final BookChunkIndex blocks;
     final java.util.ArrayList<Integer> ttsWordPositions;
     final java.util.ArrayList<SentenceChunks.Chunk> speechSegments;
+    final SentenceIndex sentenceIndex;
     private static volatile UnifiedBookSession active;
     private volatile java.util.ArrayList<SentenceChunks.Chunk> edgeGroups;
     synchronized java.util.ArrayList<SentenceChunks.Chunk> edgeGroups(){
@@ -26,6 +27,7 @@ final class UnifiedBookSession {
         ttsWordPositions=new java.util.ArrayList<>(w.starts.length);
         for(int value:w.starts)ttsWordPositions.add(value);
         speechSegments=SentenceChunks.split(b.text);
+        sentenceIndex=SentenceIndex.fromText(b.text);
     }
     static UnifiedBookSession current(String uri){
         UnifiedBookSession s=active;
@@ -36,12 +38,12 @@ final class UnifiedBookSession {
     }
     static UnifiedBookSession open(Context context,Uri source)throws Exception {
         String uri=source.toString();
-        // Source checks and rebuilding are off the UI thread in ReaderActivity.load().
-        if(HtmlFolderLibrary.manages(context,uri))HtmlFolderLibrary.syncIfChanged(context,uri);
-        else if(!RanobeLibStorage.slugForBookUri(context,uri).isEmpty())RanobeLibStorage.syncManualEdits(context,uri);
-        String fingerprint=ReaderBookCache.revision(context,source);
+        // The previously opened immutable book is already ready for all reading modes.
+        // Never traverse HTML chapter trees or hash the source while returning to the reader.
         UnifiedBookSession s=current(uri);
-        if(s!=null&&!fingerprint.isEmpty()&&fingerprint.equals(s.revision))return s;
+        if(s!=null)return s;
+        // New downloads/imports explicitly invalidate this session after publishing.
+        String fingerprint=ReaderBookCache.revision(context,source);
         // RBI4 carries parsed text, word offsets, a structural TOC and revision.
         // EPUB/FB2 need not be reopened after restart when the source is unchanged.
         ReaderBookCache.CachedBook cached=ReaderBookCache.load(context,source);
@@ -60,7 +62,7 @@ final class UnifiedBookSession {
         }
         UnifiedBookSession prepared=new UnifiedBookSession(uri,fingerprint,book,map);
         // Hold the session lock only for publishing the immutable snapshot.
-        // Never wait on SAF folder I/O while holding it: manual sync also invalidates it.
+        // Keep the lock short; source I/O is never performed inside it.
         synchronized(UnifiedBookSession.class){active=prepared;}
         return prepared;
     }
