@@ -61,27 +61,104 @@ final class RanobeLibStorage {
     private static void saveJobs(Context c,List<Job> jobs){JSONArray a=new JSONArray();for(Job j:jobs)a.put(j.json());try{writeAtomic(jobsFile(c),a.toString());}catch(IOException ex){android.util.Log.e("RanobeLibStorage","Jobs not saved",ex);throw new IllegalStateException("Не удалось сохранить очередь RanobeLIB",ex);}}
     static void rememberTitle(Context c,RanobeLibApi.Title title){try{writeAtomic(new File(folder(c,title.slug),"book.json"),title.json().toString(2));}catch(IOException | org.json.JSONException error){android.util.Log.w("RanobeLibStorage","Metadata",error);}}
     static RanobeLibApi.Title savedTitle(Context c,String slug){try{return RanobeLibApi.Title.fromJson(new JSONObject(readText(new File(folder(c,slug),"book.json"))));}catch(Exception ignored){return new RanobeLibApi.Title(slug,slug);}}
-    static boolean hasCover(Context c,String slug){File f=cover(c,slug);return f.isFile()&&f.length()>100;}
-    static void ensureCover(Context c,RanobeLibApi.Title t,RanobeLibApi api){
-        if(hasCover(c,t.slug)||t.cover.isEmpty())return;
-        try{byte[] image=api.coverBytes(t.cover);BitmapFactory.Options info=new BitmapFactory.Options();info.inJustDecodeBounds=true;BitmapFactory.decodeByteArray(image,0,image.length,info);if(info.outWidth<=0||info.outHeight<=0)throw new IOException("Файл обложки не декодируется");
-            BitmapFactory.Options scale=new BitmapFactory.Options();int step=1;
-            while(info.outWidth/step>900||info.outHeight/step>1400)step*=2;
-            scale.inSampleSize=step;android.graphics.Bitmap bitmap=BitmapFactory.decodeByteArray(image,0,image.length,scale);
-            if(bitmap==null)throw new IOException("Не удалось прочитать обложку");
-            File tmp=new File(cover(c,t.slug).getAbsolutePath()+".part");
-            try(FileOutputStream out=new FileOutputStream(tmp)){
-                if(!bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG,88,out))throw new IOException("Ошибка кодирования обложки");
-                out.getFD().sync();
-            }finally{bitmap.recycle();}
-            if(!tmp.renameTo(cover(c,t.slug)))tmp.delete();
-        }catch(IOException ignored){/* A missing cover must never prevent a text download. */}
+    static boolean hasCover(Context c,String slug){
+        File f=cover(c,slug);
+        if(!f.isFile()||f.length()<100||f.length()>6_000_000)return false;
+        BitmapFactory.Options bounds=new BitmapFactory.Options();bounds.inJustDecodeBounds=true;
+        BitmapFactory.decodeFile(f.getAbsolutePath(),bounds);
+        return bounds.outWidth>0&&bounds.outHeight>0;
+    }
+    /** The retry stamp avoids hundreds of requests during a whole-book download. */
+    static boolean ensureCover(Context c,RanobeLibApi.Title t,RanobeLibApi api){return ensureCover(c,t,api,false);}
+    static synchronized boolean ensureCover(Context c,RanobeLibApi.Title t,RanobeLibApi api,boolean forced){
+        if(t==null||t.slug==null)return false;
+        try{RanobeLibApi.validSlug(t.slug);}catch(Exception ignored){return false;}
+        if(hasCover(c,t.slug))return true;
+        android.content.SharedPreferences prefs=c.getSharedPreferences("ranobelib_cover_attempts_v157",0);
+        long now=System.currentTimeMillis();String key="cover_attempt:"+t.slug;
+        if(!forced&&now-prefs.getLong(key,0)<15*60*1000L)return false;
+        prefs.edit().putLong(key,now).apply();
+        java.util.LinkedHashSet<String> candidates=new java.util.LinkedHashSet<>();
+        candidates.addAll(RanobeLibCoverUrls.candidateUrls(t.cover));
+        // A prior release might have stored an obsolete cover URL. Query fresh metadata.
+        if(candidates.isEmpty()||forced){
+            try{
+                RanobeLibApi.Title remote=api.title(t.slug);
+                candidates.addAll(RanobeLibCoverUrls.candidateUrls(remote.cover));
+                if(t.title.isEmpty()||t.title.equals(t.slug))t.title=remote.title;
+                if(t.author.isEmpty())t.author=remote.author;
+                if(t.description.isEmpty())t.description=remote.description;
+            }catch(Exception error){android.util.Log.d("RanobeLibStorage","Cover metadata unavailable: "+error.getMessage());}
+        }
+        // The current website renders the actual image as img.cover__img on the title page.
+        // Try the page whenever the metadata URL fails, without relying on a hard-coded book.
+        boolean inspectedPage=false,refreshedMetadata=candidates.isEmpty()||forced;
+        java.util.HashSet<String> attempted=new java.util.HashSet<>();
+        while(true){
+            for(String url:new java.util.ArrayList<>(candidates)){
+                if(!attempted.add(url))continue;
+                try{
+                    byte[] image=api.coverBytes(url);
+                    BitmapFactory.Options info=new BitmapFactory.Options();info.inJustDecodeBounds=true;
+                    BitmapFactory.decodeByteArray(image,0,image.length,info);
+                    if(info.outWidth<=0||info.outHeight<=0)throw new IOException("Обложка не декодируется");
+                    BitmapFactory.Options scale=new BitmapFactory.Options();int step=1;
+                    while(info.outWidth/step>900||info.outHeight/step>1400)step*=2;
+                    scale.inSampleSize=step;
+                    android.graphics.Bitmap bitmap=BitmapFactory.decodeByteArray(image,0,image.length,scale);
+                    if(bitmap==null)throw new IOException("Не удалось прочитать обложку");
+                    File target=cover(c,t.slug),tmp=new File(target.getAbsolutePath()+".part");
+                    try(FileOutputStream out=new FileOutputStream(tmp)){
+                        if(!bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG,88,out))
+                            throw new IOException("Ошибка кодирования обложки");
+                        out.getFD().sync();
+                    }finally{bitmap.recycle();}
+                    if(target.exists()&&!target.delete())throw new IOException("Нельзя заменить повреждённую обложку");
+                    if(!tmp.renameTo(target))throw new IOException("Не удалось сохранить cover.jpg");
+                    t.cover=RanobeLibApi.coverUrl(url);
+                    rememberTitle(c,t);
+                    prefs.edit().remove(key).apply();
+                    // Covers saved after the original HTML book must also appear inside it.
+                    if(book(c,t.slug).isFile())try{rebuildBook(c,t.slug);}catch(IOException ex){
+                        android.util.Log.w("RanobeLibStorage","Cover saved; HTML refresh deferred",ex);
+                    }
+                    return true;
+                }catch(Exception error){android.util.Log.w("RanobeLibStorage","Cover URL failed: "+url,error);}
+            }
+            if(!refreshedMetadata){
+                refreshedMetadata=true;
+                try{
+                    RanobeLibApi.Title remote=api.title(t.slug);
+                    candidates.addAll(RanobeLibCoverUrls.candidateUrls(remote.cover));
+                }catch(Exception error){android.util.Log.w("RanobeLibStorage","Cover metadata refresh",error);}
+                continue;
+            }
+            if(inspectedPage)break;
+            inspectedPage=true;
+            try{
+                String found=api.coverFromPage(t.slug);
+                candidates.addAll(RanobeLibCoverUrls.candidateUrls(found));
+            }catch(Exception error){android.util.Log.w("RanobeLibStorage","Cover HTML fallback unavailable",error);}
+        }
+        return false;
+    }
+    /** On-demand repair for previously downloaded HTML books; called on a background thread. */
+    static boolean repairMissingCover(Context c,String uri){
+        try{
+            Uri target=Uri.parse(uri);
+            if(!"file".equalsIgnoreCase(target.getScheme()))return false;
+            File source=new File(target.getPath()).getCanonicalFile(),base=root(c).getCanonicalFile();
+            if(!"book.html".equals(source.getName())||!source.getPath().startsWith(base.getPath()+File.separator))return false;
+            String slug=RanobeLibApi.validSlug(source.getParentFile().getName());
+            if(hasCover(c,slug))return true;
+            return ensureCover(c,savedTitle(c,slug),new RanobeLibApi());
+        }catch(Exception error){android.util.Log.w("RanobeLibStorage","Cover repair",error);return false;}
     }
     static byte[] localCover(Context c,String uri){
         try{Uri target=Uri.parse(uri);if(!"file".equalsIgnoreCase(target.getScheme()))return null;
             File source=new File(target.getPath()).getCanonicalFile(), base=root(c).getCanonicalFile();
             if(!source.getPath().startsWith(base.getPath()+File.separator)||!"book.html".equals(source.getName()))return null;
-            File image=new File(source.getParentFile(),"cover.jpg");if(!image.isFile()||image.length()>6_000_000||image.length()<100)return null;
+            File image=new File(source.getParentFile(),"cover.jpg");if(!hasCover(c,source.getParentFile().getName()))return null;
             try(FileInputStream stream=new FileInputStream(image)){return BookLoader.readAll(stream);}
         }catch(Exception ignored){return null;}
     }

@@ -5,7 +5,7 @@ r=Path(__file__).resolve().parents[1]
 src=r/'app/src/main/java/ru/reader/rsvp'
 read=lambda f:(src/f).read_text(encoding='utf-8')
 gradle=(r/'app/build.gradle').read_text(encoding='utf-8')
-assert "versionCode 15600; versionName '1.11.156-beta'" in gradle
+assert "versionCode 15700; versionName '1.11.157-beta'" in gradle
 main=read('MainActivity.java')
 assert main.count('"\u041f\u0435\u0440\u0435\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u0442\u044c"')>=3
 assert 'BookRenameDialog.show(this,m.title' in main

@@ -12,6 +12,7 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -39,6 +40,8 @@ final class RanobeLibApi {
     static class RateException extends IOException {RateException(String message){super(message);} }
     private final OkHttpClient client=new OkHttpClient.Builder().connectTimeout(18,TimeUnit.SECONDS)
         .readTimeout(50,TimeUnit.SECONDS).followRedirects(false).build();
+    private final OkHttpClient imageClient=client.newBuilder().followRedirects(true)
+        .followSslRedirects(false).build();
     static String validSlug(String slug){if(slug==null||!slug.matches("[0-9]{1,12}--[A-Za-z0-9_-]{1,180}"))throw new IllegalArgumentException("Некорректная ссылка на RanobeLIB");return slug;}
     static String slugFromLink(String input){
         if(input==null)return "";
@@ -93,8 +96,35 @@ final class RanobeLibApi {
         result.chapters=obj.optInt("chap_count",obj.optInt("chapter_count",0));
         JSONObject items=obj.optJSONObject("items_count");
         if(items!=null)result.chapters=items.optInt("uploaded",result.chapters);
-        JSONObject cover=obj.optJSONObject("cover");
-        if(cover!=null){String[] variants={"default","md","thumbnail"};for(String v:variants){String c=cover.optString(v,"");if(!c.isEmpty()&&!"null".equals(c)){result.cover=coverUrl(c);if(!result.cover.isEmpty())break;}}}
+        // API variants: cover.default, covers.default, coverImage, or a bare cover UUID.
+        String[] coverFields={"cover", "covers"};
+        for(String field:coverFields){
+            JSONObject variants=obj.optJSONObject(field);
+            if(variants==null)continue;
+            for(String variant:new String[]{"default","original","md","lg","thumbnail","sm"}){
+                String raw=variants.optString(variant,"");
+                if(raw.isEmpty()||"null".equals(raw))continue;
+                String normalized=coverUrl(raw);
+                if(normalized.isEmpty())normalized=RanobeLibCoverUrls.fromCoverId(slug,raw);
+                if(!normalized.isEmpty()){result.cover=normalized;break;}
+            }
+            if(!result.cover.isEmpty())break;
+        }
+        if(result.cover.isEmpty()){
+            for(String field:new String[]{"coverImage","cover_image","coverImageOriginal"}){
+                result.cover=coverUrl(obj.optString(field,""));
+                if(!result.cover.isEmpty())break;
+            }
+        }
+        if(result.cover.isEmpty()){
+            String rawCover=obj.optString("cover","");
+            result.cover=coverUrl(rawCover);
+            if(result.cover.isEmpty())result.cover=RanobeLibCoverUrls.fromCoverId(slug,rawCover);
+        }
+        if(!result.cover.isEmpty()){
+            java.util.List<String> preferred=RanobeLibCoverUrls.candidateUrls(result.cover);
+            if(!preferred.isEmpty())result.cover=preferred.get(0);
+        }
         Object summary=obj.opt("summary");
         result.description=summary instanceof JSONObject?plainDocument((JSONObject)summary)
             :summary instanceof String?Jsoup.parse((String)summary).text():"";
@@ -112,15 +142,42 @@ final class RanobeLibApi {
         }result.genres=b.toString();}
         return result;
     }
-    static String coverUrl(String input){
-        if(input==null||input.isEmpty())return "";
-        String value=input.trim();if(value.startsWith("//"))value="https:"+value;
-        if(value.startsWith("/"))value="https://cover.cdnlibs.org"+value;
-        if(!value.startsWith("https://")&&!value.contains(":"))value="https://cover.cdnlibs.org/"+value;
-        try{HttpUrl url=HttpUrl.parse(value);if(url==null||!"https".equals(url.scheme()))return "";
-            String h=url.host();if(h.equals("cover.cdnlibs.org")||h.endsWith(".cdnlibs.org")||h.equals("ranobelib.me")||h.endsWith(".ranobelib.me")||h.endsWith(".mixlib.me")||h.endsWith(".imglib.info"))return value;
-        }catch(Exception ignored){}return "";
+    static String coverUrl(String input){ return RanobeLibCoverUrls.normalize(input); }
+
+    /** Extract the publisher cover, including the img.cover__img used by RanobeLIB. */
+    static String coverFromHtml(String source) {
+        if(source==null||source.isEmpty())return "";
+        org.jsoup.nodes.Document document=Jsoup.parse(source,"https://ranobelib.me/");
+        String[] selectors={"img.cover__img[src]", "img.cover__img[data-src]",
+            "meta[property=og:image][content]", "meta[name=twitter:image][content]",
+            "img[class*=cover][src]", "img[src*=/uploads/cover/]"};
+        for(String selector:selectors){
+            for(org.jsoup.nodes.Element element:document.select(selector)){
+                String value=element.hasAttr("content")?element.attr("content")
+                    :element.hasAttr("src")?element.attr("src"):element.attr("data-src");
+                String url=coverUrl(value);
+                if(!url.isEmpty()&&url.contains("/uploads/cover/"))return url;
+            }
+        }
+        return "";
     }
+
+    /** Optional fallback: when the JSON API omits the cover, inspect its public book page. */
+    String coverFromPage(String slug) throws IOException {
+        String path="https://ranobelib.me/ru/manga/"+validSlug(slug);
+        Request req=new Request.Builder().url(path).header("Accept","text/html")
+            .header("Referer","https://ranobelib.me/").header("User-Agent",AGENT).build();
+        try(Response response=client.newCall(req).execute()){
+            if(!response.isSuccessful()||response.body()==null)
+                throw new IOException("Страница обложки недоступна: HTTP "+response.code());
+            if(response.body().contentLength()>3_000_000L)
+                throw new IOException("HTML страницы слишком большой");
+            String markup=response.body().string();
+            if(markup.length()>3_000_000)throw new IOException("HTML страницы слишком большой");
+            return coverFromHtml(markup);
+        }
+    }
+
     List<Chapter> chapters(String slug) throws IOException {
         JSONObject root=getJson(HttpUrl.parse(BASE+"/manga/"+validSlug(slug)+"/chapters"));
         JSONArray rows=listData(root);ArrayList<Chapter> out=new ArrayList<>();HashSet<String> seen=new HashSet<>();
@@ -209,14 +266,25 @@ final class RanobeLibApi {
 
     byte[] coverBytes(String url) throws IOException {
         String safe=coverUrl(url);if(safe.isEmpty())throw new IOException("Недопустимая ссылка на обложку");
+        // The CDN may redirect to its image host, but never allow an untrusted final host.
         Request req=new Request.Builder().url(safe).header("User-Agent",AGENT)
+            .header("Accept","image/jpeg,image/png,image/webp,image/*;q=0.8")
             .header("Referer","https://ranobelib.me/").build();
-        try(Response response=client.newCall(req).execute()){
+        try(Response response=imageClient.newCall(req).execute()){
             if(!response.isSuccessful()||response.body()==null)throw new IOException("HTTP "+response.code()+" для обложки");
-            String type=response.header("Content-Type","");if(!type.startsWith("image/"))throw new IOException("Ответ обложки не является изображением");
+            if(coverUrl(response.request().url().toString()).isEmpty())
+                throw new IOException("Обложка перенаправлена на непроверенный домен");
+            String type=response.header("Content-Type","").toLowerCase(Locale.ROOT);
+            if(!type.startsWith("image/")&&!type.startsWith("application/octet-stream"))
+                throw new IOException("Ответ обложки не является изображением");
             if(response.body().contentLength()>6_000_000L)throw new IOException("Обложка больше 6 МБ");
-            byte[] bytes=response.body().bytes();if(bytes.length<100||bytes.length>6_000_000)throw new IOException("Недопустимый размер обложки");
-            return bytes;
+            try(java.io.InputStream in=response.body().byteStream();java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream()){
+                byte[] buf=new byte[8192];int n;
+                while((n=in.read(buf))!=-1){if(out.size()+n>6_000_000)
+                    throw new IOException("Обложка превышает 6 МБ");out.write(buf,0,n);}
+                if(out.size()<100)throw new IOException("Недопустимый размер обложки");
+                return out.toByteArray();
+            }
         }
     }
 }

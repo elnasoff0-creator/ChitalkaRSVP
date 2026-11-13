@@ -48,11 +48,27 @@ public final class RanobeLibBookActivity extends NavigationActivity {
     @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.RANOBE_REQUEST,DownloadFolderPicker.sourceKey("ranobelib"));}
     private void refreshOnline(){int token=++generation;notice.setText("Получаем сведения и список глав…");
         background.execute(()->{try{RanobeLibApi api=new RanobeLibApi();RanobeLibApi.Title loaded=api.title(slug);
-            List<RanobeLibApi.Chapter> list=api.chapters(slug);
             RanobeLibStorage.rememberTitle(getApplicationContext(),loaded);
             RanobeLibStorage.ensureCover(getApplicationContext(),loaded,api);
+            // Metadata and artwork are useful even when the chapter list is temporarily unavailable.
+            runOnUiThread(()->{if(token!=generation||isFinishing())return;title=loaded;redraw();});
+            List<RanobeLibApi.Chapter> list=api.chapters(slug);
             runOnUiThread(()->{if(token!=generation||isFinishing())return;title=loaded;chapters=list;notice.setText("Томов: "+countVolumes(list)+" · Глав: "+primaryTranslations(list).size());redraw();});
-        }catch(Exception error){runOnUiThread(()->{if(token==generation&&!isFinishing()){notice.setText("Не удалось получить оглавление: "+error.getMessage());redraw();}});}});
+        }catch(Exception error){runOnUiThread(()->{if(token==generation&&!isFinishing()){notice.setText("Не удалось получить данные: "+error.getMessage());redraw();}});}});
+    }
+    private void retryCover(){notice.setText("Повторно загружаем обложку…");
+        background.execute(()->{
+            boolean ok=false;RanobeLibApi.Title latest=title;
+            try{RanobeLibApi api=new RanobeLibApi();
+                try{latest=api.title(slug);}catch(Exception ignored){}
+                ok=RanobeLibStorage.ensureCover(getApplicationContext(),latest,api,true);
+            }catch(Exception error){android.util.Log.w("RanobeLibBookActivity","Cover retry",error);}
+            final boolean success=ok;final RanobeLibApi.Title refreshed=latest;
+            runOnUiThread(()->{if(isFinishing()||isDestroyed())return;
+                title=refreshed;notice.setText(success?"Обложка сохранена в Библиотеке":"Обложка пока недоступна; попробуйте позже");
+                redraw();
+            });
+        });
     }
     private static int countVolumes(List<RanobeLibApi.Chapter> chapters){java.util.HashSet<String> volumes=new java.util.HashSet<>();for(RanobeLibApi.Chapter ch:chapters)volumes.add(ch.volume);return volumes.size();}
     /** Bulk downloads choose exactly one published translation per volume and chapter. */
@@ -74,6 +90,7 @@ public final class RanobeLibBookActivity extends NavigationActivity {
         if(!title.status.isEmpty())description.addView(label("Статус: "+title.status,12,false));
         if(!title.genres.isEmpty())description.addView(label(title.genres,12,false));
         if(!title.description.isEmpty()){gap(card,9);TextView summary=label(title.description,14,false);summary.setMaxLines(6);card.addView(summary);summary.setOnClickListener(v->summary.setMaxLines(summary.getMaxLines()==6?Integer.MAX_VALUE:6));}
+        if(!RanobeLibStorage.hasCover(this,slug)){gap(card,9);card.addView(button("Загрузить обложку повторно",this::retryCover));}
         gap(card,11);
         if(RanobeLibStorage.book(this,slug).isFile())card.addView(button("Открыть скачанную HTML-книгу",this::readBook));
         gap(card,8);

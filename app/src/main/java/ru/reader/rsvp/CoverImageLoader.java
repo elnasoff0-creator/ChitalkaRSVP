@@ -69,12 +69,16 @@ final class CoverImageLoader {
                         }else{
                         if(!"https".equalsIgnoreCase(u.getScheme())||u.getUserInfo()!=null||u.getHost()==null)return;
                         HttpURLConnection c=(HttpURLConnection)u.toURL().openConnection();
-                        c.setConnectTimeout(9000);c.setReadTimeout(11000);c.setInstanceFollowRedirects(false);
+                        c.setConnectTimeout(9000);c.setReadTimeout(11000);c.setInstanceFollowRedirects(true);
                         c.setRequestProperty("User-Agent","Mozilla/5.0");
                         String host=u.getHost().toLowerCase(java.util.Locale.ROOT);
-                        if(host.endsWith(".cdnlibs.org")||host.equals("ranobelib.me")||host.endsWith(".ranobelib.me"))
+                        if(host.endsWith(".cdnlibs.org")||host.equals("cover.lib.social")||host.equals("ranobelib.me")||host.endsWith(".ranobelib.me"))
                             c.setRequestProperty("Referer","https://ranobelib.me/");
                         try{if(c.getResponseCode()!=200||c.getContentLengthLong()>4*1024*1024)return;
+                            if(host.equals("cover.lib.social")||host.endsWith(".cdnlibs.org")){
+                                String finalUrl=c.getURL().toString();
+                                if(RanobeLibApi.coverUrl(finalUrl).isEmpty())return;
+                            }
                             String mime=c.getContentType();if(mime==null||!mime.startsWith("image/"))return;
                             try(InputStream in=c.getInputStream()){
                                 java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream();byte[] buf=new byte[8192];int n;
