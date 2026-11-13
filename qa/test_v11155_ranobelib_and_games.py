@@ -9,7 +9,7 @@ src=root/'app/src/main/java/ru/reader/rsvp'
 res=root/'app/src/main/res/drawable'
 java=lambda n: (src/n).read_text(encoding='utf-8')
 
-assert "versionCode 15700; versionName '1.11.157-beta'" in (root/'app/build.gradle').read_text()
+assert "versionCode 15800; versionName '1.11.158-beta'" in (root/'app/build.gradle').read_text()
 manifest=ET.parse(root/'app/src/main/AndroidManifest.xml').getroot()
 namespace='{http://schemas.android.com/apk/res/android}'
 activities={a.attrib.get(namespace+'name') for a in manifest.iter('activity')}
@@ -54,7 +54,7 @@ assert 'HashSet<String> seen' in book or 'HashSet<String> seen' in book
 storage=java('RanobeLibStorage.java')
 for txt in ('Books/RanobeLIB','book.html','book.json','cover.jpg','volumes/v',
             'chapter_','"library"','registerBook','rebuildBook','writeAtomic',
-            'localizeImages','new File(source.getParentFile(),"cover.jpg")'):
+            'localizeImages','externalFile(c,slug,"cover.jpg")'):
     assert txt in storage,txt
 loader=java('BookLoader.java')
 for txt in ('if (html.contains("ranobe-chapter"))return ranobeHtml(html,filename)',

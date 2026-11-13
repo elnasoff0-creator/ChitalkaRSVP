@@ -9,7 +9,7 @@ base=Path(__file__).resolve().parents[1]
 src=base/'app/src/main/java/ru/reader/rsvp'
 read=lambda name:(src/name).read_text(encoding='utf-8')
 
-assert "versionCode 15700; versionName '1.11.157-beta'" in (base/'app/build.gradle').read_text()
+assert "versionCode 15800; versionName '1.11.158-beta'" in (base/'app/build.gradle').read_text()
 urls=read('RanobeLibCoverUrls.java')
 for marker in ('cover.lib.social','/uploads/cover/','cover.cdnlibs.org','fromCoverId','candidateUrls',
                'trustedHost','https','getPort()'):

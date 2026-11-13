@@ -48,7 +48,7 @@ public final class EdgeBookStorage {
         if(clean.isEmpty())clean="Книга";
         if(clean.length()>65)clean=clean.substring(0,65);
         File root=booksRoot(context);
-        String suffix="--"+sha256(uri,8);
+        String suffix="--"+sha256(BookUriMigration.legacy(context,uri),8);
         // Titles in library metadata and parsed EPUB/FB2 can differ. URI is the stable identity.
         File existing=existing(root,suffix);
         if(existing!=null)return existing;
@@ -56,7 +56,7 @@ public final class EdgeBookStorage {
     }
     public static void removeBook(Context context,String uri) {
         final File root=booksRoot(context);
-        final String suffix="--"+sha256(uri,8);
+        final String suffix="--"+sha256(BookUriMigration.legacy(context,uri),8);
         new Thread(()->{
             // Called only by the explicit "Удалить скачанные файлы" action.
             // SAF cleanup checks the book's own identity and only removes files

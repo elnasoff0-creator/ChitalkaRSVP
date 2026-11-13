@@ -1,6 +1,8 @@
 package ru.reader.rsvp;
 
 import android.content.Context;
+import android.net.Uri;
+import androidx.documentfile.provider.DocumentFile;
 import android.os.Environment;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -32,14 +34,87 @@ final class MangaLibStorage {
             JSONObject o=a.optJSONObject(i);if(o!=null)out.add(Job.read(o));
         }
     }catch(Exception ignored){}return out;}
-    static synchronized void put(Context ctx,Job job){ArrayList<Job> all=jobs(ctx);boolean found=false;
+    static synchronized void put(Context ctx,Job job){
+        File movedSource=null;
+        // A downloaded chapter is published to the selected external folder after
+        // its CBZ has been completed, never while the archive is being written.
+        String target=externalDir(ctx,job.slug);
+        if("complete".equals(job.status)&&!target.isEmpty()&&!isUri(job.file)){
+            File current=new File(job.file);
+            if(current.isFile()&&current.length()>0){
+                try{
+                    DocumentFile dir=externalFolder(ctx,job.slug);
+                    if(dir==null||!dir.isDirectory()||!dir.canWrite())throw new IOException("Папка MangaLib недоступна");
+                    DocumentFile vol=SafeDownloadTransfer.directory(dir,"Том "+safe(job.volume));
+                    DocumentFile stored=SafeDownloadTransfer.copyFile(ctx,current,vol,current.getName(),new SafeDownloadTransfer.Result());
+                    job.file=stored.getUri().toString();
+                    if(SafeDownloadTransfer.appOwned(ctx,current))movedSource=current;
+                }catch(Exception ex){android.util.Log.w("MangaLibStorage","SAF publish deferred; CBZ kept locally",ex);}
+            }
+        }
+        ArrayList<Job> all=jobs(ctx);boolean found=false;
         for(int i=0;i<all.size();i++)if(all.get(i).id().equals(job.id())){all.set(i,job);found=true;break;}
         if(!found)all.add(job);JSONArray a=new JSONArray();for(Job j:all)a.put(j.json());
-        ctx.getSharedPreferences("reader",0).edit().putString(STORE,a.toString()).commit();
+        if(!ctx.getSharedPreferences("reader",0).edit().putString(STORE,a.toString()).commit())
+            throw new IllegalStateException("Не удалось сохранить главу MangaLib");
+        if(movedSource!=null)movedSource.delete();
     }
     static synchronized Job find(Context ctx,String id){for(Job j:jobs(ctx))if(j.id().equals(id))return j;return null;}
-    static ArrayList<Job> seriesJobs(Context ctx,String slug){ArrayList<Job> out=new ArrayList<>();for(Job j:jobs(ctx))if(j.slug.equals(slug)&&"complete".equals(j.status)&&new File(j.file).isFile())out.add(j);
+    static ArrayList<Job> seriesJobs(Context ctx,String slug){ArrayList<Job> out=new ArrayList<>();for(Job j:jobs(ctx))if(j.slug.equals(slug)&&"complete".equals(j.status)&&exists(ctx,j.file))out.add(j);
         out.sort((a,b)->{int d=Double.compare(num(a.volume),num(b.volume));return d!=0?d:Double.compare(num(a.number),num(b.number));});return out;
+    }
+    static boolean isUri(String value){return value!=null&&value.startsWith("content://");}
+    static String externalDir(Context ctx,String slug){return ctx.getSharedPreferences("mangalib_external_v158",0).getString(slug,"");}
+    static DocumentFile externalFolder(Context ctx,String slug){
+        android.content.SharedPreferences p=ctx.getSharedPreferences("mangalib_external_v158",0);
+        String grant=p.getString(slug+":root","");
+        String name=p.getString(slug+":name","");
+        if(!grant.isEmpty()&&!name.isEmpty())try{
+            DocumentFile parent=DocumentFile.fromTreeUri(ctx,Uri.parse(grant));
+            DocumentFile found=parent==null?null:parent.findFile(name);
+            return found!=null&&found.isDirectory()?found:null;
+        }catch(Exception ignored){}
+        String old=externalDir(ctx,slug);
+        return old.isEmpty()?null:SafTreeDirectory.resolve(ctx,Uri.parse(old));
+    }
+    static void setExternalDir(Context ctx,String slug,String grantUri,String childName,String childUri)throws IOException{
+        if(!ctx.getSharedPreferences("mangalib_external_v158",0).edit()
+            .putString(slug,childUri).putString(slug+":root",grantUri)
+            .putString(slug+":name",childName).commit())
+            throw new IOException("Не сохранена новая папка MangaLib");
+    }
+    static boolean exists(Context ctx,String path){
+        if(path==null||path.isEmpty())return false;
+        if(isUri(path))try{
+            DocumentFile doc=DocumentFile.fromSingleUri(ctx,Uri.parse(path));
+            return doc!=null&&doc.isFile()&&doc.length()>0;
+        }catch(Exception ex){return false;}
+        return new File(path).isFile();
+    }
+    /** SAF CBZ files are staged in disposable cache only when the user opens a chapter. */
+    static File localArchive(Context ctx,String value)throws IOException{
+        if(!isUri(value))return new File(value);
+        String key=Integer.toHexString(value.hashCode());
+        File folder=new File(ctx.getCacheDir(),"mangalib_saf_read");if(!folder.isDirectory())folder.mkdirs();
+        File cached=new File(folder,key+".cbz");
+        DocumentFile remote=DocumentFile.fromSingleUri(ctx,Uri.parse(value));
+        if(remote==null||!remote.isFile()||remote.length()<10||remote.length()>600_000_000L)
+            throw new IOException("CBZ в выбранной папке недоступен");
+        if(cached.isFile()&&cached.length()==remote.length())return cached;
+        File temporary=new File(folder,key+".part");
+        try(InputStream in=ctx.getContentResolver().openInputStream(Uri.parse(value));
+            OutputStream out=new FileOutputStream(temporary)){
+            if(in==null)throw new IOException("Невозможно открыть CBZ");
+            byte[] buffer=new byte[65536];int n;long count=0;
+            while((n=in.read(buffer))!=-1){count+=n;if(count>600_000_000L)throw new IOException("CBZ слишком велик");out.write(buffer,0,n);}
+        }catch(Exception ex){temporary.delete();throw ex;}
+        if(temporary.length()!=remote.length()){temporary.delete();throw new IOException("CBZ скопирован не полностью");}
+        if(cached.exists()&&!cached.delete()){temporary.delete();throw new IOException("Ошибка временного кэша");}
+        if(!temporary.renameTo(cached))throw new IOException("Не удалось сохранить временный CBZ");
+        return cached;
+    }
+    static ArrayList<String> extractForReading(Context ctx,String location)throws IOException {
+        return extractForReading(ctx,localArchive(ctx,location));
     }
     static String comicUri(String slug){return "mangalib:"+MangaLibApi.validSlug(slug);}
     static void registerComic(Context ctx,Job job){

@@ -1,6 +1,7 @@
 package ru.reader.rsvp;
 
 import android.content.Intent;
+import android.net.Uri;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
@@ -29,6 +30,8 @@ import java.util.concurrent.Executors;
 /** Fast, searchable logical archive. Restores metadata; files are never moved on archive/restore. */
 public final class DownloadArchiveActivity extends NavigationActivity {
     private static final int BG=0xfff3e7d5, PANEL=0xfffff9f0, INK=0xff30221e, MUTED=0xff716259;
+    private static final int ARCHIVE_TRANSFER_REQUEST=12560;
+    private String pendingArchiveTransferId="";
     private final ExecutorService disk=Executors.newSingleThreadExecutor();
     private final ArrayList<DownloadArchiveStore.Entry> records=new ArrayList<>(),shown=new ArrayList<>();
     private RecyclerView list;private ArchiveAdapter adapter;private TextView count,sortButton,empty;
@@ -40,6 +43,7 @@ public final class DownloadArchiveActivity extends NavigationActivity {
     private ImageView image(int id,String description){ImageView v=new ImageView(this);v.setImageResource(id);v.setColorFilter(INK);
         v.setPadding(dp(9),dp(9),dp(9),dp(9));v.setContentDescription(description);v.setBackground(background(PANEL,14));return v;}
     @Override public void onCreate(Bundle state){super.onCreate(state);
+        if(state!=null)pendingArchiveTransferId=state.getString("archive_move_id","");
         order=getSharedPreferences("reader",0).getInt("archive_download_sort_v153",0);
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(12),dp(24),dp(12),dp(10));
         root.setBackgroundColor(BG);setContentView(root);SafeSystemBars.matchBackground(this,BG);
@@ -72,6 +76,9 @@ public final class DownloadArchiveActivity extends NavigationActivity {
         reload();
     }
     @Override protected void onResume(){super.onResume();if(adapter!=null)reload();}
+    @Override protected void onSaveInstanceState(Bundle out){
+        out.putString("archive_move_id",pendingArchiveTransferId);super.onSaveInstanceState(out);
+    }
     @Override protected void onDestroy(){disk.shutdownNow();super.onDestroy();}
     private void reload(){records.clear();records.addAll(DownloadArchiveStore.entries(this));filter();}
     private void sortLabel(){if(sortButton!=null)sortButton.setText(new String[]{"Дата · новые сначала ▾","Дата · старые сначала ▾","Имя · А–Я ▾","Имя · Я–А ▾"}[order]);}
@@ -133,6 +140,46 @@ public final class DownloadArchiveActivity extends NavigationActivity {
             reload();return true;
         });
     }
+    private void move(DownloadArchiveStore.Entry entry){
+        new SwipeDialogs.Builder(this).setTitle("Перенести файлы из архива")
+            .setMessage("Будут перенесены доступные файлы этой загрузки с проверкой SHA-256. " +
+                "Рабочие файлы Edge TTS останутся у движка; пользовательские оригиналы не удаляются.")
+            .setNegativeButton("Отмена",null)
+            .setPositiveButton("Выбрать папку",(d,w)->{
+                pendingArchiveTransferId=entry.id;
+                Intent picker=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                picker.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                startActivityForResult(picker,ARCHIVE_TRANSFER_REQUEST);
+            }).show();
+    }
+    @Override protected void onActivityResult(int request,int result,Intent data){
+        super.onActivityResult(request,result,data);
+        if(request!=ARCHIVE_TRANSFER_REQUEST)return;
+        String id=pendingArchiveTransferId;pendingArchiveTransferId="";
+        if(result!=RESULT_OK||data==null||data.getData()==null||id.isEmpty())return;
+        Uri destination=data.getData();
+        try{getContentResolver().takePersistableUriPermission(destination,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        }catch(Exception e){Toast.makeText(this,"Папка недоступна",Toast.LENGTH_LONG).show();return;}
+        disk.execute(()->{
+            String message;
+            try{
+                DownloadsRepository.Item match=null;
+                for(DownloadsRepository.Item item:DownloadsRepository.load(getApplicationContext(),null))
+                    if(item.id.equals(id)){match=item;break;}
+                if(match==null)throw new java.io.IOException("Исходная загрузка отсутствует");
+                SafeDownloadTransfer.Result report=SafeDownloadTransfer.copy(getApplicationContext(),match,destination);
+                message="Перенесено: "+(report.copied+report.existing)+" файлов, удалено старых: "+report.deleted+
+                    ". "+report.note;
+            }catch(Exception ex){message="Перенос остановлен: "+ex.getMessage()+". Исходные файлы сохранены.";}
+            final String text=message;
+            runOnUiThread(()->{if(!isFinishing()&&!isDestroyed()){
+                new SwipeDialogs.Builder(this).setTitle("Результат переноса")
+                    .setMessage(text).setPositiveButton("Закрыть",null).show();reload();}});
+        });
+    }
+
     private void delete(DownloadArchiveStore.Entry entry){
         new SwipeDialogs.Builder(this).setTitle("Удалить скачанные файлы?")
             .setMessage("Будут удалены аудиофайлы/CBZ этой загрузки и управляемые приложением данные. Исходные книги останутся без изменений. Это действие нельзя отменить.")
@@ -192,6 +239,7 @@ public final class DownloadArchiveActivity extends NavigationActivity {
             rename.setOnClickListener(v->{
                 PopupMenu menu=new PopupMenu(DownloadArchiveActivity.this,rename);
                 menu.getMenu().add("Переименовать").setOnMenuItemClickListener(action->{rename(e);return true;});
+                menu.getMenu().add("Перенести файлы").setOnMenuItemClickListener(action->{move(e);return true;});
                 menu.show();
             });
             restore.setOnClickListener(v->restore(e));restoreText.setOnClickListener(v->restore(e));delete.setOnClickListener(v->delete(e));

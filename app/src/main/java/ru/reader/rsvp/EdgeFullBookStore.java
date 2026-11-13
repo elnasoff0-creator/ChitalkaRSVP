@@ -37,7 +37,8 @@ final class EdgeFullBookStore {
     }
     private EdgeFullBookStore(){}
     private static File jobFolder(Context ctx,String uri){
-        String stable=Integer.toHexString(uri.hashCode())+"-"+Integer.toHexString((uri+"job").hashCode());
+        String identity=BookUriMigration.legacy(ctx,uri);
+        String stable=Integer.toHexString(identity.hashCode())+"-"+Integer.toHexString((identity+"job").hashCode());
         return new File(new File(ctx.getFilesDir(),"EdgeJobs"),stable);
     }
     static synchronized Job create(Context ctx,String uri,String title,String voice,String rate,int chars){

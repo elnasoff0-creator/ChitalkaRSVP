@@ -37,7 +37,7 @@ public final class RanobeLibDownloadWorker extends Worker {
         RanobeLibStorage.Job job=id==null?null:RanobeLibStorage.find(ctx,id);
         if(job==null)return Result.failure();
         if("paused".equals(job.status)||"cancelled".equals(job.status))return Result.success();
-        if("complete".equals(job.status)&&verified(new File(job.file)))return Result.success();
+        if("complete".equals(job.status)&&RanobeLibStorage.stored(ctx,job.file))return Result.success();
         if(verified(RanobeLibStorage.chapterFile(ctx,job))){
             job.file=RanobeLibStorage.chapterFile(ctx,job).getAbsolutePath();job.bytes=new File(job.file).length();save(job,"complete","");
             try{RanobeLibStorage.rebuildBook(ctx,job.slug);}catch(IOException error){android.util.Log.w("RanobeLibWorker","Recover HTML",error);}
@@ -68,7 +68,7 @@ public final class RanobeLibDownloadWorker extends Worker {
             }
             if(done==1||done%20==0||pending==0){
                 RanobeLibStorage.rebuildBook(ctx,job.slug);
-                if(pending==0){try{
+                if(pending==0&&RanobeLibStorage.externalDir(ctx,job.slug)==null){try{
                     String display=book.title.length()>70?book.title.substring(0,70):book.title;
                     String target=display+"__"+job.slug.substring(0,job.slug.indexOf("--"));
                     String tree=DownloadFolderPicker.sourceKey("ranobelib");
@@ -98,6 +98,7 @@ public final class RanobeLibDownloadWorker extends Worker {
         }
         if(remaining==0&&complete>0)try{
             RanobeLibStorage.rebuildBook(context,slug);
+            if(RanobeLibStorage.externalDir(context,slug)!=null)return;
             String tree=DownloadFolderPicker.sourceKey("ranobelib");
             RanobeLibApi.Title title=RanobeLibStorage.savedTitle(context,slug);
             String display=title.title.length()>70?title.title.substring(0,70):title.title;

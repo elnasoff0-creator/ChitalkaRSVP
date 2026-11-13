@@ -68,7 +68,7 @@ final class ComicLibrary {
                     if("archive_tree".equals(ch.type)&&ch.archiveFile!=null)
                         count=countArchive(context,ch.archiveFile.getUri(),safeName(ch.archiveFile));
                     else if("mangalib_cbz".equals(ch.type)&&!ch.imagePaths.isEmpty())
-                        count=countLocalCbz(new File(ch.imagePaths.get(0)));
+                        count=countLocalCbz(MangaLibStorage.localArchive(context,ch.imagePaths.get(0)));
                     else if("html".equals(ch.type)&&ch.htmlFile!=null){
                         try(InputStream in=context.getContentResolver().openInputStream(ch.htmlFile.getUri())){
                             if(in!=null){byte[] data=new byte[8*1024*1024];int n=0,k;
@@ -116,7 +116,7 @@ final class ComicLibrary {
         }finally{temp.delete();}
     }
 
-    static DocumentFile tree(Context c,Comic item){try{return DocumentFile.fromTreeUri(c,Uri.parse(item.uri));}catch(Exception e){return null;}}
+    static DocumentFile tree(Context c,Comic item){try{return SafTreeDirectory.resolve(c,Uri.parse(item.uri));}catch(Exception e){return null;}}
     static DocumentFile single(Context c,Comic item){try{return DocumentFile.fromSingleUri(c,Uri.parse(item.uri));}catch(Exception e){return null;}}
 
     static ArrayList<Chapter> chapters(Context c,Comic comic){

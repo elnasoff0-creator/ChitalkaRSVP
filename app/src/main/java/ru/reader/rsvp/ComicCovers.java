@@ -67,7 +67,7 @@ final class ComicCovers {
         if(cached.isFile()&&cached.length()>0){Bitmap found=BitmapFactory.decodeFile(cached.getAbsolutePath());if(found!=null){toMemory(key,found);return found;}}
         Bitmap bitmap=null;
         if("mangalib_cbz".equals(chapter.type)){
-            if(!chapter.imagePaths.isEmpty())bitmap=MangaDownloadCover.firstPage(new File(chapter.imagePaths.get(0)));
+            if(!chapter.imagePaths.isEmpty())bitmap=MangaDownloadCover.firstPage(MangaLibStorage.localArchive(c,chapter.imagePaths.get(0)));
         }else if("archive_tree".equals(chapter.type)||"archive".equals(chapter.type)){
             ArrayList<String> pages=ComicLibrary.pagesForChapter(c,comic,chapter);
             if(!pages.isEmpty())bitmap=decodeFile(pages.get(0));

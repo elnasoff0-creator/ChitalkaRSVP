@@ -55,7 +55,7 @@ final class EdgeChapterArchive {
                 DocumentFile idx=chapter.findFile(INDEX_NAME);
                 if(idx==null)continue;
                 JSONObject row=new JSONObject(text(c,idx,16*1024*1024));
-                if(!hash(uri).equals(row.optString("bookId")))continue;
+                if(!hash(BookUriMigration.legacy(c,uri)).equals(row.optString("bookId")))continue;
                 int number=row.optInt("chapter",0)-1;
                 if(number<0)continue;
                 boolean merged=mergedPresent(chapter,row);
@@ -188,7 +188,7 @@ final class EdgeChapterArchive {
     }
     private static DocumentFile book(Context c,String uri,String title,boolean create)throws Exception {
         DocumentFile r=root(c);
-        String basename=safe(title,75),identity=hash(uri);
+        String basename=safe(title,75),identity=hash(BookUriMigration.legacy(c,uri));
         // Reuse a book folder even if the user renamed the book in the library.
         for(DocumentFile candidate:r.listFiles()){
             if(!candidate.isDirectory())continue;
@@ -336,7 +336,7 @@ final class EdgeChapterArchive {
                 }catch(Exception e){temporary.delete();throw e;}
                 JSONObject sidecar=new JSONObject();sidecar.put("version",2).put("durationMs",timeMs);
                 sidecar.put("chapter",chapter+1);sidecar.put("words",words);
-                JSONObject index=new JSONObject();index.put("version",1);index.put("bookId",hash(uri));
+                JSONObject index=new JSONObject();index.put("version",1);index.put("bookId",hash(BookUriMigration.legacy(ctx,uri)));
                 index.put("chapter",chapter+1);index.put("fingerprint",fingerprint);
                 index.put("length",combinedBytes);index.put("audioSha256",digest(temporary));
                 index.put("audioFile",audioFile);index.put("wordsFile",wordsFile);
@@ -367,7 +367,7 @@ final class EdgeChapterArchive {
                 if(idx==null)continue;
                 JSONObject index=new JSONObject(text(ctx,idx,16*1024*1024));
                 DocumentFile mp3=chapter.findFile(audioName(index));
-                if(!hash(uri).equals(index.optString("bookId")))continue;
+                if(!hash(BookUriMigration.legacy(ctx,uri)).equals(index.optString("bookId")))continue;
                 if(index.optInt("version")==2&&"fragments".equals(index.optString("mode"))){
                     DocumentFile clips=chapter.findFile("fragments");
                     JSONArray rows=index.optJSONArray("segments");
@@ -502,7 +502,7 @@ final class EdgeChapterArchive {
                 }
                 JSONObject index=new JSONObject();index.put("version",2);
                 index.put("mode","fragments");index.put("chapter",chapter+1);
-                index.put("bookId",hash(uri));index.put("fingerprint",fingerprint);
+                index.put("bookId",hash(BookUriMigration.legacy(ctx,uri)));index.put("fingerprint",fingerprint);
                 index.put("segments",segments);
                 write(ctx,dir,INDEX_NAME,"application/json",index.toString().getBytes(StandardCharsets.UTF_8));
                 count++;
@@ -521,7 +521,7 @@ final class EdgeChapterArchive {
                     String.format(Locale.ROOT,"%03d - ",number+1)))continue;
                 DocumentFile idx=dir.findFile(INDEX_NAME);if(idx==null)continue;
                 JSONObject record=new JSONObject(text(c,idx,16*1024*1024));
-                if(!hash(uri).equals(record.optString("bookId")))continue;
+                if(!hash(BookUriMigration.legacy(c,uri)).equals(record.optString("bookId")))continue;
                 JSONArray rows=record.optJSONArray("segments");
                 if(rows!=null)for(int i=0;i<rows.length();i++){
                     JSONObject entry=rows.optJSONObject(i);if(entry!=null)result.put(entry);
@@ -578,7 +578,7 @@ final class EdgeChapterArchive {
                 DocumentFile idx=dir.findFile(INDEX_NAME);
                 if(idx==null)continue;
                 JSONObject data=new JSONObject(text(ctx,idx,16*1024*1024));
-                if(!hash(uri).equals(data.optString("bookId")))return false;
+                if(!hash(BookUriMigration.legacy(ctx,uri)).equals(data.optString("bookId")))return false;
                 if(!dir.delete())return false;
             }
             invalidate();return true;
@@ -608,7 +608,7 @@ final class EdgeChapterArchive {
                         JSONObject index=new JSONObject(text(ctx,chapter.findFile(INDEX_NAME),16*1024*1024));
                         if(mergedPresent(chapter,index)||chapter.findFile("fragments")!=null)count++;
                     }
-                if(count>0)result.add(new SavedBook(uri,title,count));
+                if(count>0)result.add(new SavedBook(BookUriMigration.current(ctx,uri),title,count));
             }
         }catch(Exception ex){Log.w(TAG,"Cannot list chapter folders",ex);}
         bookCache=new ArrayList<>(result);bookCacheAt=now;
@@ -640,7 +640,7 @@ final class EdgeChapterArchive {
             DocumentFile manifest=dir.findFile(INDEX_NAME);
             if(manifest==null)continue;
             JSONObject index=new JSONObject(text(ctx,manifest,16*1024*1024));
-            if(!hash(uri).equals(index.optString("bookId")))continue;
+            if(!hash(BookUriMigration.legacy(ctx,uri)).equals(index.optString("bookId")))continue;
             int chapter=index.optInt("chapter",0)-1;
             if(chapter<0||chapter>=expectedChapters||ready[chapter])continue;
             if("fragments".equals(index.optString("mode"))){
@@ -757,7 +757,7 @@ final class EdgeChapterArchive {
                 DocumentFile idx=chapter.findFile(INDEX_NAME);
                 if(idx==null)continue;
                 JSONObject index=new JSONObject(text(ctx,idx,16*1024*1024));
-                if(!hash(uri).equals(index.optString("bookId")))continue;
+                if(!hash(BookUriMigration.legacy(ctx,uri)).equals(index.optString("bookId")))continue;
                 for(String filename:new String[]{audioName(index),wordsName(index),INDEX_NAME}){
                     DocumentFile file=chapter.findFile(filename);
                     if(file!=null&&!file.delete())throw new Exception("Невозможно удалить "+filename);

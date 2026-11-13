@@ -48,6 +48,7 @@ import java.util.concurrent.Executors;
 public final class DownloadActivity extends NavigationActivity {
     private static final int BG=0xfff3e7d5,PANEL=0xfffff9f0,INK=0xff30221e,MUTED=0xff716259,ACCENT=0xffa26949,GREEN=0xff2b6145;
     private static final int TRANSFER_REQUEST=12521;
+    private static final int BULK_TRANSFER_REQUEST=12559;
     private static final int EDGE_AUDIOBOOK_REQUEST=12522;
     private DownloadsRepository.Item pendingEdgeAudiobook;
     private DownloadsRepository.Item pendingTransfer;
@@ -126,6 +127,8 @@ public final class DownloadActivity extends NavigationActivity {
             String[] names={"Все загрузки","В процессе","Аудиокниги","Edge TTS","По ссылке","Манга","Ранобэ"};
             for(int i=0;i<names.length;i++){final int ix=i;menu.getMenu().add(names[i]).setOnMenuItemClickListener(item->{
                 filter=ix;filterSelect.setText(names[ix]+"  ▾");getSharedPreferences("reader",0).edit().putInt(FILTER_KEY,ix).apply();showCachedFilter();return true;});}
+            menu.getMenu().add(1,102,98,"Перенести всё из внутреннего хранилища")
+                .setOnMenuItemClickListener(item->{confirmBulkTransfer();return true;});
             menu.getMenu().add(1,101,99,"Удалить скачанные файлы")
                 .setOnMenuItemClickListener(item->{confirmDeleteAllDownloads();return true;});
             menu.show();
@@ -472,7 +475,7 @@ public final class DownloadActivity extends NavigationActivity {
         ArrayList<MangaLibStorage.Job> complete=new ArrayList<>();
         for(MangaLibStorage.Job job:MangaLibStorage.jobs(this)){
             if(slug.equals(job.slug)&&"complete".equals(job.status)
-                &&job.file!=null&&new File(job.file).isFile())complete.add(job);
+                &&job.file!=null&&MangaLibStorage.exists(this,job.file))complete.add(job);
         }
         if(complete.isEmpty()){
             Toast.makeText(this,"Скачанных глав для экспорта пока нет",Toast.LENGTH_SHORT).show();return;
@@ -488,12 +491,13 @@ public final class DownloadActivity extends NavigationActivity {
         }
         new SwipeDialogs.Builder(this).setTitle("Экспорт CBZ · выберите главу")
             .setItems(titles,(dialog,index)->{
-                File file=new File(complete.get(index).file);
+                String location=complete.get(index).file;
+                String name=MangaLibStorage.isUri(location)?"Глава "+complete.get(index).number+".cbz":new File(location).getName();
                 getSharedPreferences("reader",0).edit()
-                    .putString("mangalib_export_pending",file.getAbsolutePath()).apply();
+                    .putString("mangalib_export_pending",location).apply();
                 Intent save=new Intent(Intent.ACTION_CREATE_DOCUMENT);
                 save.addCategory(Intent.CATEGORY_OPENABLE);save.setType("application/zip");
-                save.putExtra(Intent.EXTRA_TITLE,file.getName());
+                save.putExtra(Intent.EXTRA_TITLE,name);
                 startActivityForResult(save,12520);
             }).setNegativeButton("Отмена",null).show();
     }
@@ -501,10 +505,28 @@ public final class DownloadActivity extends NavigationActivity {
         try{return Double.compare(Double.parseDouble(a),Double.parseDouble(b));}
         catch(Exception ignored){return a.compareToIgnoreCase(b);}
     }
+    private void confirmBulkTransfer(){
+        new SwipeDialogs.Builder(this).setTitle("Массовый перенос книг")
+            .setMessage("Переместить все неактивные загрузки MangaLib и RanobeLIB, " +
+                "а также готовые аудиокниги и текстовые файлы, принадлежащие приложению. " +
+                "Каждый файл сверяется по SHA-256. Активные задания будут пропущены. " +
+                "Рабочие кэши Edge TTS и импортированные пользовательские оригиналы останутся без изменений.")
+            .setNegativeButton("Отмена",null)
+            .setPositiveButton("Выбрать папку",(d,w)->{
+                Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                startActivityForResult(intent,BULK_TRANSFER_REQUEST);
+            }).show();
+    }
     private void transferDialog(DownloadsRepository.Item item){
         if(item.running){Toast.makeText(this,"Сначала приостановите загрузку",Toast.LENGTH_LONG).show();return;}
         new SwipeDialogs.Builder(this).setTitle("Перенести файлы")
-            .setMessage("Выберите папку назначения. Копии проверяются по SHA-256. Для аудиокниг и файлов по ссылке пути в библиотеках обновляются, после чего старые файлы удаляются. Манга и Edge TTS пока сохраняют локальные оригиналы для корректного чтения. Существующие файлы не перезаписываются.")
+            .setMessage("Выберите папку назначения. Каждый файл проверяется по SHA-256. " +
+                "Для RanobeLIB, MangaLib, аудиокниг и ссылок обновляются пути, " +
+                "после чего принадлежащие приложению оригиналы удаляются. " +
+                "Edge TTS пока сохраняет рабочую озвучку для подсветки текста. " +
+                "Чужие файлы не удаляются; файлы с другими контрольными суммами не перезаписываются.")
             .setNegativeButton("Отмена",null)
             .setPositiveButton("Выбрать папку",(d,w)->{
                 pendingTransfer=item;
@@ -520,14 +542,17 @@ public final class DownloadActivity extends NavigationActivity {
         if(jobs.isEmpty()){Toast.makeText(this,"Папка не содержит скачанных глав",Toast.LENGTH_SHORT).show();return;}
         String[] files=new String[jobs.size()];
         for(int i=0;i<jobs.size();i++){
-            java.io.File file=new java.io.File(jobs.get(i).file);
-            files[i]="Том "+jobs.get(i).volume+" / "+file.getName()+" · "+(file.length()/1024)+" КБ";
+            MangaLibStorage.Job job=jobs.get(i);
+            String filename=MangaLibStorage.isUri(job.file)?"Глава "+job.number+".cbz":new File(job.file).getName();
+            files[i]="Том "+job.volume+" / "+filename+" · "+(job.bytes/1024)+" КБ";
         }
         new SwipeDialogs.Builder(this).setTitle("Открыть папку · "+folder.getName())
             .setItems(files,(d,i)->exportMangaChapter(slug))
             .setNeutralButton("Путь к папке",(d,w)->new SwipeDialogs.Builder(this)
                 .setTitle("Папка файлов")
-                .setMessage(folder.getAbsolutePath()+"\n\nФайлы находятся в закрытом каталоге Android. Чтобы получить доступ из другой программы, используйте экспорт CBZ.")
+                .setMessage(MangaLibStorage.externalDir(this,slug).isEmpty()
+                    ? folder.getAbsolutePath()+"\n\nИспользуйте экспорт CBZ или «Перенести файлы».":
+                    "Сохранено во внешней папке: "+MangaLibStorage.externalDir(this,slug))
                 .setPositiveButton("Закрыть",null).show())
             .setNegativeButton("Закрыть",null).show();
     }
@@ -550,8 +575,18 @@ public final class DownloadActivity extends NavigationActivity {
                         scan.execute(()->{
                             int removed=0;
                             for(int i=0;i<jobs.size();i++)if(checked[i]){
-                                MangaLibStorage.Job job=jobs.get(i);java.io.File file=new java.io.File(job.file);
-                                if(file.isFile()&&!file.delete())continue;
+                                MangaLibStorage.Job job=jobs.get(i);
+                                boolean removedFile=false;
+                                try{
+                                    if(MangaLibStorage.isUri(job.file)){
+                                        androidx.documentfile.provider.DocumentFile doc=androidx.documentfile.provider.DocumentFile.fromSingleUri(
+                                            getApplicationContext(),Uri.parse(job.file));
+                                        removedFile=doc!=null&&doc.isFile()&&doc.delete();
+                                    }else{
+                                        File file=new File(job.file);removedFile=file.isFile()&&file.delete();
+                                    }
+                                }catch(Exception ignored){}
+                                if(!removedFile)continue;
                                 job.file="";job.done=0;job.bytes=0;job.status="cancelled";MangaLibStorage.put(getApplicationContext(),job);removed++;
                             }
                             ComicCovers.invalidate(getApplicationContext(),MangaLibStorage.comicUri(item.source));
@@ -583,7 +618,8 @@ public final class DownloadActivity extends NavigationActivity {
             popup.getMenu().add("Переименовать").setOnMenuItemClickListener(m->{renameDownload(item);return true;});
             if(item.ready)popup.getMenu().add("В архив").setOnMenuItemClickListener(m->{archive(item);return true;});
             popup.getMenu().add("Тома и главы").setOnMenuItemClickListener(m->{open(item);return true;});
-            if(new File(RanobeLibStorage.book(this,item.source).getAbsolutePath()).isFile())
+            if(RanobeLibStorage.stored(this,item.bookUri.startsWith("file:")?
+                new File(Uri.parse(item.bookUri).getPath()).getAbsolutePath():item.bookUri))
                 popup.getMenu().add("Читать HTML").setOnMenuItemClickListener(m->{
                     startActivity(new Intent(this,ReaderActivity.class).putExtra("book_uri",item.bookUri));return true;});
             popup.getMenu().add(item.running?"Пауза":"Продолжить / повторить ошибки").setOnMenuItemClickListener(m->{
@@ -592,6 +628,8 @@ public final class DownloadActivity extends NavigationActivity {
                 diskScannedAt=0;refresh();return true;});
             if(!item.ready)popup.getMenu().add("Отменить очередь").setOnMenuItemClickListener(m->{
                 RanobeLibQueue.cancel(this,item.source);diskScannedAt=0;refresh();return true;});
+            popup.getMenu().add("Перенести файлы в папку")
+                .setOnMenuItemClickListener(m->{transferDialog(item);return true;});
             popup.getMenu().add("Удалить скачанную книгу и задания").setOnMenuItemClickListener(m->{
                 new SwipeDialogs.Builder(this).setTitle("Удалить книгу RanobeLIB?")
                     .setMessage("HTML, главы и обложка этой книги будут удалены. Остальные произведения не затрагиваются.")
@@ -834,9 +872,25 @@ public final class DownloadActivity extends NavigationActivity {
             },"edge-audiobook-transfer").start();
             return;
         }
+        if(request==BULK_TRANSFER_REQUEST){
+            if(result!=RESULT_OK||data==null||data.getData()==null)return;
+            Uri destination=data.getData();
+            try{getContentResolver().takePersistableUriPermission(destination,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            }catch(Exception error){Toast.makeText(this,"Папка недоступна",Toast.LENGTH_LONG).show();return;}
+            Toast.makeText(this,"Массовый перенос запущен",Toast.LENGTH_SHORT).show();
+            new Thread(()->{
+                BulkLibraryTransfer.Report report=BulkLibraryTransfer.move(getApplicationContext(),destination);
+                runOnUiThread(()->{diskScannedAt=0;refresh();
+                    new SwipeDialogs.Builder(this).setTitle("Результат переноса")
+                        .setMessage(report.message()).setPositiveButton("Закрыть",null).show();});
+            },"bulk-library-transfer-v158").start();return;
+        }
         if(request==TRANSFER_REQUEST){
-            DownloadsRepository.Item selected=pendingTransfer;pendingTransfer=null;
-            if(result!=RESULT_OK||data==null||data.getData()==null||selected==null)return;
+            DownloadsRepository.Item selected=pendingTransfer;
+            String selectedId=selected==null?pendingTransferId:selected.id;
+            pendingTransfer=null;pendingTransferId="";
+            if(result!=RESULT_OK||data==null||data.getData()==null||selectedId.isEmpty())return;
             Uri destination=data.getData();
             try{getContentResolver().takePersistableUriPermission(destination,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);}
@@ -844,7 +898,11 @@ public final class DownloadActivity extends NavigationActivity {
             Toast.makeText(this,"Проверяем и переносим файлы…",Toast.LENGTH_SHORT).show();
             new Thread(()->{
                 try{
-                    SafeDownloadTransfer.Result report=SafeDownloadTransfer.copy(getApplicationContext(),selected,destination);
+                    DownloadsRepository.Item target=null;
+                    for(DownloadsRepository.Item entry:DownloadsRepository.load(getApplicationContext(),null))
+                        if(selectedId.equals(entry.id)){target=entry;break;}
+                    if(target==null)throw new java.io.IOException("Загрузка не найдена");
+                    SafeDownloadTransfer.Result report=SafeDownloadTransfer.copy(getApplicationContext(),target,destination);
                     runOnUiThread(()->Toast.makeText(this,"Скопировано "+report.copied+", уже были: "+report.existing+", старых удалено: "+report.deleted+". "+report.note,Toast.LENGTH_LONG).show());
                 }catch(Exception ex){runOnUiThread(()->Toast.makeText(this,
                     "Перенос остановлен: "+ex.getMessage()+". Исходные файлы сохранены.",Toast.LENGTH_LONG).show());}
@@ -857,10 +915,11 @@ public final class DownloadActivity extends NavigationActivity {
         Uri destination=data.getData();
         new Thread(()->{
             try{
-                File source=new File(path);
+                File source=MangaLibStorage.localArchive(getApplicationContext(),path);
                 String root=MangaLibStorage.root(getApplicationContext()).getCanonicalPath()+File.separator;
-                if(!source.getCanonicalPath().startsWith(root)||!source.isFile()||!source.getName().endsWith(".cbz"))
+                if(!MangaLibStorage.isUri(path)&&!source.getCanonicalPath().startsWith(root))
                     throw new java.io.IOException("Недопустимый CBZ");
+                if(!source.isFile()||!source.getName().endsWith(".cbz"))throw new java.io.IOException("CBZ не найден");
                 try(java.io.InputStream in=new java.io.FileInputStream(source);
                     java.io.OutputStream out=getContentResolver().openOutputStream(destination,"w")){
                     if(out==null)throw new java.io.IOException("Не удалось открыть папку назначения");

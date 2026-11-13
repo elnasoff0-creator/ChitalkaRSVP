@@ -53,11 +53,15 @@ final class DownloadArchiveDelete {
                 for(MangaLibStorage.Job j:MangaLibStorage.jobs(c))if(j.slug.equalsIgnoreCase(slug)){
                     matchingJobs++;
                     if(!j.file.isEmpty()){
-                        File file=new File(j.file).getCanonicalFile();
-                        // Never follow a path outside the application's MangaLib storage.
-                        if(!file.getCanonicalPath().startsWith(prefix.getCanonicalPath()+File.separator))
-                            throw new Exception("Файл находится вне папки MangaLib");
-                        if(file.isFile()&&!file.delete())throw new Exception("Не удалось удалить CBZ: "+file.getName());
+                        if(MangaLibStorage.isUri(j.file)){
+                            DocumentFile cbz=DocumentFile.fromSingleUri(c,Uri.parse(j.file));
+                            if(cbz!=null&&cbz.isFile()&&!cbz.delete())throw new Exception("Не удалить перенесённый CBZ");
+                        }else{
+                            File file=new File(j.file).getCanonicalFile();
+                            if(!file.getCanonicalPath().startsWith(prefix.getCanonicalPath()+File.separator))
+                                throw new Exception("Файл находится вне папки MangaLib");
+                            if(file.isFile()&&!file.delete())throw new Exception("Не удалось удалить CBZ: "+file.getName());
+                        }
                     }
                     j.file="";j.done=0;j.total=0;j.bytes=0;j.status="cancelled";
                     MangaLibStorage.put(c,j);

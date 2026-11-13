@@ -25,6 +25,23 @@ final class BookTitleStore {
         return custom == null || custom.isEmpty() ? fallback : custom;
     }
 
+    /** Keep an explicitly renamed text book named after its file URI changes. */
+    static synchronized void moveTextId(Context c,String oldUri,String newUri){
+        SharedPreferences p=prefs(c);
+        SharedPreferences.Editor edit=p.edit();
+        for(String kind:new String[]{TEXT,DOWNLOAD}){
+            String old=key(kind,kind.equals(DOWNLOAD)?"edge:"+oldUri:oldUri);
+            String newer=key(kind,kind.equals(DOWNLOAD)?"edge:"+newUri:newUri);
+            if(p.contains(old))edit.putString(newer,p.getString(old,""));
+        }
+        edit.commit();
+    }
+
+    static synchronized void moveComicId(Context c,String oldUri,String newUri){
+        SharedPreferences p=prefs(c);String name=p.getString(key(COMIC,oldUri),"");
+        if(name!=null&&!name.isEmpty())p.edit().putString(key(COMIC,newUri),name).commit();
+    }
+
     /** Single-line, human-readable label; never used as a filesystem path. */
     static String clean(String raw) {
         if (raw == null) return "";
@@ -40,6 +57,7 @@ final class BookTitleStore {
         SharedPreferences.Editor edit = prefs(c).edit().putString(key(TEXT, uri), name)
             .putString(key(DOWNLOAD, "edge:" + uri), name);
         String slug = ranobeSlug(uri);
+        if(slug.isEmpty())slug=RanobeLibStorage.slugForBookUri(c,uri);
         if (!slug.isEmpty()) edit.putString(key(DOWNLOAD, "ranobe:" + slug), name);
         return edit.commit();
     }

@@ -112,6 +112,7 @@ public final class MangaLibDownloadWorker extends Worker {
         MangaLibStorage.Job job=id==null?null:MangaLibStorage.find(ctx,id);
         if(job==null)return Result.failure();
         if("paused".equals(job.status)||"cancelled".equals(job.status))return Result.success();
+        if("complete".equals(job.status)&&MangaLibStorage.exists(ctx,job.file))return Result.success();
         File output=MangaLibStorage.chapterFile(ctx,job);
         File part=new File(output.getAbsolutePath()+".part");
         if(completeArchive(output)){

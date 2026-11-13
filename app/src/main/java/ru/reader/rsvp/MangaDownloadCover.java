@@ -16,15 +16,17 @@ final class MangaDownloadCover {
     private MangaDownloadCover(){}
     static File file(Context c,String slug){File dir=new File(c.getFilesDir(),"manga_download_covers");dir.mkdirs();return new File(dir,Integer.toHexString(slug.hashCode())+".jpg");}
     private static String sourceKey(MangaLibStorage.Job job){
-        File f=new File(job.file);
-        return job.id()+":"+f.getAbsolutePath()+":"+f.length()+":"+f.lastModified();
+        // The underlying chapter identity does not change when the CBZ moves
+        // from app storage to a user-selected SAF folder.
+        return job.id()+":"+job.bytes+":"+job.done+":"+job.total;
     }
     static void ensure(Context c,MangaLibStorage.Job job){
         ArrayList<MangaLibStorage.Job> available=MangaLibStorage.seriesJobs(c,job.slug);
         if(available.isEmpty())return;
         MangaLibStorage.Job earliest=available.get(0);
         File result=file(c,job.slug);
-        File source=new File(earliest.file);
+        File source;
+        try{source=MangaLibStorage.localArchive(c,earliest.file);}catch(Exception error){return;}
         File marker=new File(result.getAbsolutePath()+".source");
         String key=sourceKey(earliest);
         if(result.isFile()&&result.length()>100&&marker.isFile()){

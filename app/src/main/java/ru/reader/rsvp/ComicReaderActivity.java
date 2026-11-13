@@ -363,7 +363,7 @@ public final class ComicReaderActivity extends NavigationActivity {
     private void prepareImageAssets(ComicLibrary.Chapter chapter) throws Exception {
         ArrayList<PageAsset> pages=new ArrayList<>();
         ArrayList<String> imagePaths="mangalib_cbz".equals(chapter.type)
-            ? MangaLibStorage.extractForReading(this,new File(chapter.imagePaths.get(0)))
+            ? MangaLibStorage.extractForReading(this,chapter.imagePaths.get(0))
             : ComicLibrary.pagesForChapter(this,comic,chapter);
         chapter.pageCount=imagePaths.size();
         for(String path:imagePaths){

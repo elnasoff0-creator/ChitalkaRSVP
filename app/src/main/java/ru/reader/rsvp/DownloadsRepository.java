@@ -211,7 +211,7 @@ final class DownloadsRepository {
             }
             if(entry.title.isEmpty())entry.title=job.title;
             entry.total++;
-            if("complete".equals(job.status)&&new File(job.file).isFile())entry.done++;
+            if("complete".equals(job.status)&&RanobeLibStorage.stored(ctx,job.file))entry.done++;
             else if("running".equals(job.status)||"queued".equals(job.status))entry.running=true;
             else if("paused".equals(job.status))entry.paused=true;
             else if("failed".equals(job.status)||"blocked".equals(job.status))entry.failed=true;
@@ -245,16 +245,19 @@ final class DownloadsRepository {
         if(dirs!=null)for(File dir:dirs){
             JSONObject meta=readJson(new File(dir,"book.json"));
             if(meta==null)continue;
-            String uri=meta.optString("bookUri","");if(uri.isEmpty()||hidden.contains(uri)||!included.add(uri))continue;
+            String original=meta.optString("bookUri","");
+            String uri=BookUriMigration.current(ctx,original);
+            if(uri.isEmpty()||hidden.contains(uri)||hidden.contains(original)||!included.add(uri))continue;
             Item item=fromEdge(ctx,dir,uri,meta.optString("title",""),meta.optInt("words",0),live);
             if(item!=null)all.add(item);
         }
         // Persisted jobs must remain visible after Android evicts the MP3 work cache.
         for(EdgeFullBookStore.Job persisted:EdgeFullBookStore.list(ctx)){
-            if(persisted.uri.isEmpty()||included.contains(persisted.uri)||hidden.contains(persisted.uri))continue;
-            File work=EdgeBookStorage.bookFolder(ctx,persisted.uri,persisted.title);
-            Item restored=fromEdge(ctx,work,persisted.uri,persisted.title,0,live);
-            if(restored!=null){included.add(persisted.uri);all.add(restored);}
+            String uri=BookUriMigration.current(ctx,persisted.uri);
+            if(uri.isEmpty()||included.contains(uri)||hidden.contains(uri)||hidden.contains(persisted.uri))continue;
+            File work=EdgeBookStorage.bookFolder(ctx,uri,persisted.title);
+            Item restored=fromEdge(ctx,work,uri,persisted.title,0,live);
+            if(restored!=null){included.add(uri);all.add(restored);}
         }
         // A completed SAF chapter must remain discoverable even after Android
         // evicts temporary audio files from our internal cache.

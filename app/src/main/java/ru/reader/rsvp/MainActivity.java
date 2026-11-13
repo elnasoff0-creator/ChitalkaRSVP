@@ -99,6 +99,8 @@ public class MainActivity extends NavigationActivity {
     long lastScrollSave = 0;
 
     ArrayList<BookMeta> library = new ArrayList<>();
+    private static final int MOVE_LIBRARY_REQUEST=12558;
+    private String pendingMoveKind="",pendingMoveId="";
     String currentUri = "";
     String title = "";
     String author = "";
@@ -142,6 +144,7 @@ public class MainActivity extends NavigationActivity {
         getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
         prefs = getSharedPreferences("reader", MODE_PRIVATE);
+        if(b!=null){pendingMoveKind=b.getString("move_kind","");pendingMoveId=b.getString("move_id","");}
         loadPrefs();
         // Draw the library immediately. Do not decode and tokenize an entire book
         // merely because it was open in the previous session; ReaderActivity loads
@@ -153,6 +156,12 @@ public class MainActivity extends NavigationActivity {
             new UpdateManager(this).check(true);
         }
         consumeDrawerAction(getIntent());
+    }
+
+    @Override protected void onSaveInstanceState(Bundle state){
+        super.onSaveInstanceState(state);
+        state.putString("move_kind",pendingMoveKind);
+        state.putString("move_id",pendingMoveId);
     }
 
     @Override protected void onNewIntent(Intent intent){
@@ -1428,7 +1437,7 @@ public class MainActivity extends NavigationActivity {
     }
     private void audioMenu(AudioLibrary.Book book){
         new SwipeDialogs.Builder(this).setTitle(book.name)
-            .setItems(new String[]{"Открыть / Продолжить","Сделать текущей","Переименовать","Изменить обложку","Убрать из библиотеки"},(d,which)->{
+            .setItems(new String[]{"Открыть / Продолжить","Сделать текущей","Переименовать","Изменить обложку","Перенести в папку","Убрать из библиотеки"},(d,which)->{
                 if(which==0)openAudioBook(book.id);
                 else if(which==1){prefs.edit().putString("audio_last_book",book.id).apply();draw();}
                 else if(which==2)BookRenameDialog.show(this,book.name,newName->{
@@ -1441,6 +1450,7 @@ public class MainActivity extends NavigationActivity {
                     AudioLibrary.save(this,all);draw();return true;
                 });
                 else if(which==3)Toast.makeText(this,"Изменение обложки здесь пока недоступно",Toast.LENGTH_SHORT).show();
+                else if(which==4)chooseLibraryMove("audio",book.id,book.name);
                 else confirmForget(book.name,()->{
                     ArrayList<AudioLibrary.Book> all=AudioLibrary.load(this);
                     all.removeIf(item->book.id.equals(item.id));AudioLibrary.save(this,all);
@@ -1454,7 +1464,7 @@ public class MainActivity extends NavigationActivity {
     }
     private void comicMenu(ComicLibrary.Comic item){
         new SwipeDialogs.Builder(this).setTitle(item.title)
-            .setItems(new String[]{"Открыть / Продолжить","Сделать текущей","Переименовать","Изменить обложку","Убрать из библиотеки"},(d,which)->{
+            .setItems(new String[]{"Открыть / Продолжить","Сделать текущей","Переименовать","Изменить обложку","Перенести в папку","Убрать из библиотеки"},(d,which)->{
                 if(which==0)openComic(item.uri);
                 else if(which==1){item.opened=System.currentTimeMillis();ComicLibrary.save(this,item);draw();}
                 else if(which==2)BookRenameDialog.show(this,item.title,newName->{
@@ -1462,6 +1472,7 @@ public class MainActivity extends NavigationActivity {
                     item.title=newName;ComicLibrary.save(this,item);draw();return true;
                 });
                 else if(which==3)chooseComicCover(item);
+                else if(which==4)chooseLibraryMove("comic",item.uri,item.title);
                 else confirmForget(item.title,()->{ComicLibrary.remove(this,item.uri);draw();});
             }).show();
     }
@@ -1514,8 +1525,59 @@ public class MainActivity extends NavigationActivity {
         startActivityForResult(i, 7);
     }
 
+    private void chooseLibraryMove(String kind,String id,String title){
+        new SwipeDialogs.Builder(this).setTitle("Перенести в выбранную папку")
+            .setMessage("«"+title+"» будет скопирована с проверкой SHA-256. " +
+                "После обновления путей удаляются только файлы, принадлежащие приложению. " +
+                "Пользовательские оригиналы сохраняются. Выберите папку накопителя или SD-карты.")
+            .setNegativeButton("Отмена",null)
+            .setPositiveButton("Выбрать папку",(d,w)->{
+                pendingMoveKind=kind;pendingMoveId=id;
+                Intent pick=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                pick.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                startActivityForResult(pick,MOVE_LIBRARY_REQUEST);
+            }).show();
+    }
+    private void finishLibraryMove(int request,int result,Intent data){
+        String kind=pendingMoveKind,id=pendingMoveId;
+        pendingMoveKind="";pendingMoveId="";
+        if(result!=RESULT_OK||data==null||data.getData()==null)return;
+        Uri dest=data.getData();
+        try{getContentResolver().takePersistableUriPermission(dest,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        }catch(Exception error){Toast.makeText(this,"Нельзя записать в выбранную папку",Toast.LENGTH_LONG).show();return;}
+        Toast.makeText(this,"Перенос и проверка файлов…",Toast.LENGTH_SHORT).show();
+        new Thread(()->{
+            String message;
+            try{
+                LibraryMoveManager.Report report;
+                if("text".equals(kind)){
+                    BookMeta book=null;for(BookMeta m:library)if(id.equals(m.uri)){book=m;break;}
+                    if(book==null)throw new java.io.IOException("Книга не найдена");
+                    report=LibraryMoveManager.text(getApplicationContext(),id,book.title,dest);
+                }else if("comic".equals(kind)){
+                    ComicLibrary.Comic comic=ComicLibrary.find(getApplicationContext(),id);
+                    report=LibraryMoveManager.comic(getApplicationContext(),comic,dest);
+                }else if("audio".equals(kind)){
+                    AudioLibrary.Book book=null;for(AudioLibrary.Book b:AudioLibrary.load(getApplicationContext()))
+                        if(id.equals(b.id)){book=b;break;}
+                    report=LibraryMoveManager.audio(getApplicationContext(),book,dest);
+                }else throw new java.io.IOException("Неизвестный тип книги");
+                message="Перенос завершён. Скопировано: "+report.copied+
+                    ", уже существовали: "+report.existing+", удалено старых: "+report.deleted+
+                    ". "+report.note;
+            }catch(Exception ex){message="Перенос не завершён: "+ex.getMessage()+". Источник сохранён.";}
+            String outcome=message;
+            runOnUiThread(()->{if(isFinishing())return;loadPrefs();draw();
+                new SwipeDialogs.Builder(this).setTitle("Перенос книг")
+                    .setMessage(outcome).setPositiveButton("Понятно",null).show();});
+        },"library-move-v158").start();
+    }
+
     @Override protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
+        if(req==MOVE_LIBRARY_REQUEST){finishLibraryMove(req,res,data);return;}
         if(req==12211&&res==RESULT_OK&&data!=null&&data.getData()!=null){
             Uri tree=data.getData();try{getContentResolver().takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}
             ComicLibrary.Comic comic=new ComicLibrary.Comic();comic.uri=tree.toString();
@@ -1761,7 +1823,7 @@ public class MainActivity extends NavigationActivity {
     }
 
     void bookMenu(BookMeta m) {
-        String[] items = {"Открыть / Продолжить", "Сделать текущей", "Переименовать", "Убрать из библиотеки"};
+        String[] items = {"Открыть / Продолжить", "Сделать текущей", "Переименовать", "Перенести в папку", "Убрать из библиотеки"};
         new SwipeDialogs.Builder(this)
                 .setTitle(m.title)
                 .setItems(items, (d, which) -> {
@@ -1780,6 +1842,8 @@ public class MainActivity extends NavigationActivity {
                             saveAll();draw();return true;
                         });
                     } else if (which == 3) {
+                        chooseLibraryMove("text",m.uri,m.title);
+                    } else if (which == 4) {
                         confirmForget(m.title,()->{
                             library.remove(m);
                             if(m.uri.equals(currentUri)){

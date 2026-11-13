@@ -8,6 +8,7 @@ cat > "$TMP/android/content/SharedPreferences.java" <<'JAVA'
 package android.content;
 public interface SharedPreferences {
  String getString(String key, String def);
+ boolean contains(String key);
  Editor edit();
  interface Editor {
    Editor putString(String key,String value);
@@ -25,6 +26,7 @@ public class Context {
  static class Store implements SharedPreferences {
   final Map<String,String> data=new HashMap<>();
   public String getString(String key,String def){return data.getOrDefault(key,def);}
+  public boolean contains(String key){return data.containsKey(key);}
   public Editor edit(){return new E();}
   final class E implements Editor {
    final Map<String,String> delta=new HashMap<>();
@@ -49,6 +51,12 @@ package ru.reader.rsvp;
 final class DownloadsRepository {
  static final String RANOBE="ranobelib",EDGE="edge",MANGA="mangalib",AUDIO="audiobook",LINK="direct_link";
  static final class Item {String id="",type="",source="",bookUri="",title="";}
+}
+JAVA
+cat > "$TMP/ru/reader/rsvp/RanobeLibStorage.java" <<'JAVA'
+package ru.reader.rsvp;
+final class RanobeLibStorage {
+ static String slugForBookUri(android.content.Context c,String uri){return "";}
 }
 JAVA
 cp "$SRC/BookTitleStore.java" "$TMP/ru/reader/rsvp/"

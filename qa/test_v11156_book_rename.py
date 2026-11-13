@@ -5,7 +5,7 @@ r=Path(__file__).resolve().parents[1]
 src=r/'app/src/main/java/ru/reader/rsvp'
 read=lambda f:(src/f).read_text(encoding='utf-8')
 gradle=(r/'app/build.gradle').read_text(encoding='utf-8')
-assert "versionCode 15700; versionName '1.11.157-beta'" in gradle
+assert "versionCode 15800; versionName '1.11.158-beta'" in gradle
 main=read('MainActivity.java')
 assert main.count('"\u041f\u0435\u0440\u0435\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u0442\u044c"')>=3
 assert 'BookRenameDialog.show(this,m.title' in main
@@ -37,7 +37,7 @@ for item in ('renameText','renameAudio','renameComic','renameDownload','download
 assert 'name = clean(name)' in titles
 assert 'item.file.renameTo(' not in titles
 assert 'String safe' in read('RanobeLibStorage.java')
-assert 'catch(IOException | org.json.JSONException error)' in read('RanobeLibStorage.java')
+assert 'catch(Exception error){android.util.Log.w("RanobeLibStorage","Metadata",error);}' in read('RanobeLibStorage.java')
 assert 'for(AudioLibrary.Book old:books)' in read('LinkDownloadStore.java')
 assert 'book.name=all.get(i).name;book.customName=true' in read('BookImportManager.java')
 print('PASS: v156 rename UI + title alias propagation + no filesystem rename + CI JSONException fix')
