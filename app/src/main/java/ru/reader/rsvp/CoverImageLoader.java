@@ -66,6 +66,13 @@ final class CoverImageLoader {
                             File local=new File(u);
                             if(!local.isFile()||local.length()>4*1024*1024L||local.length()<30)return;
                             try(InputStream in=new FileInputStream(local)){bytes=BookLoader.readAll(in);}
+                        }else if("content".equalsIgnoreCase(u.getScheme())){
+                            try(InputStream in=app.getContentResolver().openInputStream(Uri.parse(url))){
+                                if(in==null)return;
+                                java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream();byte[] buf=new byte[8192];int n;
+                                while((n=in.read(buf))!=-1){if(out.size()+n>4*1024*1024)return;out.write(buf,0,n);}
+                                bytes=out.toByteArray();
+                            }
                         }else{
                         if(!"https".equalsIgnoreCase(u.getScheme())||u.getUserInfo()!=null||u.getHost()==null)return;
                         HttpURLConnection c=(HttpURLConnection)u.toURL().openConnection();

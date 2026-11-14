@@ -8,7 +8,14 @@ public class DownloadWorker extends Service {
     public static final String START="ru.reader.rsvp.DOWNLOAD_START",PAUSE="ru.reader.rsvp.DOWNLOAD_PAUSE",CANCEL="ru.reader.rsvp.DOWNLOAD_CANCEL";
     static final String CHANNEL="audio_downloads";volatile boolean halt=false, cancel=false;Thread thread;String source="";
     @Override public void onCreate(){super.onCreate();if(Build.VERSION.SDK_INT>=26){NotificationChannel c=new NotificationChannel(CHANNEL,"Загрузки аудиокниг",NotificationManager.IMPORTANCE_LOW);getSystemService(NotificationManager.class).createNotificationChannel(c);}}
-    Notification note(String msg,int done,int total){Notification.Builder n=Build.VERSION.SDK_INT>=26?new Notification.Builder(this,CHANNEL):new Notification.Builder(this);n.setSmallIcon(android.R.drawable.stat_sys_download).setContentTitle("Загрузка аудиокниги").setContentText(msg).setOnlyAlertOnce(true).setOngoing(true).setProgress(total,done,false);return n.build();}
+    Notification note(String msg,int done,int total){Notification.Builder n=Build.VERSION.SDK_INT>=26?new Notification.Builder(this,CHANNEL):new Notification.Builder(this);Intent open=new Intent(this,UnifiedDownloadManagerActivity.class)
+            .putExtra(UnifiedDownloadManagerActivity.EXTRA_ID,"audio:"+source)
+            .putExtra(UnifiedDownloadManagerActivity.EXTRA_TYPE,DownloadsRepository.AUDIO)
+            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        android.app.PendingIntent click=android.app.PendingIntent.getActivity(this,
+            Math.abs(source.hashCode()%15000)+4100,open,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT|(Build.VERSION.SDK_INT>=23?android.app.PendingIntent.FLAG_IMMUTABLE:0));
+        n.setContentIntent(click);n.setSmallIcon(android.R.drawable.stat_sys_download).setContentTitle("Загрузка аудиокниги").setContentText(msg).setOnlyAlertOnce(true).setOngoing(true).setProgress(total,done,false);return n.build();}
     @Override public int onStartCommand(Intent intent,int flags,int startId){if(intent==null)return START_NOT_STICKY;String action=intent.getAction();String requested=intent.getStringExtra("source");if(requested==null)return START_NOT_STICKY;
         if(PAUSE.equals(action)||CANCEL.equals(action)){halt=true;cancel=CANCEL.equals(action);BookImportManager.Job j=lookup(requested);if(j!=null){j.paused=!cancel;j.cancelled=cancel;j.status=cancel?"cancelled":"paused";BookImportManager.put(this,j);}return START_NOT_STICKY;}
         if(START.equals(action)){if(thread!=null&&thread.isAlive())return START_STICKY;source=requested;halt=false;cancel=false;BookImportManager.Job j=lookup(source);if(j==null)return START_NOT_STICKY;j.paused=false;j.cancelled=false;j.status="running";BookImportManager.put(this,j);startForeground(4112,note(j.title,0,100));thread=new Thread(()->runQueue(j),"AudioBookDownloader");thread.start();}return START_STICKY;}

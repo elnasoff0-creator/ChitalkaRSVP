@@ -20,11 +20,11 @@ import java.util.Set;
 
 /** Read-only projection of two INDEPENDENT downloader stores. Never copies downloaded MP3. */
 final class DownloadsRepository {
-    static final String AUDIO="audiobook",EDGE="edge",LINK="direct_link",MANGA="mangalib",RANOBE="ranobelib";
+    static final String AUDIO="audiobook",EDGE="edge",LINK="direct_link",MANGA="mangalib",RANOBE="ranobelib",RANOBES="ranobes";
     static final String HIDDEN_EDGE="hidden_edge_downloads_v1";
     static final class Item {
         String type="",id="",title="",sourceTitle="",cover="",source="",bookUri="",status="",description="";
-        String voice="";
+        String voice="",author="",narrator="",provider="",format="";
         int done,total,coveragePercent;
         long downloadedBytes,totalBytes;
         boolean ready,running,paused,failed,unknownTotal,previewOnly;
@@ -62,6 +62,7 @@ final class DownloadsRepository {
     private static Item fromAudio(Context context,BookImportManager.Job job){
         Item item=new Item();item.type=AUDIO;item.job=job;item.id="audio:"+job.source;
         item.source=job.source;item.title=job.title.isEmpty()?"Аудиокнига":job.title;
+        item.provider="Книга в ухе";item.format="MP3";item.author=job.author;item.narrator=job.narrator;
         String localCover=AudiobookCoverStore.localUri(context,job);
         item.cover=localCover.isEmpty()?job.cover:localCover;
         item.folder=BookImportManager.directory(context,job);
@@ -93,7 +94,7 @@ final class DownloadsRepository {
         ArrayList<EdgeOfflineIndex.Segment> saved=EdgeAudioManager.segments(audio);
         if(saved.isEmpty()&&full==null&&(live==null||!uri.equals(live.bookUri())||live.snapshot().isEmpty()))return null;
         Item item=new Item();item.type=EDGE;item.bookUri=uri;item.id="edge:"+uri;
-        item.title=title.isEmpty()?"Текстовая книга":title;item.cover=uri;item.folder=audio;
+        item.title=title.isEmpty()?"Текстовая книга":title;item.cover=uri;item.folder=audio;item.provider="Edge TTS";item.format="MP3";
         EdgeOfflineIndex.Stats coverage=EdgeOfflineIndex.stats(saved,0,Math.max(0,totalWords));
         item.done=coverage.files;
         item.total=saved.size();
@@ -145,7 +146,7 @@ final class DownloadsRepository {
             item.title=first.displayTitle.isEmpty()?first.name:first.displayTitle;
             if(b.files.size()>1)item.title+=" · ещё "+(b.files.size()-1)+" файлов";
         }
-        item.status="Скачивание по ссылке";item.total=b.files.size();item.done=b.completed();
+        item.provider="По ссылке";item.format=b.files.isEmpty()?"":b.files.get(0).format.toUpperCase(Locale.ROOT);item.status="Скачивание по ссылке";item.total=b.files.size();item.done=b.completed();
         item.ready=item.total>0&&item.done==item.total;
         item.running="running".equals(b.status);item.paused="paused".equals(b.status);
         item.failed="error".equals(b.status);item.unknownTotal=true;
@@ -174,7 +175,7 @@ final class DownloadsRepository {
             if(group==null){
                 group=new MangaLibDownloadGroup();mangaGroups.put(key,group);
                 item=new Item();item.type=MANGA;item.id="manga:"+key;
-                item.title=j.series==null||j.series.trim().isEmpty()?slug:j.series;
+                item.title=j.series==null||j.series.trim().isEmpty()?slug:j.series;item.provider="MangaLib";item.format="CBZ";
                 item.bookUri=MangaLibStorage.comicUri(slug);item.source=slug;
                 mangaRows.put(key,item);
             }
@@ -204,7 +205,7 @@ final class DownloadsRepository {
             if(job.slug.isEmpty())continue;
             Item entry=novels.get(job.slug);
             if(entry==null){entry=new Item();entry.id="ranobe:"+job.slug;
-                entry.type=RANOBE;entry.source=job.slug;entry.title=job.title;
+                entry.type=RANOBE;entry.source=job.slug;entry.title=job.title;entry.provider="RanobeLIB";entry.format="HTML";entry.author=job.author;
                 entry.bookUri=RanobeLibStorage.bookUri(ctx,job.slug);
                 entry.folder=RanobeLibStorage.folder(ctx,job.slug);
                 novels.put(job.slug,entry);
@@ -230,6 +231,29 @@ final class DownloadsRepository {
             else novel.status="Ожидает";
             novel.description="Глав: "+novel.done+" из "+novel.total+" · HTML";
             all.add(novel);
+        }
+        // Ranobes.net uses the same *category* download destination, with a
+        // distinct per-site identity and an independent chapter cache.
+        java.util.LinkedHashMap<String,Item> ranobesRows=new java.util.LinkedHashMap<>();
+        for(RanobesStorage.Job j:RanobesStorage.jobs(ctx)){
+            String key=j.sourceKey();Item entry=ranobesRows.get(key);
+            if(entry==null){entry=new Item();entry.id="ranobes:"+key;entry.type=RANOBES;
+                entry.source=key;entry.title=j.bookTitle;entry.author=j.author;
+                entry.provider="Ranobes.net";entry.format="HTML";
+                entry.bookUri=RanobesStorage.bookUri(ctx,key);entry.cover=RanobesStorage.coverUri(ctx,key);
+                ranobesRows.put(key,entry);}
+            entry.total++;entry.downloadedBytes+=j.bytes;
+            if("complete".equals(j.status))entry.done++;
+            else if("running".equals(j.status)||"queued".equals(j.status))entry.running=true;
+            else if("paused".equals(j.status))entry.paused=true;
+            else if("failed".equals(j.status)||"blocked".equals(j.status))entry.failed=true;
+        }
+        for(Item entry:ranobesRows.values()){
+            entry.ready=entry.total>0&&entry.done==entry.total;
+            entry.coveragePercent=entry.total>0?entry.done*100/entry.total:0;
+            entry.status=entry.ready?"Скачано":entry.running?"Скачивается":entry.paused?"Приостановлено":entry.failed?"Ошибка глав":"Ожидает";
+            entry.description="Глав: "+entry.done+" из "+entry.total+" · "+(entry.source.endsWith(":ru")?"Русский МП":"Оригинал");
+            all.add(entry);
         }
         HashMap<String,JSONObject> index=new HashMap<>();
         try{

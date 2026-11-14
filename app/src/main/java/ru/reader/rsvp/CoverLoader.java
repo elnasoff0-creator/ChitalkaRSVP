@@ -17,11 +17,15 @@ public class CoverLoader {
             // RanobeLIB HTML stores its real artwork next to book.html, not in EPUB/FB2.
             byte[] artwork=HtmlFolderLibrary.coverBytes(ctx,uri);
             if(artwork!=null)return artwork;
+            artwork=RanobesStorage.localCover(ctx,uri);
+            if(artwork!=null)return artwork;
             artwork=RanobeLibStorage.localCover(ctx,uri);
             if(artwork!=null)return artwork;
             // Runs on the caller's cover-loading executor, never on the UI thread.
             if(RanobeLibStorage.repairMissingCover(ctx,uri)){
-                artwork=RanobeLibStorage.localCover(ctx,uri);
+                artwork=RanobesStorage.localCover(ctx,uri);
+            if(artwork!=null)return artwork;
+            artwork=RanobeLibStorage.localCover(ctx,uri);
                 if(artwork!=null)return artwork;
             }
             File f=target(ctx,uri);

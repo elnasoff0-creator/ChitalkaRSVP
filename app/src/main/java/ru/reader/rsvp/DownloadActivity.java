@@ -116,9 +116,9 @@ public final class DownloadActivity extends NavigationActivity {
         LinearLayout toolbar=new LinearLayout(this);
         toolbar.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
         toolbarScroll.addView(toolbar,new HorizontalScrollView.LayoutParams(-2,dp(52)));
-        toolbarAction(toolbar,R.drawable.ic_search_audiobook,"Поиск аудиокниг",()->startActivity(new Intent(this,KvuheSearchActivity.class)));
-        toolbarAction(toolbar,R.drawable.ic_manga_search,"Поиск манги · MangaLib",()->startActivity(new Intent(this,MangaLibSearchActivity.class)));
-        toolbarAction(toolbar,R.drawable.ic_ranobelib_search,"Поиск ранобэ · RanobeLIB",()->startActivity(new Intent(this,RanobeLibSearchActivity.class)));
+        toolbarAction(toolbar,R.drawable.ic_search_audiobook,"Поиск аудиокниг",()->DownloadSourcePicker.show(this,DownloadSourcePicker.AUDIO));
+        toolbarAction(toolbar,R.drawable.ic_manga_search,"Поиск манги",()->DownloadSourcePicker.show(this,DownloadSourcePicker.MANGA));
+        toolbarAction(toolbar,R.drawable.ic_ranobelib_search,"Поиск ранобэ",()->DownloadSourcePicker.show(this,DownloadSourcePicker.RANOBE));
         toolbarAction(toolbar,R.drawable.ic_import_link,"Импорт по ссылке",()->startActivity(new Intent(this,LinkDownloadActivity.class)));
         toolbarAction(toolbar,R.drawable.ic_autoload,"Подготовить книгу Edge",()->startActivity(new Intent(this,EdgeFullBookActivity.class)));
         toolbarScroll.post(()->toolbarScroll.scrollTo(toolbar.getWidth(),0));
@@ -310,7 +310,7 @@ public final class DownloadActivity extends NavigationActivity {
             if(filter==3&&!DownloadsRepository.EDGE.equals(item.type))continue;
             if(filter==4&&!DownloadsRepository.LINK.equals(item.type))continue;
             if(filter==5&&!DownloadsRepository.MANGA.equals(item.type))continue;
-            if(filter==6&&!DownloadsRepository.RANOBE.equals(item.type))continue;
+            if(filter==6&&!DownloadsRepository.RANOBE.equals(item.type)&&!DownloadsRepository.RANOBES.equals(item.type))continue;
             (item.ready?ready:unfinished).add(item);
         }
         if(!unfinished.isEmpty()){
@@ -331,28 +331,13 @@ public final class DownloadActivity extends NavigationActivity {
         main.postDelayed(this::refresh,250);
     }
     private void open(DownloadsRepository.Item item){
-        // A snapshot has enough stable IDs to open the corresponding detail screen.
-        // Never block the tap on a full SAF scan (which may be slow or unavailable).
-        if(item.previewOnly&&DownloadsRepository.EDGE.equals(item.type)){
-            openEdgeChapters(item);return;
-        }
-        if(DownloadsRepository.RANOBE.equals(item.type)){
-            startActivity(new Intent(this,RanobeLibBookActivity.class).putExtra("ranobelib_slug",item.source));
-            return;
-        }
-        if(DownloadsRepository.MANGA.equals(item.type)){
-            // A series card always opens its volume/chapter manager, like audio downloads.
-            openMangaChapters(item);
-            return;
-        }
-        if(DownloadsRepository.LINK.equals(item.type)){startActivity(new Intent(this,LinkDownloadDetailsActivity.class).putExtra(DirectLinkDownloadService.EXTRA_ID,(item.link!=null?item.link.id:item.id.replaceFirst("^link:",""))));}
-        else if(DownloadsRepository.EDGE.equals(item.type)){
-            // After cache eviction a SAF-only book has no local job; ReaderActivity
-            // rehydrates the saved chapter's clips and WordBoundary on opening.
-            if(item.folder==null)listenEdge(item);else openEdgeChapters(item);
-        }else if(item.ready){
-            startActivity(new Intent(this,AudioPlayerActivity.class).putExtra("audio_book_id","url:"+item.source));
-        }else startActivity(new Intent(this,UrlImportActivity.class).putExtra("source",item.source));
+        // A saved ID opens the unified manager immediately; disk checks run there
+        // asynchronously. A completed audiobook must NOT auto-open the player.
+        startActivity(new Intent(this,UnifiedDownloadManagerActivity.class)
+            .putExtra(UnifiedDownloadManagerActivity.EXTRA_ID,item.id)
+            .putExtra(UnifiedDownloadManagerActivity.EXTRA_TITLE,item.title)
+            .putExtra(UnifiedDownloadManagerActivity.EXTRA_COVER,item.cover)
+            .putExtra(UnifiedDownloadManagerActivity.EXTRA_TYPE,item.type));
     }
     private void openMangaChapters(DownloadsRepository.Item item){
         startActivity(new Intent(this,MangaLibChapterDownloadsActivity.class)
@@ -662,6 +647,23 @@ public final class DownloadActivity extends NavigationActivity {
     }
     private void menu(View anchor,DownloadsRepository.Item item){
         if(item.previewOnly){resolvePreview(item,checked->{if(anchor.getWindowToken()!=null)menu(anchor,checked);});return;}
+        if(DownloadsRepository.RANOBES.equals(item.type)){
+            PopupMenu popup=new PopupMenu(this,anchor);
+            popup.getMenu().add("Переименовать").setOnMenuItemClickListener(m->{renameDownload(item);return true;});
+            if(item.ready)popup.getMenu().add("В архив").setOnMenuItemClickListener(m->{archive(item);return true;});
+            popup.getMenu().add("Мета, файлы и обложка").setOnMenuItemClickListener(m->{open(item);return true;});
+            popup.getMenu().add("Тома и главы").setOnMenuItemClickListener(m->{startActivity(new Intent(this,RanobesBookActivity.class).putExtra("ranobes_id",item.source));return true;});
+            if(RanobesStorage.hasBook(this,item.source))popup.getMenu().add("Читать HTML").setOnMenuItemClickListener(m->{startActivity(new Intent(this,ReaderActivity.class).putExtra("book_uri",RanobesStorage.bookUri(this,item.source)));return true;});
+            if(!item.ready){
+                popup.getMenu().add(item.running?"Пауза":"Продолжить / повторить ошибки").setOnMenuItemClickListener(m->{
+                    if(item.running)RanobesQueue.pause(this,item.source);else RanobesQueue.resume(this,item.source);
+                    diskScannedAt=0;refresh();return true;
+                });
+                popup.getMenu().add("Отменить очередь").setOnMenuItemClickListener(m->{RanobesQueue.cancel(this,item.source);diskScannedAt=0;refresh();return true;});
+            }
+            popup.getMenu().add("Выбрать папку ранобэ").setOnMenuItemClickListener(m->{DownloadFolderPicker.choose(this,DownloadFolderPicker.RANOBE_REQUEST,DownloadFolderPicker.RANOBE);return true;});
+            popup.show();return;
+        }
         if(DownloadsRepository.RANOBE.equals(item.type)){
             PopupMenu popup=new PopupMenu(this,anchor);
             popup.getMenu().add("Переименовать").setOnMenuItemClickListener(m->{renameDownload(item);return true;});
@@ -815,7 +817,8 @@ public final class DownloadActivity extends NavigationActivity {
     }
     private boolean pauseForArchive(DownloadsRepository.Item item){
         try{
-            if(DownloadsRepository.RANOBE.equals(item.type))RanobeLibQueue.pause(this,item.source);
+            if(DownloadsRepository.RANOBES.equals(item.type))RanobesQueue.pause(this,item.source);
+            else if(DownloadsRepository.RANOBE.equals(item.type))RanobeLibQueue.pause(this,item.source);
             else if(DownloadsRepository.MANGA.equals(item.type))MangaLibQueue.pause(this,item.source);
             else if(DownloadsRepository.LINK.equals(item.type))linkCommand(item,DirectLinkDownloadService.PAUSE);
             else if(DownloadsRepository.AUDIO.equals(item.type))send(item,DownloadWorker.PAUSE);
@@ -881,14 +884,24 @@ public final class DownloadActivity extends NavigationActivity {
             LinearLayout top=new LinearLayout(DownloadActivity.this);top.setGravity(Gravity.TOP);card.addView(top);
             FrameLayout coverFrame=new FrameLayout(DownloadActivity.this);coverFrame.setBackground(bg(0xffe7d7c7,12));
             top.addView(coverFrame,new LinearLayout.LayoutParams(dp(item.ready?75:92),dp(item.ready?106:124)));
-            TextView placeholder=text(DownloadsRepository.MANGA.equals(item.type)?"▣":DownloadsRepository.RANOBE.equals(item.type)?"▤":"♫",27,true);placeholder.setGravity(Gravity.CENTER);coverFrame.addView(placeholder,new FrameLayout.LayoutParams(-1,-1));
+            TextView placeholder=text(DownloadsRepository.MANGA.equals(item.type)?"▣":(DownloadsRepository.RANOBE.equals(item.type)||DownloadsRepository.RANOBES.equals(item.type))?"▤":"♫",27,true);placeholder.setGravity(Gravity.CENTER);coverFrame.addView(placeholder,new FrameLayout.LayoutParams(-1,-1));
             ImageView cover=new ImageView(DownloadActivity.this);cover.setScaleType(ImageView.ScaleType.CENTER_CROP);coverFrame.addView(cover,new FrameLayout.LayoutParams(-1,-1));
             CoverImageLoader.show(cover,item.cover,DownloadsRepository.EDGE.equals(item.type));
             LinearLayout detail=new LinearLayout(DownloadActivity.this);detail.setOrientation(LinearLayout.VERTICAL);
             LinearLayout.LayoutParams d=new LinearLayout.LayoutParams(0,-2,1);d.leftMargin=dp(12);top.addView(detail,d);
             TextView title=text(item.title,17,true);title.setTypeface(Typeface.SERIF,Typeface.BOLD);title.setMaxLines(2);detail.addView(title);
-            TextView type=text(DownloadsRepository.LINK.equals(item.type)?"↓ По ссылке":DownloadsRepository.EDGE.equals(item.type)?"▥ Edge TTS":DownloadsRepository.MANGA.equals(item.type)?"▣ Манга · MangaLib":DownloadsRepository.RANOBE.equals(item.type)?"▤ Ранобэ · RanobeLIB":"▤ Аудиокнига",12,false);type.setTextColor(ACCENT);
+            TextView type=text(DownloadsRepository.LINK.equals(item.type)?"↓ По ссылке":DownloadsRepository.EDGE.equals(item.type)?"▥ Edge TTS":DownloadsRepository.MANGA.equals(item.type)?"▣ Манга · MangaLib":DownloadsRepository.RANOBE.equals(item.type)?"▤ Ранобэ · RanobeLIB":DownloadsRepository.RANOBES.equals(item.type)?"▤ Ранобэ · Ranobes.net":"▤ Аудиокнига",12,false);type.setTextColor(ACCENT);
             LinearLayout.LayoutParams tagParams=new LinearLayout.LayoutParams(-2,-2);tagParams.topMargin=dp(5);detail.addView(type,tagParams);
+            StringBuilder brief=new StringBuilder();
+            if(item.author!=null&&!item.author.isEmpty())brief.append(item.author);
+            if(item.narrator!=null&&!item.narrator.isEmpty()){
+                if(brief.length()>0)brief.append(" · ");brief.append("Читает: ").append(item.narrator);
+            }
+            if(item.format!=null&&!item.format.isEmpty()){
+                if(brief.length()>0)brief.append(" · ");brief.append(item.format);
+            }
+            if(brief.length()>0){TextView byline=text(brief.toString(),12,false);byline.setTextColor(MUTED);detail.addView(byline);}
+
             TextView info=text(item.description,12,false);info.setTextColor(MUTED);
             LinearLayout.LayoutParams il=new LinearLayout.LayoutParams(-1,-2);il.topMargin=dp(6);detail.addView(info,il);
             TextView status=text(item.status,12,true);status.setTextColor(item.failed?0xffa13d36:item.ready||"Идёт озвучивание".equals(item.status)?GREEN:item.running?0xff276db1:ACCENT);detail.addView(status);

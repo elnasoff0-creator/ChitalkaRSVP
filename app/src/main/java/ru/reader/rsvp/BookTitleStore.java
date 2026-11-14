@@ -59,6 +59,8 @@ final class BookTitleStore {
         String slug = ranobeSlug(uri);
         if(slug.isEmpty())slug=RanobeLibStorage.slugForBookUri(c,uri);
         if (!slug.isEmpty()) edit.putString(key(DOWNLOAD, "ranobe:" + slug), name);
+        String ranobes = RanobesStorage.keyForBookUri(c,uri);
+        if(!ranobes.isEmpty())edit.putString(key(DOWNLOAD,"ranobes:"+ranobes),name);
         return edit.commit();
     }
 
@@ -86,7 +88,7 @@ final class BookTitleStore {
         name = clean(name);
         if (id == null || id.isEmpty() || name.isEmpty()) return false;
         SharedPreferences.Editor edit = prefs(c).edit().putString(key(DOWNLOAD, id), name);
-        if (DownloadsRepository.RANOBE.equals(type) || DownloadsRepository.EDGE.equals(type)) {
+        if (DownloadsRepository.RANOBE.equals(type) || DownloadsRepository.RANOBES.equals(type) || DownloadsRepository.EDGE.equals(type)) {
             if (bookUri != null && !bookUri.isEmpty()) edit.putString(key(TEXT, bookUri), name);
         } else if (DownloadsRepository.MANGA.equals(type)) {
             if (bookUri != null && !bookUri.isEmpty()) edit.putString(key(COMIC, bookUri), name);
@@ -100,7 +102,7 @@ final class BookTitleStore {
 
     static String downloadTitle(Context c, DownloadsRepository.Item item) {
         String fallback = item.title;
-        if (DownloadsRepository.RANOBE.equals(item.type) || DownloadsRepository.EDGE.equals(item.type))
+        if (DownloadsRepository.RANOBE.equals(item.type) || DownloadsRepository.RANOBES.equals(item.type) || DownloadsRepository.EDGE.equals(item.type))
             fallback = title(c, TEXT, item.bookUri, fallback);
         else if (DownloadsRepository.MANGA.equals(item.type))
             fallback = title(c, COMIC, item.bookUri, fallback);

@@ -113,7 +113,7 @@ public final class DownloadArchiveActivity extends NavigationActivity {
     }
     private static String typeName(String type){switch(type){
         case DownloadsRepository.AUDIO:return "Аудиокнига";case DownloadsRepository.EDGE:return "Edge TTS";
-        case DownloadsRepository.MANGA:return "Манга";case DownloadsRepository.RANOBE:return "Ранобэ";case DownloadsRepository.LINK:return "По ссылке";
+        case DownloadsRepository.MANGA:return "Манга";case DownloadsRepository.RANOBE:case DownloadsRepository.RANOBES:return "Ранобэ";case DownloadsRepository.LINK:return "По ссылке";
         default:return "Загрузка";
     }}
     private void restore(DownloadArchiveStore.Entry entry){
