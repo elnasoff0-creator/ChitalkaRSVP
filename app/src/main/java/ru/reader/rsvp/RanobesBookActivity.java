@@ -33,7 +33,7 @@ public final class RanobesBookActivity extends NavigationActivity {
     private TextView text(String value,int size,boolean bold){TextView t=new TextView(this);t.setText(value);t.setTextSize(size);t.setTextColor(INK);if(bold)t.setTypeface(Typeface.DEFAULT,Typeface.BOLD);return t;}
     private TextView button(String value,Runnable action){TextView t=text(value,14,true);t.setGravity(Gravity.CENTER);t.setPadding(dp(8),dp(12),dp(8),dp(12));t.setBackground(shape());t.setOnClickListener(v->action.run());return t;}
     private void add(LinearLayout layout,android.view.View v,int top){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(top);layout.addView(v,p);}
-    @Override public void onCreate(Bundle state){super.onCreate(state);
+    @Override public void onCreate(Bundle savedInstanceState){super.onCreate(savedInstanceState);
         url=RanobesApi.validBookUrl(getIntent().getStringExtra("ranobes_url"));
         String source=getIntent().getStringExtra("ranobes_id");
         if(url.isEmpty()&&RanobesStorage.validKey(source)){
@@ -47,7 +47,7 @@ public final class RanobesBookActivity extends NavigationActivity {
         ImageView menu=new ImageView(this);menu.setImageResource(R.drawable.ic_menu_lines);menu.setColorFilter(INK);menu.setPadding(dp(10),dp(10),dp(10),dp(10));menu.setBackground(shape());bar.addView(menu,new LinearLayout.LayoutParams(dp(44),dp(44)));menu.setOnClickListener(v->UniversalDrawer.show(this));
         TextView heading=text("Ranobes.net · Главы",20,true);LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(0,-2,1);hp.leftMargin=dp(12);bar.addView(heading,hp);
         ImageView folder=new ImageView(this);folder.setImageResource(R.drawable.ic_folder_audio);folder.setColorFilter(INK);folder.setPadding(dp(10),dp(10),dp(10),dp(10));folder.setBackground(shape());bar.addView(folder,new LinearLayout.LayoutParams(dp(44),dp(44)));folder.setOnClickListener(v->DownloadFolderPicker.choose(this,DownloadFolderPicker.RANOBE_REQUEST,DownloadFolderPicker.RANOBE));
-        state=text("Загружаем сведения и оглавление…",13,false);add(root,state,12);
+        this.state=text("Загружаем сведения и оглавление…",13,false);add(root,this.state,12);
         LinearLayout options=new LinearLayout(this);options.setGravity(Gravity.CENTER_VERTICAL);add(root,options,8);
         languageButton=button("ru".equals(language)?"Русский · ML Kit ▾":"Оригинал · английский ▾",this::languageDialog);options.addView(languageButton,new LinearLayout.LayoutParams(-1,dp(47)));
         alsoOriginal=new CheckBox(this);alsoOriginal.setText("Сохранить оригинал отдельно при русском переводе");alsoOriginal.setTextColor(INK);alsoOriginal.setVisibility("ru".equals(language)?android.view.View.VISIBLE:android.view.View.GONE);add(root,alsoOriginal,5);
