@@ -676,8 +676,8 @@ public final class EdgeStreamingService extends Service {
             EdgeSentenceSeek.at(relative,EdgeWordTimings.read(base.file,base.text)):-1L;
         boolean exactLive=requested==base.start&&liveFor(base)!=null;
         if(position<0&&!exactLive){
-            // Manual selection starts at the chosen word. Never slice a
-            // sentence merely to reach a 500-character transport target.
+            // v158: uncached manual selection receives 500-character priority pieces
+            // followed by the original contiguous 800-character groups.
             SentenceChunks.Chunk grouped=SentenceChunks.forWord(sentenceParts,requested);
             if(grouped!=null){
                 for(SentenceChunks.Chunk piece:EdgeSpeechSegments.priorityPieces(
@@ -697,7 +697,7 @@ public final class EdgeStreamingService extends Service {
         pendingStarts.clear();priorityStart=-1;
         persist();pump();
     }
-    /** The normal whole-sentence Edge group, without priority overrides. */
+    /** The normal v158 Edge group, without temporary priority overrides. */
     private Clip baseClipAt(int word){
         if(word<0||word>=offsets.size()||sentenceParts.isEmpty())return null;
         SentenceChunks.Chunk part=SentenceChunks.forWord(sentenceParts,word);

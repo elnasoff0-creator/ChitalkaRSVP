@@ -121,7 +121,7 @@ public final class DownloadArchiveActivity extends NavigationActivity {
         disk.execute(()->{
             boolean available=false;
             try{for(DownloadsRepository.Item item:DownloadsRepository.load(getApplicationContext(),null))
-                if(entry.id.equals(item.id)&&item.ready){available=true;break;}}
+                if(entry.id.equals(item.id)&&(entry.ready?item.ready:true)){available=true;break;}}
             catch(Exception ignored){}
             final boolean ready=available;
             runOnUiThread(()->{
@@ -130,7 +130,7 @@ public final class DownloadArchiveActivity extends NavigationActivity {
                 if(!DownloadArchiveStore.restore(this,entry.id)){
                     Toast.makeText(this,"Не удалось восстановить запись",Toast.LENGTH_LONG).show();return;
                 }
-                Toast.makeText(this,"Восстановлено в «Готовые»",Toast.LENGTH_SHORT).show();reload();
+                Toast.makeText(this,entry.ready?"Восстановлено в «Готовые»":"Восстановлено в «В процессе»",Toast.LENGTH_SHORT).show();reload();
             });
         });
     }

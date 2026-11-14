@@ -41,6 +41,32 @@ final class RanobeLibStorage {
         DocumentFile external=externalFile(c,slug,"book.html");
         return external!=null&&external.isFile()?external.getUri().toString():Uri.fromFile(book(c,slug)).toString();
     }
+    static boolean hasBook(Context c,String slug){
+        DocumentFile external=externalFile(c,slug,"book.html");
+        if(external!=null&&external.isFile()&&external.length()>0)return true;
+        return book(c,slug).isFile();
+    }
+    /** One persistent offline rollback copy before the user explicitly rebuilds a book.
+     * For SAF books the source stream is read once; ordinary reader opening is untouched. */
+    static void backupBeforeManualCleanup(Context c,String slug)throws IOException{
+        DocumentFile external=externalFile(c,slug,"book.html");
+        File local=book(c,slug);
+        boolean remote=external!=null&&external.isFile()&&external.length()>0;
+        if(!remote&&!local.isFile())throw new IOException("Сначала скачайте главы книги");
+        File previous=new File(folder(c,slug),"book.html.before_cleanup");
+        File staged=new File(folder(c,slug),"book.html.before_cleanup.part");
+        if(staged.exists()&&!staged.delete())throw new IOException("Невозможно очистить временный файл копии");
+        try(java.io.InputStream in=remote?c.getContentResolver().openInputStream(external.getUri()):new FileInputStream(local);
+            FileOutputStream out=new FileOutputStream(staged)){
+            if(in==null)throw new IOException("Исходная HTML-книга недоступна");
+            byte[] b=new byte[16384];int n;long length=0;
+            while((n=in.read(b))!=-1){length+=n;if(length>80_000_000L)throw new IOException("HTML-книга слишком велика для безопасной копии");out.write(b,0,n);}
+            out.getFD().sync();
+            if(length==0)throw new IOException("Исходная HTML-книга пуста");
+        }catch(Exception error){staged.delete();if(error instanceof IOException)throw (IOException)error;throw new IOException("Не удалось сохранить копию HTML",error);}
+        if(previous.exists()&&!previous.delete()){staged.delete();throw new IOException("Не удалось заменить предыдущую резервную копию");}
+        if(!staged.renameTo(previous))throw new IOException("Невозможно завершить создание резервной копии");
+    }
     static String externalDirUri(Context c,String slug){return c.getSharedPreferences("ranobelib_external_v158",0).getString(slug,"");}
     static DocumentFile externalDir(Context c,String slug){
         android.content.SharedPreferences p=c.getSharedPreferences("ranobelib_external_v158",0);
@@ -282,9 +308,12 @@ final class RanobeLibStorage {
     }
     private static String hash(String s){try{MessageDigest md=MessageDigest.getInstance("SHA-256");byte[] sum=md.digest(s.getBytes(StandardCharsets.UTF_8));StringBuilder b=new StringBuilder();for(byte value:sum)b.append(String.format(java.util.Locale.ROOT,"%02x",value&255));return b.toString();}catch(Exception ignored){return Integer.toHexString(s.hashCode());}}
     static void saveChapter(Context ctx,Job job,String html) throws IOException {
-        String title=escape(job.apiChapter().fullTitle());
-        // Base is relative to volumes/vX/chapter_Y.html (the book root is two levels up).
-        String document="<!doctype html><html lang=\"ru\"><head><meta charset=\"utf-8\"><base href=\"../../\"><title>"+title+"</title></head><body><h1>"+title+"</h1><article>"+html+"</article></body></html>";
+        String title=escape(RanobeLibHtmlCleaner.heading(job));
+        String cleaned=RanobeLibHtmlCleaner.chapterBody(html,job.apiChapter().fullTitle());
+        if(Jsoup.parseBodyFragment(cleaned).text().trim().length()<12)
+            throw new IOException("RanobeLIB вернул пустую главу после очистки");
+        // Chapter cache contains only narrative. Its single heading is in the assembled book.
+        String document="<!doctype html><html lang=\"ru\"><head><meta charset=\"utf-8\"><base href=\"../../\"><title>"+title+"</title></head><body><article>"+cleaned+"</article></body></html>";
         File file=chapterFile(ctx,job);writeAtomic(file,document);job.file=file.getAbsolutePath();job.bytes=file.length();
     }
     static String escape(String v){return v==null?"":v.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace("\"","&quot;");}
@@ -308,13 +337,10 @@ final class RanobeLibStorage {
                 +".chapter-content,.chapter__content,.reading-content,article,.text-content,main,body");
             if(article==null||article.text().trim().length()<12)
                 throw new IOException("HTML-глава повреждена или не содержит текста: "+j.file);
-            org.jsoup.safety.Safelist safe=org.jsoup.safety.Safelist.relaxed()
-                .addTags("h1","h2","h3","h4","figure","figcaption","blockquote","details","summary")
-                .addAttributes("img","src","alt").preserveRelativeLinks(true);
-            String chapterBody=Jsoup.clean(article.html(),"",safe);
+            String chapterBody=RanobeLibHtmlCleaner.chapterBody(document,j.apiChapter().fullTitle());
             if(Jsoup.parseBodyFragment(chapterBody).text().trim().length()<12)
                 throw new IOException("В HTML-главе не удалось извлечь основной текст: "+j.file);
-            String name=j.apiChapter().fullTitle();
+            String name=RanobeLibHtmlCleaner.heading(j);
             html.append("<section class=\"ranobe-chapter\" data-volume=\"").append(escape(j.volume)).append("\" data-number=\"").append(escape(j.number)).append("\" data-branch=\"").append(j.branch).append("\"><h2>").append(escape(name)).append("</h2>");
             html.append(chapterBody).append("</section>\n");
         }

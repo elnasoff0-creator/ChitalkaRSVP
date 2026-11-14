@@ -16,17 +16,18 @@ final class DownloadArchiveStore {
 
     static final class Entry {
         String id="",type="",title="",sourceTitle="",displayTitle="",cover="",description="",source="",bookUri="";
-        long archivedAt;
+        long archivedAt;boolean ready=true;
         JSONObject json()throws Exception{
             JSONObject v=new JSONObject();v.put("id",id);v.put("type",type);v.put("title",title);
             v.put("cover",cover);v.put("sourceTitle",sourceTitle);v.put("description",description);v.put("source",source);
-            v.put("bookUri",bookUri);v.put("archivedAt",archivedAt);return v;
+            v.put("bookUri",bookUri);v.put("archivedAt",archivedAt);v.put("ready",ready);return v;
         }
         static Entry from(JSONObject o){
             Entry r=new Entry();r.id=o.optString("id","");r.type=o.optString("type","");
             r.title=o.optString("title","");r.sourceTitle=o.optString("sourceTitle",r.title);r.displayTitle=r.title;r.cover=o.optString("cover","");
             r.description=o.optString("description","");r.source=o.optString("source","");
-            r.bookUri=o.optString("bookUri","");r.archivedAt=o.optLong("archivedAt",0);return r;
+            r.bookUri=o.optString("bookUri","");r.archivedAt=o.optLong("archivedAt",0);
+            r.ready=o.optBoolean("ready",true);return r;
         }
     }
     private DownloadArchiveStore(){}
@@ -51,12 +52,12 @@ final class DownloadArchiveStore {
             .putStringSet(DISMISSED,new HashSet<>(dismissed)).commit();
     }
     static synchronized boolean archive(Context c,DownloadsRepository.Item item){
-        if(item==null||!item.ready||item.id==null||item.id.isEmpty())return false;
+        if(item==null||!(item.ready||item.paused)||item.id==null||item.id.isEmpty())return false;
         ArrayList<Entry> all=entries(c);
         for(Entry e:all)if(item.id.equals(e.id))return true;
         Entry e=new Entry();e.id=item.id;e.type=item.type;e.title=item.title;e.sourceTitle=item.sourceTitle.isEmpty()?item.title:item.sourceTitle;e.displayTitle=item.title;e.cover=item.cover;
         e.description=item.description;e.source=item.source;e.bookUri=item.bookUri;
-        e.archivedAt=System.currentTimeMillis();all.add(e);
+        e.archivedAt=System.currentTimeMillis();e.ready=item.ready;all.add(e);
         Set<String> discarded=new HashSet<>(pref(c).getStringSet(DISMISSED,java.util.Collections.emptySet()));
         discarded.remove(e.id);return persist(c,all,discarded);
     }

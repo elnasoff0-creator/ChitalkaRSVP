@@ -136,6 +136,7 @@ public class ReaderActivity extends NavigationActivity {
     private ReaderSelectionController selectionHandles;
     private PopupWindow selectionPopup;
     private int selectionFrom=-1,selectionTo=-1; // inclusive word indexes
+    private long focusedNoteId;
     private boolean selectionLongPressed;
     private Runnable pendingLongPress;
 
@@ -434,7 +435,7 @@ public class ReaderActivity extends NavigationActivity {
         // The numeric WPM control belongs to the lower floating overlay, not the packed toolbar.
         LinearLayout.LayoutParams settingsLp=new LinearLayout.LayoutParams(dp(44),dp(44));settingsLp.leftMargin=dp(5);
         toolbar.addView(icon(R.drawable.ic_more_vertical,v->{
-            ReaderSheets.overflow(this,mode==TTS,which->{if(which==0)bookmark();
+            ReaderSheets.overflow(this,mode==TTS,which->{if(which==0)showNotes();
                     else if(which==1)showBookmarks();
                     else if(mode==TTS&&which==2)chooseTtsVoice();
                     else if(which==(mode==TTS?4:3))openEdgeDictionary();
@@ -613,7 +614,7 @@ public class ReaderActivity extends NavigationActivity {
     }
     private void beginTextSelection(int word){
         if(words.length==0)return;
-        selectionFrom=selectionTo=map.clamp(word);
+        selectionFrom=selectionTo=map.clamp(word);focusedNoteId=0;
         updateVisibleAnnotations();
         if(selectionHandles!=null)selectionHandles.invalidate();
         showSelectionMenu();
@@ -622,7 +623,7 @@ public class ReaderActivity extends NavigationActivity {
         if(selectionPopup!=null){try{selectionPopup.dismiss();}catch(Exception ignored){}selectionPopup=null;}
     }
     private void clearSelection(){
-        dismissSelectionMenu();selectionFrom=selectionTo=-1;
+        dismissSelectionMenu();selectionFrom=selectionTo=-1;focusedNoteId=0;
         updateVisibleAnnotations();if(selectionHandles!=null)selectionHandles.invalidate();
     }
     private void updateVisibleAnnotations(){
@@ -636,6 +637,7 @@ public class ReaderActivity extends NavigationActivity {
     private void renderAnnotations(ChunkAdapter.Holder holder,BookChunkIndex.Chunk chunk){
         int opacity=Math.max(15,Math.min(95,prefs.getInt("annotation_opacity",38)));
         int first=chunk.startChar,last=chunk.endChar;
+        java.util.ArrayList<Integer> noteEnds=new java.util.ArrayList<>();
         for(ReaderAnnotationsStore.Annotation annotation:annotations){
             if(annotation.fromWord>=annotation.toWord||annotation.fromWord>=map.size())continue;
             int a=map.starts[map.clamp(annotation.fromWord)],b=map.ends[map.clamp(annotation.toWord-1)];
@@ -645,8 +647,15 @@ public class ReaderActivity extends NavigationActivity {
                 holder.span(new BackgroundColorSpan(color),start,end);}
             if(!annotation.note.isEmpty()){
                 holder.span(new UnderlineSpan(),start,end);
-                holder.span(new ReaderNoteIndicatorSpan(fg,end,getResources().getDisplayMetrics().density),start,end);
+                // The right-margin glyph appears only on the note's LAST text line.
+                // Group same-line notes into one icon with a count, not overlapping icons.
+                if(b>first&&b<=last)noteEnds.add(b-first);
             }
+        }
+        if(!noteEnds.isEmpty()){
+            int[] offsets=new int[noteEnds.size()];
+            for(int i=0;i<offsets.length;i++)offsets[i]=noteEnds.get(i);
+            holder.span(new ReaderNoteIndicatorSpan(this,fg,offsets),0,holder.content.length());
         }
         if(selectionFrom>=0&&selectionTo>=selectionFrom&&selectionTo<map.size()){
             int a=map.starts[selectionFrom],b=map.ends[selectionTo];
@@ -696,10 +705,11 @@ public class ReaderActivity extends NavigationActivity {
         actions.setPadding(dp(3),dp(3),dp(3),dp(3));
         actions.setBackground(shape(panelColor(),13));actions.setElevation(dp(9));
         final int[] icons={R.drawable.ic_reader_selection_color,R.drawable.ic_reader_selection_copy,
-            R.drawable.ic_reader_selection_note,R.drawable.ic_reader_selection_dictionary};
-        final String[] names={"Цвет","Копировать","Заметка","Словарь"};
-        final Runnable[] callbacks={this::pickSelectionColor,this::copySelectedText,this::editSelectedNote,this::dictionarySelected};
-        for(int i=0;i<4;i++){
+            R.drawable.ic_reader_selection_note,R.drawable.ic_reader_selection_dictionary,R.drawable.ic_bookmark};
+        final String[] names={"Цвет","Копировать","Заметка","Словарь","Закладка"};
+        final Runnable[] callbacks={this::pickSelectionColor,this::copySelectedText,this::editSelectedNote,
+            this::dictionarySelected,this::bookmarkSelection};
+        for(int i=0;i<icons.length;i++){
             final Runnable action=callbacks[i];LinearLayout tile=new LinearLayout(this);
             tile.setOrientation(LinearLayout.VERTICAL);tile.setGravity(Gravity.CENTER);
             tile.setBackground(shape(UiColorScheme.blend(panelColor(),fg,.045f),11));
@@ -707,12 +717,15 @@ public class ReaderActivity extends NavigationActivity {
             tile.addView(image,new LinearLayout.LayoutParams(dp(20),dp(20)));
             TextView label=text(names[i],10);label.setTextColor(contrast(panelColor()));label.setGravity(Gravity.CENTER);
             tile.addView(label,new LinearLayout.LayoutParams(-1,dp(19)));
-            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(55),1);
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(dp(74),dp(55));
             if(i>0)lp.leftMargin=dp(3);actions.addView(tile,lp);
             tile.setOnClickListener(v->{dismissSelectionMenu();action.run();});
         }
         int width=Math.min(getResources().getDisplayMetrics().widthPixels-dp(16),dp(385)),height=dp(63);
-        selectionPopup=new PopupWindow(actions,width,height,false);
+        HorizontalScrollView actionScroll=new HorizontalScrollView(this);
+        actionScroll.setHorizontalScrollBarEnabled(false);
+        actionScroll.addView(actions,new HorizontalScrollView.LayoutParams(-2,-1));
+        selectionPopup=new PopupWindow(actionScroll,width,height,false);
         selectionPopup.setBackgroundDrawable(shape(panelColor(),13));selectionPopup.setOutsideTouchable(true);
         selectionPopup.setElevation(dp(10));
         float[][] positions=selectionPositions();float[] begin=positions==null?null:positions[0];
@@ -737,9 +750,19 @@ public class ReaderActivity extends NavigationActivity {
     }
     private String bookAnnotationId(){return BookUriMigration.legacy(this,docUri);}
     private ReaderAnnotationsStore.Annotation annotationForRange(){
+        if(focusedNoteId>0)for(ReaderAnnotationsStore.Annotation item:annotations)
+            if(item.id==focusedNoteId)return item;
         for(ReaderAnnotationsStore.Annotation item:annotations)
             if(item.fromWord==selectionFrom&&item.toWord==selectionTo+1)return item;
         return null;
+    }
+    private void openAnnotationById(long id){
+        for(ReaderAnnotationsStore.Annotation annotation:annotations)if(annotation.id==id){
+            focusedNoteId=annotation.id;
+            selectionFrom=annotation.fromWord;selectionTo=annotation.toWord-1;
+            updateVisibleAnnotations();editSelectedNote();return;
+        }
+        Toast.makeText(this,"Заметка не найдена",Toast.LENGTH_SHORT).show();
     }
     private void saveSelectionAnnotation(int color,String note){
         if(selectionFrom<0)return;
@@ -794,6 +817,63 @@ public class ReaderActivity extends NavigationActivity {
     private void dictionarySelected(){
         String chosen=selectedText();if(chosen.trim().isEmpty())return;
         EdgeDictionaryRuleDialog.show(this,null,EdgeDictionaryStore.REPLACE,chosen,selectedContext(),chosen,false,this::clearSelection);
+    }
+    /** Only the note anchors on the tapped visual line; no full-book re-layout. */
+    private java.util.ArrayList<ReaderAnnotationsStore.Annotation> notesAtLine(
+        ChunkAdapter.Holder holder,float localY){
+        java.util.ArrayList<ReaderAnnotationsStore.Annotation> found=new java.util.ArrayList<>();
+        if(holder.value==null||holder.value.getLayout()==null||map.size()==0)return found;
+        int row=holder.getBindingAdapterPosition()-1;
+        if(row<0||chunks==null||row>=chunks.size())return found;
+        BookChunkIndex.Chunk chunk=chunks.get(row);
+        android.text.Layout layout=holder.value.getLayout();
+        int tapped=layout.getLineForVertical(Math.max(0,(int)localY-holder.value.getTotalPaddingTop()));
+        for(ReaderAnnotationsStore.Annotation note:annotations){
+            if(note.note==null||note.note.isEmpty()||note.toWord<=0)continue;
+            int absolute=map.ends[map.clamp(note.toWord-1)];
+            if(absolute<=chunk.startChar||absolute>chunk.endChar)continue;
+            int offset=Math.max(0,Math.min(holder.value.length()-1,absolute-chunk.startChar-1));
+            if(layout.getLineForOffset(offset)==tapped)found.add(note);
+        }
+        return found;
+    }
+    private void showNoteChoices(java.util.List<ReaderAnnotationsStore.Annotation> candidates,View anchor,float localY){
+        if(candidates.isEmpty())return;
+        if(candidates.size()==1){openAnnotationById(candidates.get(0).id);return;}
+        LinearLayout box=column();box.setPadding(dp(9),dp(8),dp(9),dp(9));
+        box.setBackground(shape(panelColor(),16));
+        LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);
+        box.addView(top,new LinearLayout.LayoutParams(-1,dp(30)));
+        TextView heading=text("Заметки ("+candidates.size()+")",14);heading.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        top.addView(heading,new LinearLayout.LayoutParams(0,-2,1));
+        TextView close=text("×",22);close.setPadding(dp(10),0,dp(10),0);top.addView(close);
+        HorizontalScrollView scroll=new HorizontalScrollView(this);scroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout items=new LinearLayout(this);items.setOrientation(LinearLayout.HORIZONTAL);
+        scroll.addView(items);box.addView(scroll,new LinearLayout.LayoutParams(-1,dp(88)));
+        final PopupWindow[] popup=new PopupWindow[1];
+        close.setOnClickListener(v->{if(popup[0]!=null)popup[0].dismiss();});
+        for(ReaderAnnotationsStore.Annotation note:candidates){
+            LinearLayout tile=column();tile.setPadding(dp(10),dp(7),dp(10),dp(7));
+            int shade=note.color!=0?UiColorScheme.blend(panelColor(),note.color,.18f):UiColorScheme.blend(panelColor(),fg,.07f);
+            tile.setBackground(shape(shade,12));
+            ImageView icon=new ImageView(this);icon.setImageResource(R.drawable.ic_reader_selection_note);
+            icon.setColorFilter(contrast(shade));tile.addView(icon,new LinearLayout.LayoutParams(dp(19),dp(19)));
+            TextView text=text(note.note,12);text.setTextColor(contrast(shade));text.setMaxLines(3);
+            text.setEllipsize(TextUtils.TruncateAt.END);tile.addView(text);
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(dp(145),dp(82));lp.rightMargin=dp(6);items.addView(tile,lp);
+            tile.setOnClickListener(v->{if(popup[0]!=null)popup[0].dismiss();openAnnotationById(note.id);});
+        }
+        int screenWidth=getResources().getDisplayMetrics().widthPixels;
+        int width=Math.min(screenWidth-dp(24),dp(390));
+        PopupWindow window=new PopupWindow(box,width,dp(137),true);popup[0]=window;
+        window.setBackgroundDrawable(shape(panelColor(),16));window.setOutsideTouchable(true);
+        window.setElevation(dp(11));
+        int[] location=new int[2];anchor.getLocationOnScreen(location);
+        int x=Math.max(dp(8),screenWidth-width-dp(10));
+        int y=(int)(location[1]+localY)+dp(24);
+        int screenHeight=getResources().getDisplayMetrics().heightPixels;
+        if(y+dp(150)>screenHeight-dp(16))y=(int)(location[1]+localY)-dp(153);
+        window.showAtLocation(sceneRoot,Gravity.NO_GRAVITY,x,Math.max(dp(25),y));
     }
     private class ChunkAdapter extends RecyclerView.Adapter<ChunkAdapter.Holder> {
         class Holder extends RecyclerView.ViewHolder {
@@ -852,7 +932,7 @@ public class ReaderActivity extends NavigationActivity {
                 return new Holder(headerSlot);}
             TextView item=text("",Math.max(12,(int)(size*.60f)));item.setTypeface(type());
             item.setLineSpacing(dp(Math.max(8,size/3)),1.12f);
-            item.setPadding(dp(14),dp(7),dp(14),dp(7));
+            item.setPadding(dp(14),dp(7),dp(35),dp(7));
             item.setLayoutParams(new RecyclerView.LayoutParams(-1,-2));
             Holder holder=new Holder(item);
             // Consume DOWN in selection mode so Android delivers UP for word tapping;
@@ -886,14 +966,17 @@ public class ReaderActivity extends NavigationActivity {
                 cancelPendingLongPress();
                 if(selectionLongPressed||touchMoved||event.getEventTime()-touchDownTime>=ViewConfiguration.getLongPressTimeout())return true;
                 if(selectionFrom>=0){clearSelection();return true;}
+                if(event.getX()>=item.getWidth()-dp(47)){
+                    java.util.ArrayList<ReaderAnnotationsStore.Annotation> onLine=notesAtLine(holder,event.getY());
+                    if(!onLine.isEmpty()){showNoteChoices(onLine,item,event.getY());return true;}
+                }
                 boolean selectingWord=(mode==CURSOR)||(mode==NORMAL&&selecting)||(mode==RSVP&&!playing)||(mode==TTS);
                 int tapped=wordAt(holder,event.getX(),event.getY());if(tapped<0)return true;
                 if(mode==NORMAL&&!selecting){
+                    java.util.ArrayList<ReaderAnnotationsStore.Annotation> onWord=new java.util.ArrayList<>();
                     for(ReaderAnnotationsStore.Annotation note:annotations)
-                        if(!note.note.isEmpty()&&note.contains(tapped)){
-                            selectionFrom=note.fromWord;selectionTo=note.toWord-1;
-                            updateVisibleAnnotations();editSelectedNote();return true;
-                        }
+                        if(!note.note.isEmpty()&&note.contains(tapped))onWord.add(note);
+                    if(!onWord.isEmpty()){showNoteChoices(onWord,item,event.getY());return true;}
                 }
                 if(!selectingWord)return true;
                 int old=index;selectedWordActive=true;
@@ -1529,16 +1612,27 @@ public class ReaderActivity extends NavigationActivity {
                 chapterTitleForWord(libraryIndex),true);
         }catch(Exception ignored){}
     }
-    private void bookmark(){if(words.length==0)return;int at=map.clamp(viewportWord>=0?viewportWord:index);
-        ReaderBookmarks.Item b=new ReaderBookmarks.Item();b.word=at;b.created=System.currentTimeMillis();
-        BookChapterIndex.Chapter current=actualChapters.atChar(map.starts[at]);
-        b.chapter=current==null?"":current.title;
-        b.excerpt=body.substring(Math.max(0,map.starts[at]-42),Math.min(body.length(),map.starts[at]+120)).replaceAll("\\s+"," ").trim();
-        b.title=b.chapter.isEmpty()?"Закладка":b.chapter;
-        ReaderBookmarks.add(this,docUri,b);Toast.makeText(this,"Закладка добавлена",Toast.LENGTH_SHORT).show();
+    private void bookmarkSelection(){
+        if(selectionFrom<0||selectionTo<selectionFrom||docUri.isEmpty())return;
+        ReaderBookmarks.Item item=new ReaderBookmarks.Item();
+        item.word=selectionFrom;item.created=System.currentTimeMillis();
+        item.chapter=chapterTitleForWord(selectionFrom);
+        String excerpt=selectedText().replaceAll("\\s+"," ").trim();
+        item.excerpt=excerpt.length()>500?excerpt.substring(0,500)+"…":excerpt;
+        item.title="Закладка";
+        ReaderBookmarks.add(this,docUri,item);
+        Toast.makeText(this,"Закладка добавлена",Toast.LENGTH_SHORT).show();clearSelection();
     }
-    private void showBookmarks(){if(docUri.isEmpty())return;startActivityForResult(new Intent(this,BookmarksActivity.class)
-        .putExtra("book_uri",docUri).putExtra("book_title",title),12210);
+    private void showBookmarks(){openMarks(false);}
+    private void showNotes(){openMarks(true);}
+    private void openMarks(boolean notes){
+        if(docUri.isEmpty())return;
+        // Existing bookmarks from earlier versions did not store their text.
+        // Derive previews from the current in-memory book once, never reopen HTML.
+        if(!notes)ReaderBookmarks.fillMissingExcerpts(this,docUri,body,map);
+        startActivityForResult(new Intent(this,BookmarksActivity.class)
+            .putExtra("book_uri",docUri).putExtra("book_title",title)
+            .putExtra("show_notes",notes),12210);
     }
     private void pick(){
         Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType("*/*");
@@ -1566,12 +1660,25 @@ public class ReaderActivity extends NavigationActivity {
                     &&("edge:"+docUri).equals(ttsPlayer.currentBookId()))ttsStreamer.ensurePlaySelection();
             return;
         }
+        if(req==12210){
+            // Returning from either bookmarks or notes must update only lightweight
+            // annotations; never reload or reparse the open book and its word map.
+            try(ReaderAnnotationsStore store=new ReaderAnnotationsStore(this)){
+                annotations=store.load(bookAnnotationId());
+                updateVisibleAnnotations();
+            }catch(Exception ex){
+                ReaderDiagnosticLog.event("ANNOTATIONS","manager_refresh_failed type="+ex.getClass().getSimpleName());
+            }
+        }
         if(req==12210&&result==RESULT_OK&&data!=null&&data.hasExtra("word_index")&&words.length>0){
             int at=map.clamp(data.getIntExtra("word_index",0)),old=index;
             abandonViewportPreview();selectedWordActive=true;
             if(mode==TTS)selectTtsWord(at);else index=at;
             refreshHighlight(old);updateProgress();saveLight(true);
-            browseToWord(at);return;
+            browseToWord(at);
+            long noteId=data.getLongExtra("annotation_id",0L);
+            if(noteId>0&&sceneRoot!=null)sceneRoot.post(()->openAnnotationById(noteId));
+            return;
         }
         if(req==7&&result==RESULT_OK&&data!=null&&data.getData()!=null){Uri uri=data.getData();
             try{getContentResolver().takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}
@@ -1593,6 +1700,8 @@ public class ReaderActivity extends NavigationActivity {
             final String loadedAuthor=book.author;
             final ReadingWordMap prepared=session.words;
             final BookChapterIndex parsedChapters=book.chapters;
+            // Cache only lightweight chapter labels once; bookmark lists never parse book HTML.
+            ReaderChapterLabels.saveIfMissing(this,uri.toString(),prepared,parsedChapters);
             final BookChunkIndex indexed=session.blocks;
             java.util.List<ReaderAnnotationsStore.Annotation> bookAnnotations;
             try(ReaderAnnotationsStore store=new ReaderAnnotationsStore(this)){

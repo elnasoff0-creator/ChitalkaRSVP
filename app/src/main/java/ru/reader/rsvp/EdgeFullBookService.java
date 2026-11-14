@@ -286,8 +286,7 @@ public final class EdgeFullBookService extends Service {
             EdgeChapterArchive.invalidate();
             if(exported==0||job.chapter>=0&&
                 EdgeChapterArchive.snapshot(this,job.uri,job.title).state(job.chapter)==0)
-                throw new Exception("Не удалось записать завершённую главу: "+
-                    (EdgeChapterArchive.publicationError().isEmpty()?"проверка файла в SAF не пройдена":EdgeChapterArchive.publicationError()));
+                throw new Exception("Не удалось записать завершённую главу в выбранную папку Edge TTS");
             // Keep the pre-existing in-app chapter dashboard functional while
             // all of its source files live in disposable internal cache.
             EdgeChapterLayout.publish(job,index,book.chapters,wordOffsets);

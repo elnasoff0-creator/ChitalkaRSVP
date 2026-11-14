@@ -11,7 +11,7 @@ import java.util.concurrent.TimeUnit;
 import okhttp3.Response;
 
 /** Bounded, interactive-first scheduler. Four leased transport slots overall,
- * at most two speculative turns. Respect adaptive 429 cooldown.
+ * at most two speculative turns. No exponential rate-limit backoff.
  */
 final class EdgeSpeechQueue {
     static final int PLAY=0,PREFETCH=1,BULK=2;
@@ -28,8 +28,7 @@ final class EdgeSpeechQueue {
     private static ScheduledFuture<?> wake;
     private static long order,blockedUntil,lastBackgroundAt,lastLimitedAt;
     private static boolean interactivePlayback;
-    private static final long INITIAL_429_DELAY_MS=60_000L,MAX_LOCAL_DELAY_MS=15*60_000L;
-    private static int consecutiveLimits;
+    private static final long MAX_LOCAL_DELAY_MS=500L;
     private static final long BACKGROUND_GAP_MS=500L;
     private EdgeSpeechQueue(){}
     static synchronized boolean interactivePlaybackActive(){return interactivePlayback;}
@@ -67,31 +66,18 @@ final class EdgeSpeechQueue {
     }
     static synchronized long remainingMs(){return Math.max(0,blockedUntil-SystemClock.elapsedRealtime());}
     static synchronized boolean allowPrefetch(){
-        return SystemClock.elapsedRealtime()>=blockedUntil;
+        return (lastLimitedAt==0||SystemClock.elapsedRealtime()-lastLimitedAt>=MAX_LOCAL_DELAY_MS)
+            &&SystemClock.elapsedRealtime()>=blockedUntil;
     }
-    static synchronized void success(){lastLimitedAt=0;consecutiveLimits=0;}
+    static synchronized void success(){lastLimitedAt=0;}
     static synchronized void limited(Response response){
         lastLimitedAt=SystemClock.elapsedRealtime();
-        consecutiveLimits=Math.min(12,consecutiveLimits+1);
-        long local=Math.min(MAX_LOCAL_DELAY_MS,INITIAL_429_DELAY_MS<<(Math.min(4,consecutiveLimits-1)));
-        long server=retryAfterMillis(response);
-        long delay=Math.min(MAX_LOCAL_DELAY_MS,Math.max(local,server));
-        blockedUntil=Math.max(blockedUntil,lastLimitedAt+delay);
-        ReaderDiagnosticLog.event("QUEUE","HTTP 429 local_cooldown_ms="+delay+
-            " strikes="+consecutiveLimits+" server_retry_after="+(server>0));
-        Log.w("EdgeSpeechQueue","429: wait="+delay+"ms, consecutive="+consecutiveLimits);
+        blockedUntil=Math.max(blockedUntil,lastLimitedAt+MAX_LOCAL_DELAY_MS);
+        ReaderDiagnosticLog.event("QUEUE","HTTP 429 local_cooldown_ms=500 server_retry_after="+
+            (response!=null&&response.header("Retry-After")!=null));
+        Log.w("EdgeSpeechQueue","429 localDelay=500ms; serverRetryAfterPresent="+
+            (response!=null&&response.header("Retry-After")!=null));
         schedule();
-    }
-    private static long retryAfterMillis(Response response){
-        if(response==null)return 0;
-        String value=response.header("Retry-After");if(value==null)return 0;
-        try{return Math.max(0,Long.parseLong(value.trim())*1000L);}catch(NumberFormatException ignored){}
-        try{
-            java.text.SimpleDateFormat fmt=new java.text.SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z",java.util.Locale.US);
-            fmt.setTimeZone(java.util.TimeZone.getTimeZone("GMT"));
-            java.util.Date date=fmt.parse(value);
-            return date==null?0:Math.max(0,date.getTime()-System.currentTimeMillis());
-        }catch(java.text.ParseException ignored){return 0;}
     }
     private static int runningBackground(){int n=0;for(Ticket t:active)if(t.priority!=PLAY)n++;return n;}
     /** A live foreground listen must not trigger a second, speculative WebSocket handshake.

@@ -24,4 +24,23 @@ final class ReaderBookmarks {
         ctx.getSharedPreferences("reader",0).edit().putString("bookmarks_v2:"+uri,a.toString()).remove("bookmark:"+uri).apply();
     }
     static void add(Context ctx,String uri,Item item){ArrayList<Item> all=list(ctx,uri);for(Item b:all)if(b.word==item.word)return;all.add(item);store(ctx,uri,all);}
+    /** Fill legacy bookmarks using the already-open immutable reader text. No book reload. */
+    static void fillMissingExcerpts(Context ctx,String uri,String body,ReadingWordMap words){
+        if(body==null||body.isEmpty()||words==null||words.size()==0)return;
+        ArrayList<Item> all=list(ctx,uri);boolean updated=false;
+        for(Item item:all){
+            if(item.excerpt!=null&&!item.excerpt.trim().isEmpty())continue;
+            if(item.word<0||item.word>=words.size())continue;
+            int start=Math.min(body.length(),words.starts[item.word]);
+            int end=Math.min(body.length(),start+235);
+            int nextLine=body.indexOf('\n',start);
+            if(nextLine>start&&nextLine<end)end=nextLine;
+            String extracted=body.substring(start,end).replaceAll("\\s+"," ").trim();
+            if(!extracted.isEmpty()){
+                item.excerpt=extracted+(end<body.length()&&end==start+235?"…":"");
+                updated=true;
+            }
+        }
+        if(updated)store(ctx,uri,all);
+    }
 }

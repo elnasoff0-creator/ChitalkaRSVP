@@ -92,17 +92,43 @@ public final class RanobeLibBookActivity extends NavigationActivity {
         if(!title.description.isEmpty()){gap(card,9);TextView summary=label(title.description,14,false);summary.setMaxLines(6);card.addView(summary);summary.setOnClickListener(v->summary.setMaxLines(summary.getMaxLines()==6?Integer.MAX_VALUE:6));}
         if(!RanobeLibStorage.hasCover(this,slug)){gap(card,9);card.addView(button("Загрузить обложку повторно",this::retryCover));}
         gap(card,11);
-        if(RanobeLibStorage.book(this,slug).isFile())card.addView(button("Открыть скачанную HTML-книгу",this::readBook));
+        if(RanobeLibStorage.hasBook(this,slug))card.addView(button("Открыть скачанную HTML-книгу",this::readBook));
         gap(card,8);
         card.addView(button("Скачать всю книгу",()->confirm("Скачать всю книгу?","Глав для загрузки: "+primaryTranslations(chapters).size()+". По умолчанию выбирается первая публичная ветка перевода.",primaryTranslations(chapters))));
         gap(card,8);card.addView(button("Обновить оглавление",this::refreshOnline));
+        gap(card,6);card.addView(button("Пересобрать HTML без служебного текста",this::confirmCleanBook));
         if(chapters.isEmpty()){body.addView(label("Пока нет списка глав. При проблемах с сайтом проверьте доступ к RanobeLIB.",13,false));return;}
         LinkedHashMap<String,ArrayList<RanobeLibApi.Chapter>> volumes=new LinkedHashMap<>();
         for(RanobeLibApi.Chapter chapter:chapters)volumes.computeIfAbsent(chapter.volume,k->new ArrayList<>()).add(chapter);
         for(Map.Entry<String,ArrayList<RanobeLibApi.Chapter>> entry:volumes.entrySet())addVolume(entry.getKey(),entry.getValue());
     }
-    private void readBook(){java.io.File path=RanobeLibStorage.book(this,slug);if(!path.isFile()){Toast.makeText(this,"Сначала скачайте главы",Toast.LENGTH_SHORT).show();return;}
-        startActivity(new Intent(this,ReaderActivity.class).putExtra("book_uri",android.net.Uri.fromFile(path).toString()));
+    private void confirmCleanBook(){
+        new SwipeDialogs.Builder(this).setTitle("Очистить скачанный HTML?")
+            .setMessage("Книга будет пересобрана из уже сохранённых глав без навигации, времени и повторных заголовков. "+
+                "Сначала будет сохранена резервная копия книги, в том числе во внешней папке. После пересборки положение чтения может сместиться.")
+            .setNegativeButton("Отмена",null)
+            .setPositiveButton("Пересобрать",(d,w)->{
+                Toast.makeText(this,"Пересобираем из локальных глав…",Toast.LENGTH_SHORT).show();
+                background.execute(()->{
+                    String message;
+                    try{RanobeLibStorage.backupBeforeManualCleanup(getApplicationContext(),slug);
+                        RanobeLibStorage.rebuildBook(getApplicationContext(),slug);
+                        message="HTML очищен. Исходная книга сохранена в book.html.before_cleanup. Откройте её повторно, чтобы увидеть изменения.";
+                    }catch(Exception error){message="Пересборка не выполнена: "+error.getMessage();}
+                    final String result=message;
+                    runOnUiThread(()->{if(!isFinishing()&&!isDestroyed())
+                        new SwipeDialogs.Builder(this).setTitle("RanobeLIB · HTML")
+                            .setMessage(result).setPositiveButton("Закрыть",null).show();});
+                });
+            }).show();
+    }
+    private void readBook(){
+        if(!RanobeLibStorage.hasBook(this,slug)){
+            Toast.makeText(this,"Сначала скачайте главы",Toast.LENGTH_SHORT).show();return;
+        }
+        // After SAF transfer the book is addressed by content://, not by a deleted local file.
+        startActivity(new Intent(this,ReaderActivity.class)
+            .putExtra("book_uri",RanobeLibStorage.bookUri(this,slug)));
     }
     private void addVolume(String volume,ArrayList<RanobeLibApi.Chapter> list){
         LinearLayout block=new LinearLayout(this);block.setOrientation(LinearLayout.VERTICAL);block.setPadding(dp(12),dp(12),dp(12),dp(12));block.setBackground(shape(panel));

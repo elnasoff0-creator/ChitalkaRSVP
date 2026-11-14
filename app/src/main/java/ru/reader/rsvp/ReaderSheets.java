@@ -12,11 +12,11 @@ final class ReaderSheets {
     }
     static void overflow(Activity owner,boolean tts,UiNavigationSheet.IndexChoice selected){
         String[] labels=tts
-            ?new String[]{"Добавить закладку","Все закладки","Голос озвучки","Загрузка озвучки","Словарь MS Edge","Поиск по книге","Путь к файлам Edge TTS"}
-            :new String[]{"Добавить закладку","Все закладки","Загрузка озвучки","Словарь MS Edge","Поиск по книге","Путь к файлам Edge TTS"};
+            ?new String[]{"Все заметки","Все закладки","Голос озвучки","Загрузка озвучки","Словарь MS Edge","Поиск по книге","Путь к файлам Edge TTS"}
+            :new String[]{"Все заметки","Все закладки","Загрузка озвучки","Словарь MS Edge","Поиск по книге","Путь к файлам Edge TTS"};
         int[] icons=tts
-            ?new int[]{R.drawable.ic_bookmark,R.drawable.ic_bookmark,R.drawable.ic_tts_engine,R.drawable.ic_downloads,R.drawable.ic_edge_dictionary,R.drawable.ic_search,R.drawable.ic_downloads}
-            :new int[]{R.drawable.ic_bookmark,R.drawable.ic_bookmark,R.drawable.ic_downloads,R.drawable.ic_edge_dictionary,R.drawable.ic_search,R.drawable.ic_downloads};
+            ?new int[]{R.drawable.ic_reader_selection_note,R.drawable.ic_bookmark,R.drawable.ic_tts_engine,R.drawable.ic_downloads,R.drawable.ic_edge_dictionary,R.drawable.ic_search,R.drawable.ic_downloads}
+            :new int[]{R.drawable.ic_reader_selection_note,R.drawable.ic_bookmark,R.drawable.ic_downloads,R.drawable.ic_edge_dictionary,R.drawable.ic_search,R.drawable.ic_downloads};
         UiNavigationSheet.showActions(owner,"Дополнительно",labels,icons,selected);
     }
 }

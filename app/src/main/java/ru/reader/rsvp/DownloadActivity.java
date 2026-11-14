@@ -56,6 +56,9 @@ public final class DownloadActivity extends NavigationActivity {
     private static final String FILTER_KEY="downloads_filter_v2";
     private final Handler main=new Handler(Looper.getMainLooper());
     private boolean visible,bound,refreshInFlight;
+    private final ExecutorService selectionCheck=Executors.newSingleThreadExecutor(r->{
+        Thread t=new Thread(r,"DownloadSelectedVerify");t.setDaemon(true);return t;});
+    private String revealedSwipeId="";
     private final ExecutorService scan=Executors.newSingleThreadExecutor(r->{Thread t=new Thread(r,"DownloadListDisk");t.setPriority(Thread.MIN_PRIORITY);return t;});
     private EdgeStreamingService edge;
     private TextView summary;
@@ -185,7 +188,7 @@ public final class DownloadActivity extends NavigationActivity {
             ()->{if(visible)refresh();}),"DownloadCoverIndex").start();
         main.post(ticker);}
     @Override protected void onPause(){visible=false;main.removeCallbacks(ticker);super.onPause();}
-    @Override protected void onDestroy(){if(bound)unbindService(edgeConnection);main.removeCallbacksAndMessages(null);scan.shutdownNow();super.onDestroy();}
+    @Override protected void onDestroy(){if(bound)unbindService(edgeConnection);main.removeCallbacksAndMessages(null);scan.shutdownNow();selectionCheck.shutdownNow();super.onDestroy();}
     /** Never traverse book directories, parse JSON or stat MP3 on the UI thread.
      * Only one scan can run; refresh requests that arrive while it runs are merged
      * into the next periodic tick, so a slow SD card cannot create a backlog.
@@ -328,7 +331,11 @@ public final class DownloadActivity extends NavigationActivity {
         main.postDelayed(this::refresh,250);
     }
     private void open(DownloadsRepository.Item item){
-        if(item.previewOnly){Toast.makeText(this,"Обновляем сведения о загрузке…",Toast.LENGTH_SHORT).show();return;}
+        // A snapshot has enough stable IDs to open the corresponding detail screen.
+        // Never block the tap on a full SAF scan (which may be slow or unavailable).
+        if(item.previewOnly&&DownloadsRepository.EDGE.equals(item.type)){
+            openEdgeChapters(item);return;
+        }
         if(DownloadsRepository.RANOBE.equals(item.type)){
             startActivity(new Intent(this,RanobeLibBookActivity.class).putExtra("ranobelib_slug",item.source));
             return;
@@ -338,7 +345,7 @@ public final class DownloadActivity extends NavigationActivity {
             openMangaChapters(item);
             return;
         }
-        if(DownloadsRepository.LINK.equals(item.type)){startActivity(new Intent(this,LinkDownloadDetailsActivity.class).putExtra(DirectLinkDownloadService.EXTRA_ID,item.link.id));}
+        if(DownloadsRepository.LINK.equals(item.type)){startActivity(new Intent(this,LinkDownloadDetailsActivity.class).putExtra(DirectLinkDownloadService.EXTRA_ID,(item.link!=null?item.link.id:item.id.replaceFirst("^link:",""))));}
         else if(DownloadsRepository.EDGE.equals(item.type)){
             // After cache eviction a SAF-only book has no local job; ReaderActivity
             // rehydrates the saved chapter's clips and WordBoundary on opening.
@@ -623,8 +630,38 @@ public final class DownloadActivity extends NavigationActivity {
             diskScannedAt=0;refresh();return true;
         });
     }
+    private void resolvePreview(DownloadsRepository.Item item,java.util.function.Consumer<DownloadsRepository.Item> callback){
+        if(item==null)return;
+        if(!item.previewOnly){callback.accept(item);return;}
+        final String selectedId=item.id;
+        summary.setText("Проверяем выбранную загрузку…");
+        if(selectionCheck.isShutdown())return;
+        selectionCheck.execute(()->{
+            DownloadsRepository.Item verified=null;String error="";
+            try{
+                for(DownloadsRepository.Item next:DownloadsRepository.load(getApplicationContext(),null)){
+                    if(selectedId.equals(next.id)){verified=next;break;}
+                }
+                if(verified==null)error="Задание не найдено в хранилище";
+            }catch(Exception ex){error=ex.getMessage()==null?ex.getClass().getSimpleName():ex.getMessage();}
+            final DownloadsRepository.Item result=verified;
+            final String failure=error;
+            main.post(()->{
+                if(!visible||isFinishing()||isDestroyed())return;
+                if(result==null){
+                    new SwipeDialogs.Builder(this).setTitle("Загрузка недоступна")
+                        .setMessage(failure+". Повторите проверку или откройте книгу напрямую.")
+                        .setNegativeButton("Закрыть",null)
+                        .setPositiveButton("Повторить",(d,w)->resolvePreview(item,callback)).show();
+                    diskScannedAt=0;return;
+                }
+                for(int i=0;i<lastAll.size();i++)if(selectedId.equals(lastAll.get(i).id))lastAll.set(i,result);
+                showCachedFilter();callback.accept(result);
+            });
+        });
+    }
     private void menu(View anchor,DownloadsRepository.Item item){
-        if(item.previewOnly){Toast.makeText(this,"Проверяем состояние загрузки…",Toast.LENGTH_SHORT).show();return;}
+        if(item.previewOnly){resolvePreview(item,checked->{if(anchor.getWindowToken()!=null)menu(anchor,checked);});return;}
         if(DownloadsRepository.RANOBE.equals(item.type)){
             PopupMenu popup=new PopupMenu(this,anchor);
             popup.getMenu().add("Переименовать").setOnMenuItemClickListener(m->{renameDownload(item);return true;});
@@ -757,48 +794,52 @@ public final class DownloadActivity extends NavigationActivity {
             }).show();
     }
     private void archive(DownloadsRepository.Item item){
-        if(item.previewOnly){Toast.makeText(this,"Проверяем состояние загрузки…",Toast.LENGTH_SHORT).show();return;}
-        if(!item.ready){Toast.makeText(this,"Можно архивировать только готовую загрузку",Toast.LENGTH_SHORT).show();return;}
+        if(item.previewOnly){resolvePreview(item,this::archive);return;}
+        if(!item.ready&&!item.paused){
+            new SwipeDialogs.Builder(this).setTitle("Архивировать незавершённую загрузку?")
+                .setMessage("Сначала приостановим задачу. Файлы и кэш останутся на месте, " +
+                    "а после восстановления из архива загрузку можно продолжить.")
+                .setNegativeButton("Отмена",(d,w)->{revealedSwipeId="";adapter.notifyDataSetChanged();})
+                .setPositiveButton("Приостановить и в архив",(d,w)->{
+                    if(pauseForArchive(item)){item.running=false;item.paused=true;archive(item);}
+                }).show();
+            return;
+        }
         if(!DownloadArchiveStore.archive(getApplicationContext(),item)){
             Toast.makeText(this,"Не удалось сохранить запись архива",Toast.LENGTH_LONG).show();refresh();return;
         }
         archiveRevision++;
+        revealedSwipeId="";
         showCachedFilter();
         Toast.makeText(this,"Перемещено в архив · файлы сохранены",Toast.LENGTH_SHORT).show();
     }
-    /** ItemTouchHelper moves the entire download card with the finger, while its
-     * standard horizontal gesture detector preserves vertical RecyclerView scroll. */
+    private boolean pauseForArchive(DownloadsRepository.Item item){
+        try{
+            if(DownloadsRepository.RANOBE.equals(item.type))RanobeLibQueue.pause(this,item.source);
+            else if(DownloadsRepository.MANGA.equals(item.type))MangaLibQueue.pause(this,item.source);
+            else if(DownloadsRepository.LINK.equals(item.type))linkCommand(item,DirectLinkDownloadService.PAUSE);
+            else if(DownloadsRepository.AUDIO.equals(item.type))send(item,DownloadWorker.PAUSE);
+            else if(DownloadsRepository.EDGE.equals(item.type)&&item.fullJob!=null)fullCommand(item,true);
+            else if(DownloadsRepository.EDGE.equals(item.type)){
+                Toast.makeText(this,"Остановите текущее воспроизведение Edge TTS перед архивированием",Toast.LENGTH_LONG).show();return false;
+            }else return false;
+            return true;
+        }catch(Exception error){Toast.makeText(this,"Не удалось приостановить: "+error.getMessage(),Toast.LENGTH_LONG).show();return false;}
+    }
+    /** A left swipe reveals explicit Archive / Cancel actions; no automatic archive. */
     private void attachArchiveSwipe(){
-        ItemTouchHelper.Callback callback=new ItemTouchHelper.SimpleCallback(0,ItemTouchHelper.RIGHT){
-            private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
-            // No drag-and-drop reordering: onMove is required by SimpleCallback.
-            @Override public boolean onMove(RecyclerView rv,RecyclerView.ViewHolder from,RecyclerView.ViewHolder to){
-                return false;
-            }
+        ItemTouchHelper.Callback callback=new ItemTouchHelper.SimpleCallback(0,ItemTouchHelper.LEFT){
+            @Override public boolean onMove(RecyclerView rv,RecyclerView.ViewHolder from,RecyclerView.ViewHolder to){return false;}
             @Override public boolean isLongPressDragEnabled(){return false;}
-            @Override public float getSwipeThreshold(RecyclerView.ViewHolder holder){return .34f;}
-            @Override public int getSwipeDirs(RecyclerView rv,RecyclerView.ViewHolder holder){
-                int p=holder.getBindingAdapterPosition();
-                return p>=0&&p<rows.size()&&rows.get(p).item!=null&&
-                    rows.get(p).item.ready&&!rows.get(p).item.previewOnly?ItemTouchHelper.RIGHT:0;
+            @Override public float getSwipeThreshold(RecyclerView.ViewHolder h){return .23f;}
+            @Override public int getSwipeDirs(RecyclerView rv,RecyclerView.ViewHolder h){
+                int p=h.getBindingAdapterPosition();
+                return p>=0&&p<rows.size()&&rows.get(p).item!=null?ItemTouchHelper.LEFT:0;
             }
-            @Override public void onSwiped(RecyclerView.ViewHolder holder,int direction){
-                int p=holder.getBindingAdapterPosition();
-                if(p<0||p>=rows.size()||rows.get(p).item==null){adapter.notifyDataSetChanged();return;}
-                DownloadsRepository.Item item=rows.get(p).item;
-                archive(item);
-            }
-            @Override public void onChildDraw(Canvas canvas,RecyclerView rv,RecyclerView.ViewHolder holder,
-                float dx,float dy,int actionState,boolean active){
-                View v=holder.itemView;
-                if(dx>0&&actionState==ItemTouchHelper.ACTION_STATE_SWIPE){
-                    paint.setColor(0xffdeede2);
-                    canvas.drawRoundRect(v.getLeft(),v.getTop()+dp(2),v.getLeft()+dx,v.getBottom()-dp(10),dp(14),dp(14),paint);
-                    android.graphics.drawable.Drawable icon=ContextCompat.getDrawable(DownloadActivity.this,R.drawable.ic_download_archive);
-                    if(icon!=null){int x=v.getLeft()+dp(18),y=v.getTop()+(v.getHeight()-dp(26))/2;
-                        icon.setBounds(x,y,x+dp(26),y+dp(26));icon.draw(canvas);}
-                }
-                super.onChildDraw(canvas,rv,holder,dx,dy,actionState,active);
+            @Override public void onSwiped(RecyclerView.ViewHolder h,int dir){
+                int p=h.getBindingAdapterPosition();
+                revealedSwipeId=p>=0&&p<rows.size()&&rows.get(p).item!=null?rows.get(p).item.id:"";
+                adapter.notifyDataSetChanged();
             }
         };
         new ItemTouchHelper(callback).attachToRecyclerView(list);
@@ -817,9 +858,26 @@ public final class DownloadActivity extends NavigationActivity {
                 label.setPadding(dp(2),dp(8),0,dp(12));root.addView(label);return;
             }
             DownloadsRepository.Item item=row.item;
+            FrameLayout swipeFrame=new FrameLayout(DownloadActivity.this);
+            LinearLayout.LayoutParams fp=new LinearLayout.LayoutParams(-1,-2);fp.bottomMargin=dp(10);
+            root.addView(swipeFrame,fp);
+            LinearLayout swipeActions=new LinearLayout(DownloadActivity.this);
+            swipeActions.setOrientation(LinearLayout.HORIZONTAL);swipeActions.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);
+            FrameLayout.LayoutParams ap=new FrameLayout.LayoutParams(dp(154),-1,Gravity.RIGHT);
+            swipeFrame.addView(swipeActions,ap);
+            TextView confirm=center("В архив",13);confirm.setTextColor(0xffffffff);
+            confirm.setBackground(bg(0xff7260a5,14));
+            TextView cancel=center("Отмена",13);cancel.setTextColor(0xffffffff);
+            cancel.setBackground(bg(0xff857468,14));
+            swipeActions.addView(confirm,new LinearLayout.LayoutParams(dp(77),-1));
+            swipeActions.addView(cancel,new LinearLayout.LayoutParams(dp(77),-1));
+            confirm.setOnClickListener(v->archive(item));
+            cancel.setOnClickListener(v->{revealedSwipeId="";notifyDataSetChanged();});
+            swipeActions.setVisibility(item.id.equals(revealedSwipeId)?View.VISIBLE:View.INVISIBLE);
             LinearLayout card=new LinearLayout(DownloadActivity.this);card.setOrientation(LinearLayout.VERTICAL);
             card.setPadding(dp(12),dp(12),dp(12),dp(12));card.setBackground(bg(PANEL,19));
-            LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,-2);cp.bottomMargin=dp(10);root.addView(card,cp);
+            swipeFrame.addView(card,new FrameLayout.LayoutParams(-1,-2));
+            card.setTranslationX(item.id.equals(revealedSwipeId)?-dp(154):0f);
             LinearLayout top=new LinearLayout(DownloadActivity.this);top.setGravity(Gravity.TOP);card.addView(top);
             FrameLayout coverFrame=new FrameLayout(DownloadActivity.this);coverFrame.setBackground(bg(0xffe7d7c7,12));
             top.addView(coverFrame,new LinearLayout.LayoutParams(dp(item.ready?75:92),dp(item.ready?106:124)));
@@ -855,7 +913,10 @@ public final class DownloadActivity extends NavigationActivity {
             more.setBackground(bg(PANEL,16));
             LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(43),dp(43));
             moreParams.leftMargin=dp(5);top.addView(more,moreParams);
-            more.setOnClickListener(v->menu(more,item));card.setOnClickListener(v->open(item));
+            more.setOnClickListener(v->menu(more,item));card.setOnClickListener(v->{
+                if(!revealedSwipeId.isEmpty()){revealedSwipeId="";notifyDataSetChanged();}
+                else open(item);
+            });
         }
         TextView control(String caption){TextView b=center(caption,13);b.setBackground(bg(0xfff1e4d7,12));b.setTextColor(INK);return b;}
         @Override public int getItemCount(){return rows.size();}
