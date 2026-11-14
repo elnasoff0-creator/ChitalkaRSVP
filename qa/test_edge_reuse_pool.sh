@@ -160,9 +160,9 @@ public class Test429 {
   });
   if(!done.await(2,TimeUnit.SECONDS)||error[0]==null||!error[0].contains("429"))
    throw new AssertionError("Rate limit not reported");
-  if(EdgeSpeechQueue.remainingMs()>500)throw new AssertionError("Local cooldown exceeds 500ms");
+  if(EdgeSpeechQueue.remainingMs()<59000)throw new AssertionError("429 cooldown too short");
   Thread.sleep(250);if(OkHttpClient.calls!=1)throw new AssertionError("Unwanted automatic retry on 429");
-  System.out.println("PASS: HTTP429, no automatic retry, <=500ms local cooldown");
+  System.out.println("PASS: HTTP429, no automatic retry, >=60s local cooldown");
  }
 }
 JAVA

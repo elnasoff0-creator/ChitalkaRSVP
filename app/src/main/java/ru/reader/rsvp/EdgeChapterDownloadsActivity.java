@@ -333,6 +333,13 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
             ()->mergeChapter(item.chapter));
         merge.setVisibility(item.saved==1?View.VISIBLE:View.GONE);
         actions.addView(merge,new LinearLayout.LayoutParams(dp(38),dp(38)));
+        TextView finalize=text("Сохранить",12,true);
+        finalize.setGravity(Gravity.CENTER);finalize.setBackground(rounded(BG));
+        finalize.setContentDescription("Завершить сохранение без повторной озвучки");
+        finalize.setVisibility(item.saved==0&&item.stats.files>0?View.VISIBLE:View.GONE);
+        finalize.setOnClickListener(v->finishCachedChapter(item.chapter));
+        LinearLayout.LayoutParams fp=new LinearLayout.LayoutParams(-2,dp(38));fp.leftMargin=dp(6);
+        finalize.setPadding(dp(8),0,dp(8),0);actions.addView(finalize,fp);
         ImageView reload=actionIcon(R.drawable.ic_retry_fragment,"Перезагрузить главу",()->confirmReload(item.chapter));
         LinearLayout.LayoutParams rr=new LinearLayout.LayoutParams(dp(38),dp(38));rr.leftMargin=dp(8);actions.addView(reload,rr);
         ImageView delete=actionIcon(R.drawable.ic_edge_delete_chapter,"Удалить главу",()->confirmDelete(item.chapter));
@@ -344,6 +351,51 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
             else Toast.makeText(this,current.state,Toast.LENGTH_SHORT).show();
         });
         chapterViews.add(new ChapterViews(percent,meta,progress,merge));
+    }
+    /** Re-publish existing fragments ONLY. Never synthesize or discard them here. */
+    private void finishCachedChapter(int chapter){
+        if(!EdgeFolderPicker.available(this)){
+            Toast.makeText(this,"Сначала выберите папку Edge TTS",Toast.LENGTH_LONG).show();return;
+        }
+        if(!merging.add(chapter))return;
+        for(int i=0;i<displayed.size();i++)if(displayed.get(i).chapter==chapter&&i<chapterViews.size())
+            chapterViews.get(i).details.setText("Проверка MP3 и завершение записи…");
+        worker.execute(()->{
+            String message="";boolean success=false;
+            try{
+                EdgeFullBookStore.Job job=EdgeFullBookStore.find(this,uri,title);
+                if(job==null)throw new Exception("Очередь озвучивания не найдена. Готовые MP3 не удалены");
+                JSONArray all=EdgeFullBookStore.queue(job);
+                if(all.length()==0)throw new Exception("Нет сохранённого списка фрагментов; повторная озвучка не запущена");
+                if(chapter<0||chapter>=toc.size())throw new Exception("Оглавление выбранной главы не найдено");
+                int start=SentenceChunks.lowerBound(offsets,toc.get(chapter).startChar);
+                int end=SentenceChunks.lowerBound(offsets,toc.get(chapter).endChar);
+                JSONArray selected=new JSONArray();int missing=0;
+                for(int i=0;i<all.length();i++){
+                    JSONObject row=all.optJSONObject(i);if(row==null)continue;
+                    if(row.optInt("end",0)<=start||row.optInt("start",0)>=end)continue;
+                    selected.put(row);
+                    File mp3=new File(job.mp3Folder(),row.optString("key","")+".mp3");
+                    if(!EdgeFullBookStore.ready(mp3))missing++;
+                }
+                if(selected.length()==0)throw new Exception("В очереди нет фрагментов для этой главы");
+                if(missing>0)throw new Exception("Не хватает "+missing+" из "+selected.length()+
+                    " MP3. Готовые фрагменты сохранены; докачайте только отсутствующие");
+                boolean single=EdgeChapterArchive.autoMerge(this);
+                int published=single?
+                    EdgeChapterArchive.publish(this,uri,title,job.mp3Folder(),selected,toc,offsets):
+                    EdgeChapterArchive.publishFragments(this,uri,title,job.mp3Folder(),selected,toc,offsets);
+                EdgeChapterArchive.invalidate();
+                success=published>0&&EdgeChapterArchive.snapshot(this,uri,title).state(chapter)>0;
+                if(!success)throw new Exception(EdgeChapterArchive.publicationError().isEmpty()?"Проверка SAF не пройдена":EdgeChapterArchive.publicationError());
+                EdgeFullBookStore.markPublished(job,chapter);
+                message="Глава сохранена из готовых MP3 без новой озвучки";
+            }catch(Exception ex){message="Не удалось завершить сохранение: "+ex.getMessage();
+                ReaderDiagnosticLog.event("EDGE_EXPORT","manual_finalize_failed type="+ex.getClass().getSimpleName());}
+            final String info=message;final boolean ok=success;
+            main.post(()->{merging.remove(chapter);lastSegmentsAt=0;
+                Toast.makeText(this,info,Toast.LENGTH_LONG).show();reload();});
+        });
     }
     private void confirmReload(int chapter){
         new SwipeDialogs.Builder(this).setTitle("Перезагрузить главу?")

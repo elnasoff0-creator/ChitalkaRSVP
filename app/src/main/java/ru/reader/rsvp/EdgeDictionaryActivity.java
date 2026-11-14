@@ -30,9 +30,8 @@ public final class EdgeDictionaryActivity extends NavigationActivity {
     private LinearLayout entries;
     private EditText filter;
     private int ink,bg,accent,neutral;
-    private boolean ignoredOnly=false,selectedFromSentence=false;
+    private boolean ignoredOnly=false;
     private int visibleRows=100;
-    private String activeSentence="";
     private MediaPlayer preview;
     private EdgeTtsClient request;
     private File previewFile;
@@ -56,7 +55,6 @@ public final class EdgeDictionaryActivity extends NavigationActivity {
         store=EdgeDictionaryStore.get(this);store.ensureMigrated();
         bg=prefs.getInt("bg",0xfff3e7d5);ink=prefs.getInt("fg",0xff30221e);
         accent=UiColorScheme.accent(this);neutral=UiColorScheme.neutral(this);
-        String sentence=getIntent().getStringExtra(EXTRA_SENTENCE);activeSentence=sentence==null?"":sentence;
         render();
     }
     private void render(){
@@ -160,126 +158,7 @@ public final class EdgeDictionaryActivity extends NavigationActivity {
     }
     private void editRule(EdgeDictionaryStore.Rule current,int kind,String pattern,
                           String context,String spoken,boolean initialRegex,boolean symbols){
-        LinearLayout layout=new LinearLayout(this);layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(dp(18),0,dp(18),dp(8));
-        EditText find=input(symbols?"Знак или последовательность":"Найти · слово или Regex",pattern,layout);
-        if(symbols)find.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD|
-            InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        EditText replacement=null;
-        if(kind==EdgeDictionaryStore.REPLACE){
-            LinearLayout replacementRow=new LinearLayout(this);replacementRow.setGravity(Gravity.CENTER_VERTICAL);
-            layout.addView(replacementRow);
-            replacement=input("Заменить на (можно оставить пустым)",spoken,replacementRow);
-            LinearLayout.LayoutParams field=(LinearLayout.LayoutParams)replacement.getLayoutParams();
-            field.width=0;field.weight=1;replacement.setLayoutParams(field);
-            final EditText speaking=replacement;
-            ImageButton microphone=new ImageButton(this);
-            microphone.setImageResource(R.drawable.ic_microphone);microphone.setColorFilter(ink);
-            microphone.setBackground(touch(neutral));microphone.setContentDescription("Прослушать поле Заменить на");
-            LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(dp(48),dp(48));mp.leftMargin=dp(8);
-            replacementRow.addView(microphone,mp);
-            microphone.setOnClickListener(v->listen(speaking.getText().toString()));
-        }
-        final EditText replace=replacement;
-        CheckBox regex=new CheckBox(this);regex.setText("Регулярное выражение (Java Regex)");
-        regex.setChecked(initialRegex);regex.setTextColor(ink);
-        regex.setButtonTintList(android.content.res.ColorStateList.valueOf(accent));layout.addView(regex);
-        EditText contextual=null;
-        if(kind==EdgeDictionaryStore.REPLACE){
-            contextual=input("Контекст · для обычных замен",context,layout);
-            contextual.setEnabled(!initialRegex);
-        }
-        final EditText contextField=contextual;
-        final boolean stressAvailable=kind==EdgeDictionaryStore.REPLACE&&!symbols;
-        final TextView stressLabel=stressAvailable?label("Ударение: выберите гласную",13):null;
-        final LinearLayout vowelButtons=stressAvailable?new LinearLayout(this):null;
-        if(stressAvailable){
-            layout.addView(stressLabel);
-            vowelButtons.setGravity(Gravity.CENTER_VERTICAL);
-            layout.addView(vowelButtons);
-        }
-        final Runnable renderVowels=()->{
-            if(!stressAvailable)return;
-            vowelButtons.removeAllViews();
-            stressLabel.setVisibility(regex.isChecked()?View.GONE:View.VISIBLE);
-            vowelButtons.setVisibility(regex.isChecked()?View.GONE:View.VISIBLE);
-            if(regex.isChecked())return;
-            String raw=replace.getText().toString().replace("\u0301","");
-            for(int i=0;i<raw.length();i++){
-                final int letter=i;char ch=raw.charAt(i);
-                if("аеёиоуыэюяАЕЁИОУЫЭЮЯ".indexOf(ch)<0)continue;
-                TextView button=label(String.valueOf(ch),17);button.setGravity(Gravity.CENTER);
-                button.setBackground(fill(UiColorScheme.selected(this)));
-                LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(40),1);
-                lp.rightMargin=dp(3);vowelButtons.addView(button,lp);
-                button.setOnClickListener(v->{
-                    String clear=replace.getText().toString().replace("\u0301","");
-                    if(letter<clear.length()){
-                        replace.setText(clear.substring(0,letter+1)+"\u0301"+clear.substring(letter+1));
-                        replace.setSelection(replace.length());
-                    }
-                });
-            }
-        };
-        if(stressAvailable)replace.addTextChangedListener(new TextWatcher(){
-            public void beforeTextChanged(CharSequence s,int a,int c,int x){}
-            public void onTextChanged(CharSequence s,int a,int b,int c){}
-            public void afterTextChanged(Editable e){renderVowels.run();}
-        });
-        regex.setOnCheckedChangeListener((button,checked)->{
-            if(contextField!=null){contextField.setEnabled(!checked);
-                contextField.setHint(checked?"Контекст не используется в Regex":"Контекст · для обычных замен");}
-            renderVowels.run();
-        });
-        renderVowels.run();
-        if(kind==EdgeDictionaryStore.REPLACE&&!symbols){
-            Button fromSentence=new Button(this);fromSentence.setAllCaps(false);
-            fromSentence.setText("Из предложения");layout.addView(fromSentence);
-            fromSentence.setOnClickListener(v->chooseWordFromSentence(find));
-        }
-        // Preview is intentionally the exact text entered in "Заменить на".
-        // Regex is validated during Save, without a separate sample input.
-        ScrollView scroll=new ScrollView(this);scroll.addView(layout);
-        AlertDialog.Builder builder=new SwipeDialogs.Builder(this)
-            .setTitle(current==null?(kind==EdgeDictionaryStore.IGNORE?"Добавить игнорирование":"Добавить замену"):
-                "Редактировать правило")
-            .setView(scroll).setNegativeButton("Отмена",null).setPositiveButton("Сохранить",null);
-        if(current!=null)builder.setNeutralButton("Удалить",(d,w)->{
-            store.delete(current.id);showEntries();});
-        AlertDialog dialog=builder.create();dialog.show();
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(w->{
-                try{
-                    String from=find.getText().toString();
-                    String to=replace==null?"":replace.getText().toString();
-                    String ctx=contextField==null||regex.isChecked()?"":contextField.getText().toString();
-                    if(regex.isChecked())EdgeSpeechTextTransform.validateReplacement(
-                        EdgeSpeechTextTransform.compileUserRegex(from),to);
-                    store.upsert(current==null?0:current.id,kind,from,ctx,to,regex.isChecked());
-                    if(selectedFromSentence&&!activeSentence.isEmpty()&&
-                        getIntent().hasExtra("dictionary_selected_word_index")){
-                        Intent answer=new Intent().putExtra("dictionary_selected_word_index",
-                            getIntent().getIntExtra("dictionary_selected_word_index",0));
-                        setResult(RESULT_OK,answer);
-                    }
-                    showEntries();dialog.dismiss();
-                }catch(Exception ex){Toast.makeText(this,"Не сохранено: "+ex.getMessage(),Toast.LENGTH_LONG).show();}
-            });
-        
-    }
-    private void chooseWordFromSentence(EditText target){
-        selectedFromSentence=true;
-        if(activeSentence.trim().isEmpty()){
-            Toast.makeText(this,"Текущее предложение недоступно. Откройте словарь из книги.",Toast.LENGTH_LONG).show();
-            return;
-        }
-        java.util.ArrayList<String> words=new java.util.ArrayList<>();
-        java.util.regex.Matcher matcher=Pattern.compile("[\\p{L}\\p{N}]+(?:[-’'][\\p{L}\\p{N}]+)*").matcher(activeSentence);
-        while(matcher.find()&&words.size()<100)words.add(matcher.group());
-        if(words.isEmpty()){Toast.makeText(this,"В предложении нет слов",Toast.LENGTH_SHORT).show();return;}
-        new SwipeDialogs.Builder(this).setTitle("Выберите слово из предложения")
-            .setItems(words.toArray(new String[0]),(dialog,which)->{
-                target.setText(words.get(which));target.setSelection(target.length());
-            }).setNegativeButton("Отмена",null).show();
+        EdgeDictionaryRuleDialog.show(this,current,kind,pattern,context,spoken,initialRegex,this::showEntries);
     }
     private void listen(String text){
         if(text.trim().isEmpty())return;

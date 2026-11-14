@@ -267,9 +267,23 @@ final class EdgeChapterArchive {
         return new Frames(audio.toByteArray(),(micros+500)/1000);
     }
     /** Called from background IO, for BOTH full-book and completed normal-reading chapters. */
+    private static volatile String lastPublishError="";
+    private static volatile String currentPublishStage="";
+    static String publicationError(){return lastPublishError;}
+    private static void publishStage(String stage){currentPublishStage=stage;}
+    private static void publishFailure(Exception cause){
+        String detail=cause.getMessage();
+        if(detail==null||detail.trim().isEmpty())detail=cause.getClass().getSimpleName();
+        lastPublishError=currentPublishStage+": "+detail;
+        ReaderDiagnosticLog.event("EDGE_EXPORT","failed stage="+currentPublishStage+" type="+
+            cause.getClass().getSimpleName());
+    }
     static synchronized int publish(Context ctx,String uri,String title,File localMp3,
         JSONArray queue,BookChapterIndex chapters,ArrayList<Integer> wordStarts){
-        if(!EdgeFolderPicker.available(ctx)||queue==null||queue.length()==0)return 0;
+        lastPublishError="";publishStage("Проверка папки и очереди");
+        if(!EdgeFolderPicker.available(ctx)||queue==null||queue.length()==0){
+            lastPublishError="Папка недоступна или очередь пуста";return 0;
+        }
         try{
             Map<Integer,ArrayList<JSONObject>> groups=new HashMap<>();
             for(int i=0;i<queue.length();i++){
@@ -278,6 +292,7 @@ final class EdgeChapterArchive {
                 ArrayList<JSONObject> list=groups.get(chapter);
                 if(list==null){list=new ArrayList<>();groups.put(chapter,list);}list.add(row);
             }
+            publishStage("Открытие папки глав Android SAF");
             DocumentFile all=chapters(ctx,uri,title,true);
             if(all==null)throw new Exception("Нет папки глав");
             int published=0;
@@ -290,7 +305,8 @@ final class EdgeChapterArchive {
                     if(!key.matches("[a-f0-9]{64}")||!f.isFile()||f.length()<1500){complete=false;break;}
                     signature.append(key).append(':').append(f.length()).append(':').append(digest(f)).append(';');
                 }
-                if(!complete)continue;
+                if(!complete){lastPublishError="Глава "+(chapter+1)+": не все MP3 находятся в кэше";continue;}
+                publishStage("Подготовка главы "+(chapter+1));
                 String titleChapter=chapters!=null&&chapter<chapters.size()?chapters.get(chapter).title:"Глава";
                 String folderName=String.format(Locale.ROOT,"%03d - %s",chapter+1,safe(titleChapter,55));
                 DocumentFile dir=all.findFile(folderName);
@@ -312,6 +328,7 @@ final class EdgeChapterArchive {
                 long combinedBytes=0L;
                 JSONArray segments=new JSONArray(),words=new JSONArray();long timeMs=0;
                 int chapterChar=chapters!=null&&chapter<chapters.size()?chapters.get(chapter).startChar:0;
+                publishStage("Объединение MP3 главы "+(chapter+1));
                 try(OutputStream combined=new FileOutputStream(temporary)){
                     for(JSONObject row:parts){
                         String key=row.getString("key"),clipText=row.optString("text","");
@@ -343,15 +360,25 @@ final class EdgeChapterArchive {
                 index.put("segments",segments);
                 // The completion marker (index) is written LAST. Failures leave working fragments intact.
                 try{
+                    publishStage("Запись MP3 в папку главы "+(chapter+1));
                     write(ctx,dir,audioFile,"audio/mpeg",temporary);
+                    publishStage("Запись WordBoundary главы "+(chapter+1));
                     write(ctx,dir,wordsFile,"application/json",sidecar.toString().getBytes(StandardCharsets.UTF_8));
+                    publishStage("Проверка записанного MP3 главы "+(chapter+1));
+                    DocumentFile stored=dir.findFile(audioFile);
+                    if(stored==null)throw new Exception("MP3 не появился в выбранной папке");
+                    try(InputStream in=ctx.getContentResolver().openInputStream(stored.getUri())){
+                        if(in==null||!index.optString("audioSha256").equals(digest(in)))
+                            throw new Exception("SHA-256 итогового MP3 не совпадает");
+                    }
+                    publishStage("Подтверждение готовой главы "+(chapter+1));
                     write(ctx,dir,INDEX_NAME,"application/json",index.toString().getBytes(StandardCharsets.UTF_8));
                     published++;
                 }finally{temporary.delete();}
             }
             if(published>0)invalidate();
             return published;
-        }catch(Exception ex){Log.w(TAG,"Could not publish chapter",ex);return 0;}
+        }catch(Exception ex){publishFailure(ex);Log.w(TAG,"Could not publish chapter",ex);return 0;}
     }
     /** Rehydrate fragments from completed SAF chapters to a disposable internal cache. */
     static synchronized int restore(Context ctx,String uri,String title,File target){
@@ -450,7 +477,8 @@ final class EdgeChapterArchive {
     /** Publish all complete chapter fragments without auto-merging. SAF is authoritative. */
     static synchronized int publishFragments(Context ctx,String uri,String title,File localMp3,
         JSONArray queue,BookChapterIndex toc,ArrayList<Integer> wordStarts){
-        if(!EdgeFolderPicker.available(ctx)||queue==null||queue.length()==0)return 0;
+        lastPublishError="";publishStage("Проверка фрагментов и папки");
+        if(!EdgeFolderPicker.available(ctx)||queue==null||queue.length()==0){lastPublishError="Папка или очередь недоступна";return 0;}
         try{
             Map<Integer,ArrayList<JSONObject>> groups=new HashMap<>();
             for(int i=0;i<queue.length();i++){
@@ -470,7 +498,7 @@ final class EdgeChapterArchive {
                     if(!f.isFile()||f.length()<1500){complete=false;break;}
                     sign.append(row.optString("key")).append(':').append(f.length()).append(':').append(digest(f)).append(';');
                 }
-                if(!complete)continue;
+                if(!complete){lastPublishError="Глава "+(chapter+1)+": отсутствуют MP3-фрагменты";continue;}
                 String name=toc!=null&&chapter<toc.size()?toc.get(chapter).title:"Глава";
                 String folderName=String.format(Locale.ROOT,"%03d - %s",chapter+1,safe(name,55));
                 DocumentFile dir=folder.findFile(folderName);
@@ -485,6 +513,7 @@ final class EdgeChapterArchive {
                     if(fingerprint.equals(old.optString("fingerprint"))&&
                         mergedPresent(dir,old)){count++;continue;}
                 }catch(Exception ignored){}
+                publishStage("Сохранение фрагментов главы "+(chapter+1));
                 DocumentFile clips=dir.findFile("fragments");
                 if(clips==null)clips=dir.createDirectory("fragments");
                 if(clips==null)throw new Exception("Нет папки фрагментов");
@@ -508,7 +537,7 @@ final class EdgeChapterArchive {
                 count++;
             }
             if(count>0)invalidate();return count;
-        }catch(Exception e){Log.w(TAG,"Failed to publish fragments",e);return 0;}
+        }catch(Exception e){publishFailure(e);Log.w(TAG,"Failed to publish fragments",e);return 0;}
     }
     /** Read the durable manifest when the temporary full-book queue has been evicted. */
     static synchronized JSONArray queueFromSAF(Context c,String uri,String title,int number){

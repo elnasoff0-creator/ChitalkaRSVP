@@ -4,7 +4,7 @@ from xml.etree import ElementTree as ET
 p=Path(__file__).resolve().parents[1]
 s=p/'app/src/main/java/ru/reader/rsvp'
 read=lambda n:(s/n).read_text(encoding='utf-8')
-assert "versionCode 16000; versionName '1.11.160-beta'" in (p/'app/build.gradle').read_text()
+assert "versionCode 16100; versionName '1.11.161-beta'" in (p/'app/build.gradle').read_text()
 session=read('UnifiedBookSession.java')
 assert session.index('if(s!=null)return s;')<session.index('ReaderBookCache.revision(context,source)')
 assert 'syncIfChanged' not in session and 'syncManualEdits' not in session

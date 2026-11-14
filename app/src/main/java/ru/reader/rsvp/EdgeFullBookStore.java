@@ -214,6 +214,12 @@ final class EdgeFullBookStore {
         t.done=Math.max(0,done);t.total=Math.max(0,total);t.error=error==null?"":error;
         save(current);
     }
+    /** A finished SAF publication marks only the chosen chapter as complete. */
+    static synchronized void markPublished(Job job,int chapter){
+        if(job==null)return;
+        Job current=read(job.directory);Task task=findTask(current,chapter);
+        if(task!=null){task.done=task.total;task.error="";task.status=DONE;save(current);}
+    }
     static synchronized void clearForce(Job job){
         Job current=read(job.directory);Task t=findTask(current,job.chapter);
         if(t!=null){t.force=false;save(current);}

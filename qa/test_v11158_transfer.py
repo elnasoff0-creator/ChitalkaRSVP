@@ -8,7 +8,7 @@ import tempfile
 root=Path(__file__).resolve().parents[1]
 code=root/'app/src/main/java/ru/reader/rsvp'
 read=lambda name:(code/name).read_text(encoding='utf-8')
-assert "versionCode 16000; versionName '1.11.160-beta'" in (root/'app/build.gradle').read_text()
+assert "versionCode 16100; versionName '1.11.161-beta'" in (root/'app/build.gradle').read_text()
 for name in ['BookUriMigration.java','SafeDownloadTransfer.java','SafTreeDirectory.java',
              'LibraryMoveManager.java','BulkLibraryTransfer.java']:
     assert (code/name).is_file(),name

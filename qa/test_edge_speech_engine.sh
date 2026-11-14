@@ -159,11 +159,11 @@ class EdgeSpeech429Smoke {
   });
   if(!finish.await(3,TimeUnit.SECONDS))throw new AssertionError("429 handshake hung");
   if(error[0]==null||!error[0].contains("HTTP 429"))throw new AssertionError(error[0]);
-  if(EdgeSpeechQueue.remainingMs()>500)throw new AssertionError("Local wait exceeded 500ms");
+  if(EdgeSpeechQueue.remainingMs()<59000)throw new AssertionError("429 pause too short");
   Thread.sleep(140);
   if(OkHttpClient.calls!=1)throw new AssertionError("Automatic retry after 429");
   c.cancel();
-  System.out.println("PASS: 429 fail-fast, fixed local 500ms cooldown, no retry storm");
+  System.out.println("PASS: 429 fail-fast, adaptive cooldown, no retry storm");
  }
 }
 JAVA

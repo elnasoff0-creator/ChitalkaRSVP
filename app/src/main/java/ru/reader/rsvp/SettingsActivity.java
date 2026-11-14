@@ -401,6 +401,7 @@ public class SettingsActivity extends NavigationActivity {
         });
         gap(10);
         drawHighlightSettings();
+        drawAnnotationSettings();
         if(current==3)return;
         if(current==NORMAL){drawNormalModeSettings();return;}
         addStartDelaySetting(current);
@@ -413,6 +414,16 @@ public class SettingsActivity extends NavigationActivity {
         colorSection("Цвет подсветки предложения","sentence_highlight_color",0xffedca43,false);
         percentSlider("Прозрачность фона предложения","sentence_highlight_opacity",0,100,50,5);
         addHelpIcon("Подсветка текста");
+    }
+    /** Text notes and user color marks do not share the temporary TTS word highlight. */
+    void drawAnnotationSettings(){
+        header("Выделения и заметки в книге");
+        colorSection("Цвет 1 · жёлтый","annotation_color_0",0xffe8d46b,false);
+        colorSection("Цвет 2 · зелёный","annotation_color_1",0xff8ccba4,false);
+        colorSection("Цвет 3 · голубой","annotation_color_2",0xff8ab4ec,false);
+        colorSection("Цвет 4 · розовый","annotation_color_3",0xffe3a6c8,false);
+        percentSlider("Непрозрачность пользовательских выделений","annotation_opacity",15,95,38,5);
+        addHelpIcon("Выделения и заметки");
     }
     void addStartDelaySetting(int mode){
         final String suffix=mode==RSVP?"rsvp":"cursor";
