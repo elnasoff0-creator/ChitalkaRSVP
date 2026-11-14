@@ -24,6 +24,8 @@ public final class RanobesBookActivity extends NavigationActivity {
     private static final int BG=0xfff3e7d5,INK=0xff30221e;
     private final ExecutorService network=Executors.newSingleThreadExecutor();
     private String url="",bookId="",language="en";private int token;
+    private int tocPages=1,tocTotal=0,tocLoadedPages=0,tocCurrentPage=1;
+    private boolean tocExpanded=false,tocPartial=false;
     private RanobesApi.Title title;
     private final ArrayList<RanobesApi.Chapter> chapters=new ArrayList<>();
     private final java.util.Set<String> expanded=new java.util.HashSet<>();
@@ -63,10 +65,16 @@ public final class RanobesBookActivity extends NavigationActivity {
             .setNegativeButton("Отмена",null).show();}
     private void fetch(){int request=++token;state.setText("Получаем публичное оглавление Ranobes.net…");
         network.execute(()->{try{RanobesApi api=new RanobesApi();RanobesApi.Title found=api.title(url);
-            List<RanobesApi.Chapter> pages=api.chapters(url);
+            RanobesApi.TocResult result=api.loadToc(url,loaded->runOnUiThread(()->{
+                if(!isFinishing()&&request==token)state.setText("Ranobes.net · получена страница "+loaded+" оглавления…");
+            }));
             RanobesStorage.remember(getApplicationContext(),found);
-            runOnUiThread(()->{if(isFinishing()||request!=token)return;title=found;chapters.clear();chapters.addAll(pages);
-                state.setText("Найдено глав в HTML: "+pages.size()+". Если сайт скрывает страницы оглавления, список может быть неполным.");redraw();});
+            runOnUiThread(()->{if(isFinishing()||request!=token)return;title=found;chapters.clear();chapters.addAll(result.chapters);
+                tocPages=result.pagesCount;tocTotal=result.totalCount;tocLoadedPages=result.loadedPages;tocPartial=result.partial;
+                tocCurrentPage=Math.min(tocCurrentPage,tocPages);
+                state.setText("Глав получено: "+chapters.size()+(tocTotal>0?" из "+tocTotal:"")+" · страниц: "+tocLoadedPages+" из "+tocPages+
+                    (tocPartial?" · часть страниц недоступна; нажмите «Обновить» для повторной попытки.":""));
+                redraw();});
         }catch(Exception e){runOnUiThread(()->{if(!isFinishing()&&request==token){state.setText("Ranobes: "+e.getMessage());redraw();}});}});
     }
     private void redraw(){list.removeAllViews();if(title==null)return;
@@ -80,6 +88,10 @@ public final class RanobesBookActivity extends NavigationActivity {
         String key=bookId+":"+language;
         if(RanobesStorage.hasBook(this,key))add(card,button("Открыть сохранённую книгу",()->startActivity(new Intent(this,ReaderActivity.class).putExtra("book_uri",RanobesStorage.bookUri(this,key)))),7);
         add(card,button("Обновить список глав",this::fetch),7);
+        add(card,button(tocExpanded?"Скрыть страницы оглавления ▴":"Больше глав · полное оглавление ▾",()->{
+            tocExpanded=!tocExpanded;redraw();
+        }),7);
+        if(tocExpanded)renderPagedToc();
         LinkedHashMap<String,ArrayList<RanobesApi.Chapter>> volumes=new LinkedHashMap<>();
         for(RanobesApi.Chapter j:chapters)volumes.computeIfAbsent(j.volume,k->new ArrayList<>()).add(j);
         for(Map.Entry<String,ArrayList<RanobesApi.Chapter>> row:volumes.entrySet()){
@@ -96,6 +108,37 @@ public final class RanobesBookActivity extends NavigationActivity {
             }
             if(expanded.contains(vol)&&items.size()>40)add(group,text("Остальные главы доступны через «Выбрать главы».",12,false),7);
         }
+    }
+    /** Visible paging uses the real /chapters/{bookId}/page/{n}/ page IDs. */
+    private void renderPagedToc(){
+        LinearLayout pane=new LinearLayout(this);pane.setOrientation(LinearLayout.VERTICAL);
+        pane.setPadding(dp(9),dp(9),dp(9),dp(9));pane.setBackground(shape());add(list,pane,8);
+        add(pane,text("Полное оглавление · "+chapters.size()+" глав"+(tocPartial?" (неполное)":""),16,true),0);
+        add(pane,text("Источник: "+RanobesApi.tocUrl(bookId,tocCurrentPage),11,false),5);
+        LinearLayout controls=new LinearLayout(this);controls.setGravity(Gravity.CENTER_VERTICAL);add(pane,controls,6);
+        TextView previous=button("‹ Назад",()->{if(tocCurrentPage>1){tocCurrentPage--;redraw();}});
+        controls.addView(previous,new LinearLayout.LayoutParams(0,dp(42),1));
+        TextView indicator=button("Стр. "+tocCurrentPage+" / "+tocPages+" ▾",this::chooseTocPage);
+        LinearLayout.LayoutParams mid=new LinearLayout.LayoutParams(0,dp(42),1.5f);mid.leftMargin=dp(4);controls.addView(indicator,mid);
+        TextView next=button("Далее ›",()->{if(tocCurrentPage<tocPages){tocCurrentPage++;redraw();}});
+        LinearLayout.LayoutParams right=new LinearLayout.LayoutParams(0,dp(42),1);right.leftMargin=dp(4);controls.addView(next,right);
+        ArrayList<RanobesApi.Chapter> displayed=new ArrayList<>();
+        for(RanobesApi.Chapter chapter:chapters)if(chapter.page==tocCurrentPage)displayed.add(chapter);
+        if(displayed.isEmpty())add(pane,text("Страница ещё не загружена. Нажмите «Обновить список глав», чтобы повторить загрузку.",12,false),9);
+        else{
+            add(pane,button("Выбрать главы этой страницы ("+displayed.size()+")",()->select(displayed,"Страница "+tocCurrentPage)),8);
+            // Website pages are newest-first, so page list is rendered in that same order.
+            for(int i=displayed.size()-1;i>=0;i--){
+                RanobesApi.Chapter chapter=displayed.get(i);
+                add(pane,button(chapter.title,()->confirm(java.util.Collections.singletonList(chapter))),5);
+            }
+        }
+    }
+    private void chooseTocPage(){
+        String[] options=new String[tocPages];for(int i=0;i<options.length;i++)options[i]="Страница "+(i+1);
+        new SwipeDialogs.Builder(this).setTitle("Страница оглавления")
+            .setItems(options,(dialog,which)->{tocCurrentPage=which+1;redraw();})
+            .setNegativeButton("Отмена",null).show();
     }
     private void select(List<RanobesApi.Chapter> options,String vol){if(options.isEmpty())return;
         if(options.size()>250){LinearLayout input=new LinearLayout(this);input.setPadding(dp(16),0,dp(16),0);input.setOrientation(LinearLayout.VERTICAL);

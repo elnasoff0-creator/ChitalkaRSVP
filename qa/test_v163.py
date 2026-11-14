@@ -14,8 +14,8 @@ class Version163Tests(unittest.TestCase):
         self.assertGreaterEqual(len(list(JAVA.glob('*.java'))),175)
     def test_version(self):
         s=(ROOT/'app/build.gradle').read_text()
-        self.assertRegex(s,r'versionCode\s+16300')
-        self.assertRegex(s,r'versionName\s+[\'\"]1\.11\.163-beta')
+        self.assertRegex(s,r'versionCode\s+16[34]00')
+        self.assertRegex(s,r'versionName\s+[\'\"]1\.11\.16[34]-beta')
     def test_one_button_provider_dialog(self):
         s=text('DownloadSourcePicker.java')
         for source in ('RanobeLIB','Ranobes.net','MangaLib','Книга в ухе'):self.assertIn(source,s)

@@ -11,34 +11,36 @@ import java.util.HashSet;
 final class ReaderBookmarks {
     private ReaderBookmarks(){}
     static final class Item {
-        int word;String title="",chapter="",excerpt="";long created;
+        int word,endWord;String title="",chapter="",excerpt="";long created;
         JSONObject json(){JSONObject o=new JSONObject();try{o.put("word",word).put("title",title).put("chapter",chapter).put("excerpt",excerpt).put("created",created);}catch(Exception ignored){}return o;}
-        static Item from(JSONObject o){Item b=new Item();b.word=o.optInt("word",0);b.title=o.optString("title","");b.chapter=o.optString("chapter","");b.excerpt=o.optString("excerpt","");b.created=o.optLong("created",0);return b;}
+        static Item from(JSONObject o){Item b=new Item();b.word=o.optInt("word",0);b.endWord=Math.max(b.word+1,o.optInt("endWord",b.word+1));b.title=o.optString("title","");b.chapter=o.optString("chapter","");b.excerpt=o.optString("excerpt","");b.created=o.optLong("created",0);return b;}
     }
     static ArrayList<Item> list(Context ctx,String uri){SharedPreferences p=ctx.getSharedPreferences("reader",0);ArrayList<Item> out=new ArrayList<>();HashSet<Integer> seen=new HashSet<>();
         try{JSONArray a=new JSONArray(p.getString("bookmarks_v2:"+uri,"[]"));for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);if(o==null)continue;Item b=Item.from(o);if(seen.add(b.word))out.add(b);}}catch(Exception ignored){}
-        for(String legacy:p.getStringSet("bookmark:"+uri,Collections.emptySet()))try{int at=Integer.parseInt(legacy);if(seen.add(at)){Item item=new Item();item.word=at;item.title="Закладка";out.add(item);}}catch(Exception ignored){}
+        for(String legacy:p.getStringSet("bookmark:"+uri,Collections.emptySet()))try{int at=Integer.parseInt(legacy);if(seen.add(at)){Item item=new Item();item.word=at;item.endWord=at+1;item.title="Закладка";out.add(item);}}catch(Exception ignored){}
         out.sort((a,b)->Integer.compare(a.word,b.word));return out;
     }
     static void store(Context ctx,String uri,ArrayList<Item> list){JSONArray a=new JSONArray();for(Item b:list)a.put(b.json());
         ctx.getSharedPreferences("reader",0).edit().putString("bookmarks_v2:"+uri,a.toString()).remove("bookmark:"+uri).apply();
     }
     static void add(Context ctx,String uri,Item item){ArrayList<Item> all=list(ctx,uri);for(Item b:all)if(b.word==item.word)return;all.add(item);store(ctx,uri,all);}
-    /** Fill legacy bookmarks using the already-open immutable reader text. No book reload. */
+    /** Fill legacy bookmarks using the already-open reader text. No HTML reload. */
     static void fillMissingExcerpts(Context ctx,String uri,String body,ReadingWordMap words){
         if(body==null||body.isEmpty()||words==null||words.size()==0)return;
-        ArrayList<Item> all=list(ctx,uri);boolean updated=false;
+        ArrayList<Item> all=list(ctx,uri);boolean missing=false;
+        for(Item item:all)if(item.excerpt==null||item.excerpt.trim().isEmpty()){missing=true;break;}
+        if(!missing)return;
+        // One sentence index for the whole migration, never constructed per item/scroll tick.
+        SentenceIndex sentences=SentenceIndex.fromText(body);
+        boolean updated=false;
         for(Item item:all){
             if(item.excerpt!=null&&!item.excerpt.trim().isEmpty())continue;
             if(item.word<0||item.word>=words.size())continue;
-            int start=Math.min(body.length(),words.starts[item.word]);
-            int end=Math.min(body.length(),start+235);
-            int nextLine=body.indexOf('\n',start);
-            if(nextLine>start&&nextLine<end)end=nextLine;
-            String extracted=body.substring(start,end).replaceAll("\\s+"," ").trim();
+            ReaderBookmarkSentences.Range range=ReaderBookmarkSentences.choose(item.word,item.word,words.size(),sentences);
+            String extracted=ReaderBookmarkSentences.excerpt(body,words,range);
             if(!extracted.isEmpty()){
-                item.excerpt=extracted+(end<body.length()&&end==start+235?"…":"");
-                updated=true;
+                item.endWord=range.to+1;
+                item.excerpt=extracted;updated=true;
             }
         }
         if(updated)store(ctx,uri,all);

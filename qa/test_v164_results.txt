@@ -1,0 +1,36 @@
+v1.11.164-beta local QA - 2026-11-14
+--- Java syntax
+PASS: parsed 181 Java files (syntax only, no Android type checks)
+--- New version tests
+test_android_xml (__main__.Release164.test_android_xml) ... ok
+test_bookmark_sentence_markers (__main__.Release164.test_bookmark_sentence_markers) ... ok
+test_handles_scroll_and_swap (__main__.Release164.test_handles_scroll_and_swap) ... ok
+test_no_previous_readmes (__main__.Release164.test_no_previous_readmes) ... ok
+test_ranobes_form_redirect (__main__.Release164.test_ranobes_form_redirect) ... ok
+test_ranobes_pagination (__main__.Release164.test_ranobes_pagination) ... ok
+test_top_cards_picker (__main__.Release164.test_top_cards_picker) ... ok
+test_version (__main__.Release164.test_version) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.014s
+
+OK
+--- Existing v163 regression tests
+test_audio_opens_manager_not_player_from_download_row (__main__.Version163Tests.test_audio_opens_manager_not_player_from_download_row) ... ok
+test_books_and_old_features_still_present (__main__.Version163Tests.test_books_and_old_features_still_present) ... ok
+test_downloader_rows_work_with_audio_manga_ranobe (__main__.Version163Tests.test_downloader_rows_work_with_audio_manga_ranobe) ... ok
+test_java_xml_sources (__main__.Version163Tests.test_java_xml_sources) ... ok
+test_local_cover_and_book_export (__main__.Version163Tests.test_local_cover_and_book_export) ... ok
+test_new_pages_manifest (__main__.Version163Tests.test_new_pages_manifest) ... ok
+test_one_button_provider_dialog (__main__.Version163Tests.test_one_button_provider_dialog) ... ok
+test_ranobes_search_download_translation (__main__.Version163Tests.test_ranobes_search_download_translation) ... ok
+test_shared_category_folder (__main__.Version163Tests.test_shared_category_folder) ... ok
+test_unified_manager_has_metadata_files_cover (__main__.Version163Tests.test_unified_manager_has_metadata_files_cover) ... ok
+test_version (__main__.Version163Tests.test_version) ... ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 0.012s
+
+OK
+--- Plain JVM sentences
+PASS: sentence bookmarks, manual ranges, UTF-8 text

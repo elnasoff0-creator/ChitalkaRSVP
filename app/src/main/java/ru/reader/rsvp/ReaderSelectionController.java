@@ -5,19 +5,25 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewParent;
 
-/** Lightweight transparent drag handles. The host owns TextView layout and word mapping. */
+/** Drag handles tied to immutable word indexes. Coordinates are re-read after every scroll frame. */
 final class ReaderSelectionController extends View {
     interface Host {
-        /** Returns two handle centres in this view's coordinate system, null when off-screen. */
         float[][] handlePositions();
-        void dragHandle(boolean start,float x,float y);
-        void finishedHandleDrag();
+        /** Returns the new START/END role; dragging across the opposite end swaps roles. */
+        boolean dragHandle(boolean start,float x,float y);
+        /** Scrolls only while the finger is held close to the visible text edge. */
+        boolean autoScrollForHandle(boolean start,float x,float y);
+        void startedHandleDrag();
+        void finishedHandleDrag(boolean canceled);
         int handleColor();
     }
     private final Host host;
     private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
-    private int active=-1;
+    private int active=-1,pointerId=-1;
+    private float lastX,lastY;
+    private boolean pendingFrame;
     private final float touchRadius;
     ReaderSelectionController(Context context,Host target){super(context);host=target;
         touchRadius=32f*context.getResources().getDisplayMetrics().density;
@@ -33,20 +39,47 @@ final class ReaderSelectionController extends View {
             paint.setStyle(Paint.Style.STROKE);
         }
     }
-    @Override public boolean onTouchEvent(MotionEvent e){
-        int action=e.getActionMasked();
+    private final Runnable scrollFrame=new Runnable(){@Override public void run(){
+        pendingFrame=false;if(active<0||pointerId<0||!isAttachedToWindow())return;
+        boolean start=active==0;
+        if(host.autoScrollForHandle(start,lastX,lastY)){
+            active=host.dragHandle(start,lastX,lastY)?0:1;
+            invalidate();scheduleFrame();
+        }
+    }};
+    private void scheduleFrame(){if(!pendingFrame&&active>=0){pendingFrame=true;postOnAnimation(scrollFrame);}}
+    private void stopFrame(){pendingFrame=false;removeCallbacks(scrollFrame);}
+    private void finish(boolean canceled){
+        stopFrame();active=-1;pointerId=-1;invalidate();
+        ViewParent parent=getParent();if(parent!=null)parent.requestDisallowInterceptTouchEvent(false);
+        host.finishedHandleDrag(canceled);
+    }
+    @Override public boolean onTouchEvent(MotionEvent event){
+        int action=event.getActionMasked();
         if(action==MotionEvent.ACTION_DOWN){
-            active=-1;float[][] pos=host.handlePositions();if(pos==null)return false;
-            for(int i=0;i<2;i++)if(pos[i]!=null){float dx=e.getX()-pos[i][0],dy=e.getY()-(pos[i][1]+9*getResources().getDisplayMetrics().density);
-                if(dx*dx+dy*dy<=touchRadius*touchRadius){active=i;return true;}}
-            return false;
+            active=-1;pointerId=-1;float[][] positions=host.handlePositions();if(positions==null)return false;
+            float best=touchRadius*touchRadius;
+            for(int i=0;i<2;i++)if(positions[i]!=null){
+                float dx=event.getX()-positions[i][0],dy=event.getY()-(positions[i][1]+9*getResources().getDisplayMetrics().density);
+                float squared=dx*dx+dy*dy;
+                if(squared<=best){best=squared;active=i;}
+            }
+            if(active<0)return false;
+            pointerId=event.getPointerId(0);lastX=event.getX();lastY=event.getY();
+            ViewParent parent=getParent();if(parent!=null)parent.requestDisallowInterceptTouchEvent(true);
+            host.startedHandleDrag();return true;
         }
         if(active<0)return false;
-        if(action==MotionEvent.ACTION_MOVE){host.dragHandle(active==0,e.getX(),e.getY());invalidate();return true;}
-        if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL){
-            boolean finished=action==MotionEvent.ACTION_UP;active=-1;invalidate();
-            if(finished)host.finishedHandleDrag();return true;
+        if(action==MotionEvent.ACTION_MOVE){
+            int position=event.findPointerIndex(pointerId);
+            if(position<0){finish(true);return true;}
+            lastX=event.getX(position);lastY=event.getY(position);
+            active=host.dragHandle(active==0,lastX,lastY)?0:1;
+            scheduleFrame();invalidate();return true;
         }
+        if(action==MotionEvent.ACTION_POINTER_UP&&event.getPointerId(event.getActionIndex())==pointerId){finish(true);return true;}
+        if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL){finish(action==MotionEvent.ACTION_CANCEL);return true;}
         return true;
     }
+    @Override protected void onDetachedFromWindow(){stopFrame();active=-1;pointerId=-1;super.onDetachedFromWindow();}
 }

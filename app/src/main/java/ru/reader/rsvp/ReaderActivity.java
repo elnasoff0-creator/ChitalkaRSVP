@@ -133,7 +133,9 @@ public class ReaderActivity extends NavigationActivity {
     // Annotation data is loaded once with the book and never re-parses its HTML.
     private java.util.List<ReaderAnnotationsStore.Annotation> annotations=java.util.Collections.emptyList();
     private ReaderAnnotationsStore annotationStore;
+    private java.util.List<ReaderBookmarks.Item> bookmarkItems=java.util.Collections.emptyList();
     private ReaderSelectionController selectionHandles;
+    private boolean selectionDragging,selectionMenuAfterScroll;
     private PopupWindow selectionPopup;
     private int selectionFrom=-1,selectionTo=-1; // inclusive word indexes
     private long focusedNoteId;
@@ -334,6 +336,7 @@ public class ReaderActivity extends NavigationActivity {
     private int accentAtDraw=Integer.MIN_VALUE;
     private void draw(){
         dismissSelectionMenu();selectionHandles=null;selectionFrom=-1;selectionTo=-1;
+        selectionDragging=false;selectionMenuAfterScroll=false;
         accentAtDraw=UiColorScheme.accent(this);
         lastAppliedFont=ReaderFontLibrary.choice(this,prefs);
         stop();
@@ -524,6 +527,7 @@ public class ReaderActivity extends NavigationActivity {
         textList.addOnScrollListener(new RecyclerView.OnScrollListener(){
             @Override public void onScrollStateChanged(RecyclerView rv,int state){
                 if(state==RecyclerView.SCROLL_STATE_DRAGGING){
+                    if(selectionFrom>=0&&!selectionDragging){selectionMenuAfterScroll=true;dismissSelectionMenu();}
                     chteicoTouch();userScrolling=true;manualViewportMovement=true;followSuspended=true;tocPreviewGeneration++;
                     if(mode==TTS)updateFloatingCaption();
                     if(mode==RSVP){stop();scrollWordAccumulator=0;}
@@ -533,9 +537,17 @@ public class ReaderActivity extends NavigationActivity {
                     if(manualViewportMovement){manualViewportMovement=false;rememberVisibleViewport();}
                     if(mode==RSVP){scrollWordAccumulator=0;setRsvpContextVisible(!playing);}
                     saveLight(true);
+                    if(selectionMenuAfterScroll&&!selectionDragging&&selectionFrom>=0){
+                        selectionMenuAfterScroll=false;
+                        rv.post(()->{if(!selectionDragging&&selectionFrom>=0)showSelectionMenu();});
+                    }
                 }
             }
             @Override public void onScrolled(RecyclerView rv,int dx,int dy){
+                if(selectionHandles!=null)selectionHandles.invalidate();
+                if(dy!=0&&selectionPopup!=null&&!selectionDragging){
+                    selectionMenuAfterScroll=true;dismissSelectionMenu();
+                }
                 if(userScrolling&&dy!=0)chteicoTouch();
                 if(userScrolling&&!restoringScroll&&Math.abs(dy)>dp(1)){
                     setToolbarExpanded(dy<0);
@@ -589,8 +601,16 @@ public class ReaderActivity extends NavigationActivity {
         // Selection handles live in the reader scene, never in a system overlay.
         selectionHandles=new ReaderSelectionController(this,new ReaderSelectionController.Host(){
             public float[][] handlePositions(){return selectionPositions();}
-            public void dragHandle(boolean start,float x,float y){moveSelectionHandle(start,x,y);}
-            public void finishedHandleDrag(){if(sceneRoot!=null)sceneRoot.post(()->showSelectionMenu());}
+            public boolean dragHandle(boolean start,float x,float y){return moveSelectionHandle(start,x,y);}
+            public boolean autoScrollForHandle(boolean start,float x,float y){return autoScrollSelection(start,x,y);}
+            public void startedHandleDrag(){
+                selectionDragging=true;selectionMenuAfterScroll=false;dismissSelectionMenu();
+                if(textList!=null)textList.stopScroll();
+            }
+            public void finishedHandleDrag(boolean canceled){
+                selectionDragging=false;
+                if(!canceled&&sceneRoot!=null)sceneRoot.post(()->{if(selectionFrom>=0)showSelectionMenu();});
+            }
             public int handleColor(){return accent();}
         });
         sceneRoot.addView(selectionHandles,new FrameLayout.LayoutParams(-1,-1));
@@ -617,13 +637,14 @@ public class ReaderActivity extends NavigationActivity {
         selectionFrom=selectionTo=map.clamp(word);focusedNoteId=0;
         updateVisibleAnnotations();
         if(selectionHandles!=null)selectionHandles.invalidate();
-        showSelectionMenu();
+        selectionMenuAfterScroll=false;showSelectionMenu();
     }
     private void dismissSelectionMenu(){
         if(selectionPopup!=null){try{selectionPopup.dismiss();}catch(Exception ignored){}selectionPopup=null;}
     }
     private void clearSelection(){
         dismissSelectionMenu();selectionFrom=selectionTo=-1;focusedNoteId=0;
+        selectionMenuAfterScroll=false;selectionDragging=false;
         updateVisibleAnnotations();if(selectionHandles!=null)selectionHandles.invalidate();
     }
     private void updateVisibleAnnotations(){
@@ -638,6 +659,7 @@ public class ReaderActivity extends NavigationActivity {
         int opacity=Math.max(15,Math.min(95,prefs.getInt("annotation_opacity",38)));
         int first=chunk.startChar,last=chunk.endChar;
         java.util.ArrayList<Integer> noteEnds=new java.util.ArrayList<>();
+        java.util.ArrayList<Integer> bookmarkStarts=new java.util.ArrayList<>();
         for(ReaderAnnotationsStore.Annotation annotation:annotations){
             if(annotation.fromWord>=annotation.toWord||annotation.fromWord>=map.size())continue;
             int a=map.starts[map.clamp(annotation.fromWord)],b=map.ends[map.clamp(annotation.toWord-1)];
@@ -652,10 +674,16 @@ public class ReaderActivity extends NavigationActivity {
                 if(b>first&&b<=last)noteEnds.add(b-first);
             }
         }
-        if(!noteEnds.isEmpty()){
-            int[] offsets=new int[noteEnds.size()];
-            for(int i=0;i<offsets.length;i++)offsets[i]=noteEnds.get(i);
-            holder.span(new ReaderNoteIndicatorSpan(this,fg,offsets),0,holder.content.length());
+        for(ReaderBookmarks.Item mark:bookmarkItems){
+            if(mark.word<0||mark.word>=map.size())continue;
+            int anchor=map.starts[mark.word];
+            if(anchor>=first&&anchor<last)bookmarkStarts.add(anchor-first);
+        }
+        if(!noteEnds.isEmpty()||!bookmarkStarts.isEmpty()){
+            int[] notes=new int[noteEnds.size()],marks=new int[bookmarkStarts.size()];
+            for(int i=0;i<notes.length;i++)notes[i]=noteEnds.get(i);
+            for(int i=0;i<marks.length;i++)marks[i]=bookmarkStarts.get(i);
+            holder.span(new ReaderNoteIndicatorSpan(this,UiColorScheme.accent(this),notes,marks),0,holder.content.length());
         }
         if(selectionFrom>=0&&selectionTo>=selectionFrom&&selectionTo<map.size()){
             int a=map.starts[selectionFrom],b=map.ends[selectionTo];
@@ -676,28 +704,57 @@ public class ReaderActivity extends NavigationActivity {
         int[] where=new int[2],rootWhere=new int[2];view.getLocationOnScreen(where);sceneRoot.getLocationOnScreen(rootWhere);
         float x=where[0]-rootWhere[0]+view.getTotalPaddingLeft()+layout.getPrimaryHorizontal(offset);
         float y=where[1]-rootWhere[1]+view.getTotalPaddingTop()+(beginning?layout.getLineTop(line):layout.getLineBottom(line));
+        int[] listOnScreen=new int[2];textList.getLocationOnScreen(listOnScreen);
+        int absoluteY=(int)(y+rootWhere[1]);
+        if(absoluteY<listOnScreen[1]+dp(1)||absoluteY>listOnScreen[1]+textList.getHeight()-dp(1))return null;
         return new float[]{x,y};
     }
     private float[][] selectionPositions(){
         if(selectionFrom<0||selectionTo<selectionFrom)return null;
         return new float[][]{positionForWord(selectionFrom,true),positionForWord(selectionTo,false)};
     }
-    private void moveSelectionHandle(boolean start,float sceneX,float sceneY){
-        if(selectionFrom<0||sceneRoot==null||textList==null)return;
+    /** Moves the dragged endpoint across RecyclerView chunks; swap start/end roles at crossings. */
+    private boolean moveSelectionHandle(boolean start,float sceneX,float sceneY){
+        if(selectionFrom<0||sceneRoot==null||textList==null)return start;
         int[] rootPosition=new int[2],listPosition=new int[2];
         sceneRoot.getLocationOnScreen(rootPosition);textList.getLocationOnScreen(listPosition);
         float x=sceneX+rootPosition[0]-listPosition[0],y=sceneY+rootPosition[1]-listPosition[1];
-        View child=textList.findChildViewUnder(x,y);
-        if(child==null)return;
-        RecyclerView.ViewHolder holder=textList.getChildViewHolder(child);
-        if(!(holder instanceof ChunkAdapter.Holder))return;
-        TextView text=((ChunkAdapter.Holder)holder).value;if(text==null)return;
-        int[] absolute=new int[2];text.getLocationOnScreen(absolute);
-        int word=wordAt((ChunkAdapter.Holder)holder,sceneX+rootPosition[0]-absolute[0],
-            sceneY+rootPosition[1]-absolute[1]);
-        if(word<0)return;
-        if(start)selectionFrom=Math.min(word,selectionTo);else selectionTo=Math.max(word,selectionFrom);
+        if(textList.getHeight()<=0)return start;
+        float clampedY=Math.max(dp(2),Math.min(textList.getHeight()-dp(2),y));
+        View child=textList.findChildViewUnder(Math.max(dp(1),Math.min(textList.getWidth()-dp(2),x)),clampedY);
+        if(child==null)return start;
+        RecyclerView.ViewHolder raw=textList.getChildViewHolder(child);
+        if(!(raw instanceof ChunkAdapter.Holder))return start;
+        ChunkAdapter.Holder holder=(ChunkAdapter.Holder)raw;
+        TextView line=holder.value;if(line==null)return start;
+        int[] absolute=new int[2];line.getLocationOnScreen(absolute);
+        int word=wordAt(holder,sceneX+rootPosition[0]-absolute[0],
+            clampedY+listPosition[1]-absolute[1]);
+        if(word<0)return start;
+        if(start){
+            if(word>selectionTo){selectionFrom=selectionTo;selectionTo=word;start=false;}
+            else selectionFrom=word;
+        }else{
+            if(word<selectionFrom){selectionTo=selectionFrom;selectionFrom=word;start=true;}
+            else selectionTo=word;
+        }
         dismissSelectionMenu();updateVisibleAnnotations();
+        if(selectionHandles!=null)selectionHandles.invalidate();
+        return start;
+    }
+    /** Called once per animation frame only while the user is holding a selection handle. */
+    private boolean autoScrollSelection(boolean start,float sceneX,float sceneY){
+        if(!selectionDragging||sceneRoot==null||textList==null)return false;
+        int[] rootPos=new int[2],listPos=new int[2];sceneRoot.getLocationOnScreen(rootPos);
+        textList.getLocationOnScreen(listPos);
+        float y=sceneY+rootPos[1]-listPos[1];
+        int edge=dp(62),height=textList.getHeight();if(height<=edge*2)return false;
+        int delta=0;
+        if(y<edge){delta=-Math.max(dp(2),Math.min(dp(24),Math.round((edge-y)/5f)));}
+        else if(y>height-edge){delta=Math.max(dp(2),Math.min(dp(24),Math.round((y-(height-edge))/5f)));}
+        if(delta==0||!textList.canScrollVertically(delta>0?1:-1))return false;
+        textList.scrollBy(0,delta);
+        return true;
     }
     private void showSelectionMenu(){
         dismissSelectionMenu();if(selectionFrom<0||sceneRoot==null)return;
@@ -728,12 +785,14 @@ public class ReaderActivity extends NavigationActivity {
         selectionPopup=new PopupWindow(actionScroll,width,height,false);
         selectionPopup.setBackgroundDrawable(shape(panelColor(),13));selectionPopup.setOutsideTouchable(true);
         selectionPopup.setElevation(dp(10));
-        float[][] positions=selectionPositions();float[] begin=positions==null?null:positions[0];
+        float[][] positions=selectionPositions();
+        float[] begin=positions==null?null:(positions[0]!=null?positions[0]:positions[1]);
+        if(begin==null){selectionPopup=null;return;}
         int[] screen=new int[2];sceneRoot.getLocationOnScreen(screen);
-        int x=(int)(screen[0]+(begin==null?sceneRoot.getWidth()/2:begin[0])-width/2);
+        int x=(int)(screen[0]+begin[0]-width/2);
         x=Math.max(0,Math.min(getResources().getDisplayMetrics().widthPixels-width,x));
-        int y=(int)(screen[1]+(begin==null?dp(130):begin[1])-height-dp(16));
-        if(y<dp(20))y=(int)(screen[1]+(begin==null?dp(130):begin[1])+dp(32));
+        int y=(int)(screen[1]+begin[1]-height-dp(16));
+        if(y<dp(20))y=(int)(screen[1]+begin[1]+dp(32));
         selectionPopup.showAtLocation(sceneRoot,Gravity.NO_GRAVITY,x,y);
     }
     private String selectedText(){
@@ -837,6 +896,34 @@ public class ReaderActivity extends NavigationActivity {
         }
         return found;
     }
+    private java.util.ArrayList<ReaderBookmarks.Item> bookmarksAtLine(ChunkAdapter.Holder holder,float localY){
+        java.util.ArrayList<ReaderBookmarks.Item> found=new java.util.ArrayList<>();
+        if(holder.value==null||holder.value.getLayout()==null||map.size()==0)return found;
+        int row=holder.getBindingAdapterPosition()-1;
+        if(row<0||chunks==null||row>=chunks.size())return found;
+        BookChunkIndex.Chunk chunk=chunks.get(row);android.text.Layout layout=holder.value.getLayout();
+        int line=layout.getLineForVertical(Math.max(0,(int)localY-holder.value.getTotalPaddingTop()));
+        for(ReaderBookmarks.Item mark:bookmarkItems){
+            if(mark.word<0||mark.word>=map.size())continue;
+            int anchor=map.starts[mark.word];
+            if(anchor<chunk.startChar||anchor>=chunk.endChar)continue;
+            int offset=Math.max(0,Math.min(holder.value.length()-1,anchor-chunk.startChar));
+            if(layout.getLineForOffset(offset)==line)found.add(mark);
+        }
+        return found;
+    }
+    private void showBookmarkChoices(java.util.List<ReaderBookmarks.Item> marks){
+        if(marks.isEmpty())return;
+        ReaderBookmarks.Item chosen=marks.get(0);
+        String excerpt=chosen.excerpt==null||chosen.excerpt.isEmpty()?"Закладка":chosen.excerpt;
+        new SwipeDialogs.Builder(this).setTitle("Закладка").setMessage(excerpt)
+            .setPositiveButton("Перейти",(dialog,which)->browseToWord(chosen.word))
+            .setNeutralButton("Удалить",(dialog,which)->{
+                ArrayList<ReaderBookmarks.Item> all=ReaderBookmarks.list(this,docUri);
+                all.removeIf(b->b.word==chosen.word);ReaderBookmarks.store(this,docUri,all);
+                bookmarkItems=ReaderBookmarks.list(this,docUri);updateVisibleAnnotations();
+            }).setNegativeButton("Отмена",null).show();
+    }
     private void showNoteChoices(java.util.List<ReaderAnnotationsStore.Annotation> candidates,View anchor,float localY){
         if(candidates.isEmpty())return;
         if(candidates.size()==1){openAnnotationById(candidates.get(0).id);return;}
@@ -857,7 +944,7 @@ public class ReaderActivity extends NavigationActivity {
             int shade=note.color!=0?UiColorScheme.blend(panelColor(),note.color,.18f):UiColorScheme.blend(panelColor(),fg,.07f);
             tile.setBackground(shape(shade,12));
             ImageView icon=new ImageView(this);icon.setImageResource(R.drawable.ic_reader_selection_note);
-            icon.setColorFilter(contrast(shade));tile.addView(icon,new LinearLayout.LayoutParams(dp(19),dp(19)));
+            icon.setColorFilter(accent());tile.addView(icon,new LinearLayout.LayoutParams(dp(19),dp(19)));
             TextView text=text(note.note,12);text.setTextColor(contrast(shade));text.setMaxLines(3);
             text.setEllipsize(TextUtils.TruncateAt.END);tile.addView(text);
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(dp(145),dp(82));lp.rightMargin=dp(6);items.addView(tile,lp);
@@ -932,7 +1019,9 @@ public class ReaderActivity extends NavigationActivity {
                 return new Holder(headerSlot);}
             TextView item=text("",Math.max(12,(int)(size*.60f)));item.setTypeface(type());
             item.setLineSpacing(dp(Math.max(8,size/3)),1.12f);
-            item.setPadding(dp(14),dp(7),dp(35),dp(7));
+            // Reserve a constant left gutter for annotations; total horizontal padding
+            // stays 49 dp as before, preserving line wrapping regardless of marks.
+            item.setPadding(dp(24),dp(7),dp(25),dp(7));
             item.setLayoutParams(new RecyclerView.LayoutParams(-1,-2));
             Holder holder=new Holder(item);
             // Consume DOWN in selection mode so Android delivers UP for word tapping;
@@ -945,13 +1034,15 @@ public class ReaderActivity extends NavigationActivity {
                     touchMoved=false;selectionLongPressed=false;
                     cancelPendingLongPress();
                     final float x=event.getX(),y=event.getY();
-                    pendingLongPress=()->{
-                        if(touchMoved||textList==null||textList.getScrollState()!=RecyclerView.SCROLL_STATE_IDLE)return;
-                        int word=wordAt(holder,x,y);
-                        if(word>=0){selectionLongPressed=true;item.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
-                            beginTextSelection(word);}
-                    };
-                    handler.postDelayed(pendingLongPress,ViewConfiguration.getLongPressTimeout());
+                    if(x>dp(26)){
+                        pendingLongPress=()->{
+                            if(touchMoved||textList==null||textList.getScrollState()!=RecyclerView.SCROLL_STATE_IDLE)return;
+                            int word=wordAt(holder,x,y);
+                            if(word>=0){selectionLongPressed=true;item.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                                beginTextSelection(word);}
+                        };
+                        handler.postDelayed(pendingLongPress,ViewConfiguration.getLongPressTimeout());
+                    }
                     return true;
                 }
                 if(action==MotionEvent.ACTION_MOVE){
@@ -966,9 +1057,19 @@ public class ReaderActivity extends NavigationActivity {
                 cancelPendingLongPress();
                 if(selectionLongPressed||touchMoved||event.getEventTime()-touchDownTime>=ViewConfiguration.getLongPressTimeout())return true;
                 if(selectionFrom>=0){clearSelection();return true;}
-                if(event.getX()>=item.getWidth()-dp(47)){
+                if(event.getX()<=dp(26)){
                     java.util.ArrayList<ReaderAnnotationsStore.Annotation> onLine=notesAtLine(holder,event.getY());
+                    java.util.ArrayList<ReaderBookmarks.Item> marks=bookmarksAtLine(holder,event.getY());
+                    if(!onLine.isEmpty()&&!marks.isEmpty()){
+                        new SwipeDialogs.Builder(ReaderActivity.this).setTitle("Отметки в строке")
+                            .setItems(new String[]{"Заметки ("+onLine.size()+")","Закладка"},(dialog,which)->{
+                                if(which==0)showNoteChoices(onLine,item,event.getY());
+                                else showBookmarkChoices(marks);
+                            }).setNegativeButton("Отмена",null).show();
+                        return true;
+                    }
                     if(!onLine.isEmpty()){showNoteChoices(onLine,item,event.getY());return true;}
+                    if(!marks.isEmpty()){showBookmarkChoices(marks);return true;}
                 }
                 boolean selectingWord=(mode==CURSOR)||(mode==NORMAL&&selecting)||(mode==RSVP&&!playing)||(mode==TTS);
                 int tapped=wordAt(holder,event.getX(),event.getY());if(tapped<0)return true;
@@ -1614,13 +1715,15 @@ public class ReaderActivity extends NavigationActivity {
     }
     private void bookmarkSelection(){
         if(selectionFrom<0||selectionTo<selectionFrom||docUri.isEmpty())return;
+        ReaderBookmarkSentences.Range selected=ReaderBookmarkSentences.choose(
+            selectionFrom,selectionTo,map.size(),ttsSentenceIndex);
         ReaderBookmarks.Item item=new ReaderBookmarks.Item();
-        item.word=selectionFrom;item.created=System.currentTimeMillis();
-        item.chapter=chapterTitleForWord(selectionFrom);
-        String excerpt=selectedText().replaceAll("\\s+"," ").trim();
-        item.excerpt=excerpt.length()>500?excerpt.substring(0,500)+"…":excerpt;
+        item.word=selected.from;item.endWord=selected.to+1;item.created=System.currentTimeMillis();
+        item.chapter=chapterTitleForWord(selected.from);
+        item.excerpt=ReaderBookmarkSentences.excerpt(body,map,selected);
         item.title="Закладка";
         ReaderBookmarks.add(this,docUri,item);
+        bookmarkItems=ReaderBookmarks.list(this,docUri);
         Toast.makeText(this,"Закладка добавлена",Toast.LENGTH_SHORT).show();clearSelection();
     }
     private void showBookmarks(){openMarks(false);}
@@ -1670,6 +1773,10 @@ public class ReaderActivity extends NavigationActivity {
                 ReaderDiagnosticLog.event("ANNOTATIONS","manager_refresh_failed type="+ex.getClass().getSimpleName());
             }
         }
+        if(req==12210&&!docUri.isEmpty()){
+            bookmarkItems=ReaderBookmarks.list(this,docUri);
+            updateVisibleAnnotations();
+        }
         if(req==12210&&result==RESULT_OK&&data!=null&&data.hasExtra("word_index")&&words.length>0){
             int at=map.clamp(data.getIntExtra("word_index",0)),old=index;
             abandonViewportPreview();selectedWordActive=true;
@@ -1718,6 +1825,7 @@ public class ReaderActivity extends NavigationActivity {
                 actualChapters=parsedChapters==null?BookChapterIndex.empty():parsedChapters;
                 chapters=parsedChapters!=null&&parsedChapters.size()>0?parsedChapters:BookChapterIndex.empty();
                 ttsParts=session.speechSegments;ttsSentenceIndex=session.sentenceIndex;docUri=uri.toString();
+                bookmarkItems=ReaderBookmarks.list(this,docUri);
                 prefs.edit().putString("book_title:"+docUri,title)
                     .putString("book_author:"+docUri,author)
                     .putInt("book_words:"+docUri,words.length).apply();
