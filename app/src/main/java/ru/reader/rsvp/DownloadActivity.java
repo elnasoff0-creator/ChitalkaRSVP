@@ -938,6 +938,8 @@ public final class DownloadActivity extends NavigationActivity {
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
         if(EdgeFolderPicker.accept(this,request,result,data))return;
+        if(DownloadFolderPicker.receive(this,request,result,data,
+            DownloadFolderPicker.RANOBE_REQUEST,DownloadFolderPicker.BOOK)){refresh();return;}
         if(request==EDGE_AUDIOBOOK_REQUEST){
             DownloadsRepository.Item selected=pendingEdgeAudiobook;pendingEdgeAudiobook=null;
             if(result!=RESULT_OK||data==null||data.getData()==null||selected==null)return;

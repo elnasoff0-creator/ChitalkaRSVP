@@ -97,15 +97,27 @@ public final class MangaLibDownloadWorker extends Worker {
             return imageCount>0;
         }catch(IOException error){return false;}
     }
-    /** Export is optional: a SAF failure must not invalidate a verified local CBZ. */
-    private static void exportToSelectedFolder(Context ctx,File output,MangaLibStorage.Job job){
+    /** The source CBZ is cached until a verified destination URI is persisted. */
+    private static String exportToSelectedFolder(Context ctx,File output,MangaLibStorage.Job job)throws IOException{
+        return DownloadFolderPicker.exportFile(ctx,DownloadFolderPicker.MANGA,output,
+            MangaLibStorage.safe(job.series)+"__"+MangaLibStorage.safe(job.slug),
+            "Том "+MangaLibStorage.safe(job.volume)).toString();
+    }
+    private static void exportCover(Context ctx,MangaLibStorage.Job job){
         try{
-            DownloadFolderPicker.export(ctx,DownloadFolderPicker.MANGA,output,
-                MangaLibStorage.safe(job.series),"Том "+MangaLibStorage.safe(job.volume));
-        }catch(IOException error){
-            android.util.Log.w("MangaLibDownloadWorker",
-                "Не удалось скопировать CBZ в выбранную папку; локальная глава сохранена",error);
-        }
+            File source=MangaDownloadCover.file(ctx,job.slug);
+            if(!source.isFile()||source.length()==0)return;
+            File dir=new File(ctx.getCacheDir(),"manga_saf_cover_"+MangaLibStorage.safe(job.slug));
+            if(!dir.isDirectory()&&!dir.mkdirs())throw new IOException("Нельзя подготовить обложку");
+            File file=new File(dir,"cover.jpg");
+            try(java.io.InputStream in=new java.io.FileInputStream(source);
+                java.io.OutputStream out=new FileOutputStream(file)){
+                byte[] bytes=new byte[32768];int n;while((n=in.read(bytes))!=-1)out.write(bytes,0,n);
+            }
+            DownloadFolderPicker.exportFile(ctx,DownloadFolderPicker.MANGA,file,
+                MangaLibStorage.safe(job.series)+"__"+MangaLibStorage.safe(job.slug));
+            file.delete();
+        }catch(IOException error){DownloadFolderPicker.recordIssue(ctx,DownloadFolderPicker.MANGA,error);}
     }
     @NonNull @Override public Result doWork(){
         Context ctx=getApplicationContext();String id=getInputData().getString(JOB_ID);
@@ -116,9 +128,14 @@ public final class MangaLibDownloadWorker extends Worker {
         File output=MangaLibStorage.chapterFile(ctx,job);
         File part=new File(output.getAbsolutePath()+".part");
         if(completeArchive(output)){
-            exportToSelectedFolder(ctx,output,job);
-            job.file=output.getAbsolutePath();update(job,"complete","");
-            MangaLibStorage.registerComic(ctx,job);MangaDownloadCover.ensure(ctx,job);return Result.success();
+            try{
+                job.file=exportToSelectedFolder(ctx,output,job);update(job,"complete","");
+                MangaLibStorage.registerComic(ctx,job);MangaDownloadCover.ensure(ctx,job);exportCover(ctx,job);
+                return Result.success();
+            }catch(IOException error){
+                update(job,"failed","CBZ сохранён в кэше, но папка Manga недоступна: "+error.getMessage());
+                return Result.failure();
+            }
         }
         update(job,"running","");
         try{setForegroundAsync(foreground(job));}catch(Exception ignored){}
@@ -177,10 +194,10 @@ public final class MangaLibDownloadWorker extends Worker {
             }
             if(output.exists()&&!output.delete())throw new IOException("Невозможно заменить CBZ");
             if(!part.renameTo(output))throw new IOException("Невозможно сохранить CBZ");
-            exportToSelectedFolder(ctx,output,job);
-            job.file=output.getAbsolutePath();update(job,"complete","");
-            MangaLibStorage.clearStage(stage);
-            MangaLibStorage.registerComic(ctx,job);MangaDownloadCover.ensure(ctx,job);return Result.success();
+            job.file=exportToSelectedFolder(ctx,output,job);
+            update(job,"complete","");MangaLibStorage.clearStage(stage);
+            MangaLibStorage.registerComic(ctx,job);MangaDownloadCover.ensure(ctx,job);exportCover(ctx,job);
+            return Result.success();
         }catch(MangaLibApi.AccessException denied){
             part.delete();update(job,"blocked",denied.getMessage());return Result.failure();
         }catch(Exception error){

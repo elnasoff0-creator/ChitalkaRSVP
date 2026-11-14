@@ -679,11 +679,11 @@ public class ReaderActivity extends NavigationActivity {
             int anchor=map.starts[mark.word];
             if(anchor>=first&&anchor<last)bookmarkStarts.add(anchor-first);
         }
-        if(!noteEnds.isEmpty()||!bookmarkStarts.isEmpty()){
+        if(holder.value instanceof ReaderMarginMarksTextView){
             int[] notes=new int[noteEnds.size()],marks=new int[bookmarkStarts.size()];
             for(int i=0;i<notes.length;i++)notes[i]=noteEnds.get(i);
             for(int i=0;i<marks.length;i++)marks[i]=bookmarkStarts.get(i);
-            holder.span(new ReaderNoteIndicatorSpan(this,UiColorScheme.accent(this),notes,marks),0,holder.content.length());
+            ((ReaderMarginMarksTextView)holder.value).setIndicators(notes,marks,UiColorScheme.accent(this));
         }
         if(selectionFrom>=0&&selectionTo>=selectionFrom&&selectionTo<map.size()){
             int a=map.starts[selectionFrom],b=map.ends[selectionTo];
@@ -817,11 +817,43 @@ public class ReaderActivity extends NavigationActivity {
     }
     private void openAnnotationById(long id){
         for(ReaderAnnotationsStore.Annotation annotation:annotations)if(annotation.id==id){
-            focusedNoteId=annotation.id;
-            selectionFrom=annotation.fromWord;selectionTo=annotation.toWord-1;
-            updateVisibleAnnotations();editSelectedNote();return;
+            // Browsing an existing note is NOT a text-selection gesture.
+            clearSelection();
+            editExistingNote(annotation);
+            return;
         }
         Toast.makeText(this,"Заметка не найдена",Toast.LENGTH_SHORT).show();
+    }
+    private void editExistingNote(ReaderAnnotationsStore.Annotation annotation){
+        LinearLayout layout=column();layout.setPadding(dp(18),dp(8),dp(18),0);
+        TextView quote=text(annotation.excerpt,13);quote.setMaxLines(4);
+        quote.setPadding(dp(4),dp(7),dp(4),dp(7));add(layout,quote);
+        EditText editor=new EditText(this);editor.setMinLines(3);editor.setMaxLines(8);
+        editor.setTextColor(fg);editor.setHint("Текст заметки");editor.setText(annotation.note);add(layout,editor);
+        AlertDialog dialog=new SwipeDialogs.Builder(this).setTitle("Заметка к тексту")
+            .setView(layout).setNegativeButton("Отмена",null)
+            .setPositiveButton("Сохранить",(d,w)->{
+                ReaderAnnotationsStore.Annotation revised=new ReaderAnnotationsStore.Annotation(
+                    annotation.id,annotation.book,annotation.fromWord,annotation.toWord,
+                    annotation.excerpt,annotation.context,annotation.color,editor.getText().toString());
+                try{
+                    if(annotationStore==null)annotationStore=new ReaderAnnotationsStore(this);
+                    annotationStore.save(revised);annotations=annotationStore.load(bookAnnotationId());
+                    updateVisibleAnnotations();
+                }catch(Exception error){Toast.makeText(this,"Не удалось сохранить: "+error.getMessage(),Toast.LENGTH_LONG).show();}
+            }).setNeutralButton("Удалить",(d,w)->{
+                try{
+                    if(annotationStore==null)annotationStore=new ReaderAnnotationsStore(this);
+                    annotationStore.delete(annotation.id,annotation.book);
+                    annotations=annotationStore.load(bookAnnotationId());updateVisibleAnnotations();
+                }catch(Exception error){Toast.makeText(this,"Не удалось удалить: "+error.getMessage(),Toast.LENGTH_LONG).show();}
+            }).create();
+        dialog.setOnDismissListener(d->{
+            // No selection handles may survive dismissal of the note editor.
+            if(selectionFrom>=0)clearSelection();
+        });
+        dialog.show();
+        if(dialog.getWindow()!=null)dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
     }
     private void saveSelectionAnnotation(int color,String note){
         if(selectionFrom<0)return;
@@ -870,7 +902,9 @@ public class ReaderActivity extends NavigationActivity {
         if(old!=null)build.setNeutralButton("Удалить",(d,w)->{
             if(annotationStore==null)annotationStore=new ReaderAnnotationsStore(this);
             annotationStore.delete(old.id,bookAnnotationId());annotations=annotationStore.load(bookAnnotationId());clearSelection();});
-        AlertDialog dialog=build.create();dialog.show();
+        AlertDialog dialog=build.create();
+        dialog.setOnDismissListener(d->{if(selectionFrom>=0)clearSelection();});
+        dialog.show();
         if(dialog.getWindow()!=null)dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
     }
     private void dictionarySelected(){
@@ -1017,7 +1051,8 @@ public class ReaderActivity extends NavigationActivity {
             if(type==1){FrameLayout headerSlot=new FrameLayout(ReaderActivity.this);
                 headerSlot.setLayoutParams(new RecyclerView.LayoutParams(-1,-2));
                 return new Holder(headerSlot);}
-            TextView item=text("",Math.max(12,(int)(size*.60f)));item.setTypeface(type());
+            ReaderMarginMarksTextView item=new ReaderMarginMarksTextView(ReaderActivity.this);
+            item.setTextSize(Math.max(12,(int)(size*.60f)));item.setTextColor(fg);item.setTypeface(type());
             item.setLineSpacing(dp(Math.max(8,size/3)),1.12f);
             // Reserve a constant left gutter for annotations; total horizontal padding
             // stays 49 dp as before, preserving line wrapping regardless of marks.

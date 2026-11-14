@@ -165,7 +165,37 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         info("Автор:",i.author);info("Читает:",i.narrator);info("Формат:",i.format);
         info("Главы / файлы:",i.done+" / "+i.total);info("Загружено:",human(i.downloadedBytes));
         info("Состояние:",i.status);if(!i.description.isEmpty())info("Описание:",i.description);
-        if(i.folder!=null)info("Папка:",i.folder.getAbsolutePath());}
+        String category=storageCategory(i);
+        if(category!=null){
+            info("Папка SAF:",DownloadFolderPicker.summary(this,category));
+            TextView configure=button("Изменить папку "+DownloadFolderPicker.label(category),()->
+                DownloadFolderPicker.choose(this,storageRequest(category),category));
+            add(content,configure,8);
+            String issue=DownloadFolderPicker.lastIssue(this,category);
+            if(!issue.isEmpty())info("Последняя ошибка записи:",issue);
+        }
+        if(i.folder!=null)info("Временный кэш:",i.folder.getAbsolutePath());
+    }
+    private static String storageCategory(DownloadsRepository.Item item){
+        if(DownloadsRepository.AUDIO.equals(item.type))return DownloadFolderPicker.AUDIO;
+        if(DownloadsRepository.MANGA.equals(item.type))return DownloadFolderPicker.MANGA;
+        if(DownloadsRepository.RANOBE.equals(item.type)||DownloadsRepository.RANOBES.equals(item.type)
+            ||DownloadsRepository.EDGE.equals(item.type))return DownloadFolderPicker.BOOK;
+        return null;
+    }
+    private static int storageRequest(String category){
+        if(DownloadFolderPicker.AUDIO.equals(category))return DownloadFolderPicker.AUDIO_REQUEST;
+        if(DownloadFolderPicker.MANGA.equals(category))return DownloadFolderPicker.MANGA_REQUEST;
+        return DownloadFolderPicker.BOOK_REQUEST;
+    }
+    @Override protected void onActivityResult(int request,int result,Intent data){
+        super.onActivityResult(request,result,data);
+        if(DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.BOOK_REQUEST,DownloadFolderPicker.BOOK)
+            ||DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.MANGA_REQUEST,DownloadFolderPicker.MANGA)
+            ||DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.AUDIO_REQUEST,DownloadFolderPicker.AUDIO)){
+            EdgeChapterArchive.invalidate();render();
+        }
+    }
     private void showCover(DownloadsRepository.Item i){ImageView img=new ImageView(this);img.setScaleType(ImageView.ScaleType.FIT_CENTER);
         LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(290));p.topMargin=dp(15);content.addView(img,p);
         if(i.cover.isEmpty()){

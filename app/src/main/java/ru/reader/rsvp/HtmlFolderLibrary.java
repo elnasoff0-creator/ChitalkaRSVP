@@ -313,9 +313,14 @@ final class HtmlFolderLibrary {
             if(tree.toString().equals(existing.optString("sourceTree",""))
                     &&(book.isFile()||!remote.isEmpty())){
                 JSONArray chapters=existing.optJSONArray("chapters");
-                return new Result(remote.isEmpty()?Uri.fromFile(book).toString():remote,
+                Result found=new Result(remote.isEmpty()?Uri.fromFile(book).toString():remote,
                     existing.optString("title","Книга из HTML"),
                     chapters==null?0:chapters.length(),false);
+                if(remote.isEmpty()&&DownloadFolderPicker.available(c,DownloadFolderPicker.BOOK)){
+                    try{return publishUnderBook(c,tree,local,found);}
+                    catch(IOException error){DownloadFolderPicker.recordIssue(c,DownloadFolderPicker.BOOK,error);}
+                }
+                return found;
             }
             return sync(c,tree);
         }
@@ -362,6 +367,10 @@ final class HtmlFolderLibrary {
             catch(Exception error){android.util.Log.w("HtmlFolderLibrary","Cover import",error);}
         }
         String uri=external?externalUri:Uri.fromFile(book).toString();
+        if(!external&&DownloadFolderPicker.available(ctx,DownloadFolderPicker.BOOK)){
+            try{uri=publishUnderBook(ctx,tree,local,new Result(uri,title,scan.html.size(),true)).uri;}
+            catch(IOException error){DownloadFolderPicker.recordIssue(ctx,DownloadFolderPicker.BOOK,error);}
+        }
         MainActivity.invalidateBookCover(uri);
         // Only an EXPLICIT import invalidates the prepared reader. No auto-sync.
         ReaderBookCache.invalidate(ctx,Uri.parse(uri));
@@ -369,6 +378,22 @@ final class HtmlFolderLibrary {
         // After migration keep the verified external copy; local temporary HTML is removable.
         if(external)book.delete();
         return new Result(uri,title,scan.html.size(),true);
+    }
+    /** Publish the assembled HTML and all linked images before changing its library identity. */
+    private static Result publishUnderBook(Context ctx,Uri sourceTree,File local,Result result)throws IOException{
+        File document=new File(local,"book.html");
+        if(!document.isFile())return result;
+        String child="ImportedHTML_"+local.getName();
+        File assets=new File(local,"assets");
+        File[] pictures=assets.listFiles();
+        if(pictures!=null)for(File picture:pictures)if(picture.isFile()&&!picture.getName().endsWith(".part"))
+            DownloadFolderPicker.exportFile(ctx,DownloadFolderPicker.BOOK,picture,child,"assets");
+        Uri published=DownloadFolderPicker.exportFile(ctx,DownloadFolderPicker.BOOK,document,child);
+        Uri tree=DownloadFolderPicker.selected(ctx,DownloadFolderPicker.BOOK);
+        rememberTransfer(ctx,result.uri,published.toString(),tree,child);
+        if(!result.uri.equals(published.toString()))try{BookUriMigration.text(ctx,result.uri,published.toString());}
+            catch(IOException notRegisteredYet){android.util.Log.i("HtmlFolderLibrary","New import not registered yet",notRegisteredYet);}
+        return new Result(published.toString(),result.title,result.chapterCount,result.updated);
     }
     static boolean manages(Context c,String bookUri){return localFolder(c,bookUri)!=null;}
     static void rememberTransfer(Context ctx,String oldUri,String newUri,Uri destination,String childName)throws IOException{

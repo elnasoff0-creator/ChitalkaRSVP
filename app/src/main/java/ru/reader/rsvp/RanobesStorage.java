@@ -18,7 +18,7 @@ import java.util.HashSet;
 
 /** Durable independent Ranobes chapter cache. One output directory per book/language. */
 final class RanobesStorage {
-    private static final String STORE="ranobes_jobs_v163",TITLES="ranobes_titles_v163";
+    private static final String STORE="ranobes_jobs_v163",TITLES="ranobes_titles_v163",PUBLISHED="ranobes_published_v165";
     static final class Job {
         String bookId="",language="en",bookUrl="",bookTitle="",author="",cover="",chapterId="",chapterUrl="",title="",volume="1",status="queued",error="",file="";
         int index;long bytes;
@@ -85,9 +85,25 @@ final class RanobesStorage {
             DocumentFile dir=root.findFile(safeOutputDir(key));return dir==null?null:dir.findFile(name);
         }catch(Exception ignored){return null;}
     }
+    /** A changed Book folder must not silently orphan the last successful SAF copy. */
+    private static String previousPublished(Context c,String key){
+        String value=c.getSharedPreferences(PUBLISHED,0).getString(key,"");
+        if(!value.startsWith("content://"))return "";
+        try{
+            DocumentFile doc=DocumentFile.fromSingleUri(c,Uri.parse(value));
+            return doc!=null&&doc.isFile()&&doc.length()>0?value:"";
+        }catch(Exception unavailable){return "";}
+    }
     static boolean hasBook(Context c,String key){if(!validKey(key))return false;
-        DocumentFile ext=externalBook(c,key,"book.html");return (ext!=null&&ext.isFile()&&ext.length()>0)||book(c,key).isFile();}
-    static String bookUri(Context c,String key){DocumentFile ext=externalBook(c,key,"book.html");return ext!=null&&ext.isFile()?ext.getUri().toString():Uri.fromFile(book(c,key)).toString();}
+        DocumentFile ext=externalBook(c,key,"book.html");
+        return (ext!=null&&ext.isFile()&&ext.length()>0)||!previousPublished(c,key).isEmpty()||book(c,key).isFile();
+    }
+    static String bookUri(Context c,String key){
+        DocumentFile ext=externalBook(c,key,"book.html");
+        if(ext!=null&&ext.isFile()&&ext.length()>0)return ext.getUri().toString();
+        String previous=previousPublished(c,key);
+        return !previous.isEmpty()?previous:Uri.fromFile(book(c,key)).toString();
+    }
     static String coverUri(Context c,String key){File file=cover(c,key);if(file.isFile())return Uri.fromFile(file).toString();
         DocumentFile ext=externalBook(c,key,"cover.jpg");if(ext!=null&&ext.isFile())return ext.getUri().toString();
         String id=validKey(key)?key.split(":")[0]:"";return coverSource(c,id);
@@ -131,15 +147,32 @@ final class RanobesStorage {
             atomic(new File(folder(c,key),"book.json"),meta.toString(2).getBytes(StandardCharsets.UTF_8));
         }catch(Exception ignored){android.util.Log.w("RanobesStorage","Could not write metadata");}
         String name=safeOutputDir(key);
-        // All Ranobes and RanobeLIB downloads use the same category-level SAF path.
-        // The local completed book is authoritative. A missing / write-protected
-        // SD card must not prevent adding the local HTML to the library.
+        // A verified user-selected Book SAF file becomes the canonical book URI.
+        String previous=bookUri(c,key);
         try{
-            DownloadFolderPicker.export(c,DownloadFolderPicker.RANOBE,book,name);
-            if(cover(c,key).isFile())DownloadFolderPicker.export(c,DownloadFolderPicker.RANOBE,cover(c,key),name);
+            for(Job job:available){
+                File chapter=chapter(c,job);
+                if(chapter.isFile())DownloadFolderPicker.exportFile(c,DownloadFolderPicker.BOOK,
+                    chapter,name,"chapters");
+            }
+            if(cover(c,key).isFile())DownloadFolderPicker.exportFile(c,DownloadFolderPicker.BOOK,cover(c,key),name);
             File meta=new File(folder(c,key),"book.json");
-            if(meta.isFile())DownloadFolderPicker.export(c,DownloadFolderPicker.RANOBE,meta,name);
-        }catch(IOException exportError){android.util.Log.w("RanobesStorage","SAF export postponed",exportError);}
+            if(meta.isFile())DownloadFolderPicker.exportFile(c,DownloadFolderPicker.BOOK,meta,name);
+            Uri completed=DownloadFolderPicker.exportFile(c,DownloadFolderPicker.BOOK,book,name);
+            String published=completed.toString();
+            if(!c.getSharedPreferences(PUBLISHED,0).edit().putString(key,published).commit())
+                throw new IOException("Не сохранён итоговый адрес Ranobes-книги");
+            if(!previous.equals(published)&&published.startsWith("content://")){
+                try{BookUriMigration.text(c,previous,published);}
+                catch(IOException error){android.util.Log.i("RanobesStorage","No old library identity to migrate",error);}
+            }
+            for(Job ready:available)if(ready.error.startsWith("Сохранено только во внутреннем кэше")){
+                ready.error="";put(c,ready);
+            }
+        }catch(IOException exportError){
+            DownloadFolderPicker.recordIssue(c,DownloadFolderPicker.BOOK,exportError);
+            // Retain local chapters for an explicit SAF retry; never lose downloaded text.
+        }
         register(c,key,display,first.author);
         ReaderBookCache.invalidate(c,Uri.parse(bookUri(c,key)));
     }

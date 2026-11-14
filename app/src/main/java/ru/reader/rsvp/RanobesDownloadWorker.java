@@ -42,10 +42,15 @@ public final class RanobesDownloadWorker extends Worker {
             if("ru".equals(job.language))html=RanobesTranslate.toRussian(html);
             if(stopped(c,job)||isStopped())return Result.success();
             RanobesStorage.saveChapter(c,job,html);
-            try{DownloadFolderPicker.export(c,DownloadFolderPicker.RANOBE,RanobesStorage.chapter(c,job),
-                RanobesStorage.safeOutputDir(job.sourceKey()),"volumes","v"+job.volume);
-            }catch(IOException writeError){android.util.Log.w("RanobesWorker","Chapter exported locally; SAF copy postponed",writeError);}
-            save(c,job,"complete","");
+            String publicationIssue="";
+            try{DownloadFolderPicker.exportFile(c,DownloadFolderPicker.BOOK,RanobesStorage.chapter(c,job),
+                RanobesStorage.safeOutputDir(job.sourceKey()),"chapters");
+            }catch(IOException writeError){
+                DownloadFolderPicker.recordIssue(c,DownloadFolderPicker.BOOK,writeError);
+                publicationIssue="Сохранено только во внутреннем кэше. Book: "+writeError.getMessage();
+            }
+            // Narrative is valid, but the SAF export error must stay visible to the user.
+            save(c,job,"complete",publicationIssue);
             refresh(c,job.sourceKey());return Result.success();
         }catch(Exception e){if(stopped(c,job)||isStopped())return Result.success();
             String message=e.getMessage()==null?"Ошибка обработки главы":e.getMessage();

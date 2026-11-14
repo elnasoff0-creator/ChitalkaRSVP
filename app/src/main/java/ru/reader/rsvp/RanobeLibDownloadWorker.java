@@ -105,7 +105,10 @@ public final class RanobeLibDownloadWorker extends Worker {
             String directory=display+"__"+slug.substring(0,slug.indexOf("--"));
             DownloadFolderPicker.export(context,tree,RanobeLibStorage.book(context,slug),directory);
             DownloadFolderPicker.export(context,tree,RanobeLibStorage.cover(context,slug),directory);
-        }catch(Exception error){android.util.Log.w("RanobeLibWorker","Rebuild partial HTML",error);}
+        }catch(Exception error){
+            DownloadFolderPicker.recordIssue(context,DownloadFolderPicker.BOOK,
+                error instanceof IOException?(IOException)error:new IOException(error.getMessage(),error));
+        }
     }
     private Result stopResult(RanobeLibStorage.Job j){
         RanobeLibStorage.Job now=RanobeLibStorage.find(getApplicationContext(),j.id());

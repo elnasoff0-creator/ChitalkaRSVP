@@ -12,7 +12,7 @@ final class ReaderBookmarks {
     private ReaderBookmarks(){}
     static final class Item {
         int word,endWord;String title="",chapter="",excerpt="";long created;
-        JSONObject json(){JSONObject o=new JSONObject();try{o.put("word",word).put("title",title).put("chapter",chapter).put("excerpt",excerpt).put("created",created);}catch(Exception ignored){}return o;}
+        JSONObject json(){JSONObject o=new JSONObject();try{o.put("word",word).put("endWord",endWord).put("title",title).put("chapter",chapter).put("excerpt",excerpt).put("created",created);}catch(Exception ignored){}return o;}
         static Item from(JSONObject o){Item b=new Item();b.word=o.optInt("word",0);b.endWord=Math.max(b.word+1,o.optInt("endWord",b.word+1));b.title=o.optString("title","");b.chapter=o.optString("chapter","");b.excerpt=o.optString("excerpt","");b.created=o.optLong("created",0);return b;}
     }
     static ArrayList<Item> list(Context ctx,String uri){SharedPreferences p=ctx.getSharedPreferences("reader",0);ArrayList<Item> out=new ArrayList<>();HashSet<Integer> seen=new HashSet<>();

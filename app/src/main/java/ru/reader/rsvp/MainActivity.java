@@ -102,6 +102,7 @@ public class MainActivity extends NavigationActivity {
     private static final int MOVE_LIBRARY_REQUEST=12558;
     private static final int IMPORT_HTML_FOLDER_REQUEST=15901;
     private String pendingMoveKind="",pendingMoveId="";
+    private Uri pendingBookImport;
     String currentUri = "";
     String title = "";
     String author = "";
@@ -145,7 +146,11 @@ public class MainActivity extends NavigationActivity {
         getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
         prefs = getSharedPreferences("reader", MODE_PRIVATE);
-        if(b!=null){pendingMoveKind=b.getString("move_kind","");pendingMoveId=b.getString("move_id","");}
+        if(b!=null){
+            pendingMoveKind=b.getString("move_kind","");pendingMoveId=b.getString("move_id","");
+            String imported=b.getString("pending_saf_book_import","");
+            if(!imported.isEmpty())pendingBookImport=Uri.parse(imported);
+        }
         loadPrefs();
         // Draw the library immediately. Do not decode and tokenize an entire book
         // merely because it was open in the previous session; ReaderActivity loads
@@ -163,6 +168,7 @@ public class MainActivity extends NavigationActivity {
         super.onSaveInstanceState(state);
         state.putString("move_kind",pendingMoveKind);
         state.putString("move_id",pendingMoveId);
+        if(pendingBookImport!=null)state.putString("pending_saf_book_import",pendingBookImport.toString());
     }
 
     @Override protected void onNewIntent(Intent intent){
@@ -1614,8 +1620,28 @@ public class MainActivity extends NavigationActivity {
         },"library-move-v158").start();
     }
 
+    private void saveImportedBook(Uri source){
+        Toast.makeText(this,"Сохраняем книгу в Book…",Toast.LENGTH_SHORT).show();
+        new Thread(()->{
+            try{
+                Uri finalUri=DownloadFolderPicker.importDocument(getApplicationContext(),DownloadFolderPicker.BOOK,source);
+                runOnUiThread(()->openBook(finalUri.toString(),true,true));
+            }catch(Exception error){runOnUiThread(()->{
+                new SwipeDialogs.Builder(this).setTitle("Не удалось сохранить в Book")
+                    .setMessage(error.getMessage()+"\n\nИсходный файл не изменён. Можно открыть его без копирования.")
+                    .setNegativeButton("Закрыть",null)
+                    .setPositiveButton("Открыть без копирования",(d,w)->openBook(source.toString(),true,true))
+                    .show();
+            });}
+        },"book-saf-import-v165").start();
+    }
     @Override protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
+        if(DownloadFolderPicker.receive(this,req,res,data,DownloadFolderPicker.BOOK_REQUEST,DownloadFolderPicker.BOOK)){
+            Uri book=pendingBookImport;pendingBookImport=null;
+            if(book!=null&&DownloadFolderPicker.available(this,DownloadFolderPicker.BOOK))saveImportedBook(book);
+            return;
+        }
         if(req==MOVE_LIBRARY_REQUEST){finishLibraryMove(req,res,data);return;}
         if(req==IMPORT_HTML_FOLDER_REQUEST){
             if(res==RESULT_OK&&data!=null&&data.getData()!=null){
@@ -1661,10 +1687,18 @@ public class MainActivity extends NavigationActivity {
                 }catch(Exception e){runOnUiThread(()->android.widget.Toast.makeText(this,"Не удалось импортировать папку: "+e.getMessage(),android.widget.Toast.LENGTH_LONG).show());}
             }).start();return;
         }
-        if (req == 7 && res == RESULT_OK && data != null) {
-            Uri u = data.getData();
-            try { getContentResolver().takePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION); } catch (Exception ignored) {}
-            openBook(u.toString(), true, true);
+        if (req == 7 && res == RESULT_OK && data != null && data.getData()!=null) {
+            Uri selected=data.getData();
+            try{getContentResolver().takePersistableUriPermission(selected,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}
+            if(DownloadFolderPicker.available(this,DownloadFolderPicker.BOOK))saveImportedBook(selected);
+            else{
+                pendingBookImport=selected;
+                new SwipeDialogs.Builder(this).setTitle("Выберите папку Book")
+                    .setMessage("EPUB, FB2 и HTML будут сохранены в выбранной вами папке Book через Android SAF.")
+                    .setNegativeButton("Открыть без копирования",(d,w)->{pendingBookImport=null;openBook(selected.toString(),true,true);})
+                    .setPositiveButton("Выбрать Book",(d,w)->DownloadFolderPicker.choose(this,
+                        DownloadFolderPicker.BOOK_REQUEST,DownloadFolderPicker.BOOK)).show();
+            }
         }
     }
 

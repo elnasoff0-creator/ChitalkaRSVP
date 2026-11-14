@@ -135,7 +135,7 @@ final class RanobeLibStorage {
         // Keep one verified rollback file for HTML book updates.
         if(backup.exists()&&!"book.html".equals(file.getName()))backup.delete();
     }
-    private static synchronized ArrayList<Job> readJobs(Context c){ArrayList<Job> out=new ArrayList<>();File source=jobsFile(c);if(!source.isFile())source=new File(source.getAbsolutePath()+".bak");try{JSONArray a=new JSONArray(readText(source));for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);if(o!=null)out.add(Job.fromJson(o));}}catch(Exception ignored){}return out;}
+    static synchronized ArrayList<Job> readJobs(Context c){ArrayList<Job> out=new ArrayList<>();File source=jobsFile(c);if(!source.isFile())source=new File(source.getAbsolutePath()+".bak");try{JSONArray a=new JSONArray(readText(source));for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);if(o!=null)out.add(Job.fromJson(o));}}catch(Exception ignored){}return out;}
     static synchronized ArrayList<Job> jobs(Context c){return readJobs(c);}
     static synchronized Job find(Context c,String id){for(Job j:readJobs(c))if(j.id().equals(id))return j;return null;}
     static synchronized ArrayList<Job> series(Context c,String slug){ArrayList<Job> result=new ArrayList<>();for(Job j:readJobs(c))if(slug.equals(j.slug))result.add(j);result.sort(RanobeLibStorage::compare);return result;}
@@ -346,6 +346,16 @@ final class RanobeLibStorage {
         }
         html.append("</body></html>");
         File local=book(c,slug);writeAtomic(local,html.toString());
+        String previousUri=bookUri(c,slug);
+        if(externalDir(c,slug)==null&&DownloadFolderPicker.available(c,DownloadFolderPicker.BOOK)){
+            try{
+                Uri tree=DownloadFolderPicker.selected(c,DownloadFolderPicker.BOOK);
+                DocumentFile root=DocumentFile.fromTreeUri(c,tree);
+                String base=SafeDownloadTransfer.safe(title.title)+"__"+SafeDownloadTransfer.safe(slug);
+                DocumentFile destination=SafeDownloadTransfer.directory(root,base);
+                setExternalDir(c,slug,tree.toString(),base,destination.getUri().toString());
+            }catch(Exception error){throw new IOException("Не удалось подключить папку Book для ранобэ",error);}
+        }
         if(externalDir(c,slug)!=null){
             try{
                 // Publish new chapter HTML and illustrations before replacing book.html.
@@ -365,11 +375,53 @@ final class RanobeLibStorage {
             }catch(Exception error){throw new IOException("Не удалось обновить перенесённую HTML-книгу",error);}
         }
         String published=bookUri(c,slug);
+        if(!previousUri.equals(published)&&published.startsWith("content://")){
+            try{BookUriMigration.text(c,previousUri,published);}
+            catch(IOException error){android.util.Log.i("RanobeLibStorage","Previous local book not yet registered",error);}
+        }
         // A real new download invalidates the *disk* index so the next cold
         // session sees new chapters. Keep an already open immutable session
         // intact: background downloading must not reparse a book on return.
         ReaderBookCache.invalidate(c,Uri.parse(published));
         registerBook(c,title);
+    }
+    /** Explicit relocation, never on book opening. No source is deleted until all SAF copies verify. */
+    static synchronized boolean relocateToSelectedBook(Context c,String slug)throws Exception {
+        if(!DownloadFolderPicker.available(c,DownloadFolderPicker.BOOK))
+            throw new IOException("Папка Book не выбрана");
+        Uri targetTree=DownloadFolderPicker.selected(c,DownloadFolderPicker.BOOK);
+        android.content.SharedPreferences prefs=c.getSharedPreferences("ranobelib_external_v158",0);
+        String oldRoot=prefs.getString(slug+":root","");
+        if(targetTree.toString().equals(oldRoot))return false;
+        DocumentFile sourceDir=externalDir(c,slug);
+        if(sourceDir==null){
+            if(book(c,slug).isFile()){rebuildBook(c,slug);return true;}
+            throw new IOException("Старые главы RanobeLIB недоступны; исходная папка не изменена");
+        }
+        DocumentFile targetRoot=DocumentFile.fromTreeUri(c,targetTree);
+        String title=SafeDownloadTransfer.safe(savedTitle(c,slug).title);
+        String name=title+"__"+SafeDownloadTransfer.safe(slug);
+        DocumentFile targetDir=SafeDownloadTransfer.directory(targetRoot,name);
+        SafeDownloadTransfer.copyDocumentTree(c,sourceDir,targetDir,new SafeDownloadTransfer.Result(),0);
+        DocumentFile bookFile=targetDir.findFile("book.html");
+        if(bookFile==null||!bookFile.isFile()||bookFile.length()<100)
+            throw new IOException("Не удалось проверить скопированную HTML-книгу");
+        String before=bookUri(c,slug),after=bookFile.getUri().toString();
+        if(!before.equals(after))try{BookUriMigration.text(c,before,after);}
+            catch(IOException notRegisteredYet){android.util.Log.i("RanobeLibStorage","No old library identity",notRegisteredYet);}
+        // Commit the folder pointer only after the entire tree was verified.
+        setExternalDir(c,slug,targetTree.toString(),name,targetDir.getUri().toString());
+        for(Job job:series(c,slug)){
+            if(!job.file.startsWith("content://"))continue;
+            String fileName="chapter_"+safe(job.number)+"_b"+job.branch+".html";
+            DocumentFile volume=targetDir.findFile("volumes");
+            volume=volume==null?null:volume.findFile("v"+safe(job.volume));
+            DocumentFile chapter=volume==null?null:volume.findFile(fileName);
+            if(chapter!=null&&chapter.isFile()&&chapter.length()>0){job.file=chapter.getUri().toString();put(c,job);}
+        }
+        ReaderBookCache.invalidate(c,Uri.parse(after));
+        registerBook(c,savedTitle(c,slug));
+        return true;
     }
     static synchronized void registerBook(Context c,RanobeLibApi.Title title){
         String uri=bookUri(c,title.slug);

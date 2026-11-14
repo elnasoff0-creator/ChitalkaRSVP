@@ -57,6 +57,11 @@ public class SettingsActivity extends NavigationActivity {
         if(EdgeFolderPicker.accept(this,request,result,data)){
             draw();return;
         }
+        if(DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.BOOK_REQUEST,DownloadFolderPicker.BOOK)
+            ||DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.MANGA_REQUEST,DownloadFolderPicker.MANGA)
+            ||DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.AUDIO_REQUEST,DownloadFolderPicker.AUDIO)){
+            EdgeChapterArchive.invalidate();draw();return;
+        }
         if(request!=12122||result!=RESULT_OK||data==null||data.getData()==null)return;
         try{String name=ReaderFontLibrary.importFont(this,data.getData());prefs.edit().putString(ReaderFontLibrary.KEY,name).apply();draw();}
         catch(Exception ex){android.widget.Toast.makeText(this,ex.getMessage(),android.widget.Toast.LENGTH_LONG).show();}
@@ -675,9 +680,9 @@ public class SettingsActivity extends NavigationActivity {
         audioToggle(R.drawable.ic_tts_autoplay,"Автовоспроизведение при касании","Начинать озвучку сразу после выбора предложения","tts_tap_autoplay",false);
         audioLink(R.drawable.ic_edge_dictionary,"Словарь MS Edge",
             "", "",()->startActivity(new android.content.Intent(this,EdgeDictionaryActivity.class)));
-        audioLink(R.drawable.ic_downloads,"Путь к файлам Edge TTS",
-            "Постоянная папка сохранения озвученных глав",EdgeFolderPicker.available(this)?"Изменить":"Выбрать",
-            ()->EdgeFolderPicker.show(this));
+        audioLink(R.drawable.ic_downloads,"Папка Book · Edge TTS",
+            "Та же папка, что EPUB, FB2, HTML и ранобэ: "+DownloadFolderPicker.summary(this,DownloadFolderPicker.BOOK),
+            EdgeFolderPicker.available(this)?"Изменить":"Выбрать",()->EdgeFolderPicker.show(this));
         audioToggle(R.drawable.ic_edge_merge_chapter,"Автопреобразование озвучки главы в единый файл MP3",
             "Когда глава озвучена полностью, собрать один MP3 с разметкой WordBoundary",
             EdgeChapterArchive.AUTO_MERGE_PREF,true);
@@ -836,6 +841,38 @@ public class SettingsActivity extends NavigationActivity {
                 .setPositiveButton("OK",null).show();
     }
     void drawOnlineSettings(){
+        header("Папки загрузки · Android SAF");
+        TextView explanation=text("Выберите каждую существующую папку отдельно через Android 16. "+
+            "Book — книги и Edge TTS; Manga — манга; Audiobook — аудиокниги.",13,false);
+        explanation.setPadding(dp(5),dp(4),dp(5),dp(9));list.addView(explanation);
+        list.addView(action("Book · "+DownloadFolderPicker.summary(this,DownloadFolderPicker.BOOK),R.drawable.ic_folder_audio,
+            ()->DownloadFolderPicker.choose(this,DownloadFolderPicker.BOOK_REQUEST,DownloadFolderPicker.BOOK)));
+        list.addView(action("Manga · "+DownloadFolderPicker.summary(this,DownloadFolderPicker.MANGA),R.drawable.ic_folder_audio,
+            ()->DownloadFolderPicker.choose(this,DownloadFolderPicker.MANGA_REQUEST,DownloadFolderPicker.MANGA)));
+        list.addView(action("Audiobook · "+DownloadFolderPicker.summary(this,DownloadFolderPicker.AUDIO),R.drawable.ic_folder_audio,
+            ()->DownloadFolderPicker.choose(this,DownloadFolderPicker.AUDIO_REQUEST,DownloadFolderPicker.AUDIO)));
+        for(String key:new String[]{DownloadFolderPicker.BOOK,DownloadFolderPicker.MANGA,DownloadFolderPicker.AUDIO}){
+            String error=DownloadFolderPicker.lastIssue(this,key);
+            if(!error.isEmpty())list.addView(text("Ошибка "+DownloadFolderPicker.label(key)+": "+error,12,false));
+        }
+        list.addView(action("Повторить сохранение готовых файлов в SAF",R.drawable.ic_folder_audio,()->{
+            new SwipeDialogs.Builder(this).setTitle("Повторное сохранение")
+                .setMessage("Перепроверить готовые MP3, CBZ и HTML-книги и сохранить их в текущие папки Book, Manga, Audiobook? Исходники не удаляются. Большая библиотека потребует времени и свободного места.")
+                .setNegativeButton("Отмена",null)
+                .setPositiveButton("Сохранить",(dialog,which)->{
+                    android.widget.Toast.makeText(this,"Проверяем готовые файлы…",android.widget.Toast.LENGTH_SHORT).show();
+                    new Thread(()->{
+                        CategorySafRecovery.Report report=CategorySafRecovery.restore(this);
+                        runOnUiThread(()->{
+                            if(isFinishing())return;
+                            new SwipeDialogs.Builder(this).setTitle("Сохранение в SAF")
+                                .setMessage(report.summary()).setPositiveButton("Понятно",null).show();
+                            draw();
+                        });
+                    },"saf-recovery-v165").start();
+                }).show();
+        }));
+        gap(12);
         header("Версия и обновления");
         TextView installed=text("Установлена: v"+installedVersion()+" (сборка "+installedCode()+")",14,false);
         installed.setPadding(dp(4),0,0,dp(9));list.addView(installed);
