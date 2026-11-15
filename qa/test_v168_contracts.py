@@ -74,6 +74,13 @@ class Release168(unittest.TestCase):
   d=source('DownloadActivity.java')
   self.assertIn('"Проверить загрузки"',d)
   self.assertIn('"Полностью сверить задания',d)
+ def test_gradle_compile_hotfix_forward_refs_and_palette(self):
+  manager=source('UnifiedDownloadManagerActivity.java')
+  edge=source('EdgeChapterDownloadsActivity.java')
+  self.assertLess(manager.index('private final Runnable reloadDebounced'),
+                  manager.index('private final DownloadChangeBus.Listener downloadListener'))
+  self.assertIn('private int stateColor(Entry item)',edge)
+  self.assertNotIn('private static int stateColor(Entry item)',edge)
  def test_source_version_notes(self):
   for path in ['README-v1.11.168-beta.md','CHANGELOG-v1.11.168-beta.md']:
    self.assertTrue((ROOT/path).exists(),path)

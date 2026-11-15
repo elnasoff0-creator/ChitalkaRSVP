@@ -36,3 +36,10 @@
 ## Вывод
 
 Исходный код и статические тесты готовы к Android-сборке и ручной приёмке. Результат нельзя считать проверенным бинарным обновлением до прохождения Android Gradle build и тестирования на устройстве.
+
+
+## Дополнение: Gradle compile hotfix (15.11.2026)
+
+Предоставленный журнал GitHub Actions подтвердил остановку на `:app:compileReleaseJavaWithJavac`: две ошибки `illegal forward reference` в `UnifiedDownloadManagerActivity.java:71` и четыре ошибки статического контекста в `EdgeChapterDownloadsActivity.java:296-301`. Все шесть исправлены в данном исходном архиве.
+
+В тест `qa/test_v168_contracts.py` добавлена проверка порядка объявления `reloadDebounced` и нестатического `stateColor`. Повторная Android-сборка не выполнялась: SDK и Gradle отсутствуют. Предупреждение о `libtranslate_jni.so` не является причиной этих ошибок.

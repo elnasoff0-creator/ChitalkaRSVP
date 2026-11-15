@@ -292,7 +292,7 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
             ||!displayed.get(i).title.equals(next.get(i).title))return false;
         return true;
     }
-    private static int stateColor(Entry item){
+    private int stateColor(Entry item){
         if("Ошибка".equals(item.state))return UiColorScheme.error(this);
         if(item.saved>0)return UiColorScheme.success(this);
         if("В очереди".equals(item.state)||"Идёт загрузка".equals(item.state)||

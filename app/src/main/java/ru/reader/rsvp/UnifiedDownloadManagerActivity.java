@@ -66,12 +66,14 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
     private boolean queuedReload,firstResume=true,rowsVerified;
     private long appliedRevision;
     private String lastCoverUri="",lastInfoKey="";
+    // Declare the debounce callback before the listener that uses it.
+    // Java field initializers cannot read a later instance field by simple name.
+    private final Runnable reloadDebounced=this::reload;
     private final DownloadChangeBus.Listener downloadListener=changed->{
         if(id.equals(changed)&&visible){
             main.removeCallbacks(reloadDebounced);main.postDelayed(reloadDebounced,350);
         }
     };
-    private final Runnable reloadDebounced=this::reload;
     private int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
     private GradientDrawable rounded(int fill,int radius){GradientDrawable d=new GradientDrawable();d.setColor(fill);d.setCornerRadius(dp(radius));return d;}
     private GradientDrawable outline(){GradientDrawable d=rounded(panel,12);d.setStroke(dp(1),accent);return d;}
