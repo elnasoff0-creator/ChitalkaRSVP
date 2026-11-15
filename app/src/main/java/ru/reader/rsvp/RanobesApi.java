@@ -142,33 +142,136 @@ final class RanobesApi {
         Element author=page.selectFirst("[itemprop=author],.book-author,.story_author,.story-author");
         return author==null?"":author.text().trim();
     }
-    static List<Title> parseSearch(String markup,String base){Document page=Jsoup.parse(markup,base);LinkedHashMap<String,Title> found=new LinkedHashMap<>();
-        for(Element a:page.select("a[href*=/novels/],a[href*=/novel/],a[href*=/books/]")){
+    /** A search result belongs to the catalogue only, never to the sidebar recommendations. */
+    static final class SearchPage {
+        final List<Title> titles;
+        final int totalCount;
+        final String nextUrl;
+        SearchPage(List<Title> titles,int count,String next){
+            this.titles=titles;this.totalCount=count;this.nextUrl=next;
+        }
+    }
+    private static final Pattern CSS_IMAGE=Pattern.compile("url\\(\\s*['\\\"]?([^)'\\\"]+)['\\\"]?\\s*\\)",Pattern.CASE_INSENSITIVE);
+    private static final Pattern FOUND_TOTAL=Pattern.compile("(?:found\\s+(\\d+)|(?:^|\\s)(\\d+)\\s+found)",Pattern.CASE_INSENSITIVE);
+    private static String coverFromCard(Element card){
+        Element image=card.selectFirst("img[data-src],img[src]");
+        if(image!=null){
+            String src=image.absUrl("data-src");if(src.isEmpty())src=image.absUrl("src");
+            if(src.startsWith("https://"))return src;
+        }
+        for(Element el:card.select("figure.cover[style],.cover[style],.poster[style]")){
+            Matcher css=CSS_IMAGE.matcher(el.attr("style"));
+            if(!css.find())continue;
+            HttpUrl base=HttpUrl.parse(el.baseUri());
+            HttpUrl resolved=base==null?null:base.resolve(css.group(1).trim());
+            if(allowed(resolved))return resolved.toString();
+        }
+        return "";
+    }
+    private static SearchPage parseSearchPage(String markup,String base){
+        Document page=Jsoup.parse(markup,base);
+        LinkedHashMap<String,Title> found=new LinkedHashMap<>();
+        for(Element card:page.select("#dle-content article.shortstory, #dle-content article.short-story")){
+            Element a=card.selectFirst("h2.title a[href],h3.title a[href]");
+            if(a==null)continue;
             String url=validBookUrl(a.absUrl("href"));if(url.isEmpty())continue;
             String id=novelId(url);if(id.isEmpty()||found.containsKey(id))continue;
-            Element parent=a.closest("article,.shortstory,.short-story,.story,.search-item,.item,.shortstory-body");
-            String name=a.text().trim();if(name.length()<3&&parent!=null){Element heading=parent.selectFirst("h2,h3,.title");if(heading!=null)name=heading.text();}
-            if(name.length()<3||name.length()>240)continue;
+            String name=a.text().trim();if(name.length()<3||name.length()>240)continue;
             Title title=new Title(id,url,name);
-            if(parent!=null){ // Search cards have their own cover; do not use the page-wide og:image.
-                Element img=parent.selectFirst("img[data-src],img[src]");if(img!=null){String link=img.absUrl("data-src");if(link.isEmpty())link=img.absUrl("src");if(link.startsWith("https://"))title.cover=link;}
-                Element author=parent.selectFirst(".author,[itemprop=author]");if(author!=null)title.author=author.text();
-                Element desc=parent.selectFirst(".description,.shortstory__text,.story__text");if(desc!=null)title.description=desc.text();
-            }
+            title.cover=coverFromCard(card);
+            Element author=card.selectFirst("[itemprop=author],.author,.story_author,.story-author");
+            if(author!=null)title.author=author.text().trim();
+            Element desc=card.selectFirst(".short-desc,.description,.shortstory__text,.story__text");
+            if(desc!=null)title.description=desc.text().trim();
             found.put(id,title);
         }
-        return new ArrayList<>(found.values());
+        int count=-1;
+        Element info=page.selectFirst("#dle-filter-requests h3,.search_result_num h3,.breadcrumbs-panel");
+        if(info!=null){Matcher m=FOUND_TOTAL.matcher(info.text());if(m.find())try{
+            count=Integer.parseInt(m.group(1)!=null?m.group(1):m.group(2));
+        }catch(NumberFormatException ignored){}}
+        String next="";
+        String currentLabel=page.select(".navigation .current,.pagination .current,.pages .current").text().trim();
+        int currentPage=1;try{currentPage=Integer.parseInt(currentLabel);}catch(Exception ignored){
+            Matcher inUrl=Pattern.compile("(?:/page/|[?&]page=)(\\d+)(?:/|&|$)").matcher(base);
+            if(inUrl.find())try{currentPage=Integer.parseInt(inUrl.group(1));}catch(Exception ignoredNumber){}
+        }
+        // Use the site's actual pagination link, never replay page 1 for page 2.
+        for(Element link:page.select(".navigation a[href],.pagination a[href],.pages a[href],a[rel=next][href]")){
+            String value=link.text().trim().toLowerCase(Locale.ROOT);
+            if(!(link.hasAttr("rel")&&link.attr("rel").equalsIgnoreCase("next"))
+                &&!value.matches("(?:next|далее|следующая|[»›→]+|\\d+)"))continue;
+            HttpUrl candidate=HttpUrl.parse(link.absUrl("href"));
+            if(allowed(candidate)&&!candidate.toString().equals(base)){
+                // The first numeric link is not necessarily Next. See the caller's page-number check.
+                if(value.matches("\\d+")&&!value.equals(Integer.toString(currentPage+1)))continue;
+                next=candidate.toString();break;
+            }
+        }
+        return new SearchPage(new ArrayList<>(found.values()),count,next);
+    }
+    static List<Title> parseSearch(String markup,String base){
+        return parseSearchPage(markup,base).titles;
+    }
+    private static boolean filterWasApplied(Document document,String query){
+        Element active=document.selectFirst("#dle-filter-requests,.search_result_num");
+        if(active==null)return false;
+        return active.text().toLowerCase(Locale.ROOT).contains(query.trim().toLowerCase(Locale.ROOT));
+    }
+    /** Catalog filter uses l.title, not the unrelated quick-search 'story' field. */
+    private static HttpUrl filterUrl(String query){
+        // DLE Filter's documented public rewrite route. Sites may customize this route;
+        // therefore only accept a result when the HTML confirms the applied filter.
+        return HttpUrl.parse(DOMAIN+"/novels/").newBuilder()
+            .addPathSegment("f").addPathSegment("l.title="+query).addPathSegment("").build();
+    }
+    SearchPage searchPage(String query,String continuation)throws IOException {
+        if(query==null||query.trim().isEmpty())return new SearchPage(new ArrayList<>(),0,"");
+        String value=query.trim();
+        if(value.length()>70)throw new IOException("Поисковый запрос слишком длинный (до 70 символов)");
+        if(continuation!=null&&!continuation.isEmpty()){
+            HttpUrl next=HttpUrl.parse(continuation);
+            if(!allowed(next))throw new IOException("Недопустимая ссылка страницы результатов");
+            return parseSearchPage(get(next.toString()).outerHtml(),next.toString());
+        }
+        IOException filterError=null;
+        try{
+            HttpUrl endpoint=filterUrl(value);
+            Document result=get(endpoint.toString());
+            if(filterWasApplied(result,value))
+                return parseSearchPage(result.outerHtml(),result.baseUri());
+            filterError=new IOException("Ranobes не подтвердил применение фильтра l.title");
+        }catch(IOException ex){filterError=ex;}
+        // Compatibility fallback: the site's separate public quick-search form.
+        // It must still use strict result-card parsing, never all novel links on the page.
+        FormBody form=new FormBody.Builder().add("catlist[]","1")
+            .add("story",value).add("do","search").add("subaction","search").build();
+        try{
+            Document result=fetchDocument(new Request.Builder()
+                .url(HttpUrl.parse(DOMAIN+"/index.php")).post(form).build());
+            SearchPage parsed=parseSearchPage(result.outerHtml(),result.baseUri());
+            // The quick-search endpoint may return the unfiltered catalogue. Do not present
+            // that unrelated list as matches; keep titles that actually contain the query.
+            List<Title> matches=new ArrayList<>();
+            for(Title title:parsed.titles)if(title.title.toLowerCase(Locale.ROOT)
+                .contains(value.toLowerCase(Locale.ROOT)))matches.add(title);
+            parsed=new SearchPage(matches,parsed.totalCount,parsed.nextUrl);
+            if(result.selectFirst("#dle-content")==null)
+                throw new IOException("Ranobes вернул страницу без блока результатов");
+            // Quick search is a different mode: never mistake the default catalogue for results.
+            if(result.select(".search_result_num,.search_result,.search_result_num h3").isEmpty())
+                throw new IOException("Сайт не подтвердил режим поисковой выдачи");
+            return parsed;
+        }catch(IOException fallbackError){
+            IOException error=new IOException("Ranobes: поиск не подтвердился. Фильтр: "+
+                (filterError==null?"недоступен":filterError.getMessage())+
+                "; обычный поиск: "+fallbackError.getMessage());
+            error.initCause(fallbackError);throw error;
+        }
     }
     List<Title> search(String query,int page)throws IOException {
-        if(query==null||query.trim().isEmpty())return new ArrayList<>();
-        // The public DLE search form submits POST (not query parameters in a GET).
-        // Follow ordinary redirects within the same HTTPS origin only.
-        FormBody form=new FormBody.Builder()
-            .add("catlist[]","1").add("story",query.trim())
-            .add("do","search").add("subaction","search").build();
-        HttpUrl address=HttpUrl.parse(DOMAIN+"/index.php");
-        Document response=fetchDocument(new Request.Builder().url(address).post(form).build());
-        return parseSearch(response.outerHtml(),response.baseUri());
+        if(page!=1)throw new IOException("Для следующей страницы требуется ссылка пагинации от Ranobes");
+        return searchPage(query,null).titles;
     }
     Title title(String url)throws IOException {String canonical=validBookUrl(url);if(canonical.isEmpty())throw new IOException("Укажите ссылку https://ranobes.net/novels/…html");
         Document page=get(canonical);Title title=new Title(novelId(canonical),canonical,pageTitle(page));

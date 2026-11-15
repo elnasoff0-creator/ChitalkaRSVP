@@ -617,7 +617,8 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
     }
     private void notifyUser(String message){Toast.makeText(this,message,Toast.LENGTH_LONG).show();}
     private void selectedRows(String action){
-        if(!rowsVerified){reload();notifyUser("Проверяем состояние выбранных файлов");return;}
+        // Cached rows can be selected before their store projection is loaded.
+        // Resolve authoritative jobs at execution time, not to open the menu.
         if(checked.isEmpty())return;
         ArrayList<FileRow> chosen=new ArrayList<>();for(FileRow row:rows)if(checked.contains(row.key))chosen.add(row);
         if("delete".equals(action)){
@@ -625,23 +626,33 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
                 .setMessage("Выбрано элементов: "+chosen.size()+". Удаление готовых файлов необратимо.")
                 .setNegativeButton("Отмена",null)
                 .setPositiveButton("Удалить",(d,w)->{checked.clear();updateSelectionBar();
-                    workerAction(()->{int count=0;for(FileRow row:chosen)if(applyFileAction(row,"delete"))count++;
+                    workerAction(()->{DownloadsRepository.Item target=currentActionItem();
+                        int count=0;for(FileRow row:chosen)if(applyFileAction(row,"delete",target))count++;
                         return "Удалено записей: "+count;});
                 }).show();
         }else{
             checked.clear();updateSelectionBar();workerAction(()->{
-                int count=0;for(FileRow row:chosen)if(applyFileAction(row,"retry"))count++;
+                DownloadsRepository.Item target=currentActionItem();
+                int count=0;for(FileRow row:chosen)if(applyFileAction(row,"retry",target))count++;
                 return "Обработано файлов: "+count;
             });
         }
     }
+    /** Actions read the authoritative downloader store. A display-only cache has no source. */
+    private DownloadsRepository.Item currentActionItem(){
+        return DownloadsRepository.loadOne(getApplicationContext(),id);
+    }
     private boolean applyFileAction(FileRow row,String action)throws Exception{
-        if(row==null||row.source==null)return false;
-        DownloadsRepository.Item item=selected;if(item==null)return false;
+        return applyFileAction(row,action,currentActionItem());
+    }
+    private boolean applyFileAction(FileRow row,String action,DownloadsRepository.Item item)throws Exception{
+        if(row==null||item==null||!id.equals(item.id))return false;
         if(DownloadsRepository.AUDIO.equals(item.type)){
             BookImportManager.Job job=null;
             for(BookImportManager.Job candidate:BookImportManager.load(this))if(item.source.equals(candidate.source)){job=candidate;break;}
-            if(job==null||row.ordinal>=job.chapters.size())return false;
+            if(job==null||row.ordinal<0||row.ordinal>=job.chapters.size()
+                ||!row.key.equals("audio:"+job.source+":"+row.ordinal)
+                ||!row.name.equals(job.chapters.get(row.ordinal).name))return false;
             int n=row.ordinal;while(job.states.size()<=n)job.states.add(-1);
             if("delete".equals(action)){
                 if(job.states.get(n)!=100&&job.states.get(n)<0)return false;
@@ -662,8 +673,9 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
             return true;
         }
         if(DownloadsRepository.MANGA.equals(item.type)){
-            MangaLibStorage.Job j=MangaLibStorage.find(this,((MangaLibStorage.Job)row.source).id());
-            if(j==null)return false;
+            if(!row.key.startsWith("manga:"))return false;
+            MangaLibStorage.Job j=MangaLibStorage.find(this,row.key.substring("manga:".length()));
+            if(j==null||!item.source.equals(j.slug))return false;
             if("delete".equals(action)){
                 if(MangaLibStorage.isUri(j.file)){
                     DocumentFile saved=DocumentFile.fromSingleUri(this,Uri.parse(j.file));
@@ -674,7 +686,9 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
             return MangaLibQueue.enqueue(this,Collections.singletonList(j))>0;
         }
         if(DownloadsRepository.RANOBE.equals(item.type)){
-            RanobeLibStorage.Job j=(RanobeLibStorage.Job)row.source;
+            if(!row.key.startsWith("ranobe:"))return false;
+            RanobeLibStorage.Job j=RanobeLibStorage.find(this,row.key.substring("ranobe:".length()));
+            if(j==null||!item.source.equals(j.slug))return false;
             if("delete".equals(action)){
                 if(j.file!=null&&!j.file.isEmpty()&&new File(j.file).isFile()&&!new File(j.file).delete())
                     throw new java.io.IOException("Не удалось удалить HTML-главу");
@@ -683,7 +697,9 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
             return RanobeLibQueue.enqueue(this,Collections.singletonList(j))>0;
         }
         if(DownloadsRepository.RANOBES.equals(item.type)){
-            RanobesStorage.Job j=(RanobesStorage.Job)row.source;
+            if(!row.key.startsWith("ranobes:"))return false;
+            RanobesStorage.Job j=RanobesStorage.find(this,row.key.substring("ranobes:".length()));
+            if(j==null||!item.source.equals(j.sourceKey()))return false;
             if("delete".equals(action)){
                 File file=RanobesStorage.chapter(this,j);
                 if(file.isFile()&&!file.delete())throw new java.io.IOException("Не удалось удалить HTML-главу");
@@ -693,6 +709,10 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         }
         if(DownloadsRepository.EDGE.equals(item.type)){
             int chapter=row.ordinal;
+            // Planner is a real queue task (PLAN=-2), not a normal chapter.
+            boolean planner=chapter==EdgeFullBookStore.PLAN&&"edge:planner".equals(row.key);
+            if(!planner&&!row.key.equals("edge:"+chapter))return false;
+            if(chapter<0&&"delete".equals(action))return false;
             if("delete".equals(action)){
                 if(chapter<0)return false;
                 if(!EdgeChapterArchive.deleteChapter(this,item.bookUri,item.title,chapter))return false;
@@ -704,8 +724,11 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         if(DownloadsRepository.LINK.equals(item.type)){
             String batchId=item.id.replaceFirst("^link:","");
             LinkDownloadStore.Batch batch=LinkDownloadStore.get(this,batchId);
-            if(batch==null||row.ordinal<0||row.ordinal>=batch.files.size())return false;
+            if(batch==null||row.ordinal<0||row.ordinal>=batch.files.size()
+                ||!row.key.equals("link:"+batchId+":"+row.ordinal))return false;
             LinkDownloadStore.Entry entry=batch.files.get(row.ordinal);
+            String currentTitle=entry.displayTitle.isEmpty()?entry.name:entry.displayTitle;
+            if(!row.name.equals(currentTitle))return false;
             if("delete".equals(action)){
                 if(!entry.savedUri.isEmpty()){
                     DocumentFile saved=DocumentFile.fromSingleUri(this,Uri.parse(entry.savedUri));
@@ -724,11 +747,25 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         return false;
     }
     private void openFinishedFile(FileRow row){
-        if(row.source==null){reload();notifyUser("Проверяем выбранный файл");return;}
-        if(selected==null)return;
-        if(DownloadsRepository.LINK.equals(selected.type)){
-            LinkDownloadStore.Entry file=(LinkDownloadStore.Entry)row.source;
-            if(file.savedUri==null||file.savedUri.isEmpty()){
+        if(row==null)return;
+        DownloadsRepository.Item book=selected;
+        if(book==null){
+            if(disk.isShutdown())return;
+            disk.execute(()->{DownloadsRepository.Item loaded=currentActionItem();
+                main.post(()->{if(isFinishing()||isDestroyed())return;
+                    if(loaded==null){notifyUser("Загрузка больше не найдена");return;}
+                    selected=loaded;openFinishedFile(row);});});
+            return;
+        }
+        if(DownloadsRepository.LINK.equals(book.type)){
+            String batchId=book.id.replaceFirst("^link:","");
+            LinkDownloadStore.Batch batch=LinkDownloadStore.get(this,batchId);
+            if(batch==null||row.ordinal<0||row.ordinal>=batch.files.size()
+                ||!row.key.equals("link:"+batchId+":"+row.ordinal)){
+                notifyUser("Файл больше не найден");return;
+            }
+            LinkDownloadStore.Entry file=batch.files.get(row.ordinal);
+            if(file.savedUri==null||file.savedUri.isEmpty()||!"completed".equals(file.status)){
                 notifyUser("Файл ещё не сохранён");return;
             }
             try{
@@ -744,7 +781,7 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
             }catch(Exception ex){notifyUser("Не удалось открыть файл: "+ex.getMessage());}
             return;
         }
-        openContent(selected);
+        openContent(book);
     }
     private void linkBatchMenu(PopupMenu menu){
         if(selected==null||selected.link==null)return;
@@ -779,23 +816,41 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
             return true;
         });
     }
+    private void withEdgeItem(int chapter,boolean force){
+        DownloadsRepository.Item current=selected;
+        if(current!=null&&DownloadsRepository.EDGE.equals(current.type)){
+            enqueueEdge(current,chapter,force);return;
+        }
+        if(disk.isShutdown())return;
+        disk.execute(()->{DownloadsRepository.Item resolved=currentActionItem();
+            main.post(()->{if(isFinishing()||isDestroyed())return;
+                if(resolved==null||!DownloadsRepository.EDGE.equals(resolved.type))
+                    notifyUser("Произведение Edge TTS недоступно");
+                else enqueueEdge(resolved,chapter,force);});});
+    }
     private void fileMenu(ImageView anchor,FileRow row){
-        if(row.source==null){reload();notifyUser("Проверяем выбранную главу");return;}
+        if(row==null)return;
+        // A row restored from DownloadRowsSnapshot deliberately has source=null.
+        // Menu creation must NEVER depend on a background reload or an active Edge Task.
         PopupMenu menu=new PalettePopupMenu(this,anchor);
         menu.getMenu().add("В очередь / повторить").setOnMenuItemClickListener(m->{
             workerAction(()->{boolean ok=applyFileAction(row,"retry");return ok?"Задача добавлена":"Уже готово или выполняется";});return true;});
         if(row.percent==100){menu.getMenu().add("Открыть готовое").setOnMenuItemClickListener(m->{openFinishedFile(row);return true;});}
-        if(DownloadsRepository.LINK.equals(selected.type))linkBatchMenu(menu);
-        if(DownloadsRepository.EDGE.equals(selected.type)&&row.ordinal>=0){
+        if(selected!=null&&DownloadsRepository.LINK.equals(selected.type))linkBatchMenu(menu);
+        if(row.key.startsWith("edge:")&&id.startsWith("edge:")&&row.ordinal>=0){
             menu.getMenu().add("Переозвучить главу").setOnMenuItemClickListener(m->{
                 new SwipeDialogs.Builder(this).setTitle("Переподготовить главу?")
                     .setMessage("Сохранённые MP3 останутся до завершения новой озвучки.")
                     .setNegativeButton("Отмена",null)
-                    .setPositiveButton("Подготовить",(d,w)->enqueueEdge(selected,row.ordinal,true)).show();return true;});
+                    .setPositiveButton("Подготовить",(d,w)->withEdgeItem(row.ordinal,true)).show();return true;});
             menu.getMenu().add("Сохранить готовые MP3").setOnMenuItemClickListener(m->{
-                workerAction(()->EdgeChapterActions.saveCached(this,selected.bookUri,selected.title,row.ordinal));return true;});
+                workerAction(()->{DownloadsRepository.Item current=currentActionItem();
+                    if(current==null||!DownloadsRepository.EDGE.equals(current.type))return "Произведение не найдено";
+                    return EdgeChapterActions.saveCached(this,current.bookUri,current.title,row.ordinal);});return true;});
             menu.getMenu().add("Объединить MP3 главы").setOnMenuItemClickListener(m->{
-                workerAction(()->EdgeChapterActions.merge(this,selected.bookUri,selected.title,row.ordinal));return true;});
+                workerAction(()->{DownloadsRepository.Item current=currentActionItem();
+                    if(current==null||!DownloadsRepository.EDGE.equals(current.type))return "Произведение не найдено";
+                    return EdgeChapterActions.merge(this,current.bookUri,current.title,row.ordinal);});return true;});
         }
         menu.getMenu().add("Удалить файл").setOnMenuItemClickListener(m->{
             new SwipeDialogs.Builder(this).setTitle("Удалить файл?").setMessage(row.name)

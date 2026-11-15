@@ -8,8 +8,8 @@ def source(n):return (SRC/n).read_text(encoding='utf-8')
 class Release168(unittest.TestCase):
  def test_identity(self):
   gradle=(ROOT/'app/build.gradle').read_text()
-  self.assertIn('versionCode 16900',gradle)
-  self.assertIn("versionName '1.11.169-beta'",gradle)
+  self.assertIn('versionCode 17000',gradle)
+  self.assertIn("versionName '1.11.170-beta'",gradle)
  def test_xml(self):
   for f in (ROOT/'app/src/main').rglob('*.xml'):ET.parse(f)
  def test_no_periodic_full_scanning(self):
@@ -51,7 +51,7 @@ class Release168(unittest.TestCase):
   self.assertIn('notifyItemChanged(i)',m)
   self.assertIn('edgeTocCache',m)
   self.assertIn('previous.bytes',m)
-  self.assertIn('if(row.source==null)',m)
+  self.assertNotIn('if(row.source==null)',m)
  def test_colors_and_two_line_path(self):
   m=source('UnifiedDownloadManagerActivity.java')
   self.assertIn('UiColorScheme.background(this)',m)
@@ -82,6 +82,6 @@ class Release168(unittest.TestCase):
   self.assertIn('private int stateColor(Entry item)',edge)
   self.assertNotIn('private static int stateColor(Entry item)',edge)
  def test_source_version_notes(self):
-  for path in ['README-v1.11.169-beta.md','CHANGELOG-v1.11.169-beta.md']:
+  for path in ['README-v1.11.170-beta.md','CHANGELOG-v1.11.170-beta.md']:
    self.assertTrue((ROOT/path).exists(),path)
 if __name__=='__main__':unittest.main(verbosity=2)
