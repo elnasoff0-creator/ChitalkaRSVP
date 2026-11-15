@@ -2,4 +2,11 @@
 <resources>
     <style name="ChitalkaSheetTop"><item name="android:windowEnterAnimation">@anim/sheet_down_in</item><item name="android:windowExitAnimation">@anim/sheet_up_out</item></style>
     <style name="ChitalkaSheetBottom"><item name="android:windowEnterAnimation">@anim/sheet_up_in</item><item name="android:windowExitAnimation">@anim/sheet_down_out</item></style>
+    <!-- All system PopupMenu instances use the same rounded surface. -->
+    <style name="ChitalkaAppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:popupMenuStyle">@style/ChitalkaPopupMenu</item>
+    </style>
+    <style name="ChitalkaPopupMenu" parent="android:style/Widget.Material.PopupMenu">
+        <item name="android:popupBackground">@drawable/chitalka_popup_surface</item>
+    </style>
 </resources>

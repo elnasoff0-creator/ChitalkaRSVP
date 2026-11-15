@@ -28,7 +28,8 @@ import java.util.HashSet;
 public final class KvuheSearchActivity extends NavigationActivity {
     private static final int BG=0xfff3e7d5,INK=0xff30221e,MUTED=0xff716259,ACCENT=0xffa26949,WHITE=0xfffff9f0;
     private EditText query;
-    private TextView state,booksTab,seriesTab;
+    private TextView state;
+    private LinearLayout tabsHost,contentPanel;
     private Button more,searchButton;
     private final Handler main=new Handler(Looper.getMainLooper());
     private final ArrayList<KvuheSearchParser.Entry> books=new ArrayList<>(),series=new ArrayList<>(),shown=new ArrayList<>();
@@ -64,19 +65,18 @@ public final class KvuheSearchActivity extends NavigationActivity {
         searchButton=button("Найти");searchButton.setTextColor(ReaderButtonColors.contrastingText(ReaderButtonColors.accent(this,ACCENT)));searchButton.setBackground(shape(ReaderButtonColors.accent(this,ACCENT),15));
         LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(dp(82),-1);bp.leftMargin=dp(7);search.addView(searchButton,bp);
         searchButton.setOnClickListener(v->startNewSearch());query.setOnEditorActionListener((v,action,event)->{if(action==EditorInfo.IME_ACTION_SEARCH){startNewSearch();return true;}return false;});
-        LinearLayout tabs=new LinearLayout(this);tabs.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(-1,dp(43));tp.topMargin=dp(11);root.addView(tabs,tp);
-        booksTab=text("Книги",14);seriesTab=text("Циклы",14);
-        for(int i=0;i<2;i++){
-            final int selected=i;TextView t=i==0?booksTab:seriesTab;t.setGravity(Gravity.CENTER);t.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
-            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-1,1);if(i!=0)lp.leftMargin=dp(9);tabs.addView(t,lp);
-            t.setOnClickListener(v->{tab=selected;update();});
-        }
-        state=text("Введите название и нажмите «Найти»",13);state.setTextColor(MUTED);state.setPadding(dp(2),dp(11),0,dp(10));root.addView(state);
+        tabsHost=new LinearLayout(this);tabsHost.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(-1,dp(52));tp.topMargin=dp(11);root.addView(tabsHost,tp);
+        contentPanel=BrowserTabs.panel(this);root.addView(contentPanel,new LinearLayout.LayoutParams(-1,0,1));
+        state=text("Введите название и нажмите «Найти»",13);state.setTextColor(MUTED);
+        state.setPadding(dp(2),dp(11),0,dp(10));contentPanel.addView(state);
         RecyclerView list=new RecyclerView(this);list.setLayoutManager(new LinearLayoutManager(this));adapter=new ResultAdapter();list.setAdapter(adapter);
-        root.addView(list,new LinearLayout.LayoutParams(-1,0,1));
-        more=button("Показать ещё");more.setBackground(shape(ReaderButtonColors.neutral(this,WHITE),16));more.setTextColor(ReaderButtonColors.contrastingText(ReaderButtonColors.neutral(this,WHITE)));more.setVisibility(View.GONE);more.setOnClickListener(v->fetch(failedPage.isEmpty()?next:failedPage));
-        LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(-1,dp(48));mp.topMargin=dp(8);root.addView(more,mp);update();
+        contentPanel.addView(list,new LinearLayout.LayoutParams(-1,0,1));
+        more=button("Показать ещё");more.setBackground(shape(ReaderButtonColors.neutral(this,WHITE),16));
+        more.setTextColor(ReaderButtonColors.contrastingText(ReaderButtonColors.neutral(this,WHITE)));
+        more.setVisibility(View.GONE);more.setOnClickListener(v->fetch(failedPage.isEmpty()?next:failedPage));
+        LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(-1,dp(48));mp.topMargin=dp(8);contentPanel.addView(more,mp);
+        update();
     }
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
@@ -120,10 +120,10 @@ public final class KvuheSearchActivity extends NavigationActivity {
     }
     private void update(){
         if(adapter==null)return;
-        booksTab.setText("Книги"+(totalBooks>=0?" · "+totalBooks:""));
-        seriesTab.setText("Циклы"+(totalSeries>=0?" · "+totalSeries:""));
-        booksTab.setTextColor(tab==0?ReaderButtonColors.contrastingText(ReaderButtonColors.accent(this,ACCENT)):INK);booksTab.setBackground(shape(tab==0?ReaderButtonColors.accent(this,ACCENT):ReaderButtonColors.neutral(this,WHITE),14));
-        seriesTab.setTextColor(tab==1?ReaderButtonColors.contrastingText(ReaderButtonColors.accent(this,ACCENT)):INK);seriesTab.setBackground(shape(tab==1?ReaderButtonColors.accent(this,ACCENT):ReaderButtonColors.neutral(this,WHITE),14));
+        tabsHost.removeAllViews();
+        tabsHost.addView(BrowserTabs.strip(this,new String[]{"Книги"+(totalBooks>=0?" · "+totalBooks:""),
+            "Циклы"+(totalSeries>=0?" · "+totalSeries:"")},tab,index->{tab=index;update();}),
+            new LinearLayout.LayoutParams(-1,dp(52)));
         shown.clear();shown.addAll(tab==0?books:series);adapter.notifyDataSetChanged();
         if(!pending){
             if(books.isEmpty()&&series.isEmpty())state.setText(visitedPages.isEmpty()?"Введите название и нажмите «Найти»":"Ничего не найдено. Попробуйте другое название.");

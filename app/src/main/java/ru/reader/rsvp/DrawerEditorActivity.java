@@ -81,14 +81,14 @@ public final class DrawerEditorActivity extends NavigationActivity {
         }
         TextView add=text("＋  Добавить пункт",17);add.setPadding(dp(18),dp(14),0,dp(14));entries.addView(add);add.setOnClickListener(v->showHidden());
         TextView reset=text("Восстановить стандартное меню",15);reset.setPadding(dp(18),dp(14),0,dp(14));entries.addView(reset);
-        reset.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("Восстановить стандартное меню?")
+        reset.setOnClickListener(v->new RoundedDialogs.Builder(this).setTitle("Восстановить стандартное меню?")
             .setPositiveButton("Восстановить",(d,w)->{DrawerMenuStore.reset(this);render();}).setNegativeButton("Отмена",null).show());
     }
     private void rename(String id){EditText input=new EditText(this);input.setSingleLine(true);input.setText(DrawerMenuStore.name(this,id));input.setPadding(dp(18),dp(14),dp(18),dp(14));
-        new AlertDialog.Builder(this).setTitle("Переименовать пункт").setView(input).setNegativeButton("Отмена",null)
+        new RoundedDialogs.Builder(this).setTitle("Переименовать пункт").setView(input).setNegativeButton("Отмена",null)
             .setPositiveButton("Сохранить",(d,w)->{DrawerMenuStore.rename(this,id,input.getText().toString());render();}).show();}
     private void showHidden(){ArrayList<String> hidden=new ArrayList<>();for(String id:DrawerMenuStore.order(this))if(!DrawerMenuStore.visible(this,id))hidden.add(id);
-        if(hidden.isEmpty()){new AlertDialog.Builder(this).setMessage("Все доступные пункты уже добавлены.").setPositiveButton("Хорошо",null).show();return;}
+        if(hidden.isEmpty()){new RoundedDialogs.Builder(this).setMessage("Все доступные пункты уже добавлены.").setPositiveButton("Хорошо",null).show();return;}
         String[] names=new String[hidden.size()];for(int i=0;i<names.length;i++)names[i]=DrawerMenuStore.name(this,hidden.get(i));
-        new AlertDialog.Builder(this).setTitle("Добавить пункт").setItems(names,(d,idx)->{DrawerMenuStore.visible(this,hidden.get(idx),true);render();}).setNegativeButton("Отмена",null).show();}
+        new RoundedDialogs.Builder(this).setTitle("Добавить пункт").setItems(names,(d,idx)->{DrawerMenuStore.visible(this,hidden.get(idx),true);render();}).setNegativeButton("Отмена",null).show();}
 }

@@ -57,7 +57,7 @@ public final class ReaderLogActivity extends NavigationActivity {
         parent.addView(button(name,action),new LinearLayout.LayoutParams(0,dp(52),1));
     }
     private void refresh(){ReaderDiagnosticLog.snapshot(s->logView.setText(s));}
-    private void askClear(){new AlertDialog.Builder(this).setTitle("Очистить журнал?")
+    private void askClear(){new RoundedDialogs.Builder(this).setTitle("Очистить журнал?")
         .setMessage("Удалить сохранённые события диагностики? Книги и кэш MP3 не затрагиваются.")
         .setNegativeButton("Отмена",null)
         .setPositiveButton("Очистить",(d,w)->ReaderDiagnosticLog.clear(this::refresh)).show();}

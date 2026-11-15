@@ -77,6 +77,13 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         image.setContentDescription(title);image.setTooltipText(title);image.setPadding(dp(11),dp(11),dp(11),dp(11));
         image.setBackground(outline());image.setOnClickListener(v->action.run());return image;
     }
+    private ImageView bareMenuIcon(String title){
+        ImageView image=new ImageView(this);image.setImageResource(R.drawable.ic_more_vertical);
+        image.setColorFilter(ink);image.setPadding(dp(11),dp(11),dp(11),dp(11));
+        image.setContentDescription(title);image.setTooltipText(title);
+        // The vertical ellipsis must remain unframed in every files list.
+        return image;
+    }
     @Override public void onCreate(Bundle state){super.onCreate(state);
         id=getIntent().getStringExtra(EXTRA_ID);if(id==null||id.isEmpty()){finish();return;}
         hintTitle=getIntent().getStringExtra(EXTRA_TITLE);if(hintTitle==null)hintTitle="";
@@ -88,15 +95,7 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         muted=UiColorScheme.blend(ink,bg,.40f);
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(bg);
         root.setPadding(dp(13),dp(24),dp(13),dp(9));setContentView(root);SafeSystemBars.matchBackground(this,bg);
-        LinearLayout toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);
-        root.addView(toolbar,new LinearLayout.LayoutParams(-1,dp(52)));
-        ImageView menu=new ImageView(this);menu.setImageResource(R.drawable.ic_menu_lines);menu.setColorFilter(ink);
-        menu.setPadding(dp(10),dp(10),dp(10),dp(10));menu.setBackground(rounded(panel,13));
-        menu.setContentDescription("Боковое меню");toolbar.addView(menu,new LinearLayout.LayoutParams(dp(44),dp(44)));
-        menu.setOnClickListener(v->UniversalDrawer.show(this));
-        TextView heading=text("Менеджер",23,true);heading.setTypeface(Typeface.SERIF,Typeface.BOLD);
-        LinearLayout.LayoutParams titleParams=new LinearLayout.LayoutParams(0,-2,1);titleParams.leftMargin=dp(12);
-        toolbar.addView(heading,titleParams);
+        AppToolbar.add(this,root,"Менеджер");
         LinearLayout hero=new LinearLayout(this);hero.setGravity(Gravity.CENTER_VERTICAL);hero.setPadding(dp(11),dp(11),dp(11),dp(11));
         hero.setBackground(rounded(panel,17));place(root,hero,12);
         FrameLayout cover=new FrameLayout(this);cover.setBackground(rounded(UiColorScheme.blend(panel,ink,.10f),9));
@@ -110,8 +109,8 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         LinearLayout.LayoutParams side=new LinearLayout.LayoutParams(0,-2,1);side.leftMargin=dp(12);hero.addView(description,side);
         bookTitle=text(hintTitle.isEmpty()?"Загрузка":hintTitle,18,true);bookTitle.setMaxLines(3);description.addView(bookTitle);
         metadata=text("",12,false);metadata.setTextColor(muted);metadata.setMaxLines(2);place(description,metadata,6);
-        ImageView arrow=new ImageView(this);arrow.setImageResource(R.drawable.ic_more_vertical);arrow.setColorFilter(muted);
-        arrow.setRotation(-90f);arrow.setContentDescription("Открыть произведение");
+        ImageView arrow=new ImageView(this);arrow.setImageResource(R.drawable.ic_next_chapter);arrow.setColorFilter(muted);
+        arrow.setContentDescription("Открыть произведение");
         hero.addView(arrow,new LinearLayout.LayoutParams(dp(23),dp(26)));
         hero.setContentDescription("Открыть произведение");hero.setOnClickListener(v->{if(selected!=null)openContent(selected);});
         LinearLayout progressLine=new LinearLayout(this);progressLine.setGravity(Gravity.CENTER_VERTICAL);place(root,progressLine,13);
@@ -147,9 +146,11 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
     @Override protected void onDestroy(){visible=false;main.removeCallbacksAndMessages(null);disk.shutdownNow();super.onDestroy();}
     @Override protected void onSaveInstanceState(Bundle out){out.putString("tab",tab);super.onSaveInstanceState(out);}
     private void showTabs(){tabContainer.removeAllViews();
-        tabContainer.addView(BrowserTabs.strip(this,new String[]{"Файлы","Инфо"},"files".equals(tab)?0:1,index->{
-            tab=index==0?"files":"info";showTabs();switchTab();
-        }));switchTab();
+        android.widget.HorizontalScrollView tabs=BrowserTabs.strip(this,new String[]{"Файлы","Инфо"},
+            "files".equals(tab)?0:1,index->{tab=index==0?"files":"info";showTabs();});
+        // Explicit MATCH_PARENT and equal-width tabs prevent "Инфо" being scrolled off-screen.
+        tabContainer.addView(tabs,new LinearLayout.LayoutParams(-1,dp(52)));
+        switchTab();
     }
     private void switchTab(){boolean files="files".equals(tab);filesView.setVisibility(files?View.VISIBLE:View.GONE);
         infoScroll.setVisibility(files?View.GONE:View.VISIBLE);selectionBar.setVisibility(files&&!checked.isEmpty()?View.VISIBLE:View.GONE);
@@ -682,7 +683,7 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
             RecyclerView.LayoutParams outer=new RecyclerView.LayoutParams(-1,-2);outer.bottomMargin=dp(8);card.setLayoutParams(outer);
             LinearLayout head=new LinearLayout(UnifiedDownloadManagerActivity.this);head.setGravity(Gravity.CENTER_VERTICAL);card.addView(head);
             TextView name=text("",14,true);head.addView(name,new LinearLayout.LayoutParams(0,-2,1));
-            ImageView more=actionIcon(R.drawable.ic_more_vertical,"Действия файла",()->{});
+            ImageView more=bareMenuIcon("Действия файла");
             head.addView(more,new LinearLayout.LayoutParams(dp(40),dp(40)));
             TextView detail=text("",12,false);detail.setTextColor(muted);place(card,detail,3);
             ProgressBar bar=new ProgressBar(UnifiedDownloadManagerActivity.this,null,android.R.attr.progressBarStyleHorizontal);

@@ -27,7 +27,7 @@ public final class EdgeDictionaryActivity extends NavigationActivity {
     static final String EXTRA_SENTENCE="dictionary_current_sentence";
     private SharedPreferences prefs;
     private EdgeDictionaryStore store;
-    private LinearLayout entries;
+    private LinearLayout entries,tabsHost;
     private EditText filter;
     private int ink,bg,accent,neutral;
     private boolean ignoredOnly=false;
@@ -75,33 +75,23 @@ public final class EdgeDictionaryActivity extends NavigationActivity {
         toolbar.addView(plus,new LinearLayout.LayoutParams(dp(44),dp(44)));
         plus.setOnClickListener(v->editRule(null,ignoredOnly?EdgeDictionaryStore.IGNORE:EdgeDictionaryStore.REPLACE,"","","",false,false));
 
-        LinearLayout tabs=new LinearLayout(this);tabs.setPadding(0,dp(6),0,dp(6));page.addView(tabs);
-        TextView replaceTab=label("Замены",15),ignoreTab=label("Игнорировать",15);
-        replaceTab.setGravity(Gravity.CENTER);ignoreTab.setGravity(Gravity.CENTER);
-        tabs.addView(replaceTab,new LinearLayout.LayoutParams(0,dp(47),1));
-        tabs.addView(ignoreTab,new LinearLayout.LayoutParams(0,dp(47),1));
+        tabsHost=new LinearLayout(this);tabsHost.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams tabLp=new LinearLayout.LayoutParams(-1,dp(52));tabLp.topMargin=dp(10);page.addView(tabsHost,tabLp);
+        LinearLayout content=BrowserTabs.panel(this);page.addView(content,new LinearLayout.LayoutParams(-1,0,1));
         TextView help=label("? Регулярные выражения словаря Edge TTS — справка",13);
         help.setGravity(Gravity.CENTER);help.setPadding(dp(4),dp(8),dp(4),dp(8));
         help.setBackground(fill(neutral));
-        page.addView(help);help.setOnClickListener(v->{
+        content.addView(help);help.setOnClickListener(v->{
             Intent manual=new Intent(this,ActivityInfo.class);
             manual.putExtra("help_section","Регулярные выражения словаря Edge TTS");
             startActivity(manual);
         });
-        Runnable refreshTabs=()->{
-            replaceTab.setBackground(fill(ignoredOnly?neutral:accent));
-            ignoreTab.setBackground(fill(ignoredOnly?accent:neutral));
-            replaceTab.setTextColor(ignoredOnly?ink:UiColorScheme.onAccent(this));
-            ignoreTab.setTextColor(ignoredOnly?UiColorScheme.onAccent(this):ink);
-            visibleRows=100;showEntries();
-        };
-        replaceTab.setOnClickListener(v->{ignoredOnly=false;refreshTabs.run();});
-        ignoreTab.setOnClickListener(v->{ignoredOnly=true;refreshTabs.run();});
+        Runnable refreshTabs=()->{renderDictionaryTabs();visibleRows=100;showEntries();};
         filter=new EditText(this);filter.setSingleLine(true);filter.setHint("Поиск по словарю");
-        page.addView(filter);
+        content.addView(filter);
         ScrollView scroll=new ScrollView(this);
         entries=new LinearLayout(this);entries.setOrientation(LinearLayout.VERTICAL);
-        scroll.addView(entries);page.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        scroll.addView(entries);content.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         filter.addTextChangedListener(new TextWatcher(){
             public void beforeTextChanged(CharSequence s,int st,int cnt,int after){}
             public void onTextChanged(CharSequence s,int start,int before,int count){}
@@ -113,6 +103,13 @@ public final class EdgeDictionaryActivity extends NavigationActivity {
                 getIntent().getStringExtra(EXTRA_CONTEXT)==null?"":getIntent().getStringExtra(EXTRA_CONTEXT),
                 selected.trim(),false,false);
         }
+    }
+    private void renderDictionaryTabs(){
+        if(tabsHost==null)return;
+        tabsHost.removeAllViews();
+        tabsHost.addView(BrowserTabs.strip(this,new String[]{"Замены","Игнорировать"},ignoredOnly?1:0,index->{
+            ignoredOnly=index==1;visibleRows=100;renderDictionaryTabs();showEntries();
+        }),new LinearLayout.LayoutParams(-1,dp(52)));
     }
     private void showEntries(){
         if(entries==null||store==null)return;

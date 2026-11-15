@@ -233,6 +233,7 @@ public final class DownloadArchiveActivity extends NavigationActivity {
             TextView restoreText=text("Восстановить",13,true);restoreText.setGravity(Gravity.CENTER_VERTICAL);
             LinearLayout.LayoutParams rsp=new LinearLayout.LayoutParams(0,-1,1);rsp.leftMargin=dp(7);actions.addView(restoreText,rsp);
             ImageView rename=image(R.drawable.ic_more_vertical,"Меню загрузки");
+            rename.setBackground(null);rename.setColorFilter(UiColorScheme.prefs(DownloadArchiveActivity.this).getInt("fg",INK));
             actions.addView(rename,new LinearLayout.LayoutParams(dp(46),dp(46)));
             ImageView delete=image(R.drawable.ic_download_archive_delete,"Удалить файлы");
             actions.addView(delete,new LinearLayout.LayoutParams(dp(46),dp(46)));

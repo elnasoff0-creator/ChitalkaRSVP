@@ -894,12 +894,19 @@ public final class DownloadActivity extends NavigationActivity {
             swipeActions.setOrientation(LinearLayout.HORIZONTAL);swipeActions.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);
             FrameLayout.LayoutParams ap=new FrameLayout.LayoutParams(-2,-1,Gravity.RIGHT);
             swipeFrame.addView(swipeActions,ap);
-            TextView confirm=center("В архив",13);confirm.setTextColor(0xffffffff);
-            confirm.setBackground(bg(0xff7260a5,14));
-            TextView cancel=center("Отмена",13);cancel.setTextColor(0xffffffff);
-            cancel.setBackground(bg(0xff857468,14));
-            swipeActions.addView(confirm,new LinearLayout.LayoutParams(dp(77),-1));
-            swipeActions.addView(cancel,new LinearLayout.LayoutParams(dp(77),-1));
+            // An opened swipe always inherits the current theme. Never use hard-coded
+            // purple/brown fills that become unreadable in a night/custom theme.
+            int themedAccent=UiColorScheme.accent(DownloadActivity.this);
+            int ordinary=UiColorScheme.neutral(DownloadActivity.this);
+            TextView confirm=center("В архив",13);confirm.setTextColor(ReaderButtonColors.contrastingText(themedAccent));
+            confirm.setBackground(bg(themedAccent,14));
+            TextView cancel=center("Отмена",13);cancel.setTextColor(ReaderButtonColors.contrastingText(ordinary));
+            cancel.setBackground(bg(ordinary,14));
+            LinearLayout.LayoutParams archiveParams=new LinearLayout.LayoutParams(dp(80),-1);
+            swipeActions.addView(confirm,archiveParams);
+            LinearLayout.LayoutParams cancelParams=new LinearLayout.LayoutParams(dp(80),-1);
+            cancelParams.leftMargin=dp(5);swipeActions.addView(cancel,cancelParams);
+            confirm.setContentDescription("В архив");cancel.setContentDescription("Отмена");
             confirm.setOnClickListener(v->archive(item));
             cancel.setOnClickListener(v->{revealedSwipeId="";int at=h.getBindingAdapterPosition();
                 if(at>=0)notifyItemChanged(at);});
@@ -956,7 +963,8 @@ public final class DownloadActivity extends NavigationActivity {
             // Every row exposes its actions through one compact overflow menu.
             // No duplicate file buttons or bulky download controls.
             ImageView more=icon(R.drawable.ic_more_vertical,"Действия загрузки",43);
-            more.setBackground(bg(PANEL,16));
+            more.setBackground(null); // Only the ellipsis, with the full invisible hit target.
+            more.setColorFilter(UiColorScheme.prefs(DownloadActivity.this).getInt("fg",INK));
             LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(43),dp(43));
             moreParams.leftMargin=dp(5);top.addView(more,moreParams);
             more.setOnClickListener(v->menu(more,item));card.setOnClickListener(v->{

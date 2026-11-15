@@ -29,6 +29,9 @@ public class SettingsActivity extends NavigationActivity {
     private SharedPreferences prefs;
     private int currentTab=0; // 0 appearance, 1 reading, 2 audio, 3 online, 4 Chteico
     private LinearLayout root, list;
+    private ScrollView settingsScroll;
+    private int shownTab=-1;
+    private final int[] sectionScroll=new int[5];
     private int chteicoHelpTapCount=0;
     private TextView preview, sizeValue;
     private int bg, fg, font, size, display, buttonColor, accentButtonColor;
@@ -44,7 +47,17 @@ public class SettingsActivity extends NavigationActivity {
         if(getIntent().getBooleanExtra("online_tab",false)) currentTab=3;
         if(getIntent().getBooleanExtra("rsvp_tab",false)) currentTab=1;
         if(getIntent().getBooleanExtra("chteico_tab",false)) currentTab=4;
+        if(state!=null){
+            currentTab=state.getInt("active_settings_tab",currentTab);
+            int[] saved=state.getIntArray("settings_tab_positions");
+            if(saved!=null&&saved.length==sectionScroll.length)System.arraycopy(saved,0,sectionScroll,0,saved.length);
+        }
         load();draw();
+    }
+    @Override protected void onSaveInstanceState(Bundle out){
+        if(settingsScroll!=null&&shownTab>=0)sectionScroll[shownTab]=settingsScroll.getScrollY();
+        out.putInt("active_settings_tab",currentTab);out.putIntArray("settings_tab_positions",sectionScroll.clone());
+        super.onSaveInstanceState(out);
     }
     int dp(int n){return (int)(getResources().getDisplayMetrics().density*n+.5f);}    
     private void pickFont(){android.content.Intent pick=new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT);
@@ -71,14 +84,14 @@ public class SettingsActivity extends NavigationActivity {
         android.widget.ScrollView scroll=new android.widget.ScrollView(this);
         android.widget.LinearLayout body=new android.widget.LinearLayout(this);body.setOrientation(1);
         body.setPadding(dp(12),dp(6),dp(12),dp(6));scroll.addView(body);
-        android.app.AlertDialog dlg=new android.app.AlertDialog.Builder(this).setTitle("Выбрать шрифт")
+        android.app.AlertDialog dlg=new RoundedDialogs.Builder(this).setTitle("Выбрать шрифт")
             .setView(scroll).setNegativeButton("Закрыть",null).create();
         for(String name:names){android.widget.TextView choice=text(name+" · Аа Бб 123",17,false);
             choice.setTypeface(ReaderFontLibrary.preview(this,name));
             choice.setPadding(dp(14),dp(11),dp(14),dp(11));body.addView(choice);
             choice.setOnClickListener(v->{prefs.edit().putString(ReaderFontLibrary.KEY,name).apply();dlg.dismiss();draw();});
             if(!java.util.Arrays.asList(ReaderFontLibrary.NAMES).contains(name))choice.setOnLongClickListener(v->{
-                new android.app.AlertDialog.Builder(this).setTitle("Удалить шрифт?").setMessage(name)
+                new RoundedDialogs.Builder(this).setTitle("Удалить шрифт?").setMessage(name)
                     .setNegativeButton("Отмена",null).setPositiveButton("Удалить",(d,w)->{
                         new java.io.File(ReaderFontLibrary.folder(this),name).delete();
                         if(ReaderFontLibrary.choice(this,prefs).equals(name))prefs.edit().remove(ReaderFontLibrary.KEY).apply();
@@ -87,6 +100,10 @@ public class SettingsActivity extends NavigationActivity {
             });
         }
         dlg.show();
+    }
+    private void drawSelectedTab(int index){
+        if(settingsScroll!=null&&shownTab>=0)sectionScroll[shownTab]=settingsScroll.getScrollY();
+        currentTab=index;draw();
     }
     void load(){bg=prefs.getInt("bg",0xfff3e7d5);fg=prefs.getInt("fg",0xff30221e);font=prefs.getInt("font",1);size=prefs.getInt("size",36);display=prefs.getInt("display",1);buttonColor=prefs.getInt("button_color",NO_COLOR);accentButtonColor=prefs.getInt("button_accent_color",NO_COLOR);}    
     void put(String k,int v){prefs.edit().putInt(k,v).apply();
@@ -109,25 +126,24 @@ public class SettingsActivity extends NavigationActivity {
     void header(String name){TextView t=text(name,18,true);t.setPadding(0,dp(14),0,dp(9));list.addView(t);}    
     TextView action(String name,Runnable click){TextView t=text(name,16,false);t.setBackground(rounded(cardColor(),15));t.setPadding(dp(14),dp(14),dp(14),dp(14));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,dp(5),0,dp(5));t.setLayoutParams(lp);t.setOnClickListener(v->click.run());return t;}
     TextView action(String name,int icon,Runnable click){TextView t=action(name,click);t.setCompoundDrawablesWithIntrinsicBounds(icon,0,0,0);t.setCompoundDrawablePadding(dp(10));for(android.graphics.drawable.Drawable d:t.getCompoundDrawables())if(d!=null)d.mutate().setTint(contrast(bg));return t;}
-    TextView tabAction(String name,int icon,boolean active,Runnable click){
-        TextView t=text(name,11,false);t.setGravity(Gravity.CENTER);
-        android.graphics.drawable.Drawable d=getDrawable(icon);
-        if(d!=null){d=d.mutate();d.setTint(contrast(bg));d.setBounds(0,0,dp(24),dp(24));t.setCompoundDrawables(null,d,null,null);}
-        t.setCompoundDrawablePadding(dp(3));t.setTextColor(contrast(bg));
-        t.setBackground(UiColorScheme.selectionOutline(this,active,cardColor(),15));
-        t.setPadding(dp(2),dp(8),dp(2),dp(7));t.setOnClickListener(v->click.run());return t;
-    }
     void draw(){
-        root=col();root.setBackgroundColor(bg);root.setPadding(dp(14),dp(25),dp(14),dp(9));setContentView(root);SafeSystemBars.matchBackground(this,bg);
-        LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);
-        ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_menu_lines);back.setColorFilter(contrast(bg));back.setPadding(dp(10),dp(10),dp(10),dp(10));
-        back.setBackground(rounded(UiColorScheme.neutral(this),12));back.setOnClickListener(v->UniversalDrawer.show(this));top.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));
-        TextView name=text("Настройки",24,true);name.setTypeface(Typeface.SERIF,Typeface.BOLD);LinearLayout.LayoutParams nameLp=new LinearLayout.LayoutParams(0,-2,1);nameLp.leftMargin=dp(14);top.addView(name,nameLp);root.addView(top);
-        ScrollView sc=new ScrollView(this);root.addView(sc,new LinearLayout.LayoutParams(-1,0,1));
-        LinearLayout tabbed=col();tabbed.setPadding(dp(2),dp(8),dp(2),dp(12));sc.addView(tabbed);
+        // Retain the scroll position of the tab being replaced, including after a live preference change.
+        if(settingsScroll!=null&&shownTab>=0)sectionScroll[shownTab]=settingsScroll.getScrollY();
+        root=col();root.setBackgroundColor(bg);root.setPadding(dp(13),dp(24),dp(13),dp(9));setContentView(root);SafeSystemBars.matchBackground(this,bg);
         String[] names={"Общие","Чтение","Аудио","Онлайн","Чтейцо"};
-        tabbed.addView(BrowserTabs.strip(this,names,currentTab,tab->{currentTab=tab;draw();}));
-        list=BrowserTabs.panel(this);tabbed.addView(list);
+        AppToolbar.add(this,root,"Настройки · "+names[Math.max(0,Math.min(currentTab,names.length-1))]);
+        final int[] icons={R.drawable.ic_tab_appearance,R.drawable.ic_book,R.drawable.ic_tab_music,
+            R.drawable.ic_tab_online,R.drawable.ic_chteico_nav};
+        android.widget.HorizontalScrollView tabs=BrowserTabs.iconStrip(this,names,icons,currentTab,index->{
+            if(index!=currentTab)drawSelectedTab(index);
+        });
+        LinearLayout.LayoutParams tabsLp=new LinearLayout.LayoutParams(-1,dp(52));tabsLp.topMargin=dp(12);root.addView(tabs,tabsLp);
+        settingsScroll=new ScrollView(this);settingsScroll.setFillViewport(true);
+        root.addView(settingsScroll,new LinearLayout.LayoutParams(-1,0,1));
+        list=BrowserTabs.panel(this);settingsScroll.addView(list,new ScrollView.LayoutParams(-1,-2));
+        shownTab=currentTab;
+        final int position=Math.max(0,sectionScroll[currentTab]);
+        settingsScroll.post(()->{if(settingsScroll!=null && shownTab==currentTab)settingsScroll.scrollTo(0,position);});
         if(currentTab==1){drawRsvpSettings();return;}
         if(currentTab==2){drawAudioSettings();return;}
         if(currentTab==3){drawOnlineSettings();return;}
@@ -142,9 +158,9 @@ public class SettingsActivity extends NavigationActivity {
         list.addView(action("＋ Добавить шрифт TTF / OTF",this::pickFont));
         gap(9);header("Размер шрифта");
         LinearLayout sizing=new LinearLayout(this);sizing.setGravity(Gravity.CENTER_VERTICAL);
-        Button minus=new Button(this);minus.setText("−");minus.setOnClickListener(v->changeSize(-2));sizing.addView(minus,new LinearLayout.LayoutParams(dp(70),dp(54)));
+        Button minus=new Button(this);minus.setText("−");minus.setAllCaps(false);minus.setBackground(rounded(UiColorScheme.neutral(this),14));minus.setTextColor(activeColor());minus.setOnClickListener(v->changeSize(-2));sizing.addView(minus,new LinearLayout.LayoutParams(dp(70),dp(54)));
         sizeValue=text(String.valueOf(size),20,true);sizeValue.setGravity(Gravity.CENTER);sizing.addView(sizeValue,new LinearLayout.LayoutParams(0,dp(54),1));
-        Button plus=new Button(this);plus.setText("+");plus.setOnClickListener(v->changeSize(2));sizing.addView(plus,new LinearLayout.LayoutParams(dp(70),dp(54)));
+        Button plus=new Button(this);plus.setText("+");plus.setAllCaps(false);plus.setBackground(rounded(UiColorScheme.neutral(this),14));plus.setTextColor(activeColor());plus.setOnClickListener(v->changeSize(2));sizing.addView(plus,new LinearLayout.LayoutParams(dp(70),dp(54)));
         list.addView(sizing);
         header("Тема чтения");
         LinearLayout themes=new LinearLayout(this);themes.setOrientation(LinearLayout.HORIZONTAL);

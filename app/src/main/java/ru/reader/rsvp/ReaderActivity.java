@@ -437,7 +437,7 @@ public class ReaderActivity extends NavigationActivity {
         LinearLayout.LayoutParams gaugeLp=new LinearLayout.LayoutParams(dp(44),dp(44));gaugeLp.leftMargin=dp(5);
         // The numeric WPM control belongs to the lower floating overlay, not the packed toolbar.
         LinearLayout.LayoutParams settingsLp=new LinearLayout.LayoutParams(dp(44),dp(44));settingsLp.leftMargin=dp(5);
-        toolbar.addView(icon(R.drawable.ic_more_vertical,v->{
+        ImageButton overflowMenu=icon(R.drawable.ic_more_vertical,v->{
             ReaderSheets.overflow(this,mode==TTS,which->{if(which==0)showNotes();
                     else if(which==1)showBookmarks();
                     else if(mode==TTS&&which==2)chooseTtsVoice();
@@ -446,7 +446,11 @@ public class ReaderActivity extends NavigationActivity {
                     else if(which==(mode==TTS?6:5))EdgeFolderPicker.show(this);
                     else if(!docUri.isEmpty())startActivity(new Intent(this,EdgeChapterDownloadsActivity.class)
                         .putExtra("book_uri",docUri).putExtra("book_title",title));});
-        }),settingsLp);
+        });
+        overflowMenu.setBackground(null);
+        overflowMenu.setColorFilter(fg);
+        overflowMenu.setContentDescription("Дополнительные действия");
+        toolbar.addView(overflowMenu,settingsLp);
         // The bookmark list is available via a dedicated toolbar/book menu action.
         // A long press on the book title does not alter the active reading position.
         toolbarChapterName=null; // Chapter appended after a middle dot inside the toolbar.
@@ -1557,7 +1561,7 @@ public class ReaderActivity extends NavigationActivity {
         TextView result=text("Введите слово или фразу",13);add(panel,result);
         ScrollView scroll=new ScrollView(this);LinearLayout matches=column();scroll.addView(matches);
         panel.addView(scroll,new LinearLayout.LayoutParams(-1,dp(290)));
-        final android.app.AlertDialog dialog=new android.app.AlertDialog.Builder(this)
+        final android.app.AlertDialog dialog=new RoundedDialogs.Builder(this)
             .setTitle("Поиск по книге").setView(panel).setNegativeButton("Закрыть",null).create();
         Runnable update=()->{
             matches.removeAllViews();String needle=query.getText().toString().trim().toLowerCase(java.util.Locale.ROOT);
