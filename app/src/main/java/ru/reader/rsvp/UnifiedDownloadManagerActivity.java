@@ -66,6 +66,7 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
     private boolean queuedReload,firstResume=true,rowsVerified;
     private long appliedRevision;
     private String lastCoverUri="",lastInfoKey="";
+    private DownloadInfoSnapshot.Entry currentInfo;
     // Declare the debounce callback before the listener that uses it.
     // Java field initializers cannot read a later instance field by simple name.
     private final Runnable reloadDebounced=this::reload;
@@ -76,14 +77,17 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
     };
     private int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
     private GradientDrawable rounded(int fill,int radius){GradientDrawable d=new GradientDrawable();d.setColor(fill);d.setCornerRadius(dp(radius));return d;}
-    private GradientDrawable outline(){GradientDrawable d=rounded(panel,12);d.setStroke(dp(1),accent);return d;}
     private TextView text(String value,int size,boolean bold){TextView v=new TextView(this);v.setText(value);v.setTextSize(size);v.setTextColor(ink);if(bold)v.setTypeface(Typeface.DEFAULT,Typeface.BOLD);return v;}
     private void place(LinearLayout box,View v,int top){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(top);box.addView(v,p);}
     private static String size(long n){return n<=0?"":String.format(Locale.getDefault(),"%.1f МБ",n/1048576.0);}
     private ImageView actionIcon(int resource,String title,Runnable action){
-        ImageView image=new ImageView(this);image.setImageResource(resource);image.setColorFilter(accent);
+        // All standard actions use the selected ordinary button surface, not an accent outline.
+        int fill=ReaderButtonColors.neutral(this,panel);
+        ImageView image=new ImageView(this);image.setImageResource(resource);
+        image.setColorFilter(ReaderButtonColors.contrastingText(fill));
         image.setContentDescription(title);image.setTooltipText(title);image.setPadding(dp(11),dp(11),dp(11),dp(11));
-        image.setBackground(outline());image.setOnClickListener(v->action.run());return image;
+        image.setBackground(rounded(fill,12));image.setClickable(true);image.setFocusable(true);
+        image.setOnClickListener(v->action.run());return image;
     }
     private ImageView bareMenuIcon(String title){
         ImageView image=new ImageView(this);image.setImageResource(R.drawable.ic_more_vertical);
@@ -98,6 +102,8 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         hintCover=getIntent().getStringExtra(EXTRA_COVER);if(hintCover==null)hintCover="";
         hintType=getIntent().getStringExtra(EXTRA_TYPE);if(hintType==null)hintType="";
         if(state!=null)tab=state.getString("tab","files");
+        // Display persisted Info immediately, before any asynchronous SAF or task checks.
+        currentInfo=DownloadInfoSnapshot.load(this,id);
         bg=UiColorScheme.background(this);panel=UiColorScheme.neutral(this);accent=UiColorScheme.accent(this);
         ink=UiColorScheme.foreground(this);muted=UiColorScheme.muted(this);
         paletteSignature=UiColorScheme.paletteSignature(this);
@@ -182,7 +188,7 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
     }
     private void switchTab(){boolean files="files".equals(tab);filesView.setVisibility(files?View.VISIBLE:View.GONE);
         infoScroll.setVisibility(files?View.GONE:View.VISIBLE);selectionBar.setVisibility(files&&!checked.isEmpty()?View.VISIBLE:View.GONE);
-        if(!files&&selected!=null)showInfo(selected);
+        if(!files&&currentInfo!=null)showInfo(currentInfo);
     }
     private void updateSelectionBar(){selectionLabel.setText("Выбрано: "+checked.size());
         selectionBar.setVisibility("files".equals(tab)&&!checked.isEmpty()?View.VISIBLE:View.GONE);
@@ -196,7 +202,8 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         boolean same(FileRow other){return other!=null&&key.equals(other.key)&&name.equals(other.name)
             &&status.equals(other.status)&&detail.equals(other.detail)&&percent==other.percent&&bytes==other.bytes;}
     }
-    private static final class Snapshot {DownloadsRepository.Item item;ArrayList<FileRow> files=new ArrayList<>();String error="";}
+    private static final class Snapshot {DownloadsRepository.Item item;DownloadInfoSnapshot.Entry info;
+        ArrayList<FileRow> files=new ArrayList<>();String error="";}
     private void reload(){
         if(disk.isShutdown())return;
         if(loading){queuedReload=true;return;}
@@ -208,16 +215,18 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
                 snapshot.item=DownloadsRepository.loadOne(getApplicationContext(),id);
                 if(snapshot.item!=null){
                     readRows(snapshot);
+                    snapshot.info=buildInfo(snapshot.item); // Disk/SAF path lookups only on this executor.
                     DownloadRowsSnapshot.save(getApplicationContext(),id,snapshot.files);
+                    DownloadInfoSnapshot.save(getApplicationContext(),snapshot.info);
                 }
             }catch(Exception error){snapshot.error=error.getMessage()==null?error.toString():error.getMessage();}
             main.post(()->{
                 loading=false;
                 if(isFinishing()||isDestroyed())return;
                 if(snapshot.item!=null){
-                    rowsVerified=true;selected=snapshot.item;rows=snapshot.files;
+                    rowsVerified=true;selected=snapshot.item;rows=snapshot.files;currentInfo=snapshot.info;
                     refreshHeader();adapter.submit(rows);
-                    if("info".equals(tab))showInfo(selected);
+                    if("info".equals(tab)&&currentInfo!=null)showInfo(currentInfo);
                     appliedRevision=Math.max(appliedRevision,requestedRevision);
                 }else if(selected==null){
                     metadata.setText(snapshot.error.isEmpty()?"Данные загрузки пока недоступны":snapshot.error);
@@ -324,6 +333,8 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         String key=item.bookUri==null?"":item.bookUri;
         ArrayList<String> cached=edgeTocCache.get(key);
         if(cached!=null)return cached;
+        cached=EdgeTocSnapshot.load(getApplicationContext(),key);
+        if(cached!=null){edgeTocCache.put(key,cached);return cached;}
         ArrayList<String> result=new ArrayList<>();
         if(!key.isEmpty())try{
             BookLoader.Book book=BookLoader.load(this,Uri.parse(key));
@@ -331,6 +342,7 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
                 result.add(book.chapters.get(n).title);
             // Even books without structural chapters should be loaded only once.
             edgeTocCache.put(key,result);
+            EdgeTocSnapshot.save(getApplicationContext(),key,result);
         }catch(Exception error){android.util.Log.w("PROChitalka-Edge","Оглавление пока недоступно",error);}
         // Transient SAF errors are not cached, allowing recovery after permission repair.
         return result;
@@ -435,40 +447,48 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         }
         view.setText(shown);
     }
-    private void showInfo(DownloadsRepository.Item i){
-        String keySignature=i.status+"|"+i.done+"|"+i.total+"|"+i.downloadedBytes+"|"+
-            i.description+"|"+i.type+"|"+i.source+"|"+
-            (category(i)==null?"":destinationPath(i,category(i)))+"|"+
-            (i.link==null?"":i.link.treeUri+"/"+i.link.subfolder);
-        if(keySignature.equals(lastInfoKey)&&infoList.getChildCount()>0)return;
-        lastInfoKey=keySignature;
-        final int previousScroll=infoScroll.getScrollY();
-        infoList.removeAllViews();
-        detailLine("Состояние",i.status);
-        if(i.total>0)detailLine("Готово",i.done+" из "+i.total);
-        if(i.downloadedBytes>0)detailLine("Объём",size(i.downloadedBytes));
-        if(!i.description.isEmpty())detailLine("Описание",i.description);
-        String key=category(i);
+    /** Build a compact snapshot in the disk executor, never in an Info tab layout callback. */
+    private DownloadInfoSnapshot.Entry buildInfo(DownloadsRepository.Item i){
+        DownloadInfoSnapshot.Entry data=new DownloadInfoSnapshot.Entry();
+        data.id=i.id;data.type=i.type;data.status=i.status;data.description=i.description;
+        data.done=i.done;data.total=i.total;data.bytes=i.downloadedBytes;
+        String key=category(i);data.folderCategory=key==null?"":key;
         if(key!=null){
-            // Use the last real per-title folder if known; otherwise show the confirmed tree.
-            folderInfoRow(destinationPath(i,key),
-                ()->DownloadFolderPicker.choose(this,folderRequest(key),key));
-            String error=DownloadFolderPicker.lastIssue(this,key);
-            if(!error.isEmpty())detailLine("Ошибка сохранения",error);
+            data.path=destinationPath(i,key);
+            data.issue=DownloadFolderPicker.lastIssue(this,key);
         }else if(DownloadsRepository.LINK.equals(i.type)&&i.link!=null){
             String actual=DownloadFolderPicker.treeDisplayPath(this,i.link.treeUri);
             if(actual.isEmpty())actual=i.link.treeLabel.isEmpty()?"Папка ссылки":i.link.treeLabel;
             if(!i.link.subfolder.isEmpty())actual+="/"+i.link.subfolder;
-            folderInfoRow(shortPath(actual),null);
+            data.path=shortPath(actual);
         }
-        // No absolute temporary-cache filesystem path here. Cache details are intentionally hidden.
+        return data;
+    }
+    /** Rendering the Info tab reads no files and does not scan Edge TTS folders. */
+    private void showInfo(DownloadInfoSnapshot.Entry data){
+        String keySignature=data.signature();
+        if(keySignature.equals(lastInfoKey)&&infoList.getChildCount()>0)return;
+        lastInfoKey=keySignature;
+        final int previousScroll=infoScroll.getScrollY();
+        infoList.removeAllViews();
+        detailLine("Состояние",data.status);
+        if(data.total>0)detailLine("Готово",data.done+" из "+data.total);
+        if(data.bytes>0)detailLine("Объём",size(data.bytes));
+        if(!data.description.isEmpty())detailLine("Описание",data.description);
+        if(!data.folderCategory.isEmpty()){
+            final String key=data.folderCategory;
+            folderInfoRow(data.path,()->DownloadFolderPicker.choose(this,folderRequest(key),key));
+            if(!data.issue.isEmpty())detailLine("Ошибка сохранения",data.issue);
+        }else if(!data.path.isEmpty())folderInfoRow(data.path,null);
         infoScroll.post(()->{if(!isFinishing()&&"info".equals(tab))infoScroll.scrollTo(0,previousScroll);});
     }
     @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);
         if(DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.BOOK_REQUEST,DownloadFolderPicker.BOOK)
             ||DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.MANGA_REQUEST,DownloadFolderPicker.MANGA)
             ||DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.AUDIO_REQUEST,DownloadFolderPicker.AUDIO)){
-            EdgeChapterArchive.invalidate();if(selected!=null)showInfo(selected);reload();
+            EdgeChapterArchive.invalidate();
+            DownloadInfoSnapshot.remove(this,id);currentInfo=null;lastInfoKey="";
+            reload();
         }
     }
     private void control(DownloadsRepository.Item i){try{

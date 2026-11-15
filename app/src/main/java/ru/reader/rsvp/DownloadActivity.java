@@ -183,30 +183,44 @@ public final class DownloadActivity extends NavigationActivity {
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(12),dp(25),dp(12),dp(12));root.setBackgroundColor(BG);setContentView(root);SafeSystemBars.matchBackground(this,BG);
         LinearLayout topBar=new LinearLayout(this);topBar.setGravity(Gravity.CENTER_VERTICAL);
         root.addView(topBar,new LinearLayout.LayoutParams(-1,dp(52)));
-        // The drawer icon stays fixed on the left. All other actions align right;
-        // the action strip scrolls on narrow screens without shifting the drawer.
+        // Keep every toolbar control within the available width: no horizontal scrolling.
         ImageView back=icon(R.drawable.ic_menu_lines,"Главное меню",44);
         topBar.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));
         back.setOnClickListener(v->UniversalDrawer.show(this));
-        HorizontalScrollView toolbarScroll=new HorizontalScrollView(this);
-        toolbarScroll.setHorizontalScrollBarEnabled(false);
-        toolbarScroll.setFillViewport(true);
-        topBar.addView(toolbarScroll,new LinearLayout.LayoutParams(0,dp(52),1));
-        LinearLayout toolbar=new LinearLayout(this);
-        toolbar.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
-        toolbarScroll.addView(toolbar,new HorizontalScrollView.LayoutParams(-2,dp(52)));
-        toolbarAction(toolbar,R.drawable.ic_search_audiobook,"Поиск аудиокниг",()->DownloadSourcePicker.show(this,DownloadSourcePicker.AUDIO));
-        toolbarAction(toolbar,R.drawable.ic_manga_search,"Поиск манги",()->DownloadSourcePicker.show(this,DownloadSourcePicker.MANGA));
-        toolbarAction(toolbar,R.drawable.ic_ranobelib_search,"Поиск ранобэ",()->DownloadSourcePicker.show(this,DownloadSourcePicker.RANOBE));
-        toolbarAction(toolbar,R.drawable.ic_import_link,"Импорт по ссылке",()->startActivity(new Intent(this,LinkDownloadActivity.class)));
-        toolbarAction(toolbar,R.drawable.ic_autoload,"Подготовить книгу Edge",()->startActivity(new Intent(this,EdgeFullBookActivity.class)));
-        toolbarAction(toolbar,R.drawable.ic_refresh_download,"Проверить загрузки",()->{
-            new SwipeDialogs.Builder(this).setTitle("Проверить загрузки?")
-                .setMessage("Полностью сверить задания и файлы во всех хранилищах. Может занять время.")
-                .setNegativeButton("Отмена",null)
-                .setPositiveButton("Проверить",(d,w)->refresh()).show();
+        LinearLayout toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
+        topBar.addView(toolbar,new LinearLayout.LayoutParams(0,dp(52),1));
+        final String[] actionNames={"Поиск аудиокниг","Поиск манги","Поиск ранобэ",
+            "Импорт по ссылке","Подготовить книгу Edge"};
+        final int[] actionImages={R.drawable.ic_search_audiobook,R.drawable.ic_manga_search,
+            R.drawable.ic_ranobelib_search,R.drawable.ic_import_link,R.drawable.ic_autoload};
+        final Runnable[] actions={
+            ()->DownloadSourcePicker.show(this,DownloadSourcePicker.AUDIO),
+            ()->DownloadSourcePicker.show(this,DownloadSourcePicker.MANGA),
+            ()->DownloadSourcePicker.show(this,DownloadSourcePicker.RANOBE),
+            ()->startActivity(new Intent(this,LinkDownloadActivity.class)),
+            ()->startActivity(new Intent(this,EdgeFullBookActivity.class))
+        };
+        ArrayList<ImageView> quick=new ArrayList<>();
+        for(int i=0;i<actions.length;i++)quick.add(toolbarAction(toolbar,actionImages[i],actionNames[i],actions[i]));
+        ImageView more=toolbarAction(toolbar,R.drawable.ic_more_vertical,"Дополнительные действия",()->{});
+        more.setVisibility(View.GONE);
+        more.setOnClickListener(v->{
+            PopupMenu menu=new PalettePopupMenu(this,more);
+            for(int i=0;i<actions.length;i++)if(quick.get(i).getVisibility()!=View.VISIBLE){
+                final int index=i;
+                menu.getMenu().add(actionNames[i]).setOnMenuItemClickListener(item->{actions[index].run();return true;});
+            }
+            menu.show();
         });
-        toolbarScroll.post(()->toolbarScroll.scrollTo(toolbar.getWidth(),0));
+        // At 320dp or with larger display scaling, secondary actions move to this overflow.
+        // Width changes (rotation, split screen) restore available buttons automatically.
+        toolbar.addOnLayoutChangeListener((v,left,top,right,bottom,oldLeft,oldTop,oldRight,oldBottom)->{
+            int available=right-left,slot=dp(49);
+            int visibleCount=available>=quick.size()*slot?quick.size():
+                Math.max(0,Math.min(quick.size(),available/slot-1));
+            for(int i=0;i<quick.size();i++)quick.get(i).setVisibility(i<visibleCount?View.VISIBLE:View.GONE);
+            more.setVisibility(visibleCount<quick.size()?View.VISIBLE:View.GONE);
+        });
         LinearLayout headingRow=new LinearLayout(this);
         headingRow.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams hl=new LinearLayout.LayoutParams(-1,dp(52));hl.topMargin=dp(11);
@@ -227,6 +241,9 @@ public final class DownloadActivity extends NavigationActivity {
             String[] names={"Все загрузки","В процессе","Аудиокниги","Edge TTS","По ссылке","Манга","Ранобэ"};
             for(int i=0;i<names.length;i++){final int ix=i;menu.getMenu().add(names[i]).setOnMenuItemClickListener(item->{
                 filter=ix;filterSelect.setText(names[ix]+"  ▾");getSharedPreferences("reader",0).edit().putInt(FILTER_KEY,ix).apply();showCachedFilter();return true;});}
+            // Full disk reconciliation is a secondary action, not another toolbar button.
+            menu.getMenu().add(1,103,97,"Проверить загрузки")
+                .setOnMenuItemClickListener(item->{confirmFullScan();return true;});
             menu.getMenu().add(1,102,98,"Перенести всё из внутреннего хранилища")
                 .setOnMenuItemClickListener(item->{confirmBulkTransfer();return true;});
             menu.getMenu().add(1,101,99,"Удалить скачанные файлы")
@@ -242,10 +259,18 @@ public final class DownloadActivity extends NavigationActivity {
         list.setItemAnimator(animations);list.setAdapter(adapter);root.addView(list,new LinearLayout.LayoutParams(-1,0,1));
         attachArchiveSwipe();
     }
-    private void toolbarAction(LinearLayout toolbar,int drawable,String hint,Runnable action){
+    private void confirmFullScan(){
+        new SwipeDialogs.Builder(this).setTitle("Проверить загрузки?")
+            .setMessage("Полностью сверить задания и файлы во всех хранилищах. Может занять время.")
+            .setNegativeButton("Отмена",null)
+            .setPositiveButton("Проверить",(d,w)->refresh()).show();
+    }
+    private ImageView toolbarAction(LinearLayout toolbar,int drawable,String hint,Runnable action){
         ImageView button=icon(drawable,hint,44);
+        int fill=ReaderButtonColors.neutral(this,PANEL);
+        button.setBackground(bg(fill,16));button.setColorFilter(ReaderButtonColors.contrastingText(fill));
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(dp(44),dp(44));lp.leftMargin=dp(5);
-        toolbar.addView(button,lp);button.setOnClickListener(v->action.run());
+        toolbar.addView(button,lp);button.setOnClickListener(v->action.run());return button;
     }
     private void addMainAction(LinearLayout parent,int drawable,String title,Runnable click,boolean right){
         LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setGravity(Gravity.CENTER);

@@ -447,8 +447,8 @@ public class ReaderActivity extends NavigationActivity {
                     else if(!docUri.isEmpty())startActivity(new Intent(this,EdgeChapterDownloadsActivity.class)
                         .putExtra("book_uri",docUri).putExtra("book_title",title));});
         });
-        overflowMenu.setBackground(null);
-        overflowMenu.setColorFilter(fg);
+        // Toolbar overflow follows the same configured ordinary button surface as the
+        // other Reader toolbar controls. List-item ellipses remain frameless.
         overflowMenu.setContentDescription("Дополнительные действия");
         toolbar.addView(overflowMenu,settingsLp);
         // The bookmark list is available via a dedicated toolbar/book menu action.
