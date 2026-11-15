@@ -141,9 +141,9 @@ final class RanobeLibStorage {
     static synchronized ArrayList<Job> series(Context c,String slug){ArrayList<Job> result=new ArrayList<>();for(Job j:readJobs(c))if(slug.equals(j.slug))result.add(j);result.sort(RanobeLibStorage::compare);return result;}
     static int compare(Job a,Job b){int v=Double.compare(numeric(a.volume),numeric(b.volume));if(v!=0)return v;v=Double.compare(numeric(a.number),numeric(b.number));return v!=0?v:Long.compare(a.branch,b.branch);}
     private static double numeric(String s){try{return Double.parseDouble(s.replace(',','.'));}catch(Exception ignored){return 0;}}
-    static synchronized void put(Context c,Job job){ArrayList<Job> all=readJobs(c);boolean replaced=false;for(int i=0;i<all.size();i++)if(all.get(i).id().equals(job.id())){all.set(i,job);replaced=true;break;}if(!replaced)all.add(job);saveJobs(c,all);}
+    static synchronized void put(Context c,Job job){ArrayList<Job> all=readJobs(c);boolean replaced=false;for(int i=0;i<all.size();i++)if(all.get(i).id().equals(job.id())){all.set(i,job);replaced=true;break;}if(!replaced)all.add(job);saveJobs(c,all);DownloadChangeBus.publish("ranobe:"+job.slug);}
     static synchronized void putAll(Context c,List<Job> jobs){ArrayList<Job> all=readJobs(c);java.util.HashMap<String,Integer> positions=new java.util.HashMap<>();for(int i=0;i<all.size();i++)positions.put(all.get(i).id(),i);
-        for(Job job:jobs){Integer pos=positions.get(job.id());if(pos==null){positions.put(job.id(),all.size());all.add(job);}else all.set(pos,job);}saveJobs(c,all);}
+        for(Job job:jobs){Integer pos=positions.get(job.id());if(pos==null){positions.put(job.id(),all.size());all.add(job);}else all.set(pos,job);}saveJobs(c,all);for(Job job:jobs)DownloadChangeBus.publish("ranobe:"+job.slug);}
     private static void saveJobs(Context c,List<Job> jobs){JSONArray a=new JSONArray();for(Job j:jobs)a.put(j.json());try{writeAtomic(jobsFile(c),a.toString());}catch(IOException ex){android.util.Log.e("RanobeLibStorage","Jobs not saved",ex);throw new IllegalStateException("Не удалось сохранить очередь RanobeLIB",ex);}}
     static void rememberTitle(Context c,RanobeLibApi.Title title){try{
         File local=new File(folder(c,title.slug),"book.json");
@@ -443,6 +443,7 @@ final class RanobeLibStorage {
         if(remote!=null)remote.delete();
         c.getSharedPreferences("ranobelib_external_v158",0).edit().remove(slug).remove(slug+":root").remove(slug+":name").commit();
         deleteRecursive(folder(c,slug));
+        DownloadChangeBus.publish("ranobe:"+slug);
     }
     private static void deleteRecursive(File f){if(f.isDirectory()){File[] children=f.listFiles();if(children!=null)for(File child:children)deleteRecursive(child);}f.delete();}
 }

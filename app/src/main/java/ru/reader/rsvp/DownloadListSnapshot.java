@@ -8,7 +8,7 @@ import java.util.ArrayList;
 /** Bounded, display-only snapshot. Never substitutes for verified live downloader jobs. */
 final class DownloadListSnapshot {
     private static final String KEY="downloads_dashboard_snapshot_v154";
-    private static final int MAX=150;
+    private static final int MAX=1200;
     private DownloadListSnapshot(){}
     static void save(Context context,ArrayList<DownloadsRepository.Item> items){
         try{

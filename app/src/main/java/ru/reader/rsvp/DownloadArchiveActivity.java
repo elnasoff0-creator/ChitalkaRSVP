@@ -29,7 +29,12 @@ import java.util.concurrent.Executors;
 
 /** Fast, searchable logical archive. Restores metadata; files are never moved on archive/restore. */
 public final class DownloadArchiveActivity extends NavigationActivity {
-    private static final int BG=0xfff3e7d5, PANEL=0xfffff9f0, INK=0xff30221e, MUTED=0xff716259;
+    private int BG,PANEL,INK,MUTED,paletteSignature;
+    private void readPalette(){
+        BG=UiColorScheme.background(this);PANEL=UiColorScheme.neutral(this);
+        INK=UiColorScheme.foreground(this);MUTED=UiColorScheme.muted(this);
+        paletteSignature=UiColorScheme.paletteSignature(this);
+    }
     private static final int ARCHIVE_TRANSFER_REQUEST=12560;
     private String pendingArchiveTransferId="";
     private final ExecutorService disk=Executors.newSingleThreadExecutor();
@@ -43,7 +48,9 @@ public final class DownloadArchiveActivity extends NavigationActivity {
     private ImageView image(int id,String description){ImageView v=new ImageView(this);v.setImageResource(id);v.setColorFilter(INK);
         v.setPadding(dp(9),dp(9),dp(9),dp(9));v.setContentDescription(description);v.setBackground(background(PANEL,14));return v;}
     @Override public void onCreate(Bundle state){super.onCreate(state);
-        if(state!=null)pendingArchiveTransferId=state.getString("archive_move_id","");
+        readPalette();
+        if(state!=null){pendingArchiveTransferId=state.getString("archive_move_id","");
+            query=state.getString("archive_query","");}
         order=getSharedPreferences("reader",0).getInt("archive_download_sort_v153",0);
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(12),dp(24),dp(12),dp(10));
         root.setBackgroundColor(BG);setContentView(root);SafeSystemBars.matchBackground(this,BG);
@@ -55,8 +62,8 @@ public final class DownloadArchiveActivity extends NavigationActivity {
         ImageView clear=image(R.drawable.ic_download_archive_clear,"Очистить архив");heading.addView(clear,new LinearLayout.LayoutParams(dp(46),dp(46)));
         clear.setOnClickListener(v->confirmClear());
         EditText find=new EditText(this);find.setSingleLine(true);find.setTextSize(16);find.setTextColor(INK);
-        find.setHint("Поиск в архиве…");find.setHintTextColor(MUTED);find.setPadding(dp(16),dp(8),dp(16),dp(8));
-        find.setBackground(background(PANEL,14));
+        find.setHint("Поиск в архиве…");find.setHintTextColor(MUTED);find.setHighlightColor(UiColorScheme.selected(this));find.setPadding(dp(16),dp(8),dp(16),dp(8));
+        find.setBackground(background(PANEL,14));find.setText(query);
         LinearLayout.LayoutParams fp=new LinearLayout.LayoutParams(-1,dp(48));fp.topMargin=dp(10);root.addView(find,fp);
         find.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int start,int count,int after){}
             public void onTextChanged(CharSequence s,int start,int before,int count){query=s.toString();filter();}
@@ -75,14 +82,17 @@ public final class DownloadArchiveActivity extends NavigationActivity {
         root.addView(list,new LinearLayout.LayoutParams(-1,0,1));
         reload();
     }
-    @Override protected void onResume(){super.onResume();if(adapter!=null)reload();}
+    @Override protected void onResume(){super.onResume();
+        if(paletteSignature!=UiColorScheme.paletteSignature(this)){recreate();return;}
+        if(adapter!=null)reload();}
     @Override protected void onSaveInstanceState(Bundle out){
-        out.putString("archive_move_id",pendingArchiveTransferId);super.onSaveInstanceState(out);
+        out.putString("archive_move_id",pendingArchiveTransferId);
+        out.putString("archive_query",query);super.onSaveInstanceState(out);
     }
     @Override protected void onDestroy(){disk.shutdownNow();super.onDestroy();}
     private void reload(){records.clear();records.addAll(DownloadArchiveStore.entries(this));filter();}
     private void sortLabel(){if(sortButton!=null)sortButton.setText(new String[]{"Дата · новые сначала ▾","Дата · старые сначала ▾","Имя · А–Я ▾","Имя · Я–А ▾"}[order]);}
-    private void showSort(){PopupMenu menu=new PopupMenu(this,sortButton);
+    private void showSort(){PopupMenu menu=new PalettePopupMenu(this,sortButton);
         String[] opts={"Дата: сначала новые","Дата: сначала старые","Имя: А–Я","Имя: Я–А"};
         for(int n=0;n<opts.length;n++){final int value=n;
             menu.getMenu().add(opts[n]).setOnMenuItemClickListener(i->{order=value;getSharedPreferences("reader",0).edit()
@@ -238,7 +248,7 @@ public final class DownloadArchiveActivity extends NavigationActivity {
             ImageView delete=image(R.drawable.ic_download_archive_delete,"Удалить файлы");
             actions.addView(delete,new LinearLayout.LayoutParams(dp(46),dp(46)));
             rename.setOnClickListener(v->{
-                PopupMenu menu=new PopupMenu(DownloadArchiveActivity.this,rename);
+                PopupMenu menu=new PalettePopupMenu(DownloadArchiveActivity.this,rename);
                 menu.getMenu().add("Переименовать").setOnMenuItemClickListener(action->{rename(e);return true;});
                 menu.getMenu().add("Перенести файлы").setOnMenuItemClickListener(action->{move(e);return true;});
                 menu.show();

@@ -25,7 +25,7 @@ final class LinkDownloadStore {
         static Batch parse(JSONObject o){Batch b=new Batch();b.id=o.optString("id",b.id);b.title=o.optString("title",b.title);b.treeUri=o.optString("treeUri");b.treeLabel=o.optString("treeLabel");b.subfolder=o.optString("subfolder");b.status=o.optString("status","queued");b.error=o.optString("error");b.updated=o.optLong("updated");JSONArray a=o.optJSONArray("files");if(a!=null)for(int i=0;i<a.length();i++){JSONObject item=a.optJSONObject(i);if(item!=null)b.files.add(Entry.parse(item));}return b;}
     }
     static synchronized ArrayList<Batch> load(Context c){ArrayList<Batch> out=new ArrayList<>();try{JSONArray a=new JSONArray(c.getSharedPreferences("reader",0).getString(KEY,"[]"));for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);if(o!=null)out.add(Batch.parse(o));}}catch(Exception ignored){}return out;}
-    static synchronized void put(Context c,Batch b){ArrayList<Batch> a=load(c);boolean found=false;for(int i=0;i<a.size();i++)if(a.get(i).id.equals(b.id)){a.set(i,b);found=true;break;}if(!found)a.add(b);persist(c,a);}
+    static synchronized void put(Context c,Batch b){ArrayList<Batch> a=load(c);boolean found=false;for(int i=0;i<a.size();i++)if(a.get(i).id.equals(b.id)){a.set(i,b);found=true;break;}if(!found)a.add(b);persist(c,a);DownloadChangeBus.publish("link:"+b.id);}
     static synchronized Batch get(Context c,String id){for(Batch b:load(c))if(b.id.equals(id))return b;return null;}
     static synchronized void recoverInterrupted(Context c){
         ArrayList<Batch> batches=load(c);boolean changed=false;
@@ -35,9 +35,9 @@ final class LinkDownloadStore {
                 for(Entry f:batch.files)if("running".equals(f.status))f.status="paused";
             }
         }
-        if(changed)persist(c,batches);
+        if(changed){persist(c,batches);for(Batch b:batches)DownloadChangeBus.publish("link:"+b.id);}
     }
-    static synchronized void remove(Context c,String id){ArrayList<Batch> a=load(c);a.removeIf(b->id.equals(b.id));persist(c,a);}
+    static synchronized void remove(Context c,String id){ArrayList<Batch> a=load(c);a.removeIf(b->id.equals(b.id));persist(c,a);DownloadChangeBus.publish("link:"+id);}
     private static void persist(Context c,ArrayList<Batch> a){JSONArray arr=new JSONArray();try{for(Batch b:a)arr.put(b.json());c.getSharedPreferences("reader",0).edit().putString(KEY,arr.toString()).commit();}catch(Exception ignored){}}
     static String safeName(String raw){String s=raw==null?"":raw.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]","_").replaceAll("[. ]+$","").trim();if(s.length()>120)s=s.substring(0,120).trim();if(s.isEmpty()||".".equals(s)||"..".equals(s))s="audio";return s;}
     static String safeMp3(String name){return LinkFileTypes.safeFilename(name,"mp3");}

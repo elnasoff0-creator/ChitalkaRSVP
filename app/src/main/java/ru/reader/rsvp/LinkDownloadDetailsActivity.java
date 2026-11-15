@@ -23,13 +23,20 @@ import android.widget.Toast;
 public final class LinkDownloadDetailsActivity extends NavigationActivity {
     private final Handler handler=new Handler(Looper.getMainLooper());
     private String id;private LinearLayout root;private boolean visible;
+    private int pageBg,panel,ink,paletteSignature;
+    private void readPalette(){pageBg=UiColorScheme.background(this);
+        panel=UiColorScheme.neutral(this);ink=UiColorScheme.foreground(this);
+        paletteSignature=UiColorScheme.paletteSignature(this);
+    }
     private int dp(int v){return Math.round(v*getResources().getDisplayMetrics().density);}
     private GradientDrawable bg(int color){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(15));return d;}
-    private TextView text(String s,int size){TextView t=new TextView(this);t.setText(s);t.setTextSize(size);t.setTextColor(0xff30221e);return t;}
-    private Button button(String s){Button b=new Button(this);b.setText(s);b.setAllCaps(false);b.setTextColor(0xff30221e);b.setBackground(bg(0xfffff9f0));return b;}
+    private TextView text(String s,int size){TextView t=new TextView(this);t.setText(s);t.setTextSize(size);t.setTextColor(ink);return t;}
+    private Button button(String s){Button b=new Button(this);b.setText(s);b.setAllCaps(false);b.setTextColor(ReaderButtonColors.contrastingText(panel));b.setBackground(bg(panel));return b;}
     private void add(View v){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(9);root.addView(v,p);}
-    @Override public void onCreate(Bundle b){super.onCreate(b);id=getIntent().getStringExtra(DirectLinkDownloadService.EXTRA_ID);ScrollView scroll=new ScrollView(this);root=new LinearLayout(this);root.setPadding(dp(15),dp(30),dp(15),dp(20));root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(0xfff3e7d5);scroll.addView(root);setContentView(scroll);SafeSystemBars.matchBackground(this,0xfff3e7d5);}
-    @Override public void onResume(){super.onResume();visible=true;handler.post(ticker);}
+    @Override public void onCreate(Bundle b){super.onCreate(b);readPalette();id=getIntent().getStringExtra(DirectLinkDownloadService.EXTRA_ID);ScrollView scroll=new ScrollView(this);root=new LinearLayout(this);root.setPadding(dp(15),dp(30),dp(15),dp(20));root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(pageBg);scroll.addView(root);setContentView(scroll);SafeSystemBars.matchBackground(this,pageBg);}
+    @Override public void onResume(){super.onResume();
+        if(paletteSignature!=UiColorScheme.paletteSignature(this)){recreate();return;}
+        visible=true;handler.post(ticker);}
     @Override public void onPause(){visible=false;handler.removeCallbacks(ticker);super.onPause();}
     private final Runnable ticker=new Runnable(){@Override public void run(){if(!visible)return;render();handler.postDelayed(this,1100);}};
     private void command(String cmd){Intent intent=new Intent(this,DirectLinkDownloadService.class).setAction(cmd).putExtra(DirectLinkDownloadService.EXTRA_ID,id);if(Build.VERSION.SDK_INT>=26&&DirectLinkDownloadService.START.equals(cmd))startForegroundService(intent);else startService(intent);handler.postDelayed(this::render,250);}
@@ -46,7 +53,7 @@ public final class LinkDownloadDetailsActivity extends NavigationActivity {
         int completedAudio=0;for(LinkDownloadStore.Entry e:b.files)if("mp3".equals(e.format)&&"completed".equals(e.status))completedAudio++;
         if(completedAudio>0){Button library=button("Добавить MP3 в аудиобиблиотеку");add(library);library.setOnClickListener(v->{LinkDownloadStore.addToLibrary(this,b);Toast.makeText(this,"Готовые MP3 добавлены в аудиобиблиотеку",Toast.LENGTH_SHORT).show();});}
         add(text("Книги FB2 и EPUB автоматически добавляются в библиотеку после скачивания.",12));
-        for(LinkDownloadStore.Entry entry:b.files){LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setPadding(dp(11),dp(12),dp(11),dp(12));card.setBackground(bg(0xfffff9f0));add(card);
+        for(LinkDownloadStore.Entry entry:b.files){LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setPadding(dp(11),dp(12),dp(11),dp(12));card.setBackground(bg(panel));add(card);
             TextView name=text(entry.name,16);name.setTypeface(Typeface.DEFAULT,Typeface.BOLD);card.addView(name);
             String summary=status(entry.status)+" · "+String.format(java.util.Locale.ROOT,"%.1f МБ",entry.bytes/1048576.0)+(entry.size>0?" / "+String.format(java.util.Locale.ROOT,"%.1f МБ",entry.size/1048576.0):"");card.addView(text(summary,13));
             if(!entry.error.isEmpty())card.addView(text(entry.error,12));

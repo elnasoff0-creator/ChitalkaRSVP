@@ -59,19 +59,22 @@ final class DownloadArchiveStore {
         e.description=item.description;e.source=item.source;e.bookUri=item.bookUri;
         e.archivedAt=System.currentTimeMillis();e.ready=item.ready;all.add(e);
         Set<String> discarded=new HashSet<>(pref(c).getStringSet(DISMISSED,java.util.Collections.emptySet()));
-        discarded.remove(e.id);return persist(c,all,discarded);
+        discarded.remove(e.id);boolean saved=persist(c,all,discarded);
+        if(saved)DownloadChangeBus.publish(e.id);return saved;
     }
     static synchronized boolean restore(Context c,String id){
         ArrayList<Entry> all=entries(c);boolean exists=all.removeIf(e->id.equals(e.id));
         if(!exists)return false;
         Set<String> discarded=new HashSet<>(pref(c).getStringSet(DISMISSED,java.util.Collections.emptySet()));
-        discarded.remove(id);return persist(c,all,discarded);
+        discarded.remove(id);boolean saved=persist(c,all,discarded);
+        if(saved)DownloadChangeBus.publish(id);return saved;
     }
     /** A successful physical deletion removes the archive record and hides any stale scanner projection. */
     static synchronized boolean removedFiles(Context c,String id){
         ArrayList<Entry> all=entries(c);all.removeIf(e->id.equals(e.id));
         Set<String> discarded=new HashSet<>(pref(c).getStringSet(DISMISSED,java.util.Collections.emptySet()));
-        discarded.add(id);return persist(c,all,discarded);
+        discarded.add(id);boolean saved=persist(c,all,discarded);
+        if(saved)DownloadChangeBus.publish(id);return saved;
     }
     /** Clear the archive index, not the files. Suppression avoids old jobs immediately reappearing. */
     static synchronized boolean clear(Context c){

@@ -12,7 +12,7 @@ public final class BookImportManager {
         static Job from(JSONObject j){Job b=new Job();b.source=j.optString("source");b.title=j.optString("title");b.cover=j.optString("cover");b.author=j.optString("author");b.narrator=j.optString("narrator");b.description=j.optString("description");b.status=j.optString("status","queued");b.error=j.optString("error");b.index=j.optInt("index");b.bytes=j.optLong("bytes");b.total=j.optLong("total");b.paused=j.optBoolean("paused");b.cancelled=j.optBoolean("cancelled");JSONArray a=j.optJSONArray("chapters"),s=j.optJSONArray("states");if(a!=null)for(int i=0;i<a.length();i++)b.chapters.add(KvuheParser.Chapter.parse(a.optJSONObject(i)));if(s!=null)for(int i=0;i<s.length();i++)b.states.add(s.optInt(i));JSONArray r=j.optJSONArray("relocatedUris");if(r!=null)for(int i=0;i<r.length();i++)b.relocatedUris.add(r.optString(i));return b;}
     }
     public static synchronized ArrayList<Job> load(Context c){ArrayList<Job> out=new ArrayList<>();try{JSONArray a=new JSONArray(c.getSharedPreferences("reader",0).getString(KEY,"[]"));for(int i=0;i<a.length();i++)out.add(Job.from(a.getJSONObject(i)));}catch(Exception ignored){}return out;}
-    public static synchronized void put(Context c,Job job){if(c.getSharedPreferences("reader",0).getStringSet(REMOVED,java.util.Collections.emptySet()).contains(job.source))return;ArrayList<Job> all=load(c);boolean found=false;for(int i=0;i<all.size();i++)if(all.get(i).source.equals(job.source)){all.set(i,job);found=true;break;}if(!found)all.add(job);JSONArray a=new JSONArray();try{for(Job j:all)a.put(j.json());c.getSharedPreferences("reader",0).edit().putString(KEY,a.toString()).commit();}catch(Exception ignored){}}
+    public static synchronized void put(Context c,Job job){if(c.getSharedPreferences("reader",0).getStringSet(REMOVED,java.util.Collections.emptySet()).contains(job.source))return;ArrayList<Job> all=load(c);boolean found=false;for(int i=0;i<all.size();i++)if(all.get(i).source.equals(job.source)){all.set(i,job);found=true;break;}if(!found)all.add(job);JSONArray a=new JSONArray();try{for(Job j:all)a.put(j.json());if(c.getSharedPreferences("reader",0).edit().putString(KEY,a.toString()).commit())DownloadChangeBus.publish("audio:"+job.source);}catch(Exception ignored){}}
     /** A new explicit import may restore an earlier removed URL. */
     public static synchronized void putNew(Context context,Job job){
         android.content.SharedPreferences prefs=context.getSharedPreferences("reader",0);
@@ -27,6 +27,7 @@ public final class BookImportManager {
         ArrayList<Job> all=load(context);all.removeIf(j->j.source.equals(job.source));
         JSONArray data=new JSONArray();try{for(Job j:all)data.put(j.json());}catch(Exception ignored){}
         prefs.edit().putStringSet(REMOVED,removed).putString(KEY,data.toString()).commit();
+        DownloadChangeBus.publish("audio:"+job.source);
         if(deleteFiles){
             // Each file is owned by a job. Never delete a shared directory wholesale.
             for(int i=0;i<job.chapters.size();i++){trackFile(context,job,i).delete();String uri=relocated(job,i);if(!uri.isEmpty())try{androidx.documentfile.provider.DocumentFile.fromSingleUri(context,android.net.Uri.parse(uri)).delete();}catch(Exception ignored){}}

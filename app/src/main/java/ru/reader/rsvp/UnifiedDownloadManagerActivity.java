@@ -50,7 +50,7 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
     private final Handler main=new Handler(Looper.getMainLooper());
     private final Set<String> checked=new HashSet<>();
     private String id="",hintTitle="",hintCover="",hintType="",tab="files";
-    private int bg,panel,ink,muted,accent;
+    private int bg,panel,ink,muted,accent,paletteSignature;
     private TextView bookTitle,metadata,percent,selectionLabel;
     private ImageView artwork,playPause,allIcon;
     private ProgressBar progress;
@@ -63,9 +63,15 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
     private final Map<String,ArrayList<String>> edgeTocCache=new HashMap<>();
     private FileAdapter adapter;
     private volatile boolean visible,loading;
-    private final Runnable ticker=new Runnable(){@Override public void run(){
-        if(!visible)return;reload();main.postDelayed(this,4200);
-    }};
+    private boolean queuedReload,firstResume=true,rowsVerified;
+    private long appliedRevision;
+    private String lastCoverUri="",lastInfoKey="";
+    private final DownloadChangeBus.Listener downloadListener=changed->{
+        if(id.equals(changed)&&visible){
+            main.removeCallbacks(reloadDebounced);main.postDelayed(reloadDebounced,350);
+        }
+    };
+    private final Runnable reloadDebounced=this::reload;
     private int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
     private GradientDrawable rounded(int fill,int radius){GradientDrawable d=new GradientDrawable();d.setColor(fill);d.setCornerRadius(dp(radius));return d;}
     private GradientDrawable outline(){GradientDrawable d=rounded(panel,12);d.setStroke(dp(1),accent);return d;}
@@ -91,8 +97,8 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         hintType=getIntent().getStringExtra(EXTRA_TYPE);if(hintType==null)hintType="";
         if(state!=null)tab=state.getString("tab","files");
         bg=UiColorScheme.background(this);panel=UiColorScheme.neutral(this);accent=UiColorScheme.accent(this);
-        ink=getSharedPreferences("reader",0).getInt("fg",UiColorScheme.dark(this)?Color.WHITE:0xff30221e);
-        muted=UiColorScheme.blend(ink,bg,.40f);
+        ink=UiColorScheme.foreground(this);muted=UiColorScheme.muted(this);
+        paletteSignature=UiColorScheme.paletteSignature(this);
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(bg);
         root.setPadding(dp(13),dp(24),dp(13),dp(9));setContentView(root);SafeSystemBars.matchBackground(this,bg);
         AppToolbar.add(this,root,"Менеджер");
@@ -122,6 +128,7 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         allIcon=actionIcon(R.drawable.ic_autoload,"Скачать всё",()->{if(selected!=null)downloadAll(selected);});
         LinearLayout.LayoutParams full=new LinearLayout.LayoutParams(dp(44),dp(44));full.leftMargin=dp(10);progressLine.addView(allIcon,full);
         progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setMax(100);
+        UiColorScheme.tintProgress(progress,this);
         LinearLayout.LayoutParams bar=new LinearLayout.LayoutParams(-1,dp(7));bar.topMargin=dp(8);root.addView(progress,bar);
         tabContainer=new LinearLayout(this);tabContainer.setOrientation(LinearLayout.VERTICAL);place(root,tabContainer,15);
         tabContent=BrowserTabs.panel(this);root.addView(tabContent,new LinearLayout.LayoutParams(-1,0,1));
@@ -138,12 +145,31 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         TextView retry=text("В очередь",12,true);retry.setPadding(dp(7),dp(10),dp(7),dp(10));retry.setOnClickListener(v->selectedRows("retry"));selectionBar.addView(retry);
         TextView remove=text("Удалить",12,true);remove.setPadding(dp(7),dp(10),dp(7),dp(10));remove.setOnClickListener(v->selectedRows("delete"));selectionBar.addView(remove);
         TextView cancel=text("×",20,true);cancel.setPadding(dp(8),dp(7),dp(7),dp(7));cancel.setOnClickListener(v->{checked.clear();adapter.notifyDataSetChanged();updateSelectionBar();});selectionBar.addView(cancel);
-        if(!hintCover.isEmpty())CoverImageLoader.show(artwork,hintCover,"edge".equals(hintType));
-        showTabs();reload();
+        if(!hintCover.isEmpty()){
+            lastCoverUri=hintCover;CoverImageLoader.show(artwork,hintCover,"edge".equals(hintType));
+        }
+        showTabs();
+        appliedRevision=DownloadChangeBus.revision();
+        // The card and its previous chapter list are available before the verification finishes.
+        disk.execute(()->{
+            ArrayList<FileRow> saved=DownloadRowsSnapshot.load(getApplicationContext(),id);
+            main.post(()->{if(!isFinishing()&&!isDestroyed()&&!rowsVerified&&!saved.isEmpty()){
+                rows=saved;adapter.submit(rows);
+            }});
+        });
+        reload();
     }
-    @Override protected void onResume(){super.onResume();visible=true;main.removeCallbacks(ticker);main.post(ticker);}
-    @Override protected void onPause(){visible=false;main.removeCallbacks(ticker);super.onPause();}
-    @Override protected void onDestroy(){visible=false;main.removeCallbacksAndMessages(null);disk.shutdownNow();super.onDestroy();}
+    @Override protected void onResume(){super.onResume();
+        if(paletteSignature!=UiColorScheme.paletteSignature(this)){recreate();return;}
+        visible=true;DownloadChangeBus.add(downloadListener);
+        ArrayList<String> missed=DownloadChangeBus.since(appliedRevision);
+        if(!firstResume&&(missed==null||missed.contains(id)||selected==null))reload();
+        firstResume=false;
+    }
+    @Override protected void onPause(){visible=false;DownloadChangeBus.remove(downloadListener);
+        main.removeCallbacks(reloadDebounced);super.onPause();}
+    @Override protected void onDestroy(){visible=false;DownloadChangeBus.remove(downloadListener);
+        main.removeCallbacksAndMessages(null);disk.shutdownNow();super.onDestroy();}
     @Override protected void onSaveInstanceState(Bundle out){out.putString("tab",tab);super.onSaveInstanceState(out);}
     private void showTabs(){tabContainer.removeAllViews();
         android.widget.HorizontalScrollView tabs=BrowserTabs.strip(this,new String[]{"Файлы","Инфо"},
@@ -169,18 +195,32 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
             &&status.equals(other.status)&&detail.equals(other.detail)&&percent==other.percent&&bytes==other.bytes;}
     }
     private static final class Snapshot {DownloadsRepository.Item item;ArrayList<FileRow> files=new ArrayList<>();String error="";}
-    private void reload(){if(loading||disk.isShutdown())return;loading=true;
-        disk.execute(()->{Snapshot snapshot=new Snapshot();
+    private void reload(){
+        if(disk.isShutdown())return;
+        if(loading){queuedReload=true;return;}
+        loading=true;
+        final long requestedRevision=DownloadChangeBus.revision();
+        disk.execute(()->{
+            Snapshot snapshot=new Snapshot();
             try{
-                for(DownloadsRepository.Item item:DownloadsRepository.load(getApplicationContext(),null))
-                    if(id.equals(item.id)){snapshot.item=item;break;}
-                if(snapshot.item!=null)readRows(snapshot);
+                snapshot.item=DownloadsRepository.loadOne(getApplicationContext(),id);
+                if(snapshot.item!=null){
+                    readRows(snapshot);
+                    DownloadRowsSnapshot.save(getApplicationContext(),id,snapshot.files);
+                }
             }catch(Exception error){snapshot.error=error.getMessage()==null?error.toString():error.getMessage();}
             main.post(()->{
-                loading=false;if(isFinishing()||isDestroyed())return;
-                if(snapshot.item!=null){selected=snapshot.item;rows=snapshot.files;refreshHeader();adapter.submit(rows);
+                loading=false;
+                if(isFinishing()||isDestroyed())return;
+                if(snapshot.item!=null){
+                    rowsVerified=true;selected=snapshot.item;rows=snapshot.files;
+                    refreshHeader();adapter.submit(rows);
                     if("info".equals(tab))showInfo(selected);
-                }else if(selected==null){metadata.setText(snapshot.error.isEmpty()?"Данные загрузки пока недоступны":snapshot.error);}
+                    appliedRevision=Math.max(appliedRevision,requestedRevision);
+                }else if(selected==null){
+                    metadata.setText(snapshot.error.isEmpty()?"Данные загрузки пока недоступны":snapshot.error);
+                }
+                if(queuedReload){queuedReload=false;reload();}
             });
         });
     }
@@ -189,18 +229,28 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
             BookImportManager.Job job=item.job;
             if(job==null)for(BookImportManager.Job next:BookImportManager.load(this))if(next.source.equals(item.source)){job=next;break;}
             if(job==null)return;
+            Map<String,FileRow> existing=new HashMap<>();
+            for(FileRow cached:rows)existing.put(cached.key,cached);
             for(int n=0;n<job.chapters.size();n++){
                 int st=n<job.states.size()?job.states.get(n):-1;
                 String state=st<0?"Не выбрано":st>=100?"Скачано":job.paused?"Пауза":
                     job.cancelled?"Отменено":st>0?"Скачивается":"Ожидает";
-                File track=BookImportManager.trackFile(this,job,n);
-                long savedBytes=track.isFile()?track.length():0;
-                if(savedBytes==0){
-                    String saved=BookImportManager.relocated(job,n);
-                    if(saved.startsWith("content://"))try{
-                        DocumentFile f=DocumentFile.fromSingleUri(this,Uri.parse(saved));
-                        if(f!=null&&f.isFile())savedBytes=f.length();
-                    }catch(Exception ignored){}
+                String key="audio:"+job.source+":"+n;
+                FileRow previous=existing.get(key);
+                // A completed/paused/unchanged track has durable status. Reuse its size;
+                // avoid slow SAF metadata calls for hundreds of already prepared chapters.
+                boolean stable=st>=100||st<0||job.paused||job.cancelled;
+                long savedBytes=previous!=null&&stable&&previous.status.equals(state)?previous.bytes:-1;
+                if(savedBytes<0){
+                    File track=BookImportManager.trackFile(this,job,n);
+                    savedBytes=track.isFile()?track.length():0;
+                    if(savedBytes==0){
+                        String saved=BookImportManager.relocated(job,n);
+                        if(saved.startsWith("content://"))try{
+                            DocumentFile f=DocumentFile.fromSingleUri(this,Uri.parse(saved));
+                            if(f!=null&&f.isFile())savedBytes=f.length();
+                        }catch(Exception ignored){}
+                    }
                 }
                 FileRow row=new FileRow("audio:"+job.source+":"+n,job.chapters.get(n).name,
                     state,Math.max(0,st),savedBytes,n,job);
@@ -288,7 +338,9 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         append(details,i.author);append(details,i.provider.isEmpty()?i.type:i.provider);append(details,i.format);
         if(!i.narrator.isEmpty())append(details,"Читает: "+i.narrator);
         metadata.setText(details.toString());
-        if(!i.cover.isEmpty())CoverImageLoader.show(artwork,i.cover,DownloadsRepository.EDGE.equals(i.type));
+        if(!i.cover.isEmpty()&&!i.cover.equals(lastCoverUri)){
+            lastCoverUri=i.cover;CoverImageLoader.show(artwork,i.cover,DownloadsRepository.EDGE.equals(i.type));
+        }
         int value=i.coveragePercent;
         if(i.total>0&&value<=0)value=(int)Math.min(100,100L*i.done/i.total);
         if(i.ready)value=100;value=Math.max(0,Math.min(100,value));
@@ -317,7 +369,77 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         TextView display=text(value,13,true);LinearLayout.LayoutParams w=new LinearLayout.LayoutParams(0,-2,1);
         w.leftMargin=dp(10);row.addView(display,w);place(infoList,row,7);
     }
+    /** Only trim the known storage label; the SAF document path itself stays intact. */
+    private static String shortPath(String full){
+        if(full.startsWith("Внутренняя память/"))return full.substring("Внутренняя память/".length());
+        if(full.equals("Внутренняя память"))return "Корень накопителя";
+        return full;
+    }
+    /** Prefer a verified per-work directory over the general configured category root.
+     * Only document URIs actually stored by a provider can establish a deeper folder.
+     */
+    private String destinationPath(DownloadsRepository.Item item,String category){
+        String actual=DownloadFolderPicker.directoryPath(this,category);
+        String precise="";
+        if(DownloadsRepository.MANGA.equals(item.type)){
+            precise=DownloadFolderPicker.documentDirectoryPath(this,
+                MangaLibStorage.externalDir(this,item.source),false);
+        }else if(DownloadsRepository.RANOBE.equals(item.type)){
+            precise=DownloadFolderPicker.documentDirectoryPath(this,
+                RanobeLibStorage.externalDirUri(this,item.source),false);
+        }else if(DownloadsRepository.RANOBES.equals(item.type)){
+            precise=DownloadFolderPicker.documentDirectoryPath(this,item.bookUri,true);
+        }else if(DownloadsRepository.AUDIO.equals(item.type)&&item.job!=null){
+            for(String saved:item.job.relocatedUris){
+                precise=DownloadFolderPicker.documentDirectoryPath(this,saved,true);
+                if(!precise.isEmpty())break;
+            }
+        }
+        return shortPath(precise.isEmpty()?actual:precise);
+    }
+    private void folderInfoRow(String actual,Runnable chooseAction){
+        LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(10),dp(10),dp(4),dp(10));row.setBackground(rounded(bg,12));
+        LinearLayout labels=new LinearLayout(this);labels.setOrientation(LinearLayout.VERTICAL);
+        row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
+        TextView caption=text("Файлы",12,false);caption.setTextColor(muted);labels.addView(caption);
+        TextView path=text(actual,14,true);path.setMaxLines(2);
+        path.setEllipsize(TextUtils.TruncateAt.START);
+        path.setContentDescription("Путь к файлам: "+actual);
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(4);labels.addView(path,p);
+        path.post(()->fitPathToTwoLines(path,actual));
+        if(chooseAction!=null){
+            ImageView folder=actionIcon(R.drawable.ic_folder_audio,"Изменить папку",chooseAction);
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(dp(44),dp(44));lp.leftMargin=dp(6);
+            row.addView(folder,lp);
+        }
+        place(infoList,row,8);
+    }
+    /** Android START ellipsize is inconsistent for multiline; remove parent segments first. */
+    private static void fitPathToTwoLines(TextView view,String full){
+        int width=view.getWidth();if(width<=0)return;
+        String shown=full;
+        for(int i=0;i<100;i++){
+            android.text.StaticLayout layout=android.text.StaticLayout.Builder.obtain(shown,0,shown.length(),
+                view.getPaint(),width).setIncludePad(false).build();
+            if(layout.getLineCount()<=2)break;
+            String remainder=shown.startsWith("…/")?shown.substring(2):shown;
+            int slash=remainder.indexOf('/');
+            if(slash<0){shown=TextUtils.ellipsize(remainder,view.getPaint(),width*1.9f,
+                TextUtils.TruncateAt.START).toString();break;}
+            String shorter="…/"+remainder.substring(slash+1);
+            if(shorter.equals(shown))break;
+            shown=shorter;
+        }
+        view.setText(shown);
+    }
     private void showInfo(DownloadsRepository.Item i){
+        String keySignature=i.status+"|"+i.done+"|"+i.total+"|"+i.downloadedBytes+"|"+
+            i.description+"|"+i.type+"|"+i.source+"|"+
+            (category(i)==null?"":destinationPath(i,category(i)))+"|"+
+            (i.link==null?"":i.link.treeUri+"/"+i.link.subfolder);
+        if(keySignature.equals(lastInfoKey)&&infoList.getChildCount()>0)return;
+        lastInfoKey=keySignature;
         final int previousScroll=infoScroll.getScrollY();
         infoList.removeAllViews();
         detailLine("Состояние",i.status);
@@ -326,22 +448,16 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         if(!i.description.isEmpty())detailLine("Описание",i.description);
         String key=category(i);
         if(key!=null){
-            // Show the actual CATEGORY tree, never the filename or a cached filesystem path.
-            LinearLayout folder=new LinearLayout(this);folder.setGravity(Gravity.CENTER_VERTICAL);
-            folder.setPadding(dp(10),dp(6),dp(4),dp(6));folder.setBackground(rounded(bg,12));
-            TextView display=text(DownloadFolderPicker.directoryPath(this,key),14,true);
-            display.setSingleLine(true);display.setEllipsize(TextUtils.TruncateAt.START);
-            display.setContentDescription("Папка: "+DownloadFolderPicker.directoryPath(this,key));
-            folder.addView(display,new LinearLayout.LayoutParams(0,dp(46),1));
-            display.setGravity(Gravity.CENTER_VERTICAL);
-            ImageView choose=actionIcon(R.drawable.ic_folder_audio,"Изменить папку через Android",()->
-                DownloadFolderPicker.choose(this,folderRequest(key),key));
-            LinearLayout.LayoutParams b=new LinearLayout.LayoutParams(dp(44),dp(44));b.leftMargin=dp(6);folder.addView(choose,b);
-            place(infoList,folder,8);
-            String error=DownloadFolderPicker.lastIssue(this,key);if(!error.isEmpty())detailLine("Ошибка сохранения",error);
+            // Use the last real per-title folder if known; otherwise show the confirmed tree.
+            folderInfoRow(destinationPath(i,key),
+                ()->DownloadFolderPicker.choose(this,folderRequest(key),key));
+            String error=DownloadFolderPicker.lastIssue(this,key);
+            if(!error.isEmpty())detailLine("Ошибка сохранения",error);
         }else if(DownloadsRepository.LINK.equals(i.type)&&i.link!=null){
-            String folderName=i.link.treeLabel.isEmpty()?"Папка ссылки":i.link.treeLabel;
-            detailLine("Папка",folderName+(i.link.subfolder.isEmpty()?"":"/"+i.link.subfolder));
+            String actual=DownloadFolderPicker.treeDisplayPath(this,i.link.treeUri);
+            if(actual.isEmpty())actual=i.link.treeLabel.isEmpty()?"Папка ссылки":i.link.treeLabel;
+            if(!i.link.subfolder.isEmpty())actual+="/"+i.link.subfolder;
+            folderInfoRow(shortPath(actual),null);
         }
         // No absolute temporary-cache filesystem path here. Cache details are intentionally hidden.
         infoScroll.post(()->{if(!isFinishing()&&"info".equals(tab))infoScroll.scrollTo(0,previousScroll);});
@@ -479,6 +595,7 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
     }
     private void notifyUser(String message){Toast.makeText(this,message,Toast.LENGTH_LONG).show();}
     private void selectedRows(String action){
+        if(!rowsVerified){reload();notifyUser("Проверяем состояние выбранных файлов");return;}
         if(checked.isEmpty())return;
         ArrayList<FileRow> chosen=new ArrayList<>();for(FileRow row:rows)if(checked.contains(row.key))chosen.add(row);
         if("delete".equals(action)){
@@ -497,6 +614,7 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         }
     }
     private boolean applyFileAction(FileRow row,String action)throws Exception{
+        if(row==null||row.source==null)return false;
         DownloadsRepository.Item item=selected;if(item==null)return false;
         if(DownloadsRepository.AUDIO.equals(item.type)){
             BookImportManager.Job job=null;
@@ -584,6 +702,7 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         return false;
     }
     private void openFinishedFile(FileRow row){
+        if(row.source==null){reload();notifyUser("Проверяем выбранный файл");return;}
         if(selected==null)return;
         if(DownloadsRepository.LINK.equals(selected.type)){
             LinkDownloadStore.Entry file=(LinkDownloadStore.Entry)row.source;
@@ -639,7 +758,8 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         });
     }
     private void fileMenu(ImageView anchor,FileRow row){
-        PopupMenu menu=new PopupMenu(this,anchor);
+        if(row.source==null){reload();notifyUser("Проверяем выбранную главу");return;}
+        PopupMenu menu=new PalettePopupMenu(this,anchor);
         menu.getMenu().add("В очередь / повторить").setOnMenuItemClickListener(m->{
             workerAction(()->{boolean ok=applyFileAction(row,"retry");return ok?"Задача добавлена":"Уже готово или выполняется";});return true;});
         if(row.percent==100){menu.getMenu().add("Открыть готовое").setOnMenuItemClickListener(m->{openFinishedFile(row);return true;});}
@@ -687,7 +807,8 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
             head.addView(more,new LinearLayout.LayoutParams(dp(40),dp(40)));
             TextView detail=text("",12,false);detail.setTextColor(muted);place(card,detail,3);
             ProgressBar bar=new ProgressBar(UnifiedDownloadManagerActivity.this,null,android.R.attr.progressBarStyleHorizontal);
-            bar.setMax(100);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(5));p.topMargin=dp(7);card.addView(bar,p);
+            bar.setMax(100);UiColorScheme.tintProgress(bar,UnifiedDownloadManagerActivity.this);
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(5));p.topMargin=dp(7);card.addView(bar,p);
             return new Holder(card,name,detail,bar,more);
         }
         @Override public void onBindViewHolder(Holder h,int position){

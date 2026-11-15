@@ -157,16 +157,27 @@ final class DownloadsRepository {
         for(LinkDownloadStore.Entry e:b.files)item.downloadedBytes+=e.bytes;
         return item;
     }
-    static ArrayList<Item> load(Context ctx,EdgeStreamingService live){
+    static ArrayList<Item> load(Context ctx,EdgeStreamingService live){return load(ctx,live,null);}
+    /** Rehydrate a single job; never traverse unrelated download providers. */
+    static Item loadOne(Context ctx,String id){
+        if(id==null||id.isEmpty())return null;
+        for(Item item:load(ctx,null,id))if(id.equals(item.id))return item;
+        return null;
+    }
+    private static ArrayList<Item> load(Context ctx,EdgeStreamingService live,String onlyId){
+        final boolean allTypes=onlyId==null;
         ArrayList<Item> all=new ArrayList<>();
-        for(BookImportManager.Job j:BookImportManager.load(ctx))all.add(fromAudio(ctx,j));
-        for(LinkDownloadStore.Batch b:LinkDownloadStore.load(ctx))all.add(fromLink(b));
+        for(BookImportManager.Job j:allTypes||onlyId.startsWith("audio:")?BookImportManager.load(ctx):new ArrayList<BookImportManager.Job>())
+            if(allTypes||("audio:"+j.source).equals(onlyId))all.add(fromAudio(ctx,j));
+        for(LinkDownloadStore.Batch b:allTypes||onlyId.startsWith("link:")?LinkDownloadStore.load(ctx):new ArrayList<LinkDownloadStore.Batch>())
+            if(allTypes||("link:"+b.id).equals(onlyId))all.add(fromLink(b));
         // One download card per manga, NOT per chapter.  Existing chapter records,
         // CBZ files and retry state are unchanged; only the dashboard projection is grouped.
         // A stable MangaLib slug is the identity; the human title is the displayed label.
         java.util.LinkedHashMap<String,MangaLibDownloadGroup> mangaGroups=new java.util.LinkedHashMap<>();
         java.util.LinkedHashMap<String,Item> mangaRows=new java.util.LinkedHashMap<>();
-        for(MangaLibStorage.Job j:MangaLibStorage.jobs(ctx)){
+        for(MangaLibStorage.Job j:allTypes||onlyId.startsWith("manga:")?MangaLibStorage.jobs(ctx):new ArrayList<MangaLibStorage.Job>()){
+            if(!allTypes&&!("manga:"+j.slug.trim().toLowerCase(Locale.ROOT)).equals(onlyId))continue;
             String slug=j.slug==null?"":j.slug.trim();
             if(slug.isEmpty())continue; // malformed legacy jobs cannot be routed to a series
             String key=slug.toLowerCase(Locale.ROOT);
@@ -201,7 +212,8 @@ final class DownloadsRepository {
         }
         // One RanobeLIB row per title, not a separate download card per chapter.
         java.util.LinkedHashMap<String,Item> novels=new java.util.LinkedHashMap<>();
-        for(RanobeLibStorage.Job job:RanobeLibStorage.jobs(ctx)){
+        for(RanobeLibStorage.Job job:allTypes||onlyId.startsWith("ranobe:")?RanobeLibStorage.jobs(ctx):new ArrayList<RanobeLibStorage.Job>()){
+            if(!allTypes&&!("ranobe:"+job.slug).equals(onlyId))continue;
             if(job.slug.isEmpty())continue;
             Item entry=novels.get(job.slug);
             if(entry==null){entry=new Item();entry.id="ranobe:"+job.slug;
@@ -235,7 +247,8 @@ final class DownloadsRepository {
         // Ranobes.net uses the same *category* download destination, with a
         // distinct per-site identity and an independent chapter cache.
         java.util.LinkedHashMap<String,Item> ranobesRows=new java.util.LinkedHashMap<>();
-        for(RanobesStorage.Job j:RanobesStorage.jobs(ctx)){
+        for(RanobesStorage.Job j:allTypes||onlyId.startsWith("ranobes:")?RanobesStorage.jobs(ctx):new ArrayList<RanobesStorage.Job>()){
+            if(!allTypes&&!("ranobes:"+j.sourceKey()).equals(onlyId))continue;
             String key=j.sourceKey();Item entry=ranobesRows.get(key);
             if(entry==null){entry=new Item();entry.id="ranobes:"+key;entry.type=RANOBES;
                 entry.source=key;entry.title=j.bookTitle;entry.author=j.author;
@@ -255,6 +268,7 @@ final class DownloadsRepository {
             entry.description="Глав: "+entry.done+" из "+entry.total+" · "+(entry.source.endsWith(":ru")?"Русский МП":"Оригинал");
             all.add(entry);
         }
+        if(allTypes||onlyId.startsWith("edge:")){
         HashMap<String,JSONObject> index=new HashMap<>();
         try{
             JSONArray books=new JSONArray(ctx.getSharedPreferences("reader",0).getString("library","[]"));
@@ -271,14 +285,14 @@ final class DownloadsRepository {
             if(meta==null)continue;
             String original=meta.optString("bookUri","");
             String uri=BookUriMigration.current(ctx,original);
-            if(uri.isEmpty()||hidden.contains(uri)||hidden.contains(original)||!included.add(uri))continue;
+            if(uri.isEmpty()||(!allTypes&&!("edge:"+uri).equals(onlyId))||hidden.contains(uri)||hidden.contains(original)||!included.add(uri))continue;
             Item item=fromEdge(ctx,dir,uri,meta.optString("title",""),meta.optInt("words",0),live);
             if(item!=null)all.add(item);
         }
         // Persisted jobs must remain visible after Android evicts the MP3 work cache.
         for(EdgeFullBookStore.Job persisted:EdgeFullBookStore.list(ctx)){
             String uri=BookUriMigration.current(ctx,persisted.uri);
-            if(uri.isEmpty()||included.contains(uri)||hidden.contains(uri)||hidden.contains(persisted.uri))continue;
+            if(uri.isEmpty()||(!allTypes&&!("edge:"+uri).equals(onlyId))||included.contains(uri)||hidden.contains(uri)||hidden.contains(persisted.uri))continue;
             File work=EdgeBookStorage.bookFolder(ctx,uri,persisted.title);
             Item restored=fromEdge(ctx,work,uri,persisted.title,0,live);
             if(restored!=null){included.add(uri);all.add(restored);}
@@ -286,7 +300,7 @@ final class DownloadsRepository {
         // A completed SAF chapter must remain discoverable even after Android
         // evicts temporary audio files from our internal cache.
         for(EdgeChapterArchive.SavedBook stored:EdgeChapterArchive.savedBooks(ctx)){
-            if(stored.uri.isEmpty()||hidden.contains(stored.uri))continue;
+            if(stored.uri.isEmpty()||(!allTypes&&!("edge:"+stored.uri).equals(onlyId))||hidden.contains(stored.uri))continue;
             if(included.contains(stored.uri)){
                 for(Item existing:all)if(EDGE.equals(existing.type)&&stored.uri.equals(existing.bookUri)){
                     if(existing.fullJob==null||!existing.running){
@@ -312,15 +326,17 @@ final class DownloadsRepository {
         }
         // Migration: older versions only stored Edge queue.json and a MainActivity library entry.
         for(JSONObject book:index.values()){
-            String uri=book.optString("uri","");if(uri.isEmpty()||included.contains(uri)||hidden.contains(uri))continue;
+            String uri=book.optString("uri","");if(uri.isEmpty()||(!allTypes&&!("edge:"+uri).equals(onlyId))||included.contains(uri)||hidden.contains(uri))continue;
             String title=book.optString("title","Книга");
             File dir=EdgeBookStorage.bookFolder(ctx,uri,title);
             Item item=fromEdge(ctx,dir,uri,title,0,live);
             if(item!=null){included.add(uri);all.add(item);}
         }
+        } // Edge-only discovery
         // Apply user-visible aliases after scanning native stores. Folder paths,
         // job IDs and original source titles remain untouched.
         for(Item item:all){item.sourceTitle=item.title;item.title=BookTitleStore.downloadTitle(ctx,item);}
+        if(!allTypes)all.removeIf(item->!onlyId.equals(item.id));
         all.sort((a,b)->{
             if(a.ready!=b.ready)return a.ready?1:-1;
             long left=a.folder==null?0:a.folder.lastModified();
@@ -344,10 +360,12 @@ final class DownloadsRepository {
         SharedPreferences prefs=ctx.getSharedPreferences("reader",0);
         Set<String> values=new HashSet<>(prefs.getStringSet(HIDDEN_EDGE,java.util.Collections.emptySet()));
         values.add(uri);prefs.edit().putStringSet(HIDDEN_EDGE,values).apply();
+        DownloadChangeBus.publish("edge:"+uri);
     }
     static void showEdge(Context ctx,String uri){
         SharedPreferences prefs=ctx.getSharedPreferences("reader",0);
         Set<String> values=new HashSet<>(prefs.getStringSet(HIDDEN_EDGE,java.util.Collections.emptySet()));
         if(values.remove(uri))prefs.edit().putStringSet(HIDDEN_EDGE,values).apply();
+        DownloadChangeBus.publish("edge:"+uri);
     }
 }

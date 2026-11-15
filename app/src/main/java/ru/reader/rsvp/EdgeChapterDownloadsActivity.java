@@ -30,7 +30,11 @@ import java.util.concurrent.Executors;
  * coverage of actual book words, not incomplete request counters.
  */
 public final class EdgeChapterDownloadsActivity extends NavigationActivity {
-    private static final int BG=0xfff3e7d5,PANEL=0xfffff9f0,INK=0xff30221e,MUTED=0xff716259,ACCENT=0xffa26949;
+    private int BG,PANEL,INK,MUTED,ACCENT,paletteSignature;
+    private void readPalette(){BG=UiColorScheme.background(this);PANEL=UiColorScheme.neutral(this);
+        INK=UiColorScheme.foreground(this);MUTED=UiColorScheme.muted(this);
+        ACCENT=UiColorScheme.accent(this);paletteSignature=UiColorScheme.paletteSignature(this);
+    }
     private final Handler main=new Handler(Looper.getMainLooper());
     private final ExecutorService worker=Executors.newSingleThreadExecutor();
     private String uri="",title="";
@@ -64,6 +68,7 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
         button.setPadding(dp(9),dp(11),dp(9),dp(11));button.setOnClickListener(v->action.run());return button;
     }
     @Override public void onCreate(Bundle state){super.onCreate(state);
+        readPalette();
         uri=getIntent().getStringExtra("book_uri");
         title=getIntent().getStringExtra("book_title");
         if(uri==null||uri.isEmpty()){finish();return;}
@@ -85,7 +90,7 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
         overall.addView(overallTitle,new LinearLayout.LayoutParams(0,-2,1));
         totalPercent=text("0%",14,true);overall.addView(totalPercent);
         totalProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
-        totalProgress.setMax(100);LinearLayout.LayoutParams op=new LinearLayout.LayoutParams(-1,dp(8));
+        totalProgress.setMax(100);UiColorScheme.tintProgress(totalProgress,this);LinearLayout.LayoutParams op=new LinearLayout.LayoutParams(-1,dp(8));
         op.topMargin=dp(6);root.addView(totalProgress,op);
         totalDetail=text("Ожидаем подготовку глав",12,false);totalDetail.setTextColor(MUTED);
         LinearLayout.LayoutParams od=new LinearLayout.LayoutParams(-1,-2);od.topMargin=dp(5);
@@ -288,11 +293,11 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
         return true;
     }
     private static int stateColor(Entry item){
-        if("Ошибка".equals(item.state))return 0xffa13d36;
-        if(item.saved>0)return 0xff2b6145;
+        if("Ошибка".equals(item.state))return UiColorScheme.error(this);
+        if(item.saved>0)return UiColorScheme.success(this);
         if("В очереди".equals(item.state)||"Идёт загрузка".equals(item.state)||
             "Ожидание Edge TTS".equals(item.state)||"Сохранение / сборка MP3".equals(item.state)||
-            "Объединение MP3".equals(item.state))return 0xff276db1;
+            "Объединение MP3".equals(item.state))return ACCENT;
         return MUTED;
     }
     private static String details(Entry item){
@@ -323,7 +328,7 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
         TextView percent=text(initialPct+"%",14,true);
         percent.setTextColor(stateColor(item));headline.addView(percent);
         ProgressBar progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
-        progress.setMax(100);progress.setProgress(initialPct);
+        progress.setMax(100);progress.setProgress(initialPct);UiColorScheme.tintProgress(progress,this);
         LinearLayout.LayoutParams bar=new LinearLayout.LayoutParams(-1,dp(6));bar.topMargin=dp(7);card.addView(progress,bar);
         TextView meta=text(details(item),12,false);
         meta.setTextColor(stateColor(item));LinearLayout.LayoutParams ml=new LinearLayout.LayoutParams(-1,-2);ml.topMargin=dp(5);card.addView(meta,ml);
@@ -455,7 +460,9 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
             });
         });
     }
-    @Override protected void onResume(){super.onResume();visible=true;main.post(ticker);}
+    @Override protected void onResume(){super.onResume();
+        if(paletteSignature!=UiColorScheme.paletteSignature(this)){recreate();return;}
+        visible=true;main.post(ticker);}
     @Override protected void onPause(){visible=false;main.removeCallbacks(ticker);super.onPause();}
     @Override protected void onDestroy(){visible=false;main.removeCallbacksAndMessages(null);worker.shutdownNow();super.onDestroy();}
     @Override public void onBackPressed(){BackNavigation.back(this);}

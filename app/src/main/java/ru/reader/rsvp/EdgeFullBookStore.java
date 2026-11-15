@@ -133,6 +133,7 @@ final class EdgeFullBookStore {
                     .put("force",t.force).put("order",t.order);a.put(row);
             }o.put("tasks",a);
             j.directory.mkdirs();atomic(new File(j.directory,"full_job.json"),o.toString());
+            DownloadChangeBus.publish("edge:"+j.uri);
         }catch(Exception ignored){}
     }
     static synchronized void recoverInterrupted(Context ctx){

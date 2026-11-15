@@ -58,6 +58,7 @@ final class MangaLibStorage {
         if(!ctx.getSharedPreferences("reader",0).edit().putString(STORE,a.toString()).commit())
             throw new IllegalStateException("Не удалось сохранить главу MangaLib");
         if(movedSource!=null)movedSource.delete();
+        DownloadChangeBus.publish("manga:"+job.slug.trim().toLowerCase(Locale.ROOT));
     }
     static synchronized Job find(Context ctx,String id){for(Job j:jobs(ctx))if(j.id().equals(id))return j;return null;}
     static ArrayList<Job> seriesJobs(Context ctx,String slug){ArrayList<Job> out=new ArrayList<>();for(Job j:jobs(ctx))if(j.slug.equals(slug)&&"complete".equals(j.status)&&exists(ctx,j.file))out.add(j);

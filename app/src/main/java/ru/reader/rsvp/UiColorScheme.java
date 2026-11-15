@@ -12,6 +12,7 @@ import android.widget.Button;
 import android.widget.CheckedTextView;
 import android.widget.CompoundButton;
 import android.widget.ListView;
+import android.widget.ProgressBar;
 import android.widget.AbsListView;
 
 /** One configurable palette for selected rows, primary actions, tabs and dialog controls. */
@@ -21,6 +22,24 @@ public final class UiColorScheme {
     public static SharedPreferences prefs(Context c){return c.getSharedPreferences("reader",Context.MODE_PRIVATE);}
     public static int background(Context c){return prefs(c).getInt("bg",0xfff3e7d5);}
     public static boolean dark(Context c){int b=background(c);return (Color.red(b)*299+Color.green(b)*587+Color.blue(b)*114)<145000;}
+    public static int foreground(Context c){return prefs(c).getInt("fg",dark(c)?Color.WHITE:0xff30221e);}
+    public static int muted(Context c){return blend(foreground(c),background(c),.40f);}
+    /** Recreate a screen only when one of its user-controlled palette values changed. */
+    public static int paletteSignature(Context c){
+        SharedPreferences p=prefs(c);int result=17;
+        for(int value:new int[]{background(c),foreground(c),neutral(c),accent(c),
+                p.getInt("panel_color",0),p.getInt("button_color",0)})result=31*result+value;
+        return result;
+    }
+    /** Keep native progress bars in the same accent/neutral palette as the rest of the UI. */
+    public static void tintProgress(ProgressBar progress,Context c){
+        int fg=foreground(c),bg=background(c);
+        progress.setProgressTintList(ColorStateList.valueOf(accent(c)));
+        progress.setIndeterminateTintList(ColorStateList.valueOf(accent(c)));
+        progress.setProgressBackgroundTintList(ColorStateList.valueOf(blend(bg,fg,.17f)));
+    }
+    public static int success(Context c){return dark(c)?0xff93dab0:0xff286443;}
+    public static int error(Context c){return dark(c)?0xffffa19b:0xffa13d36;}
     public static int accent(Context c){
         SharedPreferences p=prefs(c);String mode=p.getString(KEY_MODE,"theme");
         int value;

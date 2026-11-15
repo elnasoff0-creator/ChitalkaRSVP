@@ -376,7 +376,7 @@ final class EdgeChapterArchive {
                     published++;
                 }finally{temporary.delete();}
             }
-            if(published>0)invalidate();
+            if(published>0){invalidate();DownloadChangeBus.publish("edge:"+uri);}
             return published;
         }catch(Exception ex){publishFailure(ex);Log.w(TAG,"Could not publish chapter",ex);return 0;}
     }
@@ -536,7 +536,7 @@ final class EdgeChapterArchive {
                 write(ctx,dir,INDEX_NAME,"application/json",index.toString().getBytes(StandardCharsets.UTF_8));
                 count++;
             }
-            if(count>0)invalidate();return count;
+            if(count>0){invalidate();DownloadChangeBus.publish("edge:"+uri);}return count;
         }catch(Exception e){publishFailure(e);Log.w(TAG,"Failed to publish fragments",e);return 0;}
     }
     /** Read the durable manifest when the temporary full-book queue has been evicted. */
@@ -594,7 +594,7 @@ final class EdgeChapterArchive {
                     if(fragments!=null)fragments.delete();
                 }
             }
-            invalidate();return true;
+            invalidate();DownloadChangeBus.publish("edge:"+uri);return true;
         }catch(Exception e){Log.w(TAG,"Manual merge failed",e);return false;}
     }
     /** Delete only the selected chapter and its SAF assets, never the rest of the book. */
@@ -610,7 +610,7 @@ final class EdgeChapterArchive {
                 if(!hash(BookUriMigration.legacy(ctx,uri)).equals(data.optString("bookId")))return false;
                 if(!dir.delete())return false;
             }
-            invalidate();return true;
+            invalidate();DownloadChangeBus.publish("edge:"+uri);return true;
         }catch(Exception e){Log.w(TAG,"Delete chapter failed",e);return false;}
     }
     static final class SavedBook {
@@ -799,7 +799,7 @@ final class EdgeChapterArchive {
             DocumentFile marker=folder.findFile(".edge-book.json");
             if(marker!=null&&folder.listFiles().length==1)marker.delete();
             if(folder.listFiles().length==0)folder.delete();
-            invalidate();return true;
+            invalidate();DownloadChangeBus.publish("edge:"+uri);return true;
         }catch(Exception ex){Log.w(TAG,"Cannot delete saved chapter",ex);return false;}
     }
 

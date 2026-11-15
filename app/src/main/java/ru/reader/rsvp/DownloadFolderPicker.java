@@ -100,6 +100,49 @@ final class DownloadFolderPicker {
             }catch(Exception ignored){return "Выбранная папка";}
         }
     }
+    /** Exact directory from a saved DOCUMENT URI, not the root tree URI. */
+    static String documentDirectoryPath(Context c,String raw,boolean pointsToFile){
+        if(raw==null||raw.isEmpty())return "";
+        try{
+            Uri uri=Uri.parse(raw);
+            if("file".equalsIgnoreCase(uri.getScheme())){
+                File location=new File(uri.getPath());
+                return pointsToFile&&location.getParentFile()!=null?
+                    location.getParentFile().getAbsolutePath():location.getAbsolutePath();
+            }
+            if(!"content".equalsIgnoreCase(uri.getScheme()))return "";
+            String documentId=DocumentsContract.getDocumentId(uri);
+            if(documentId==null||documentId.isEmpty())return "";
+            int colon=documentId.indexOf(':');
+            String tail=colon>=0?documentId.substring(colon+1):documentId;
+            tail=tail.replace('\\','/');
+            if(pointsToFile){
+                int slash=tail.lastIndexOf('/');
+                if(slash<0)return "";
+                tail=tail.substring(0,slash);
+            }
+            String volume=colon>=0?documentId.substring(0,colon):"";
+            if("primary".equalsIgnoreCase(volume))return tail.isEmpty()?"Корень накопителя":tail;
+            return volume.isEmpty()?tail:tail.isEmpty()?volume:volume+"/"+tail;
+        }catch(Exception ignored){return "";}
+    }
+    /** Human-readable confirmed SAF tree path for downloads by link. */
+    static String treeDisplayPath(Context c,String raw){
+        if(raw==null||raw.isEmpty())return "";
+        try{
+            Uri uri=Uri.parse(raw);
+            String doc=DocumentsContract.getTreeDocumentId(uri);
+            if(doc!=null&&doc.contains(":")){
+                int colon=doc.indexOf(':');
+                String volume=doc.substring(0,colon);
+                String tail=doc.substring(colon+1).replace('\\','/');
+                if("primary".equalsIgnoreCase(volume))return tail.isEmpty()?"Корень накопителя":tail;
+                return tail.isEmpty()?volume:volume+"/"+tail;
+            }
+            DocumentFile d=DocumentFile.fromTreeUri(c,uri);
+            return d!=null&&d.getName()!=null?"…/"+d.getName():"";
+        }catch(Exception ignored){return "";}
+    }
     static void choose(Activity activity,int request,String key){
         Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION|

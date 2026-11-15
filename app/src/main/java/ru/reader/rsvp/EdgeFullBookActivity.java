@@ -23,11 +23,15 @@ import org.json.JSONObject;
 /** Choose a text book and a fixed voice before creating an offline Edge synthesis job. */
 public final class EdgeFullBookActivity extends NavigationActivity {
     private String pendingFolderBookUri="",pendingFolderBookTitle="";
-    private static final int BG=0xfff3e7d5,PANEL=0xfffff9f0,INK=0xff30221e,ACCENT=0xffa26949;
+    private int BG,PANEL,INK,ACCENT,paletteSignature;
+    private void readPalette(){BG=UiColorScheme.background(this);PANEL=UiColorScheme.neutral(this);
+        INK=UiColorScheme.foreground(this);ACCENT=UiColorScheme.accent(this);
+        paletteSignature=UiColorScheme.paletteSignature(this);
+    }
     private int dp(int v){return Math.round(getResources().getDisplayMetrics().density*v);}
     private GradientDrawable rounded(int color){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(18));return d;}
     private TextView label(String s,int size,boolean bold){TextView v=new TextView(this);v.setText(s);v.setTextSize(size);v.setTextColor(INK);if(bold)v.setTypeface(Typeface.DEFAULT,Typeface.BOLD);return v;}
-    @Override public void onCreate(Bundle b){super.onCreate(b);build();
+    @Override public void onCreate(Bundle b){super.onCreate(b);readPalette();build();
         String uri=getIntent().getStringExtra("book_uri");
         if(uri!=null&&!uri.isEmpty()){
             String title=getIntent().getStringExtra("book_title");
@@ -118,5 +122,7 @@ public final class EdgeFullBookActivity extends NavigationActivity {
                     }).show();
             }).setNegativeButton("Отмена",null).show();
     }
+    @Override protected void onResume(){super.onResume();
+        if(paletteSignature!=UiColorScheme.paletteSignature(this))recreate();}
     @Override public void onBackPressed(){BackNavigation.back(this);}
 }

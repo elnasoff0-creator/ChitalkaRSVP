@@ -30,7 +30,12 @@ import java.util.Locale;
 
 /** Direct MP3, FB2, EPUB and public cloud-share downloads; no audiobook-site parsing. */
 public final class LinkDownloadActivity extends NavigationActivity {
-    private static final int PICK_FOLDER=3401,BG=0xfff3e7d5,INK=0xff30221e,ACCENT=0xff925536,CARD=0xfffff9f0;
+    private static final int PICK_FOLDER=3401;
+    private int BG,INK,ACCENT,CARD,MUTED,paletteSignature;
+    private void readPalette(){BG=UiColorScheme.background(this);INK=UiColorScheme.foreground(this);
+        ACCENT=UiColorScheme.accent(this);CARD=UiColorScheme.neutral(this);
+        MUTED=UiColorScheme.muted(this);paletteSignature=UiColorScheme.paletteSignature(this);
+    }
     private final Handler main=new Handler(Looper.getMainLooper());
     private LinearLayout root,previewArea;
     private EditText links,subfolder;
@@ -40,6 +45,7 @@ public final class LinkDownloadActivity extends NavigationActivity {
     private String treeLabel="";
     private final ArrayList<LinkDownloadStore.Entry> discovered=new ArrayList<>();
     private final ArrayList<CheckBox> checkboxes=new ArrayList<>();
+    private final ArrayList<String> latestErrors=new ArrayList<>();
     private int dp(int v){return Math.round(v*getResources().getDisplayMetrics().density);}
     private GradientDrawable shape(int color,int radius){GradientDrawable s=new GradientDrawable();s.setColor(color);s.setCornerRadius(dp(radius));return s;}
     private TextView text(String s,int size,boolean bold){TextView t=new TextView(this);t.setText(s);t.setTextSize(size);t.setTextColor(INK);if(bold)t.setTypeface(Typeface.DEFAULT,Typeface.BOLD);return t;}
@@ -47,6 +53,7 @@ public final class LinkDownloadActivity extends NavigationActivity {
     private void append(View child,int top){LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=dp(top);root.addView(child,lp);}
     private LinearLayout panel(){LinearLayout p=new LinearLayout(this);p.setOrientation(LinearLayout.VERTICAL);p.setPadding(dp(12),dp(13),dp(12),dp(13));p.setBackground(shape(CARD,19));return p;}
     @Override public void onCreate(Bundle saved){super.onCreate(saved);
+        readPalette();
         SharedPreferences p=getSharedPreferences("reader",0);String savedTree=p.getString("direct_last_tree","");if(!savedTree.isEmpty()){
             Uri uri=Uri.parse(savedTree);try{if(androidx.documentfile.provider.DocumentFile.fromTreeUri(this,uri)!=null&&androidx.documentfile.provider.DocumentFile.fromTreeUri(this,uri).canWrite())chosenTree=uri;}catch(Exception ignored){}
         }
@@ -64,12 +71,17 @@ public final class LinkDownloadActivity extends NavigationActivity {
         folder.setOnClickListener(v->selectFolder());
         LinearLayout linkPanel=panel();append(linkPanel,17);linkPanel.addView(text("Ссылка на MP3, FB2, EPUB или облачный файл",16,true));
         links=new EditText(this);links.setTextSize(14);links.setHint("https://example.com/book.epub\nhttps://example.com/book.fb2\nhttps://example.com/audio.mp3");links.setMinLines(3);links.setMaxLines(7);links.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE|android.text.InputType.TYPE_TEXT_VARIATION_URI);
+        links.setTextColor(INK);links.setHintTextColor(MUTED);
+        links.setBackgroundTintList(android.content.res.ColorStateList.valueOf(ACCENT));
         linkPanel.addView(links,new LinearLayout.LayoutParams(-1,-2));
         Button paste=button("Вставить ссылку из буфера",false);linkPanel.addView(paste);paste.setOnClickListener(v->{ClipboardManager clipboard=(ClipboardManager)getSystemService(CLIPBOARD_SERVICE);ClipData data=clipboard.getPrimaryClip();if(data!=null&&data.getItemCount()>0){String value=data.getItemAt(0).coerceToText(this).toString();String previous=links.getText().toString().trim();links.setText(previous.isEmpty()?value:previous+"\n"+value);}});
         LinearLayout folderPanel=panel();append(folderPanel,12);folderPanel.addView(text("Путь / Папка для сохранения",17,true));
         folderLabel=text(chosenTree==null?"Папка ещё не выбрана":treeLabel,14,false);folderLabel.setTextColor(ACCENT);folderPanel.addView(folderLabel);
-        folderPanel.addView(text("Название новой подпапки (необязательно):",13,false));subfolder=new EditText(this);subfolder.setSingleLine(true);subfolder.setHint("Загрузка по ссылке");subfolder.setText(getSharedPreferences("reader",0).getString("direct_last_subfolder",""));folderPanel.addView(subfolder);
-        TextView hint=text("Оставьте поле пустым, чтобы сохранить файлы прямо в выбранную папку. Новая подпапка будет создана автоматически при скачивании.",12,false);hint.setTextColor(0xff716259);folderPanel.addView(hint);
+        folderPanel.addView(text("Название новой подпапки (необязательно):",13,false));subfolder=new EditText(this);subfolder.setSingleLine(true);subfolder.setHint("Загрузка по ссылке");subfolder.setText(getSharedPreferences("reader",0).getString("direct_last_subfolder",""));
+        subfolder.setTextColor(INK);subfolder.setHintTextColor(MUTED);
+        subfolder.setBackgroundTintList(android.content.res.ColorStateList.valueOf(ACCENT));
+        folderPanel.addView(subfolder);
+        TextView hint=text("Оставьте поле пустым, чтобы сохранить файлы прямо в выбранную папку. Новая подпапка будет создана автоматически при скачивании.",12,false);hint.setTextColor(MUTED);folderPanel.addView(hint);
         analyze=button("⌕  Анализировать ссылки",true);append(analyze,14);analyze.setOnClickListener(v->analyze());
         status=text("",13,false);append(status,8);
         previewArea=new LinearLayout(this);previewArea.setOrientation(LinearLayout.VERTICAL);append(previewArea,4);
@@ -95,18 +107,22 @@ public final class LinkDownloadActivity extends NavigationActivity {
             runOnUiThread(()->{analyze.setEnabled(true);discovered.addAll(found);renderFound(errors);});
         },"direct-link-analyzer").start();
     }
-    private void renderFound(ArrayList<String> errors){previewArea.removeAllViews();checkboxes.clear();
+    private void renderFound(ArrayList<String> errors){
+        latestErrors.clear();latestErrors.addAll(errors);
+        previewArea.removeAllViews();checkboxes.clear();
         status.setText("Найдено файлов: "+discovered.size()+(errors.isEmpty()?"":" · ошибок: "+errors.size()));
         if(!discovered.isEmpty()){
             LinearLayout header=new LinearLayout(this);previewArea.addView(header);Button yes=button("Выбрать все",false),no=button("Снять выделение",false);header.addView(yes,new LinearLayout.LayoutParams(0,dp(48),1));header.addView(no,new LinearLayout.LayoutParams(0,dp(48),1));yes.setOnClickListener(v->{for(CheckBox c:checkboxes)c.setChecked(true);});no.setOnClickListener(v->{for(CheckBox c:checkboxes)c.setChecked(false);});
             for(int i=0;i<discovered.size();i++){final LinkDownloadStore.Entry entry=discovered.get(i);LinearLayout card=panel();LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=dp(7);previewArea.addView(card,lp);
-                CheckBox cb=new CheckBox(this);cb.setText(entry.name);cb.setChecked(true);cb.setTextColor(INK);cb.setTextSize(15);card.addView(cb);checkboxes.add(cb);
+                CheckBox cb=new CheckBox(this);cb.setText(entry.name);cb.setChecked(true);cb.setTextColor(INK);cb.setTextSize(15);
+                cb.setButtonTintList(android.content.res.ColorStateList.valueOf(ACCENT));card.addView(cb);checkboxes.add(cb);
                 TextView meta=text((entry.size<0?"Размер неизвестен":String.format(Locale.ROOT,"%.1f МБ",entry.size/1048576.0))+" · "+LinkFileTypes.formatName(entry.format)+" найден",12,false);card.addView(meta);
-                Button rename=button("Переименовать",false);card.addView(rename);rename.setOnClickListener(v->{EditText name=new EditText(this);name.setSingleLine(true);name.setText(entry.name);new SwipeDialogs.Builder(this).setTitle("Имя файла").setView(name).setNegativeButton("Отмена",null).setPositiveButton("Сохранить",(d,w)->{entry.name=LinkFileTypes.safeFilename(name.getText().toString(),entry.format);cb.setText(entry.name);}).show();});
+                Button rename=button("Переименовать",false);card.addView(rename);rename.setOnClickListener(v->{EditText name=new EditText(this);name.setSingleLine(true);name.setText(entry.name);
+                    name.setTextColor(INK);name.setHintTextColor(MUTED);new SwipeDialogs.Builder(this).setTitle("Имя файла").setView(name).setNegativeButton("Отмена",null).setPositiveButton("Сохранить",(d,w)->{entry.name=LinkFileTypes.safeFilename(name.getText().toString(),entry.format);cb.setText(entry.name);}).show();});
             }
             download.setVisibility(View.VISIBLE);
         }
-        if(!errors.isEmpty()){TextView title=text("Недоступные или неподдерживаемые ссылки:",14,true);previewArea.addView(title);for(String error:errors){TextView line=text(error,12,false);line.setTextColor(0xffac4032);previewArea.addView(line);}}
+        if(!errors.isEmpty()){TextView title=text("Недоступные или неподдерживаемые ссылки:",14,true);previewArea.addView(title);for(String error:errors){TextView line=text(error,12,false);line.setTextColor(UiColorScheme.error(this));previewArea.addView(line);}}
     }
     private void confirm(){if(chosenTree==null){status.setText("Сначала выберите папку сохранения");selectFolder();return;}
         ArrayList<LinkDownloadStore.Entry> selected=new ArrayList<>();HashSet<String> names=new HashSet<>();for(int i=0;i<checkboxes.size();i++)if(checkboxes.get(i).isChecked()){
@@ -127,6 +143,19 @@ public final class LinkDownloadActivity extends NavigationActivity {
                     startActivity(new Intent(this,DownloadActivity.class));finish();
                 }catch(Exception ex){status.setText("Не удалось запустить загрузку: "+ex.getMessage());}
             }).show();
+    }
+    /** Rebind theme settings without losing user-entered URLs, filenames or selection. */
+    @Override protected void onResume(){super.onResume();
+        if(links==null||paletteSignature==UiColorScheme.paletteSignature(this))return;
+        String entered=links.getText().toString(),subdir=subfolder.getText().toString();
+        ArrayList<Boolean> states=new ArrayList<>();for(CheckBox box:checkboxes)states.add(box.isChecked());
+        ArrayList<String> errors=new ArrayList<>(latestErrors);
+        String previousStatus=status.getText().toString();
+        readPalette();build();links.setText(entered);subfolder.setText(subdir);
+        if(!discovered.isEmpty()||!errors.isEmpty()){
+            renderFound(errors);
+            for(int n=0;n<Math.min(states.size(),checkboxes.size());n++)checkboxes.get(n).setChecked(states.get(n));
+        }else status.setText(previousStatus);
     }
     @Override public void onBackPressed(){BackNavigation.back(this);}
 }

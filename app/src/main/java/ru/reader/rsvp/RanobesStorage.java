@@ -32,10 +32,10 @@ final class RanobesStorage {
     static ArrayList<Job> jobs(Context c){ArrayList<Job> out=new ArrayList<>();try{JSONArray a=new JSONArray(c.getSharedPreferences("reader",0).getString(STORE,"[]"));for(int i=0;i<a.length();i++){JSONObject j=a.optJSONObject(i);if(j!=null){Job value=Job.from(j);if(validKey(value.sourceKey()))out.add(value);}}}catch(Exception ignored){}return out;}
     static synchronized void put(Context c,Job j){if(!validKey(j.sourceKey()))return;ArrayList<Job> jobs=jobs(c);boolean found=false;
         for(int i=0;i<jobs.size();i++)if(jobs.get(i).id().equals(j.id())){jobs.set(i,j);found=true;break;}
-        if(!found)jobs.add(j);JSONArray a=new JSONArray();for(Job b:jobs)a.put(b.json());c.getSharedPreferences("reader",0).edit().putString(STORE,a.toString()).commit();}
+        if(!found)jobs.add(j);JSONArray a=new JSONArray();for(Job b:jobs)a.put(b.json());c.getSharedPreferences("reader",0).edit().putString(STORE,a.toString()).commit();DownloadChangeBus.publish("ranobes:"+j.sourceKey());}
     static synchronized void putAll(Context c,ArrayList<Job> incoming){if(incoming.isEmpty())return;ArrayList<Job> jobs=jobs(c);java.util.HashMap<String,Integer> index=new java.util.HashMap<>();for(int i=0;i<jobs.size();i++)index.put(jobs.get(i).id(),i);
         for(Job j:incoming){if(!validKey(j.sourceKey()))continue;Integer pos=index.get(j.id());if(pos==null){index.put(j.id(),jobs.size());jobs.add(j);}else jobs.set(pos,j);}
-        JSONArray a=new JSONArray();for(Job j:jobs)a.put(j.json());c.getSharedPreferences("reader",0).edit().putString(STORE,a.toString()).commit();}
+        JSONArray a=new JSONArray();for(Job j:jobs)a.put(j.json());c.getSharedPreferences("reader",0).edit().putString(STORE,a.toString()).commit();for(Job job:incoming)DownloadChangeBus.publish("ranobes:"+job.sourceKey());}
     static Job find(Context c,String id){for(Job j:jobs(c))if(j.id().equals(id))return j;return null;}
     static ArrayList<Job> jobs(Context c,String key){ArrayList<Job> result=new ArrayList<>();if(!validKey(key))return result;
         for(Job j:jobs(c))if(key.equals(j.sourceKey()))result.add(j);

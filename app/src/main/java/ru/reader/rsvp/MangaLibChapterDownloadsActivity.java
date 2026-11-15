@@ -16,7 +16,11 @@ import java.util.Locale;
 
 /** Detailed per-chapter manga download progress, matching the Edge audio manager. */
 public final class MangaLibChapterDownloadsActivity extends NavigationActivity {
-    private static final int BG=0xfff3e7d5,PANEL=0xfffff9f0,INK=0xff30221e,MUTED=0xff716259,ACCENT=0xffa26949;
+    private int BG,PANEL,INK,MUTED,ACCENT,paletteSignature;
+    private void readPalette(){BG=UiColorScheme.background(this);PANEL=UiColorScheme.neutral(this);
+        INK=UiColorScheme.foreground(this);MUTED=UiColorScheme.muted(this);
+        ACCENT=UiColorScheme.accent(this);paletteSignature=UiColorScheme.paletteSignature(this);
+    }
     private final Handler main=new Handler(Looper.getMainLooper());
     private String slug="",series="";
     private TextView summary,action,bookTitle;
@@ -38,6 +42,7 @@ public final class MangaLibChapterDownloadsActivity extends NavigationActivity {
         v.setOnClickListener(w->command.run());return v;
     }
     @Override public void onCreate(Bundle state){super.onCreate(state);
+        readPalette();
         slug=getIntent().getStringExtra("mangalib_slug");
         if(slug==null||slug.isEmpty()){finish();return;}
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);
@@ -131,6 +136,7 @@ public final class MangaLibChapterDownloadsActivity extends NavigationActivity {
             pc.setTextColor(UiColorScheme.accent(this));row.addView(pc);
             ProgressBar bar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
             bar.setMax(100);bar.setProgress(job.total==0?0:100*job.done/Math.max(1,job.total));
+            UiColorScheme.tintProgress(bar,this);
             LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-1,dp(6));bp.topMargin=dp(7);card.addView(bar,bp);
             String jobPages=job.total==0?(job.done==0?"подготовка страниц":
                 "скачано "+job.done+" стр."):(job.done+"/"+job.total+" стр.");
@@ -138,7 +144,7 @@ public final class MangaLibChapterDownloadsActivity extends NavigationActivity {
                 +" · "+state(job),12,false);meta.setTextColor(MUTED);
             LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(-1,-2);mp.topMargin=dp(5);card.addView(meta,mp);
             if(job.error!=null&&!job.error.isEmpty()){
-                TextView error=text(job.error,12,false);error.setTextColor(0xffa13d36);card.addView(error);
+                TextView error=text(job.error,12,false);error.setTextColor(UiColorScheme.error(this));card.addView(error);
             }
             card.setOnClickListener(v->{
                 if("complete".equals(job.status)){
@@ -156,7 +162,9 @@ public final class MangaLibChapterDownloadsActivity extends NavigationActivity {
         try{return Double.compare(Double.parseDouble(a),Double.parseDouble(b));}
         catch(Exception e){return a.compareTo(b);}
     }
-    @Override protected void onResume(){super.onResume();visible=true;main.post(ticker);}
+    @Override protected void onResume(){super.onResume();
+        if(paletteSignature!=UiColorScheme.paletteSignature(this)){recreate();return;}
+        visible=true;main.post(ticker);}
     @Override protected void onPause(){visible=false;main.removeCallbacks(ticker);super.onPause();}
     @Override protected void onDestroy(){main.removeCallbacksAndMessages(null);super.onDestroy();}
 }
