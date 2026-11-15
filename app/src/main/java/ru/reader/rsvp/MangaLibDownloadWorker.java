@@ -119,6 +119,18 @@ public final class MangaLibDownloadWorker extends Worker {
             file.delete();
         }catch(IOException error){DownloadFolderPicker.recordIssue(ctx,DownloadFolderPicker.MANGA,error);}
     }
+    /** A published CBZ is the single durable copy. Drop local output only after
+     *  the chapter job is durably stored and SAF content is byte-identical.
+     *  The reader resolves the published URI through MangaLibStorage.
+     */
+    private static void releaseVerifiedOutput(Context ctx,File output,MangaLibStorage.Job job){
+        if(!MangaLibStorage.isUri(job.file)||!output.isFile())return;
+        MangaLibStorage.Job saved=MangaLibStorage.find(ctx,job.id());
+        if(saved==null||!job.file.equals(saved.file)||!"complete".equals(saved.status))return;
+        if(AudioSafDuplicates.matches(ctx,output,android.net.Uri.parse(job.file))){
+            if(!output.delete())android.util.Log.w("PROChitalka-SAF","Не удалось удалить дубликат CBZ: "+output.getName());
+        }
+    }
     @NonNull @Override public Result doWork(){
         Context ctx=getApplicationContext();String id=getInputData().getString(JOB_ID);
         MangaLibStorage.Job job=id==null?null:MangaLibStorage.find(ctx,id);
@@ -131,6 +143,7 @@ public final class MangaLibDownloadWorker extends Worker {
             try{
                 job.file=exportToSelectedFolder(ctx,output,job);update(job,"complete","");
                 MangaLibStorage.registerComic(ctx,job);MangaDownloadCover.ensure(ctx,job);exportCover(ctx,job);
+                releaseVerifiedOutput(ctx,output,job);
                 return Result.success();
             }catch(IOException error){
                 update(job,"failed","CBZ сохранён в кэше, но папка Manga недоступна: "+error.getMessage());
@@ -197,6 +210,7 @@ public final class MangaLibDownloadWorker extends Worker {
             job.file=exportToSelectedFolder(ctx,output,job);
             update(job,"complete","");MangaLibStorage.clearStage(stage);
             MangaLibStorage.registerComic(ctx,job);MangaDownloadCover.ensure(ctx,job);exportCover(ctx,job);
+            releaseVerifiedOutput(ctx,output,job);
             return Result.success();
         }catch(MangaLibApi.AccessException denied){
             part.delete();update(job,"blocked",denied.getMessage());return Result.failure();

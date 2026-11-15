@@ -669,9 +669,9 @@ public class ReaderActivity extends NavigationActivity {
                 holder.span(new BackgroundColorSpan(color),start,end);}
             if(!annotation.note.isEmpty()){
                 holder.span(new UnderlineSpan(),start,end);
-                // The right-margin glyph appears only on the note's LAST text line.
-                // Group same-line notes into one icon with a count, not overlapping icons.
-                if(b>first&&b<=last)noteEnds.add(b-first);
+                // First line of the annotated fragment. End offsets previously shifted
+                // the gutter icon downward to the LAST line of a multi-line quote.
+                if(a>=first&&a<last)noteEnds.add(a-first);
             }
         }
         for(ReaderBookmarks.Item mark:bookmarkItems){
@@ -768,17 +768,17 @@ public class ReaderActivity extends NavigationActivity {
             this::dictionarySelected,this::bookmarkSelection};
         for(int i=0;i<icons.length;i++){
             final Runnable action=callbacks[i];LinearLayout tile=new LinearLayout(this);
-            tile.setOrientation(LinearLayout.VERTICAL);tile.setGravity(Gravity.CENTER);
+            tile.setOrientation(LinearLayout.HORIZONTAL);tile.setGravity(Gravity.CENTER);
             tile.setBackground(shape(UiColorScheme.blend(panelColor(),fg,.045f),11));
             ImageView image=new ImageView(this);image.setImageResource(icons[i]);image.setColorFilter(contrast(panelColor()));
-            tile.addView(image,new LinearLayout.LayoutParams(dp(20),dp(20)));
-            TextView label=text(names[i],10);label.setTextColor(contrast(panelColor()));label.setGravity(Gravity.CENTER);
-            tile.addView(label,new LinearLayout.LayoutParams(-1,dp(19)));
-            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(dp(74),dp(55));
+            tile.addView(image,new LinearLayout.LayoutParams(dp(22),dp(22)));
+            tile.setContentDescription(names[i]);
+            tile.setTooltipText(names[i]);
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(dp(49),dp(49));
             if(i>0)lp.leftMargin=dp(3);actions.addView(tile,lp);
             tile.setOnClickListener(v->{dismissSelectionMenu();action.run();});
         }
-        int width=Math.min(getResources().getDisplayMetrics().widthPixels-dp(16),dp(385)),height=dp(63);
+        int width=Math.min(getResources().getDisplayMetrics().widthPixels-dp(16),dp(276)),height=dp(55);
         HorizontalScrollView actionScroll=new HorizontalScrollView(this);
         actionScroll.setHorizontalScrollBarEnabled(false);
         actionScroll.addView(actions,new HorizontalScrollView.LayoutParams(-2,-1));
@@ -1815,8 +1815,8 @@ public class ReaderActivity extends NavigationActivity {
         if(req==12210&&result==RESULT_OK&&data!=null&&data.hasExtra("word_index")&&words.length>0){
             int at=map.clamp(data.getIntExtra("word_index",0)),old=index;
             abandonViewportPreview();selectedWordActive=true;
-            if(mode==TTS)selectTtsWord(at);else index=at;
-            refreshHighlight(old);updateProgress();saveLight(true);
+            // A jump from Notes/Bookmarks is browsing, exactly like TOC navigation.
+            // Do not seek Edge TTS, reset the audio queue or change playback index.
             browseToWord(at);
             long noteId=data.getLongExtra("annotation_id",0L);
             if(noteId>0&&sceneRoot!=null)sceneRoot.post(()->openAnnotationById(noteId));

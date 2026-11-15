@@ -66,6 +66,13 @@ public class DownloadWorker extends Service {
         while(job.relocatedUris.size()<=index)job.relocatedUris.add("");
         job.relocatedUris.set(index,saved.toString());
         BookImportManager.put(this,job);BookImportManager.updateLibrary(this,job);
+        // The SAF copy is now primary; only a SHA-256 matched, durably referenced copy
+        // permits reclaiming the app-private complete MP3. Incomplete .part is retained.
+        if(AudioSafDuplicates.matches(this,track,saved)
+            &&AudioSafDuplicates.libraryReferences(this,job.source,saved.toString())
+            &&(AudioPlaybackService.instance==null||!AudioPlaybackService.instance.isAudioPlaying())){
+            if(!track.delete())android.util.Log.w("PROChitalka-SAF","Не удалось удалить временный MP3: "+track.getName());
+        }
     }
     @Override public android.os.IBinder onBind(Intent i){return null;}
 }

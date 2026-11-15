@@ -71,6 +71,35 @@ final class DownloadFolderPicker {
             return (name==null||name.isEmpty()?"Выбранная папка":name)+(available(c,key)?" · доступна":" · нет доступа");
         }catch(Exception error){return "Нет доступа к выбранной папке";}
     }
+    /** SAF tree display path: folder names only, never media filenames or raw content URIs.
+     * The UI ellipsizes at START, leaving the important final directories readable.
+     */
+    static String directoryPath(Context context,String key){
+        Uri tree=selected(context,key);
+        if(tree==null)return "Папка не выбрана";
+        try{
+            String documentId=DocumentsContract.getTreeDocumentId(tree);
+            if(documentId!=null){
+                int separator=documentId.indexOf(':');
+                if(separator>=0){
+                    String volume=documentId.substring(0,separator);
+                    String folders=documentId.substring(separator+1).replace('\\','/');
+                    String root="primary".equalsIgnoreCase(volume)?"Внутренняя память":
+                        "home".equalsIgnoreCase(volume)?"Документы":volume;
+                    return folders.isEmpty()?root:root+"/"+folders;
+                }
+            }
+            DocumentFile folder=DocumentFile.fromTreeUri(context,tree);
+            String name=folder==null?null:folder.getName();
+            return name==null||name.trim().isEmpty()?"Выбранная папка":"…/"+name;
+        }catch(Exception error){
+            try{
+                DocumentFile folder=DocumentFile.fromTreeUri(context,tree);
+                String name=folder==null?null:folder.getName();
+                return name==null||name.isEmpty()?"Выбранная папка":"…/"+name;
+            }catch(Exception ignored){return "Выбранная папка";}
+        }
+    }
     static void choose(Activity activity,int request,String key){
         Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION|

@@ -43,6 +43,12 @@ final class DownloadSourcePicker {
     }
     static void show(Activity activity,String category){
         Provider[] sources=RANOBE.equals(category)?RANOBE_SOURCES:MANGA.equals(category)?MANGA_SOURCES:AUDIO_SOURCES;
+        // One provider requires no modal window. New providers automatically enable the picker.
+        if(sources.length==1){
+            Provider only=sources[0];
+            activity.startActivity(new Intent(activity,only.screen).putExtra("content_source_id",only.id));
+            return;
+        }
         String heading=RANOBE.equals(category)?"Поиск ранобэ":MANGA.equals(category)?"Поиск манги":"Поиск аудиокниг";
         int bg=UiColorScheme.background(activity),panel=UiColorScheme.neutral(activity),accent=UiColorScheme.accent(activity);
         int fg=UiColorScheme.prefs(activity).getInt("fg",0xff30221e);

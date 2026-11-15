@@ -46,7 +46,7 @@ final class ReaderMarginMarksTextView extends TextView {
         Map<Integer,Integer> marksPerLine=new HashMap<>();
         int length=getText()==null?0:getText().length();if(length<=0)return;
         for(int offset:notes){
-            int line=layout.getLineForOffset(Math.max(0,Math.min(length-1,offset-1)));
+            int line=layout.getLineForOffset(Math.max(0,Math.min(length-1,offset)));
             notesPerLine.put(line,notesPerLine.containsKey(line)?notesPerLine.get(line)+1:1);
         }
         for(int offset:bookmarks){
@@ -60,8 +60,11 @@ final class ReaderMarginMarksTextView extends TextView {
             int n=notesPerLine.containsKey(line)?notesPerLine.get(line):0;
             int b=marksPerLine.containsKey(line)?marksPerLine.get(line):0;
             if(n==0&&b==0)continue;
-            int height=layout.getLineBottom(line)-layout.getLineTop(line);
-            int top=getTotalPaddingTop()+layout.getLineTop(line)+Math.max(0,(height-markSize)/2);
+            // Align to visible glyph ink rather than row height (which includes leading).
+            // The Canvas is in View coordinates; Layout baselines are text coordinates.
+            Paint.FontMetrics metrics=getPaint().getFontMetrics();
+            float center=getTotalPaddingTop()+layout.getLineBaseline(line)+(metrics.ascent+metrics.descent)/2f;
+            int top=Math.round(center-markSize/2f);
             int x=Math.max(gutterInset,(getTotalPaddingLeft()-markSize)/2);
             if(n>0&&b>0){
                 // Two readable symbols inside the SAME 24dp gutter: a compact paired mark.

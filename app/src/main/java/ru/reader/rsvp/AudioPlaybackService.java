@@ -169,6 +169,8 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     private ArrayList<String> playlist=new ArrayList<>(), chunks=new ArrayList<>(), chapterNames=new ArrayList<>();
     private String title="Аудиокнига", currentBook="", bookId="";
     private Handler handler=new Handler(Looper.getMainLooper());
+    /** External download cleanup must not unlink a file held by the active player. */
+    boolean isAudioPlaying(){return audiblePlayback();}
     private boolean audiblePlayback(){
         if(!active||paused)return false;
         if(ttsMode)return (ttsAudio!=null&&ttsAudio.isPlaying())

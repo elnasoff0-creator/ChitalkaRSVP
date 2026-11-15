@@ -123,17 +123,11 @@ public class SettingsActivity extends NavigationActivity {
         ImageView back=new ImageView(this);back.setImageResource(R.drawable.ic_menu_lines);back.setColorFilter(contrast(bg));back.setPadding(dp(10),dp(10),dp(10),dp(10));
         back.setBackground(rounded(UiColorScheme.neutral(this),12));back.setOnClickListener(v->UniversalDrawer.show(this));top.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));
         TextView name=text("Настройки",24,true);name.setTypeface(Typeface.SERIF,Typeface.BOLD);LinearLayout.LayoutParams nameLp=new LinearLayout.LayoutParams(0,-2,1);nameLp.leftMargin=dp(14);top.addView(name,nameLp);root.addView(top);
-        ScrollView sc=new ScrollView(this);list=col();list.setPadding(dp(2),dp(6),dp(2),dp(12));sc.addView(list);root.addView(sc,new LinearLayout.LayoutParams(-1,0,1));
-        LinearLayout tabs=new LinearLayout(this);
-        int[] icons={R.drawable.ic_tab_appearance,R.drawable.ic_book,R.drawable.ic_tab_music,R.drawable.ic_tab_online,R.drawable.ic_chteico_nav};
+        ScrollView sc=new ScrollView(this);root.addView(sc,new LinearLayout.LayoutParams(-1,0,1));
+        LinearLayout tabbed=col();tabbed.setPadding(dp(2),dp(8),dp(2),dp(12));sc.addView(tabbed);
         String[] names={"Общие","Чтение","Аудио","Онлайн","Чтейцо"};
-        for(int i=0;i<names.length;i++){
-            final int tab=i;
-            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(67),1);
-            if(i>0)lp.leftMargin=dp(5);
-            tabs.addView(tabAction(names[i],icons[i],currentTab==i,()->{currentTab=tab;draw();}),lp);
-        }
-        list.addView(tabs);
+        tabbed.addView(BrowserTabs.strip(this,names,currentTab,tab->{currentTab=tab;draw();}));
+        list=BrowserTabs.panel(this);tabbed.addView(list);
         if(currentTab==1){drawRsvpSettings();return;}
         if(currentTab==2){drawAudioSettings();return;}
         if(currentTab==3){drawOnlineSettings();return;}
@@ -871,6 +865,28 @@ public class SettingsActivity extends NavigationActivity {
                         });
                     },"saf-recovery-v165").start();
                 }).show();
+        }));
+        list.addView(action("Проверить и очистить дубликаты загрузок",R.drawable.ic_folder_audio,()->{
+            android.widget.Toast.makeText(this,"Проверяем аудиофайлы…",android.widget.Toast.LENGTH_SHORT).show();
+            new Thread(()->{
+                AudioSafDuplicates.Report scan=AudioSafDuplicates.inspect(getApplicationContext(),false);
+                runOnUiThread(()->{
+                    if(isFinishing()||isDestroyed())return;
+                    new SwipeDialogs.Builder(this).setTitle("Безопасная очистка MP3")
+                        .setMessage(scan.summary()+"\n\nУдалим только проверенные полные копии из Android/data. SAF-файлы и незавершённые загрузки не затрагиваются.")
+                        .setNegativeButton("Отмена",null)
+                        .setPositiveButton("Очистить",(d,w)->{
+                            new Thread(()->{
+                                AudioSafDuplicates.Report result=AudioSafDuplicates.inspect(getApplicationContext(),true);
+                                runOnUiThread(()->{
+                                    if(!isFinishing())new SwipeDialogs.Builder(this)
+                                        .setTitle("Очистка завершена").setMessage(result.summary())
+                                        .setPositiveButton("Закрыть",null).show();
+                                });
+                            },"audio-saf-duplicate-clean").start();
+                        }).show();
+                });
+            },"audio-saf-duplicate-scan").start();
         }));
         gap(12);
         header("Версия и обновления");

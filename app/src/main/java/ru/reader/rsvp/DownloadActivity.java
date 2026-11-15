@@ -829,20 +829,46 @@ public final class DownloadActivity extends NavigationActivity {
             return true;
         }catch(Exception error){Toast.makeText(this,"Не удалось приостановить: "+error.getMessage(),Toast.LENGTH_LONG).show();return false;}
     }
-    /** A left swipe reveals explicit Archive / Cancel actions; no automatic archive. */
+    /** Swipe only the foreground card; keep actions anchored in the same FrameLayout. */
     private void attachArchiveSwipe(){
         ItemTouchHelper.Callback callback=new ItemTouchHelper.SimpleCallback(0,ItemTouchHelper.LEFT){
             @Override public boolean onMove(RecyclerView rv,RecyclerView.ViewHolder from,RecyclerView.ViewHolder to){return false;}
             @Override public boolean isLongPressDragEnabled(){return false;}
-            @Override public float getSwipeThreshold(RecyclerView.ViewHolder h){return .23f;}
+            @Override public float getSwipeThreshold(RecyclerView.ViewHolder h){return .22f;}
             @Override public int getSwipeDirs(RecyclerView rv,RecyclerView.ViewHolder h){
                 int p=h.getBindingAdapterPosition();
                 return p>=0&&p<rows.size()&&rows.get(p).item!=null?ItemTouchHelper.LEFT:0;
             }
-            @Override public void onSwiped(RecyclerView.ViewHolder h,int dir){
-                int p=h.getBindingAdapterPosition();
+            @Override public void onChildDraw(android.graphics.Canvas canvas,RecyclerView rv,
+                RecyclerView.ViewHolder holder,float dX,float dY,int actionState,boolean active){
+                int p=holder.getBindingAdapterPosition();
+                if(actionState!=ItemTouchHelper.ACTION_STATE_SWIPE||p<0||p>=rows.size()||rows.get(p).item==null){
+                    super.onChildDraw(canvas,rv,holder,dX,dY,actionState,active);return;
+                }
+                LinearLayout root=(LinearLayout)holder.itemView;
+                if(root.getChildCount()==0||!(root.getChildAt(0) instanceof FrameLayout))return;
+                FrameLayout swipe=(FrameLayout)root.getChildAt(0);
+                if(swipe.getChildCount()<2)return;
+                View back=swipe.getChildAt(0),front=swipe.getChildAt(1);
+                float width=Math.max(dp(1),back.getWidth());
+                float distance=Math.max(-width,Math.min(0,dX));
+                front.setTranslationX(distance);
+                back.setVisibility(distance<0?View.VISIBLE:View.INVISIBLE);
+                // Never translate the RecyclerView row itself. This also prevents the
+                // disappearing-actions bug caused by combining two independent offsets.
+                holder.itemView.setTranslationX(0f);
+            }
+            @Override public void onSwiped(RecyclerView.ViewHolder holder,int direction){
+                int p=holder.getBindingAdapterPosition();
+                String previous=revealedSwipeId;
                 revealedSwipeId=p>=0&&p<rows.size()&&rows.get(p).item!=null?rows.get(p).item.id:"";
-                adapter.notifyDataSetChanged();
+                holder.itemView.setTranslationX(0f);
+                if(p>=0)adapter.notifyItemChanged(p);
+                if(!previous.equals(revealedSwipeId)){
+                    for(int i=0;i<rows.size();i++)if(rows.get(i).item!=null&&previous.equals(rows.get(i).item.id)){
+                        adapter.notifyItemChanged(i);break;
+                    }
+                }
             }
         };
         new ItemTouchHelper(callback).attachToRecyclerView(list);
@@ -866,7 +892,7 @@ public final class DownloadActivity extends NavigationActivity {
             root.addView(swipeFrame,fp);
             LinearLayout swipeActions=new LinearLayout(DownloadActivity.this);
             swipeActions.setOrientation(LinearLayout.HORIZONTAL);swipeActions.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);
-            FrameLayout.LayoutParams ap=new FrameLayout.LayoutParams(dp(154),-1,Gravity.RIGHT);
+            FrameLayout.LayoutParams ap=new FrameLayout.LayoutParams(-2,-1,Gravity.RIGHT);
             swipeFrame.addView(swipeActions,ap);
             TextView confirm=center("В архив",13);confirm.setTextColor(0xffffffff);
             confirm.setBackground(bg(0xff7260a5,14));
@@ -875,12 +901,19 @@ public final class DownloadActivity extends NavigationActivity {
             swipeActions.addView(confirm,new LinearLayout.LayoutParams(dp(77),-1));
             swipeActions.addView(cancel,new LinearLayout.LayoutParams(dp(77),-1));
             confirm.setOnClickListener(v->archive(item));
-            cancel.setOnClickListener(v->{revealedSwipeId="";notifyDataSetChanged();});
+            cancel.setOnClickListener(v->{revealedSwipeId="";int at=h.getBindingAdapterPosition();
+                if(at>=0)notifyItemChanged(at);});
             swipeActions.setVisibility(item.id.equals(revealedSwipeId)?View.VISIBLE:View.INVISIBLE);
             LinearLayout card=new LinearLayout(DownloadActivity.this);card.setOrientation(LinearLayout.VERTICAL);
             card.setPadding(dp(12),dp(12),dp(12),dp(12));card.setBackground(bg(PANEL,19));
             swipeFrame.addView(card,new FrameLayout.LayoutParams(-1,-2));
-            card.setTranslationX(item.id.equals(revealedSwipeId)?-dp(154):0f);
+            // Measure actual action width after layout, not a fixed 154 dp assumption.
+            swipeFrame.post(()->{
+                if(h.getBindingAdapterPosition()==RecyclerView.NO_POSITION)return;
+                boolean exposed=item.id.equals(revealedSwipeId);
+                swipeActions.setVisibility(exposed?View.VISIBLE:View.INVISIBLE);
+                card.setTranslationX(exposed?-swipeActions.getWidth():0f);
+            });
             LinearLayout top=new LinearLayout(DownloadActivity.this);top.setGravity(Gravity.TOP);card.addView(top);
             FrameLayout coverFrame=new FrameLayout(DownloadActivity.this);coverFrame.setBackground(bg(0xffe7d7c7,12));
             top.addView(coverFrame,new LinearLayout.LayoutParams(dp(item.ready?75:92),dp(item.ready?106:124)));
@@ -927,8 +960,12 @@ public final class DownloadActivity extends NavigationActivity {
             LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(43),dp(43));
             moreParams.leftMargin=dp(5);top.addView(more,moreParams);
             more.setOnClickListener(v->menu(more,item));card.setOnClickListener(v->{
-                if(!revealedSwipeId.isEmpty()){revealedSwipeId="";notifyDataSetChanged();}
-                else open(item);
+                if(!revealedSwipeId.isEmpty()){
+                    String previous=revealedSwipeId;revealedSwipeId="";
+                    for(int k=0;k<rows.size();k++)if(rows.get(k).item!=null&&previous.equals(rows.get(k).item.id)){
+                        notifyItemChanged(k);break;
+                    }
+                }else open(item);
             });
         }
         TextView control(String caption){TextView b=center(caption,13);b.setBackground(bg(0xfff1e4d7,12));b.setTextColor(INK);return b;}

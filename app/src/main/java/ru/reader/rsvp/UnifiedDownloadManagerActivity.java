@@ -1,6 +1,9 @@
 package ru.reader.rsvp;
 
+import android.app.Activity;
 import android.content.Intent;
+import android.content.Context;
+import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
@@ -8,243 +11,710 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
-import android.widget.ImageView;
+import android.view.ViewGroup;
 import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.PopupMenu;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.documentfile.provider.DocumentFile;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/** Shared view-only download manager: source engines retain their existing queues. */
+/** Single integrated download manager. Separate engines persist their own queues;
+ *  the files tab contains their full chapter/file controls, never another details Activity.
+ */
 public final class UnifiedDownloadManagerActivity extends NavigationActivity {
     static final String EXTRA_ID="unified_download_id", EXTRA_TITLE="unified_download_title",
         EXTRA_COVER="unified_download_cover", EXTRA_TYPE="unified_download_type";
-    private static final int BG=0xfff3e7d5,PANEL=0xfffff9f0,INK=0xff30221e,MUTED=0xff716259,ACCENT=0xffa26949;
     private final ExecutorService disk=Executors.newSingleThreadExecutor();
     private final Handler main=new Handler(Looper.getMainLooper());
+    private final Set<String> checked=new HashSet<>();
     private String id="",hintTitle="",hintCover="",hintType="",tab="files";
-    private TextView title,metadata,summary,percent,modeLabel;
-    private ImageView artwork;
-    private LinearLayout content,tabRow,buttons;
+    private int bg,panel,ink,muted,accent;
+    private TextView bookTitle,metadata,percent,selectionLabel;
+    private ImageView artwork,playPause,allIcon;
     private ProgressBar progress;
-    private boolean visible,loading;
-    private int page=0;
+    private LinearLayout tabContainer,tabContent,infoList,selectionBar;
+    private RecyclerView filesView;
+    private ScrollView infoScroll;
     private DownloadsRepository.Item selected;
-    private final Runnable ticker=new Runnable(){@Override public void run(){if(!visible)return;reload();main.postDelayed(this,4000);}};
-    private int dp(int v){return Math.round(getResources().getDisplayMetrics().density*v);}
-    private GradientDrawable shape(int color){GradientDrawable bg=new GradientDrawable();bg.setColor(color);bg.setCornerRadius(dp(13));return bg;}
-    private TextView text(String s,int size,boolean bold){TextView v=new TextView(this);v.setText(s);v.setTextSize(size);v.setTextColor(INK);if(bold)v.setTypeface(Typeface.DEFAULT,Typeface.BOLD);return v;}
-    private TextView button(String s,Runnable act){TextView v=text(s,13,true);v.setGravity(Gravity.CENTER);v.setPadding(dp(10),dp(11),dp(10),dp(11));v.setBackground(shape(UiColorScheme.neutral(this)));v.setOnClickListener(w->act.run());return v;}
-    private void add(LinearLayout target,View v,int gap){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(gap);target.addView(v,p);}
-    private static String human(long n){if(n<=0)return "";return String.format(Locale.getDefault(),"%.1f МБ",n/1048576.0);}
+    private ArrayList<FileRow> rows=new ArrayList<>();
+    // The TOC is loaded ONCE per book, never per four-second progress refresh.
+    private final Map<String,ArrayList<String>> edgeTocCache=new HashMap<>();
+    private FileAdapter adapter;
+    private volatile boolean visible,loading;
+    private final Runnable ticker=new Runnable(){@Override public void run(){
+        if(!visible)return;reload();main.postDelayed(this,4200);
+    }};
+    private int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
+    private GradientDrawable rounded(int fill,int radius){GradientDrawable d=new GradientDrawable();d.setColor(fill);d.setCornerRadius(dp(radius));return d;}
+    private GradientDrawable outline(){GradientDrawable d=rounded(panel,12);d.setStroke(dp(1),accent);return d;}
+    private TextView text(String value,int size,boolean bold){TextView v=new TextView(this);v.setText(value);v.setTextSize(size);v.setTextColor(ink);if(bold)v.setTypeface(Typeface.DEFAULT,Typeface.BOLD);return v;}
+    private void place(LinearLayout box,View v,int top){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(top);box.addView(v,p);}
+    private static String size(long n){return n<=0?"":String.format(Locale.getDefault(),"%.1f МБ",n/1048576.0);}
+    private ImageView actionIcon(int resource,String title,Runnable action){
+        ImageView image=new ImageView(this);image.setImageResource(resource);image.setColorFilter(accent);
+        image.setContentDescription(title);image.setTooltipText(title);image.setPadding(dp(11),dp(11),dp(11),dp(11));
+        image.setBackground(outline());image.setOnClickListener(v->action.run());return image;
+    }
     @Override public void onCreate(Bundle state){super.onCreate(state);
         id=getIntent().getStringExtra(EXTRA_ID);if(id==null||id.isEmpty()){finish();return;}
         hintTitle=getIntent().getStringExtra(EXTRA_TITLE);if(hintTitle==null)hintTitle="";
         hintCover=getIntent().getStringExtra(EXTRA_COVER);if(hintCover==null)hintCover="";
         hintType=getIntent().getStringExtra(EXTRA_TYPE);if(hintType==null)hintType="";
-        if(state!=null){tab=state.getString("tab","files");page=state.getInt("page",0);}
-        LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(BG);root.setPadding(dp(13),dp(24),dp(13),dp(10));setContentView(root);SafeSystemBars.matchBackground(this,BG);
-        LinearLayout toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);root.addView(toolbar,new LinearLayout.LayoutParams(-1,dp(50)));
-        ImageView menu=new ImageView(this);menu.setImageResource(R.drawable.ic_menu_lines);menu.setColorFilter(INK);menu.setPadding(dp(10),dp(10),dp(10),dp(10));menu.setBackground(shape(PANEL));toolbar.addView(menu,new LinearLayout.LayoutParams(dp(44),dp(44)));menu.setOnClickListener(v->UniversalDrawer.show(this));
-        TextView heading=text("Менеджер загрузки",22,true);heading.setTypeface(Typeface.SERIF,Typeface.BOLD);heading.setGravity(Gravity.CENTER_VERTICAL);LinearLayout.LayoutParams h=new LinearLayout.LayoutParams(0,-1,1);h.leftMargin=dp(12);toolbar.addView(heading,h);
-        TextView back=button("Назад",this::finish);toolbar.addView(back,new LinearLayout.LayoutParams(dp(68),dp(44)));
-        LinearLayout hero=new LinearLayout(this);hero.setPadding(dp(11),dp(11),dp(11),dp(11));hero.setGravity(Gravity.TOP);hero.setBackground(shape(PANEL));add(root,hero,13);
-        FrameLayout coverContainer=new FrameLayout(this);coverContainer.setBackground(shape(UiColorScheme.neutral(this)));
-        hero.addView(coverContainer,new LinearLayout.LayoutParams(dp(82),dp(113)));
-        ImageView blankCover=new ImageView(this);blankCover.setImageResource(R.drawable.ic_book);
-        blankCover.setColorFilter(ACCENT);blankCover.setPadding(dp(17),dp(28),dp(17),dp(28));
-        coverContainer.addView(blankCover,new FrameLayout.LayoutParams(-1,-1));
+        if(state!=null)tab=state.getString("tab","files");
+        bg=UiColorScheme.background(this);panel=UiColorScheme.neutral(this);accent=UiColorScheme.accent(this);
+        ink=getSharedPreferences("reader",0).getInt("fg",UiColorScheme.dark(this)?Color.WHITE:0xff30221e);
+        muted=UiColorScheme.blend(ink,bg,.40f);
+        LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(bg);
+        root.setPadding(dp(13),dp(24),dp(13),dp(9));setContentView(root);SafeSystemBars.matchBackground(this,bg);
+        LinearLayout toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);
+        root.addView(toolbar,new LinearLayout.LayoutParams(-1,dp(52)));
+        ImageView menu=new ImageView(this);menu.setImageResource(R.drawable.ic_menu_lines);menu.setColorFilter(ink);
+        menu.setPadding(dp(10),dp(10),dp(10),dp(10));menu.setBackground(rounded(panel,13));
+        menu.setContentDescription("Боковое меню");toolbar.addView(menu,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        menu.setOnClickListener(v->UniversalDrawer.show(this));
+        TextView heading=text("Менеджер",23,true);heading.setTypeface(Typeface.SERIF,Typeface.BOLD);
+        LinearLayout.LayoutParams titleParams=new LinearLayout.LayoutParams(0,-2,1);titleParams.leftMargin=dp(12);
+        toolbar.addView(heading,titleParams);
+        LinearLayout hero=new LinearLayout(this);hero.setGravity(Gravity.CENTER_VERTICAL);hero.setPadding(dp(11),dp(11),dp(11),dp(11));
+        hero.setBackground(rounded(panel,17));place(root,hero,12);
+        FrameLayout cover=new FrameLayout(this);cover.setBackground(rounded(UiColorScheme.blend(panel,ink,.10f),9));
+        hero.addView(cover,new LinearLayout.LayoutParams(dp(78),dp(102)));
+        ImageView placeholder=new ImageView(this);placeholder.setImageResource(R.drawable.ic_book);
+        placeholder.setColorFilter(accent);placeholder.setPadding(dp(18),dp(25),dp(18),dp(25));
+        cover.addView(placeholder,new FrameLayout.LayoutParams(-1,-1));
         artwork=new ImageView(this);artwork.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        coverContainer.addView(artwork,new FrameLayout.LayoutParams(-1,-1));
-        LinearLayout info=new LinearLayout(this);info.setOrientation(LinearLayout.VERTICAL);info.setPadding(dp(11),0,0,0);hero.addView(info,new LinearLayout.LayoutParams(0,-2,1));
-        title=text(hintTitle.isEmpty()?"Загрузка":hintTitle,19,true);title.setMaxLines(3);info.addView(title);
-        metadata=text("",12,false);metadata.setTextColor(MUTED);add(info,metadata,7);
-        summary=text("Загружаем информацию о файлах…",13,false);add(root,summary,12);
-        LinearLayout progressLine=new LinearLayout(this);progressLine.setGravity(Gravity.CENTER_VERTICAL);add(root,progressLine,9);
-        modeLabel=text("Общий прогресс",13,true);progressLine.addView(modeLabel,new LinearLayout.LayoutParams(0,-2,1));percent=text("…",14,true);progressLine.addView(percent);
-        progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setMax(100);LinearLayout.LayoutParams pl=new LinearLayout.LayoutParams(-1,dp(8));pl.topMargin=dp(6);root.addView(progress,pl);
-        buttons=new LinearLayout(this);buttons.setOrientation(LinearLayout.HORIZONTAL);add(root,buttons,11);
-        tabRow=new LinearLayout(this);tabRow.setGravity(Gravity.CENTER_VERTICAL);add(root,tabRow,13);
-        ScrollView scroll=new ScrollView(this);LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,0,1);sp.topMargin=dp(8);root.addView(scroll,sp);
-        content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);scroll.addView(content);
+        cover.addView(artwork,new FrameLayout.LayoutParams(-1,-1));
+        LinearLayout description=new LinearLayout(this);description.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams side=new LinearLayout.LayoutParams(0,-2,1);side.leftMargin=dp(12);hero.addView(description,side);
+        bookTitle=text(hintTitle.isEmpty()?"Загрузка":hintTitle,18,true);bookTitle.setMaxLines(3);description.addView(bookTitle);
+        metadata=text("",12,false);metadata.setTextColor(muted);metadata.setMaxLines(2);place(description,metadata,6);
+        ImageView arrow=new ImageView(this);arrow.setImageResource(R.drawable.ic_more_vertical);arrow.setColorFilter(muted);
+        arrow.setRotation(-90f);arrow.setContentDescription("Открыть произведение");
+        hero.addView(arrow,new LinearLayout.LayoutParams(dp(23),dp(26)));
+        hero.setContentDescription("Открыть произведение");hero.setOnClickListener(v->{if(selected!=null)openContent(selected);});
+        LinearLayout progressLine=new LinearLayout(this);progressLine.setGravity(Gravity.CENTER_VERTICAL);place(root,progressLine,13);
+        playPause=actionIcon(R.drawable.ic_play,"Продолжить загрузку",()->{if(selected!=null)control(selected);});
+        progressLine.addView(playPause,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        TextView progressTitle=text("Общий прогресс",14,true);
+        LinearLayout.LayoutParams middle=new LinearLayout.LayoutParams(0,-2,1);middle.leftMargin=dp(10);progressLine.addView(progressTitle,middle);
+        percent=text("0%",15,true);progressLine.addView(percent);
+        allIcon=actionIcon(R.drawable.ic_autoload,"Скачать всё",()->{if(selected!=null)downloadAll(selected);});
+        LinearLayout.LayoutParams full=new LinearLayout.LayoutParams(dp(44),dp(44));full.leftMargin=dp(10);progressLine.addView(allIcon,full);
+        progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setMax(100);
+        LinearLayout.LayoutParams bar=new LinearLayout.LayoutParams(-1,dp(7));bar.topMargin=dp(8);root.addView(progress,bar);
+        tabContainer=new LinearLayout(this);tabContainer.setOrientation(LinearLayout.VERTICAL);place(root,tabContainer,15);
+        tabContent=BrowserTabs.panel(this);root.addView(tabContent,new LinearLayout.LayoutParams(-1,0,1));
+        filesView=new RecyclerView(this);filesView.setLayoutManager(new LinearLayoutManager(this));
+        filesView.setHasFixedSize(false);adapter=new FileAdapter();adapter.setHasStableIds(true);filesView.setAdapter(adapter);
+        // Keep its scroll offset and ViewHolders across timer updates and tab changes.
+        tabContent.addView(filesView,new LinearLayout.LayoutParams(-1,0,1));
+        infoScroll=new ScrollView(this);infoScroll.setFillViewport(false);
+        infoList=new LinearLayout(this);infoList.setOrientation(LinearLayout.VERTICAL);infoScroll.addView(infoList);
+        tabContent.addView(infoScroll,new LinearLayout.LayoutParams(-1,0,1));
+        selectionBar=new LinearLayout(this);selectionBar.setGravity(Gravity.CENTER_VERTICAL);selectionBar.setVisibility(View.GONE);
+        tabContent.addView(selectionBar,new LinearLayout.LayoutParams(-1,-2));
+        selectionLabel=text("",12,true);selectionBar.addView(selectionLabel,new LinearLayout.LayoutParams(0,-2,1));
+        TextView retry=text("В очередь",12,true);retry.setPadding(dp(7),dp(10),dp(7),dp(10));retry.setOnClickListener(v->selectedRows("retry"));selectionBar.addView(retry);
+        TextView remove=text("Удалить",12,true);remove.setPadding(dp(7),dp(10),dp(7),dp(10));remove.setOnClickListener(v->selectedRows("delete"));selectionBar.addView(remove);
+        TextView cancel=text("×",20,true);cancel.setPadding(dp(8),dp(7),dp(7),dp(7));cancel.setOnClickListener(v->{checked.clear();adapter.notifyDataSetChanged();updateSelectionBar();});selectionBar.addView(cancel);
         if(!hintCover.isEmpty())CoverImageLoader.show(artwork,hintCover,"edge".equals(hintType));
-        drawTabs();reload();
+        showTabs();reload();
     }
     @Override protected void onResume(){super.onResume();visible=true;main.removeCallbacks(ticker);main.post(ticker);}
     @Override protected void onPause(){visible=false;main.removeCallbacks(ticker);super.onPause();}
-    @Override protected void onDestroy(){visible=false;disk.shutdownNow();super.onDestroy();}
-    @Override protected void onSaveInstanceState(Bundle state){state.putString("tab",tab);state.putInt("page",page);super.onSaveInstanceState(state);}
-    private void drawTabs(){tabRow.removeAllViews();for(String[] pair:new String[][]{{"meta","Мета"},{"files","Файлы"},{"cover","Обложка"}}){
-        TextView b=button(pair[1],()->{tab=pair[0];page=0;drawTabs();render();});
-        if(tab.equals(pair[0])){b.setBackground(shape(UiColorScheme.accent(this)));b.setTextColor(UiColorScheme.onAccent(this));}
-        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(44),1);lp.rightMargin=dp(5);tabRow.addView(b,lp);
-    }}
-    private static final class FileRow {String name="",status="",detail="";int percent=-1;long bytes;
-        FileRow(String n,String s,int p,long b){name=n;status=s;percent=p;bytes=b;}}
+    @Override protected void onDestroy(){visible=false;main.removeCallbacksAndMessages(null);disk.shutdownNow();super.onDestroy();}
+    @Override protected void onSaveInstanceState(Bundle out){out.putString("tab",tab);super.onSaveInstanceState(out);}
+    private void showTabs(){tabContainer.removeAllViews();
+        tabContainer.addView(BrowserTabs.strip(this,new String[]{"Файлы","Инфо"},"files".equals(tab)?0:1,index->{
+            tab=index==0?"files":"info";showTabs();switchTab();
+        }));switchTab();
+    }
+    private void switchTab(){boolean files="files".equals(tab);filesView.setVisibility(files?View.VISIBLE:View.GONE);
+        infoScroll.setVisibility(files?View.GONE:View.VISIBLE);selectionBar.setVisibility(files&&!checked.isEmpty()?View.VISIBLE:View.GONE);
+        if(!files&&selected!=null)showInfo(selected);
+    }
+    private void updateSelectionBar(){selectionLabel.setText("Выбрано: "+checked.size());
+        selectionBar.setVisibility("files".equals(tab)&&!checked.isEmpty()?View.VISIBLE:View.GONE);
+    }
+    static final class FileRow {
+        String key,name,status,detail="";
+        int percent;long bytes;int ordinal;Object source;
+        FileRow(String key,String name,String status,int percent,long bytes,int ordinal,Object source){
+            this.key=key;this.name=name;this.status=status;this.percent=percent;this.bytes=bytes;this.ordinal=ordinal;this.source=source;
+        }
+        boolean same(FileRow other){return other!=null&&key.equals(other.key)&&name.equals(other.name)
+            &&status.equals(other.status)&&detail.equals(other.detail)&&percent==other.percent&&bytes==other.bytes;}
+    }
     private static final class Snapshot {DownloadsRepository.Item item;ArrayList<FileRow> files=new ArrayList<>();String error="";}
-    private void reload(){if(loading)return;loading=true;
-        disk.execute(()->{
-            Snapshot next=new Snapshot();
-            try{for(DownloadsRepository.Item item:DownloadsRepository.load(getApplicationContext(),null))if(id.equals(item.id)){next.item=item;break;}
-                if(next.item!=null)listFiles(next);}
-            catch(Exception ex){next.error=ex.getMessage()==null?ex.toString():ex.getMessage();}
-            main.post(()->{loading=false;if(isFinishing()||isDestroyed())return;
-                if(next.item!=null){selected=next.item;visibleFiles=next.files;render();}
-                else if(selected==null){summary.setText(next.error.isEmpty()?"Запись пока недоступна. Попробуйте обновить список загрузок.":next.error);}
+    private void reload(){if(loading||disk.isShutdown())return;loading=true;
+        disk.execute(()->{Snapshot snapshot=new Snapshot();
+            try{
+                for(DownloadsRepository.Item item:DownloadsRepository.load(getApplicationContext(),null))
+                    if(id.equals(item.id)){snapshot.item=item;break;}
+                if(snapshot.item!=null)readRows(snapshot);
+            }catch(Exception error){snapshot.error=error.getMessage()==null?error.toString():error.getMessage();}
+            main.post(()->{
+                loading=false;if(isFinishing()||isDestroyed())return;
+                if(snapshot.item!=null){selected=snapshot.item;rows=snapshot.files;refreshHeader();adapter.submit(rows);
+                    if("info".equals(tab))showInfo(selected);
+                }else if(selected==null){metadata.setText(snapshot.error.isEmpty()?"Данные загрузки пока недоступны":snapshot.error);}
             });
         });
     }
-    private ArrayList<FileRow> visibleFiles=new ArrayList<>();
-    private void listFiles(Snapshot s){DownloadsRepository.Item i=s.item;
-        if(DownloadsRepository.AUDIO.equals(i.type)){
-            BookImportManager.Job job=i.job; if(job==null)for(BookImportManager.Job j:BookImportManager.load(this))if(j.source.equals(i.source)){job=j;break;}
+    private void readRows(Snapshot s){DownloadsRepository.Item item=s.item;
+        if(DownloadsRepository.AUDIO.equals(item.type)){
+            BookImportManager.Job job=item.job;
+            if(job==null)for(BookImportManager.Job next:BookImportManager.load(this))if(next.source.equals(item.source)){job=next;break;}
             if(job==null)return;
             for(int n=0;n<job.chapters.size();n++){
-                int state=n<job.states.size()?job.states.get(n):-1;
-                String label=job.chapters.get(n).name;
-                FileRow r=new FileRow(label,state<0?"Не выбрано":state>=100?"Скачано":job.paused?"Пауза":job.cancelled?"Отменено":state>0?"Скачивается":"Ожидает",Math.max(0,state),0);
-                File file=BookImportManager.trackFile(this,job,n);
-                r.bytes=file.isFile()?file.length():0;
-                String uri=BookImportManager.relocated(job,n);if(!uri.isEmpty())r.detail="Перенесён в выбранную папку";
-                else if(r.bytes>0)r.detail=human(r.bytes);
-                s.files.add(r);
+                int st=n<job.states.size()?job.states.get(n):-1;
+                String state=st<0?"Не выбрано":st>=100?"Скачано":job.paused?"Пауза":
+                    job.cancelled?"Отменено":st>0?"Скачивается":"Ожидает";
+                File track=BookImportManager.trackFile(this,job,n);
+                long savedBytes=track.isFile()?track.length():0;
+                if(savedBytes==0){
+                    String saved=BookImportManager.relocated(job,n);
+                    if(saved.startsWith("content://"))try{
+                        DocumentFile f=DocumentFile.fromSingleUri(this,Uri.parse(saved));
+                        if(f!=null&&f.isFile())savedBytes=f.length();
+                    }catch(Exception ignored){}
+                }
+                FileRow row=new FileRow("audio:"+job.source+":"+n,job.chapters.get(n).name,
+                    state,Math.max(0,st),savedBytes,n,job);
+                s.files.add(row);
             }
-        } else if(DownloadsRepository.RANOBE.equals(i.type)){
-            for(RanobeLibStorage.Job j:RanobeLibStorage.series(this,i.source)){
-                FileRow r=new FileRow("Том "+j.volume+" · Глава "+j.number+(j.chapter.isEmpty()?"":" · "+j.chapter),j.status, "complete".equals(j.status)?100:0,j.bytes);r.detail=j.error;s.files.add(r);
+        }else if(DownloadsRepository.MANGA.equals(item.type)){
+            for(MangaLibStorage.Job j:MangaLibStorage.jobs(this))if(item.source.equals(j.slug)){
+                int percent=j.total>0?Math.min(100,j.done*100/j.total):"complete".equals(j.status)?100:0;
+                FileRow row=new FileRow("manga:"+j.id(),"Том "+j.volume+" · Глава "+j.number+
+                    (j.chapter.isEmpty()?"":" · "+j.chapter),j.status,percent,j.bytes,0,j);
+                row.detail=j.error.isEmpty()?(j.total>0?"Страницы "+j.done+"/"+j.total:""):j.error;s.files.add(row);
             }
-        } else if(DownloadsRepository.MANGA.equals(i.type)){
-            for(MangaLibStorage.Job j:MangaLibStorage.jobs(this))if(i.source.equals(j.slug)){
-                FileRow r=new FileRow("Том "+j.volume+" · Глава "+j.number+(j.chapter.isEmpty()?"":" · "+j.chapter),j.status,j.total>0?Math.min(100,j.done*100/j.total):"complete".equals(j.status)?100:0,j.bytes);
-                r.detail=j.error.isEmpty()?"Страниц: "+j.done+"/"+j.total:j.error;s.files.add(r);
+        }else if(DownloadsRepository.RANOBE.equals(item.type)){
+            for(RanobeLibStorage.Job j:RanobeLibStorage.series(this,item.source)){
+                FileRow row=new FileRow("ranobe:"+j.id(),"Том "+j.volume+" · Глава "+j.number+
+                    (j.chapter.isEmpty()?"":" · "+j.chapter),j.status,"complete".equals(j.status)?100:0,j.bytes,0,j);
+                row.detail=j.error;s.files.add(row);
             }
-        } else if(DownloadsRepository.LINK.equals(i.type)){
-            LinkDownloadStore.Batch b=i.link!=null?i.link:LinkDownloadStore.get(this,i.id.replaceFirst("^link:",""));if(b==null)return;
-            for(LinkDownloadStore.Entry e:b.files){FileRow r=new FileRow(e.displayTitle.isEmpty()?e.name:e.displayTitle,e.status,e.size>0?(int)Math.min(100,100*e.bytes/e.size):"completed".equals(e.status)?100:-1,e.bytes);r.detail=e.error;s.files.add(r);}
-        } else if(DownloadsRepository.EDGE.equals(i.type)){
-            EdgeFullBookStore.Job job=i.fullJob!=null?i.fullJob:EdgeFullBookStore.find(this,i.bookUri,i.title);
-            if(job!=null)for(EdgeFullBookStore.Task t:job.tasks){FileRow r=new FileRow(t.chapter==EdgeFullBookStore.PLAN?"Подготовка всей книги":"Глава "+(t.chapter+1),t.status,t.total>0?(int)Math.min(100,100L*t.done/t.total):EdgeFullBookStore.DONE.equals(t.status)?100:0,0);r.detail=t.error;s.files.add(r);}
-        } else if(DownloadsRepository.RANOBES.equals(i.type)){
-            for(RanobesStorage.Job j:RanobesStorage.jobs(this,i.source)){
-                FileRow r=new FileRow("Том "+j.volume+" · "+j.title,j.status,"complete".equals(j.status)?100:0,j.bytes);r.detail=j.error;s.files.add(r);
+        }else if(DownloadsRepository.RANOBES.equals(item.type)){
+            for(RanobesStorage.Job j:RanobesStorage.jobs(this,item.source)){
+                FileRow row=new FileRow("ranobes:"+j.id(),"Том "+j.volume+" · "+j.title,j.status,
+                    "complete".equals(j.status)?100:0,j.bytes,0,j);
+                row.detail=j.error;s.files.add(row);
+            }
+        }else if(DownloadsRepository.EDGE.equals(item.type)){
+            EdgeFullBookStore.Job job=item.fullJob!=null?item.fullJob:EdgeFullBookStore.find(this,item.bookUri,item.title);
+            Map<Integer,EdgeFullBookStore.Task> tasks=new HashMap<>();
+            if(job!=null)for(EdgeFullBookStore.Task t:job.tasks)tasks.put(t.chapter,t);
+            ArrayList<String> chapterNames=edgeChapters(item);
+            EdgeChapterArchive.ChapterSnapshot published=EdgeChapterArchive.snapshot(this,item.bookUri,item.title);
+            for(int chapter=0;chapter<chapterNames.size();chapter++){
+                EdgeFullBookStore.Task task=tasks.get(chapter);
+                int saved=published.state(chapter);
+                int percentage=task!=null&&task.total>0?(int)Math.min(99,100L*task.done/task.total):0;
+                String status=task==null?"Не подготовлено":task.status;
+                if(saved>0&&(task==null||!EdgeFullBookStore.RUNNING.equals(task.status))) {
+                    percentage=100;status=saved==2?"Единый MP3 готов":"MP3-фрагменты сохранены";
+                } else if(task!=null&&EdgeFullBookStore.DONE.equals(task.status))percentage=100;
+                FileRow row=new FileRow("edge:"+chapter,chapterNames.get(chapter),status,
+                    percentage,0,chapter,task);
+                if(task!=null)row.detail=task.error;
+                s.files.add(row);
+            }
+            EdgeFullBookStore.Task planner=tasks.get(EdgeFullBookStore.PLAN);
+            if(planner!=null&&chapterNames.isEmpty()){
+                FileRow row=new FileRow("edge:planner","Подготовка всех глав",planner.status,
+                    planner.total>0?(int)Math.min(99,100L*planner.done/planner.total):0,0,EdgeFullBookStore.PLAN,planner);
+                row.detail=planner.error;s.files.add(row);
+            }
+            // If an imported title's TOC is unavailable, still display persisted tasks.
+            if(chapterNames.isEmpty()&&planner==null)for(EdgeFullBookStore.Task task:tasks.values()){
+                if(task.chapter<0)continue;
+                FileRow row=new FileRow("edge:"+task.chapter,"Глава "+(task.chapter+1),task.status,
+                    task.total>0?(int)Math.min(100,100L*task.done/task.total):0,0,task.chapter,task);
+                row.detail=task.error;s.files.add(row);
+            }
+        }else if(DownloadsRepository.LINK.equals(item.type)){
+            LinkDownloadStore.Batch batch=item.link!=null?item.link:LinkDownloadStore.get(this,item.id.replaceFirst("^link:",""));
+            if(batch==null)return;
+            for(int n=0;n<batch.files.size();n++){
+                LinkDownloadStore.Entry e=batch.files.get(n);
+                int percentage=e.size>0?(int)Math.min(100,100*e.bytes/e.size):"completed".equals(e.status)?100:-1;
+                FileRow row=new FileRow("link:"+batch.id+":"+n,e.displayTitle.isEmpty()?e.name:e.displayTitle,
+                    e.status,percentage,e.bytes,n,e);row.detail=e.error;s.files.add(row);
             }
         }
     }
-    private void render(){DownloadsRepository.Item item=selected;if(item==null)return;
-        title.setText(item.title);StringBuilder meta=new StringBuilder();
-        appendMeta(meta,item.author);appendMeta(meta,item.provider.isEmpty()?item.type:item.provider);appendMeta(meta,item.format);
-        if(!item.narrator.isEmpty())appendMeta(meta,"Читает: "+item.narrator);
-        metadata.setText(meta.toString());
-        if(!item.cover.isEmpty())CoverImageLoader.show(artwork,item.cover,DownloadsRepository.EDGE.equals(item.type));
-        summary.setText(item.status+" · "+item.description);
-        int value=item.coveragePercent;
-        if(item.total>0&&value<=0)value=(int)Math.min(100,100L*item.done/item.total);
-        if(item.ready)value=100;
-        progress.setProgress(Math.max(0,value));percent.setText(value+"%");
-        buttons.removeAllViews();
-        if(!item.ready){TextView p=button(item.running?"Пауза":"Продолжить",()->control(item));buttons.addView(p,new LinearLayout.LayoutParams(0,dp(45),1));}
-        if(item.ready||item.done>0){TextView open=button(DownloadsRepository.AUDIO.equals(item.type)||DownloadsRepository.EDGE.equals(item.type)?"Слушать":"Читать / Открыть",()->openContent(item));LinearLayout.LayoutParams o=new LinearLayout.LayoutParams(0,dp(45),1);o.leftMargin=dp(6);buttons.addView(open,o);}
-        TextView detailed=button("Подробнее",()->openAdvanced(item));LinearLayout.LayoutParams d=new LinearLayout.LayoutParams(0,dp(45),1);d.leftMargin=dp(6);buttons.addView(detailed,d);
-        content.removeAllViews();
-        if("meta".equals(tab))showMeta(item);
-        else if("cover".equals(tab))showCover(item);
-        else showFiles();
+    private ArrayList<String> edgeChapters(DownloadsRepository.Item item){
+        String key=item.bookUri==null?"":item.bookUri;
+        ArrayList<String> cached=edgeTocCache.get(key);
+        if(cached!=null)return cached;
+        ArrayList<String> result=new ArrayList<>();
+        if(!key.isEmpty())try{
+            BookLoader.Book book=BookLoader.load(this,Uri.parse(key));
+            if(book.chapters!=null)for(int n=0;n<book.chapters.size();n++)
+                result.add(book.chapters.get(n).title);
+            // Even books without structural chapters should be loaded only once.
+            edgeTocCache.put(key,result);
+        }catch(Exception error){android.util.Log.w("PROChitalka-Edge","Оглавление пока недоступно",error);}
+        // Transient SAF errors are not cached, allowing recovery after permission repair.
+        return result;
     }
-    private static void appendMeta(StringBuilder b,String value){if(value!=null&&!value.trim().isEmpty()){if(b.length()>0)b.append(" · ");b.append(value);}}
-    private void info(String label,String value){if(value==null||value.isEmpty())return;
-        TextView row=text(label+"  "+value,14,false);row.setPadding(dp(13),dp(13),dp(13),dp(13));row.setBackground(shape(PANEL));add(content,row,7);}
-    private void showMeta(DownloadsRepository.Item i){info("Название:",i.title);info("Источник:",i.provider);
-        info("Автор:",i.author);info("Читает:",i.narrator);info("Формат:",i.format);
-        info("Главы / файлы:",i.done+" / "+i.total);info("Загружено:",human(i.downloadedBytes));
-        info("Состояние:",i.status);if(!i.description.isEmpty())info("Описание:",i.description);
-        String category=storageCategory(i);
-        if(category!=null){
-            info("Папка SAF:",DownloadFolderPicker.summary(this,category));
-            TextView configure=button("Изменить папку "+DownloadFolderPicker.label(category),()->
-                DownloadFolderPicker.choose(this,storageRequest(category),category));
-            add(content,configure,8);
-            String issue=DownloadFolderPicker.lastIssue(this,category);
-            if(!issue.isEmpty())info("Последняя ошибка записи:",issue);
-        }
-        if(i.folder!=null)info("Временный кэш:",i.folder.getAbsolutePath());
+    private void refreshHeader(){DownloadsRepository.Item i=selected;if(i==null)return;
+        bookTitle.setText(i.title);StringBuilder details=new StringBuilder();
+        append(details,i.author);append(details,i.provider.isEmpty()?i.type:i.provider);append(details,i.format);
+        if(!i.narrator.isEmpty())append(details,"Читает: "+i.narrator);
+        metadata.setText(details.toString());
+        if(!i.cover.isEmpty())CoverImageLoader.show(artwork,i.cover,DownloadsRepository.EDGE.equals(i.type));
+        int value=i.coveragePercent;
+        if(i.total>0&&value<=0)value=(int)Math.min(100,100L*i.done/i.total);
+        if(i.ready)value=100;value=Math.max(0,Math.min(100,value));
+        progress.setProgress(value);percent.setText(value+"%");
+        playPause.setImageResource(i.running?R.drawable.ic_pause:R.drawable.ic_play);
+        playPause.setContentDescription(i.running?"Пауза загрузки":"Продолжить загрузку");
+        playPause.setEnabled(!i.ready);playPause.setAlpha(i.ready?.35f:1f);
+        boolean remaining=!i.ready||i.total==0||i.done<i.total;
+        allIcon.setEnabled(remaining);allIcon.setAlpha(remaining?1f:.35f);
     }
-    private static String storageCategory(DownloadsRepository.Item item){
+    private static void append(StringBuilder b,String value){if(value!=null&&!value.trim().isEmpty()){
+        if(b.length()>0)b.append(" · ");b.append(value.trim());}}
+    private static String category(DownloadsRepository.Item item){
         if(DownloadsRepository.AUDIO.equals(item.type))return DownloadFolderPicker.AUDIO;
         if(DownloadsRepository.MANGA.equals(item.type))return DownloadFolderPicker.MANGA;
-        if(DownloadsRepository.RANOBE.equals(item.type)||DownloadsRepository.RANOBES.equals(item.type)
-            ||DownloadsRepository.EDGE.equals(item.type))return DownloadFolderPicker.BOOK;
+        if(DownloadsRepository.EDGE.equals(item.type)||DownloadsRepository.RANOBE.equals(item.type)
+            ||DownloadsRepository.RANOBES.equals(item.type))return DownloadFolderPicker.BOOK;
         return null;
     }
-    private static int storageRequest(String category){
-        if(DownloadFolderPicker.AUDIO.equals(category))return DownloadFolderPicker.AUDIO_REQUEST;
-        if(DownloadFolderPicker.MANGA.equals(category))return DownloadFolderPicker.MANGA_REQUEST;
-        return DownloadFolderPicker.BOOK_REQUEST;
+    private static int folderRequest(String key){return DownloadFolderPicker.AUDIO.equals(key)?DownloadFolderPicker.AUDIO_REQUEST:
+        DownloadFolderPicker.MANGA.equals(key)?DownloadFolderPicker.MANGA_REQUEST:DownloadFolderPicker.BOOK_REQUEST;}
+    private void detailLine(String name,String value){if(value==null||value.trim().isEmpty())return;
+        LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(10),dp(12),dp(10),dp(12));row.setBackground(rounded(bg,12));
+        TextView caption=text(name,13,false);caption.setTextColor(muted);row.addView(caption);
+        TextView display=text(value,13,true);LinearLayout.LayoutParams w=new LinearLayout.LayoutParams(0,-2,1);
+        w.leftMargin=dp(10);row.addView(display,w);place(infoList,row,7);
     }
-    @Override protected void onActivityResult(int request,int result,Intent data){
-        super.onActivityResult(request,result,data);
+    private void showInfo(DownloadsRepository.Item i){
+        final int previousScroll=infoScroll.getScrollY();
+        infoList.removeAllViews();
+        detailLine("Состояние",i.status);
+        if(i.total>0)detailLine("Готово",i.done+" из "+i.total);
+        if(i.downloadedBytes>0)detailLine("Объём",size(i.downloadedBytes));
+        if(!i.description.isEmpty())detailLine("Описание",i.description);
+        String key=category(i);
+        if(key!=null){
+            // Show the actual CATEGORY tree, never the filename or a cached filesystem path.
+            LinearLayout folder=new LinearLayout(this);folder.setGravity(Gravity.CENTER_VERTICAL);
+            folder.setPadding(dp(10),dp(6),dp(4),dp(6));folder.setBackground(rounded(bg,12));
+            TextView display=text(DownloadFolderPicker.directoryPath(this,key),14,true);
+            display.setSingleLine(true);display.setEllipsize(TextUtils.TruncateAt.START);
+            display.setContentDescription("Папка: "+DownloadFolderPicker.directoryPath(this,key));
+            folder.addView(display,new LinearLayout.LayoutParams(0,dp(46),1));
+            display.setGravity(Gravity.CENTER_VERTICAL);
+            ImageView choose=actionIcon(R.drawable.ic_folder_audio,"Изменить папку через Android",()->
+                DownloadFolderPicker.choose(this,folderRequest(key),key));
+            LinearLayout.LayoutParams b=new LinearLayout.LayoutParams(dp(44),dp(44));b.leftMargin=dp(6);folder.addView(choose,b);
+            place(infoList,folder,8);
+            String error=DownloadFolderPicker.lastIssue(this,key);if(!error.isEmpty())detailLine("Ошибка сохранения",error);
+        }else if(DownloadsRepository.LINK.equals(i.type)&&i.link!=null){
+            String folderName=i.link.treeLabel.isEmpty()?"Папка ссылки":i.link.treeLabel;
+            detailLine("Папка",folderName+(i.link.subfolder.isEmpty()?"":"/"+i.link.subfolder));
+        }
+        // No absolute temporary-cache filesystem path here. Cache details are intentionally hidden.
+        infoScroll.post(()->{if(!isFinishing()&&"info".equals(tab))infoScroll.scrollTo(0,previousScroll);});
+    }
+    @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);
         if(DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.BOOK_REQUEST,DownloadFolderPicker.BOOK)
             ||DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.MANGA_REQUEST,DownloadFolderPicker.MANGA)
             ||DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.AUDIO_REQUEST,DownloadFolderPicker.AUDIO)){
-            EdgeChapterArchive.invalidate();render();
+            EdgeChapterArchive.invalidate();if(selected!=null)showInfo(selected);reload();
         }
-    }
-    private void showCover(DownloadsRepository.Item i){ImageView img=new ImageView(this);img.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(290));p.topMargin=dp(15);content.addView(img,p);
-        if(i.cover.isEmpty()){
-            img.setImageResource(R.drawable.ic_book);img.setColorFilter(ACCENT);
-            add(content,text("Обложка не найдена. Загрузка книги не зависит от обложки.",13,false),12);
-        }
-        else CoverImageLoader.show(img,i.cover,DownloadsRepository.EDGE.equals(i.type));}
-    private void showFiles(){if(visibleFiles.isEmpty()){add(content,text("Пока нет отдельных файлов или глав. Нажмите «Подробнее» для управления исходной задачей.",13,false),12);return;}
-        int from=page*80,to=Math.min(visibleFiles.size(),from+80);
-        if(from>=visibleFiles.size()){page=0;from=0;to=Math.min(visibleFiles.size(),80);}
-        add(content,text("Файлы / главы: "+visibleFiles.size(),15,true),6);
-        for(int k=from;k<to;k++){FileRow r=visibleFiles.get(k);LinearLayout block=new LinearLayout(this);block.setOrientation(LinearLayout.VERTICAL);block.setPadding(dp(12),dp(9),dp(12),dp(9));block.setBackground(shape(PANEL));add(content,block,7);
-            TextView name=text(r.name,14,true);name.setMaxLines(2);block.addView(name);
-            TextView status=text(r.status+(r.detail.isEmpty()?"":" · "+r.detail)+(r.bytes>0?" · "+human(r.bytes):""),12,false);status.setTextColor(MUTED);add(block,status,4);
-            if(r.percent>=0&&r.percent<100){ProgressBar bar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);bar.setMax(100);bar.setProgress(r.percent);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(5));p.topMargin=dp(5);block.addView(bar,p);}
-        }
-        if(to<visibleFiles.size())add(content,button("Следующие файлы ("+to+" / "+visibleFiles.size()+")",()->{page++;render();}),10);
-        if(page>0)add(content,button("В начало",()->{page=0;render();}),7);
     }
     private void control(DownloadsRepository.Item i){try{
         if(DownloadsRepository.AUDIO.equals(i.type)){
-            Intent intent=new Intent(this,DownloadWorker.class).setAction(i.running?DownloadWorker.PAUSE:DownloadWorker.START).putExtra("source",i.source);launch(intent,!i.running);
-        }else if(DownloadsRepository.RANOBE.equals(i.type)){if(i.running)RanobeLibQueue.pause(this,i.source);else RanobeLibQueue.resume(this,i.source);}
-        else if(DownloadsRepository.RANOBES.equals(i.type)){if(i.running)RanobesQueue.pause(this,i.source);else RanobesQueue.resume(this,i.source);}
-        else if(DownloadsRepository.MANGA.equals(i.type)){if(i.running)MangaLibQueue.pause(this,i.source);else MangaLibQueue.resume(this,i.source);}
-        else if(DownloadsRepository.LINK.equals(i.type)){
-            Intent intent=new Intent(this,DirectLinkDownloadService.class).setAction(i.running?DirectLinkDownloadService.PAUSE:DirectLinkDownloadService.START).putExtra(DirectLinkDownloadService.EXTRA_ID,i.id.substring(5));launch(intent,!i.running);
+            Intent request=new Intent(this,DownloadWorker.class).setAction(i.running?DownloadWorker.PAUSE:DownloadWorker.START).putExtra("source",i.source);
+            launch(request,!i.running);
+        }else if(DownloadsRepository.MANGA.equals(i.type)){
+            if(i.running)MangaLibQueue.pause(this,i.source);else MangaLibQueue.resume(this,i.source);
+        }else if(DownloadsRepository.RANOBE.equals(i.type)){
+            if(i.running)RanobeLibQueue.pause(this,i.source);else RanobeLibQueue.resume(this,i.source);
+        }else if(DownloadsRepository.RANOBES.equals(i.type)){
+            if(i.running)RanobesQueue.pause(this,i.source);else RanobesQueue.resume(this,i.source);
+        }else if(DownloadsRepository.LINK.equals(i.type)){
+            launch(new Intent(this,DirectLinkDownloadService.class).setAction(i.running?DirectLinkDownloadService.PAUSE:DirectLinkDownloadService.START)
+                .putExtra(DirectLinkDownloadService.EXTRA_ID,i.id.replaceFirst("^link:","")),!i.running);
         }else if(DownloadsRepository.EDGE.equals(i.type)){
-            Intent intent=new Intent(this,EdgeFullBookService.class).setAction(i.running?EdgeFullBookService.PAUSE:EdgeFullBookService.RESUME).putExtra(EdgeFullBookService.EXTRA_URI,i.bookUri);launch(intent,!i.running);
+            launch(new Intent(this,EdgeFullBookService.class).setAction(i.running?EdgeFullBookService.PAUSE:EdgeFullBookService.RESUME)
+                .putExtra(EdgeFullBookService.EXTRA_URI,i.bookUri),!i.running);
         }
-        main.postDelayed(this::reload,400);
-    }catch(Exception e){Toast.makeText(this,"Ошибка: "+e.getMessage(),Toast.LENGTH_LONG).show();}}
-    private void launch(Intent intent,boolean foreground){if(foreground&&Build.VERSION.SDK_INT>=26)startForegroundService(intent);else startService(intent);}
-    private void openContent(DownloadsRepository.Item i){
-        Intent request=null;
-        if(DownloadsRepository.AUDIO.equals(i.type))request=new Intent(this,AudioPlayerActivity.class).putExtra("audio_book_id","url:"+i.source);
-        else if(DownloadsRepository.RANOBE.equals(i.type)&&RanobeLibStorage.hasBook(this,i.source))request=new Intent(this,ReaderActivity.class).putExtra("book_uri",RanobeLibStorage.bookUri(this,i.source));
-        else if(DownloadsRepository.RANOBES.equals(i.type)&&RanobesStorage.hasBook(this,i.source))request=new Intent(this,ReaderActivity.class).putExtra("book_uri",RanobesStorage.bookUri(this,i.source));
-        else if(DownloadsRepository.EDGE.equals(i.type))request=new Intent(this,ReaderActivity.class).putExtra("book_uri",i.bookUri).putExtra("reading_mode_override",3);
-        else if(DownloadsRepository.MANGA.equals(i.type))request=new Intent(this,ComicReaderActivity.class).putExtra("comic_uri",MangaLibStorage.comicUri(i.source));
-        if(request!=null)startActivity(request);else Toast.makeText(this,"Файл пока не готов. Откройте подробности загрузки.",Toast.LENGTH_LONG).show();
+        main.postDelayed(this::reload,450);
+    }catch(Exception error){notifyUser("Ошибка загрузки: "+error.getMessage());}}
+    private void launch(Intent request,boolean foreground){if(foreground&&Build.VERSION.SDK_INT>=26)startForegroundService(request);else startService(request);}
+    private void enqueueEdge(DownloadsRepository.Item item,int chapter,boolean force){
+        if(!EdgeFolderPicker.available(this)){
+            notifyUser("Выберите папку Book для Edge TTS");DownloadFolderPicker.choose(this,DownloadFolderPicker.BOOK_REQUEST,DownloadFolderPicker.BOOK);return;
+        }
+        android.content.SharedPreferences pref=getSharedPreferences("reader",0);
+        Intent request=new Intent(this,EdgeFullBookService.class).setAction(EdgeFullBookService.ADD)
+            .putExtra(EdgeFullBookService.EXTRA_URI,item.bookUri)
+            .putExtra(EdgeFullBookService.EXTRA_TITLE,item.title)
+            .putExtra(EdgeFullBookService.EXTRA_VOICE,pref.getString("edge_voice","ru-RU-SvetlanaNeural"))
+            .putExtra(EdgeFullBookService.EXTRA_RATE,pref.getString("edge_rate","+0%"))
+            .putExtra(EdgeFullBookService.EXTRA_CHARS,EdgeSegmentSettings.get(pref))
+            .putExtra(EdgeFullBookService.EXTRA_CHAPTER,chapter)
+            .putExtra(EdgeFullBookService.EXTRA_FORCE,force);
+        launch(request,true);main.postDelayed(this::reload,500);
     }
-    private void openAdvanced(DownloadsRepository.Item i){Intent detail=null;
-        if(DownloadsRepository.EDGE.equals(i.type))detail=new Intent(this,EdgeChapterDownloadsActivity.class).putExtra("book_uri",i.bookUri).putExtra("book_title",i.title);
-        else if(DownloadsRepository.RANOBE.equals(i.type))detail=new Intent(this,RanobeLibBookActivity.class).putExtra("ranobelib_slug",i.source);
-        else if(DownloadsRepository.RANOBES.equals(i.type))detail=new Intent(this,RanobesBookActivity.class).putExtra("ranobes_id",i.source);
-        else if(DownloadsRepository.MANGA.equals(i.type))detail=new Intent(this,MangaLibChapterDownloadsActivity.class).putExtra("mangalib_slug",i.source);
-        else if(DownloadsRepository.AUDIO.equals(i.type))detail=new Intent(this,KvuheBookActivity.class).putExtra("source",i.source).putExtra("title",i.sourceTitle).putExtra("auto_fetch",false);
-        else if(DownloadsRepository.LINK.equals(i.type))detail=new Intent(this,LinkDownloadDetailsActivity.class).putExtra(DirectLinkDownloadService.EXTRA_ID,i.id.substring(5));
-        if(detail!=null)startActivity(detail);
+    private void workerAction(Callable<String> task){
+        if(disk.isShutdown())return;
+        disk.execute(()->{
+            String message;
+            try{message=task.call();}catch(Exception error){message="Ошибка: "+error.getMessage();}
+            final String result=message;
+            main.post(()->{if(isFinishing()||isDestroyed())return;
+                if(result!=null&&!result.isEmpty())notifyUser(result);
+                reload();});
+        });
+    }
+    private void downloadAll(DownloadsRepository.Item i){
+        if(DownloadsRepository.EDGE.equals(i.type)){enqueueEdge(i,-1,false);return;}
+        if(DownloadsRepository.AUDIO.equals(i.type)){
+            workerAction(()->{
+                BookImportManager.Job job=null;
+                for(BookImportManager.Job candidate:BookImportManager.load(this))if(i.source.equals(candidate.source)){job=candidate;break;}
+                if(job==null)return "Список глав не найден";
+                while(job.states.size()<job.chapters.size())job.states.add(-1);
+                int count=0;for(int n=0;n<job.states.size();n++)if(job.states.get(n)<0){job.states.set(n,0);count++;}
+                BookImportManager.put(this,job);
+                final String source=job.source;
+                main.post(()->launch(new Intent(this,DownloadWorker.class).setAction(DownloadWorker.START)
+                    .putExtra("source",source),true));
+                return count==0?"Продолжаем незавершённые главы":"Добавлено глав: "+count;
+            });return;
+        }
+        if(DownloadsRepository.MANGA.equals(i.type)){
+            workerAction(()->{
+                ArrayList<MangaLibStorage.Job> missing=new ArrayList<>();
+                for(MangaLibStorage.Job job:MangaLibStorage.jobs(this))if(i.source.equals(job.slug)&&!"complete".equals(job.status))missing.add(job);
+                int queued=MangaLibQueue.enqueue(this,missing);
+                return queued>0?"Добавлено глав: "+queued:"Все известные главы уже готовы. Новые можно выбрать в поиске манги";
+            });return;
+        }
+        if(DownloadsRepository.RANOBE.equals(i.type)){
+            workerAction(()->{
+                RanobeLibApi api=new RanobeLibApi();RanobeLibApi.Title title=api.title(i.source);
+                List<RanobeLibApi.Chapter> chapters=api.chapters(i.source);
+                ArrayList<RanobeLibStorage.Job> missing=new ArrayList<>();Set<String> seen=new HashSet<>();
+                for(RanobeLibApi.Chapter ch:chapters)if(seen.add(ch.volume+"|"+ch.number))
+                    missing.add(RanobeLibStorage.Job.create(title,ch));
+                RanobeLibStorage.rememberTitle(this,title);
+                int count=RanobeLibQueue.enqueue(this,missing);
+                return count>0?"Поставлено в очередь: "+count+" глав":"Готовые главы уже скачаны";
+            });return;
+        }
+        if(DownloadsRepository.RANOBES.equals(i.type)){
+            workerAction(()->{
+                List<RanobesStorage.Job> existing=RanobesStorage.jobs(this,i.source);
+                if(existing.isEmpty())return "Не найден адрес произведения";
+                String url=existing.get(0).bookUrl;
+                RanobesApi api=new RanobesApi();RanobesApi.Title title=api.title(url);
+                RanobesApi.TocResult toc=api.loadToc(url,null);
+                ArrayList<RanobesStorage.Job> jobs=new ArrayList<>();
+                String language=i.source.substring(i.source.lastIndexOf(':')+1);
+                for(RanobesApi.Chapter chapter:toc.chapters)jobs.add(RanobesStorage.Job.make(title,chapter,language));
+                RanobesStorage.remember(this,title);
+                int count=RanobesQueue.enqueue(this,jobs);
+                return "Добавлено глав: "+count+(toc.partial?" · часть страниц оглавления недоступна":"");
+            });return;
+        }
+        if(DownloadsRepository.LINK.equals(i.type)){
+            launch(new Intent(this,DirectLinkDownloadService.class).setAction(DirectLinkDownloadService.START)
+                .putExtra(DirectLinkDownloadService.EXTRA_ID,i.id.replaceFirst("^link:","")),true);
+            notifyUser("Очередь файлов возобновлена");return;
+        }
+    }
+    private void openContent(DownloadsRepository.Item i){
+        Intent next=null;
+        if(DownloadsRepository.AUDIO.equals(i.type))next=new Intent(this,AudioPlayerActivity.class)
+            .putExtra("audio_book_id","url:"+i.source);
+        else if(DownloadsRepository.RANOBE.equals(i.type)&&RanobeLibStorage.hasBook(this,i.source))
+            next=new Intent(this,ReaderActivity.class).putExtra("book_uri",RanobeLibStorage.bookUri(this,i.source));
+        else if(DownloadsRepository.RANOBES.equals(i.type)&&RanobesStorage.hasBook(this,i.source))
+            next=new Intent(this,ReaderActivity.class).putExtra("book_uri",RanobesStorage.bookUri(this,i.source));
+        else if(DownloadsRepository.EDGE.equals(i.type))next=new Intent(this,ReaderActivity.class)
+            .putExtra("book_uri",i.bookUri).putExtra("reading_mode_override",3);
+        else if(DownloadsRepository.MANGA.equals(i.type))next=new Intent(this,ComicReaderActivity.class)
+            .putExtra("comic_uri",MangaLibStorage.comicUri(i.source));
+        else if(DownloadsRepository.LINK.equals(i.type)&&i.link!=null){
+            for(LinkDownloadStore.Entry entry:i.link.files)if(!entry.savedUri.isEmpty()){
+                next=new Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse(entry.savedUri),
+                    LinkFileTypes.mime(entry.format)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);break;
+            }
+        }
+        if(next!=null){try{startActivity(next);}catch(Exception ex){notifyUser("Не удалось открыть: "+ex.getMessage());}}
+        else notifyUser("Произведение ещё не готово");
+    }
+    private void notifyUser(String message){Toast.makeText(this,message,Toast.LENGTH_LONG).show();}
+    private void selectedRows(String action){
+        if(checked.isEmpty())return;
+        ArrayList<FileRow> chosen=new ArrayList<>();for(FileRow row:rows)if(checked.contains(row.key))chosen.add(row);
+        if("delete".equals(action)){
+            new SwipeDialogs.Builder(this).setTitle("Удалить выбранные файлы?")
+                .setMessage("Выбрано элементов: "+chosen.size()+". Удаление готовых файлов необратимо.")
+                .setNegativeButton("Отмена",null)
+                .setPositiveButton("Удалить",(d,w)->{checked.clear();updateSelectionBar();
+                    workerAction(()->{int count=0;for(FileRow row:chosen)if(applyFileAction(row,"delete"))count++;
+                        return "Удалено записей: "+count;});
+                }).show();
+        }else{
+            checked.clear();updateSelectionBar();workerAction(()->{
+                int count=0;for(FileRow row:chosen)if(applyFileAction(row,"retry"))count++;
+                return "Обработано файлов: "+count;
+            });
+        }
+    }
+    private boolean applyFileAction(FileRow row,String action)throws Exception{
+        DownloadsRepository.Item item=selected;if(item==null)return false;
+        if(DownloadsRepository.AUDIO.equals(item.type)){
+            BookImportManager.Job job=null;
+            for(BookImportManager.Job candidate:BookImportManager.load(this))if(item.source.equals(candidate.source)){job=candidate;break;}
+            if(job==null||row.ordinal>=job.chapters.size())return false;
+            int n=row.ordinal;while(job.states.size()<=n)job.states.add(-1);
+            if("delete".equals(action)){
+                if(job.states.get(n)!=100&&job.states.get(n)<0)return false;
+                File source=BookImportManager.trackFile(this,job,n);
+                String uri=BookImportManager.relocated(job,n);
+                if(!uri.isEmpty()){
+                    DocumentFile saved=DocumentFile.fromSingleUri(this,Uri.parse(uri));
+                    if(saved!=null&&saved.exists()&&!saved.delete())throw new java.io.IOException("Не удалён SAF MP3");
+                    job.relocatedUris.set(n,"");
+                }
+                if(source.exists()&&!source.delete())throw new java.io.IOException("Не удалён локальный MP3");
+                job.states.set(n,-1);BookImportManager.put(this,job);BookImportManager.updateLibrary(this,job);return true;
+            }
+            if(job.states.get(n)>=100&&BookImportManager.relocated(job,n).startsWith("content://"))return false;
+            job.states.set(n,0);job.paused=false;job.cancelled=false;BookImportManager.put(this,job);
+            final String source=job.source;
+            main.post(()->launch(new Intent(this,DownloadWorker.class).setAction(DownloadWorker.START).putExtra("source",source),true));
+            return true;
+        }
+        if(DownloadsRepository.MANGA.equals(item.type)){
+            MangaLibStorage.Job j=MangaLibStorage.find(this,((MangaLibStorage.Job)row.source).id());
+            if(j==null)return false;
+            if("delete".equals(action)){
+                if(MangaLibStorage.isUri(j.file)){
+                    DocumentFile saved=DocumentFile.fromSingleUri(this,Uri.parse(j.file));
+                    if(saved!=null&&saved.exists()&&!saved.delete())throw new java.io.IOException("Не удалось удалить CBZ");
+                }else if(j.file!=null&&!j.file.isEmpty())new File(j.file).delete();
+                j.file="";j.done=0;j.bytes=0;j.status="cancelled";MangaLibStorage.put(this,j);return true;
+            }
+            return MangaLibQueue.enqueue(this,Collections.singletonList(j))>0;
+        }
+        if(DownloadsRepository.RANOBE.equals(item.type)){
+            RanobeLibStorage.Job j=(RanobeLibStorage.Job)row.source;
+            if("delete".equals(action)){
+                if(j.file!=null&&!j.file.isEmpty()&&new File(j.file).isFile()&&!new File(j.file).delete())
+                    throw new java.io.IOException("Не удалось удалить HTML-главу");
+                j.file="";j.status="cancelled";RanobeLibStorage.putAll(this,new ArrayList<>(Collections.singletonList(j)));return true;
+            }
+            return RanobeLibQueue.enqueue(this,Collections.singletonList(j))>0;
+        }
+        if(DownloadsRepository.RANOBES.equals(item.type)){
+            RanobesStorage.Job j=(RanobesStorage.Job)row.source;
+            if("delete".equals(action)){
+                File file=RanobesStorage.chapter(this,j);
+                if(file.isFile()&&!file.delete())throw new java.io.IOException("Не удалось удалить HTML-главу");
+                j.file="";j.status="cancelled";RanobesStorage.put(this,j);return true;
+            }
+            return RanobesQueue.enqueue(this,Collections.singletonList(j))>0;
+        }
+        if(DownloadsRepository.EDGE.equals(item.type)){
+            int chapter=row.ordinal;
+            if("delete".equals(action)){
+                if(chapter<0)return false;
+                if(!EdgeChapterArchive.deleteChapter(this,item.bookUri,item.title,chapter))return false;
+                EdgeFullBookStore.forgetChapter(this,item.bookUri,item.title,chapter);
+                EdgeChapterArchive.invalidate();return true;
+            }
+            main.post(()->enqueueEdge(item,chapter,false));return true;
+        }
+        if(DownloadsRepository.LINK.equals(item.type)){
+            String batchId=item.id.replaceFirst("^link:","");
+            LinkDownloadStore.Batch batch=LinkDownloadStore.get(this,batchId);
+            if(batch==null||row.ordinal<0||row.ordinal>=batch.files.size())return false;
+            LinkDownloadStore.Entry entry=batch.files.get(row.ordinal);
+            if("delete".equals(action)){
+                if(!entry.savedUri.isEmpty()){
+                    DocumentFile saved=DocumentFile.fromSingleUri(this,Uri.parse(entry.savedUri));
+                    if(saved!=null&&saved.exists()&&!saved.delete())throw new java.io.IOException("Не удалось удалить файл");
+                }
+                entry.savedUri="";entry.status="cancelled";entry.bytes=0;
+            }else{
+                if("completed".equals(entry.status)&&!entry.savedUri.isEmpty())return false;
+                entry.status="queued";entry.error="";
+            }
+            LinkDownloadStore.put(this,batch);
+            if(!"delete".equals(action))main.post(()->launch(new Intent(this,DirectLinkDownloadService.class)
+                .setAction(DirectLinkDownloadService.START).putExtra(DirectLinkDownloadService.EXTRA_ID,batchId),true));
+            return true;
+        }
+        return false;
+    }
+    private void openFinishedFile(FileRow row){
+        if(selected==null)return;
+        if(DownloadsRepository.LINK.equals(selected.type)){
+            LinkDownloadStore.Entry file=(LinkDownloadStore.Entry)row.source;
+            if(file.savedUri==null||file.savedUri.isEmpty()){
+                notifyUser("Файл ещё не сохранён");return;
+            }
+            try{
+                Intent opened;
+                if("fb2".equalsIgnoreCase(file.format)||"epub".equalsIgnoreCase(file.format)
+                    ||"html".equalsIgnoreCase(file.format)||"txt".equalsIgnoreCase(file.format)){
+                    opened=new Intent(this,ReaderActivity.class).putExtra("book_uri",file.savedUri);
+                }else{
+                    opened=new Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse(file.savedUri),
+                        LinkFileTypes.mime(file.format)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                }
+                startActivity(opened);
+            }catch(Exception ex){notifyUser("Не удалось открыть файл: "+ex.getMessage());}
+            return;
+        }
+        openContent(selected);
+    }
+    private void linkBatchMenu(PopupMenu menu){
+        if(selected==null||selected.link==null)return;
+        String batchId=selected.id.replaceFirst("^link:","");
+        boolean hasAudio=false;
+        for(LinkDownloadStore.Entry file:selected.link.files)
+            if("mp3".equalsIgnoreCase(file.format)&&"completed".equals(file.status))hasAudio=true;
+        if(hasAudio)menu.getMenu().add("Добавить готовые MP3 в Аудиотеку").setOnMenuItemClickListener(m->{
+            LinkDownloadStore.Batch current=LinkDownloadStore.get(this,batchId);
+            if(current!=null){LinkDownloadStore.addToLibrary(this,current);notifyUser("MP3 добавлены в Аудиотеку");}
+            return true;
+        });
+        menu.getMenu().add("Отменить оставшиеся загрузки").setOnMenuItemClickListener(m->{
+            new SwipeDialogs.Builder(this).setTitle("Отменить загрузку файлов?")
+                .setMessage("Готовые файлы останутся сохранёнными.")
+                .setNegativeButton("Отмена",null)
+                .setPositiveButton("Отменить",(d,w)->launch(new Intent(this,DirectLinkDownloadService.class)
+                    .setAction(DirectLinkDownloadService.CANCEL)
+                    .putExtra(DirectLinkDownloadService.EXTRA_ID,batchId),false)).show();
+            return true;
+        });
+        menu.getMenu().add("Открыть папку файлов").setOnMenuItemClickListener(m->{
+            try{
+                LinkDownloadStore.Batch current=LinkDownloadStore.get(this,batchId);
+                if(current==null||current.treeUri.isEmpty())throw new IllegalStateException("Папка недоступна");
+                Intent folder=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                folder.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                if(Build.VERSION.SDK_INT>=26)folder.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI,
+                    Uri.parse(current.treeUri));
+                startActivity(folder);
+            }catch(Exception ex){notifyUser("Не удалось открыть папку: "+ex.getMessage());}
+            return true;
+        });
+    }
+    private void fileMenu(ImageView anchor,FileRow row){
+        PopupMenu menu=new PopupMenu(this,anchor);
+        menu.getMenu().add("В очередь / повторить").setOnMenuItemClickListener(m->{
+            workerAction(()->{boolean ok=applyFileAction(row,"retry");return ok?"Задача добавлена":"Уже готово или выполняется";});return true;});
+        if(row.percent==100){menu.getMenu().add("Открыть готовое").setOnMenuItemClickListener(m->{openFinishedFile(row);return true;});}
+        if(DownloadsRepository.LINK.equals(selected.type))linkBatchMenu(menu);
+        if(DownloadsRepository.EDGE.equals(selected.type)&&row.ordinal>=0){
+            menu.getMenu().add("Переозвучить главу").setOnMenuItemClickListener(m->{
+                new SwipeDialogs.Builder(this).setTitle("Переподготовить главу?")
+                    .setMessage("Сохранённые MP3 останутся до завершения новой озвучки.")
+                    .setNegativeButton("Отмена",null)
+                    .setPositiveButton("Подготовить",(d,w)->enqueueEdge(selected,row.ordinal,true)).show();return true;});
+            menu.getMenu().add("Сохранить готовые MP3").setOnMenuItemClickListener(m->{
+                workerAction(()->EdgeChapterActions.saveCached(this,selected.bookUri,selected.title,row.ordinal));return true;});
+            menu.getMenu().add("Объединить MP3 главы").setOnMenuItemClickListener(m->{
+                workerAction(()->EdgeChapterActions.merge(this,selected.bookUri,selected.title,row.ordinal));return true;});
+        }
+        menu.getMenu().add("Удалить файл").setOnMenuItemClickListener(m->{
+            new SwipeDialogs.Builder(this).setTitle("Удалить файл?").setMessage(row.name)
+                .setNegativeButton("Отмена",null)
+                .setPositiveButton("Удалить",(d,w)->workerAction(()->applyFileAction(row,"delete")?
+                    "Файл удалён":"Не удалось удалить файл")).show();return true;});
+        menu.show();
+    }
+    private final class FileAdapter extends RecyclerView.Adapter<FileAdapter.Holder>{
+        private final ArrayList<FileRow> items=new ArrayList<>();
+        FileAdapter(){setHasStableIds(true);}
+        void submit(ArrayList<FileRow> incoming){
+            boolean sameKeys=items.size()==incoming.size();
+            if(sameKeys)for(int i=0;i<items.size();i++)if(!items.get(i).key.equals(incoming.get(i).key)){
+                sameKeys=false;break;
+            }
+            if(!sameKeys){items.clear();items.addAll(incoming);notifyDataSetChanged();return;}
+            for(int i=0;i<items.size();i++){
+                FileRow previous=items.set(i,incoming.get(i));
+                if(!previous.same(incoming.get(i)))notifyItemChanged(i);
+            }
+        }
+        @Override public long getItemId(int i){return items.get(i).key.hashCode();}
+        @Override public Holder onCreateViewHolder(ViewGroup parent,int type){
+            LinearLayout card=new LinearLayout(UnifiedDownloadManagerActivity.this);card.setOrientation(LinearLayout.VERTICAL);
+            card.setPadding(dp(12),dp(10),dp(12),dp(10));card.setBackground(rounded(bg,12));
+            RecyclerView.LayoutParams outer=new RecyclerView.LayoutParams(-1,-2);outer.bottomMargin=dp(8);card.setLayoutParams(outer);
+            LinearLayout head=new LinearLayout(UnifiedDownloadManagerActivity.this);head.setGravity(Gravity.CENTER_VERTICAL);card.addView(head);
+            TextView name=text("",14,true);head.addView(name,new LinearLayout.LayoutParams(0,-2,1));
+            ImageView more=actionIcon(R.drawable.ic_more_vertical,"Действия файла",()->{});
+            head.addView(more,new LinearLayout.LayoutParams(dp(40),dp(40)));
+            TextView detail=text("",12,false);detail.setTextColor(muted);place(card,detail,3);
+            ProgressBar bar=new ProgressBar(UnifiedDownloadManagerActivity.this,null,android.R.attr.progressBarStyleHorizontal);
+            bar.setMax(100);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(5));p.topMargin=dp(7);card.addView(bar,p);
+            return new Holder(card,name,detail,bar,more);
+        }
+        @Override public void onBindViewHolder(Holder h,int position){
+            FileRow row=items.get(position);
+            h.title.setText(row.name);h.title.setMaxLines(2);
+            StringBuilder status=new StringBuilder(row.status);
+            if(row.percent>0&&row.percent<100)status.append(" · ").append(row.percent).append('%');
+            if(row.bytes>0)status.append(" · ").append(size(row.bytes));
+            if(!row.detail.isEmpty()&&!row.detail.equals(row.status))status.append(" · ").append(row.detail);
+            h.detail.setText(status.toString());
+            h.bar.setVisibility(row.percent>=0&&row.percent<100?View.VISIBLE:View.GONE);
+            if(row.percent>=0)h.bar.setProgress(row.percent);
+            h.itemView.setBackground(rounded(checked.contains(row.key)?UiColorScheme.selected(UnifiedDownloadManagerActivity.this):bg,12));
+            h.more.setOnClickListener(v->fileMenu(h.more,row));
+            h.itemView.setOnLongClickListener(v->{if(!checked.add(row.key))checked.remove(row.key);
+                notifyItemChanged(h.getBindingAdapterPosition());updateSelectionBar();return true;});
+            h.itemView.setOnClickListener(v->{
+                if(!checked.isEmpty()){
+                    if(!checked.add(row.key))checked.remove(row.key);
+                    notifyItemChanged(h.getBindingAdapterPosition());updateSelectionBar();
+                }else if(row.percent==100&&selected!=null)openFinishedFile(row);
+                else fileMenu(h.more,row);
+            });
+        }
+        @Override public int getItemCount(){return items.size();}
+        final class Holder extends RecyclerView.ViewHolder{
+            final TextView title,detail;final ProgressBar bar;final ImageView more;
+            Holder(View v,TextView name,TextView state,ProgressBar bar,ImageView menu){super(v);title=name;detail=state;this.bar=bar;more=menu;}
+        }
     }
 }
