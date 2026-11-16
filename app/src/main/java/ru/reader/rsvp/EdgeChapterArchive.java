@@ -22,10 +22,10 @@ import java.util.Map;
 
 /**
  * Completed chapter storage for Edge TTS.
- * SAF holds ONE frame-normalized MP3 and ONE WordBoundary JSON per chapter.
- * The JSON also contains a lossless fragment-byte index, so ReaderActivity's
- * existing per-clip player/highlighter can restore clips into a TEMPORARY cache
- * without recontacting Edge TTS or losing word offsets.
+ * SAF holds independent MP3 audio fragments and WordBoundary timing files
+ * per completed chapter. The chapter index is the commit point. Old merged
+ * chapter archives remain readable; new merged MP3s are exported ONLY by
+ * explicit user action into the AudioLibrary, without affecting the Edge source.
  *
  * Never delete a working fragment unless the published files are verified.
  */
@@ -33,7 +33,7 @@ final class EdgeChapterArchive {
     private static final String TAG="EdgeChapterArchive";
     private static final String INDEX_NAME="chapter.index.json";
     static final String AUTO_MERGE_PREF="edge_auto_merge_chapter_mp3_v151";
-    static boolean autoMerge(Context c){return c.getSharedPreferences("reader",0).getBoolean(AUTO_MERGE_PREF,true);}
+    static boolean autoMerge(Context c){return false;} // Legacy preference is deliberately ignored in v173.
     private static ArrayList<SavedBook> bookCache;
     private static long bookCacheAt;
     private static final Map<String,ChapterSnapshot> chapterCache=new HashMap<>();
@@ -606,7 +606,7 @@ final class EdgeChapterArchive {
                 for(JSONObject row:parts){
                     File f=new File(localMp3,row.optString("key")+".mp3");
                     if(!f.isFile()||f.length()<1500){complete=false;break;}
-                    sign.append(row.optString("key")).append(':').append(f.length()).append(';');
+                    sign.append(row.optString("key")).append(':').append(f.length()).append(':').append(f.lastModified()).append(';');
                 }
                 if(!complete){lastPublishError="Глава "+(chapter+1)+": отсутствуют MP3-фрагменты";continue;}
                 String name=toc!=null&&chapter<toc.size()?toc.get(chapter).title:"Глава";
@@ -770,136 +770,203 @@ final class EdgeChapterArchive {
         bookCache=new ArrayList<>(result);bookCacheAt=now;
         return result;
     }
-    /** Export a FULLY completed Edge book as only MP3 tracks to AudioLibrary.
-     * Original Edge MP3 + WordBoundary stay untouched so ReaderActivity still works.
-     * Called off the UI thread after the user grants a destination SAF tree.
-     */
-    /** Export finished MP3s into one audiobook folder; never export JSON metadata.
-     * When auto-merge is disabled, each completed source fragment becomes a track.
-     * The original Edge files are intentionally kept for ReaderActivity/WordBoundary.
+    /** Completed, index-committed chapters only. This is executed off the UI thread. */
+    static synchronized int exportableCount(Context ctx,String uri,String title){
+        return snapshot(ctx,uri,title).states.size();
+    }
+    private static final class ExportChapter {
+        final int number;
+        final ArrayList<DocumentFile> parts=new ArrayList<>();
+        ExportChapter(int number){this.number=number;}
+    }
+    private static String exportName(int chapter,BookChapterIndex toc){
+        String prefix=String.format(Locale.ROOT,"%03d",chapter+1);
+        if(toc==null||chapter>=toc.size()||toc.size()==0){
+            ArrayList<String> cached=null;
+            return "Глава "+prefix+".mp3";
+        }
+        String title=toc.get(chapter).title;
+        if(title==null||title.trim().isEmpty())return "Глава "+prefix+".mp3";
+        return prefix+" - "+safe(title,110)+".mp3";
+    }
+    private static boolean sourceCover(byte[] bytes){
+        return bytes!=null&&bytes.length>100&&bytes.length<5*1024*1024&&
+            ((bytes[0]&255)==255&&(bytes[1]&255)==216 ||
+             bytes[0]==(byte)137&&bytes[1]=='P'&&bytes[2]=='N'&&bytes[3]=='G' ||
+             bytes[0]=='R'&&bytes[1]=='I'&&bytes[2]=='F'&&bytes[3]=='F'&&
+                bytes[8]=='W'&&bytes[9]=='E'&&bytes[10]=='B'&&bytes[11]=='P');
+    }
+    private static String coverSuffix(byte[] bytes){
+        return bytes[0]==(byte)137?"png":bytes[0]=='R'?"webp":"jpg";
+    }
+    private static byte[] localCover(Context ctx,String uri){
+        try{
+            byte[] raw=HtmlFolderLibrary.coverBytes(ctx,uri);if(sourceCover(raw))return raw;
+        }catch(Exception ignored){}
+        try{
+            byte[] raw=RanobesStorage.localCover(ctx,uri);if(sourceCover(raw))return raw;
+        }catch(Exception ignored){}
+        try{
+            byte[] raw=RanobeLibStorage.localCover(ctx,uri);if(sourceCover(raw))return raw;
+        }catch(Exception ignored){}
+        try{
+            File cached=CoverLoader.target(ctx,uri);
+            if(cached.isFile()&&cached.length()<5*1024*1024){
+                try(InputStream in=new FileInputStream(cached)){
+                    ByteArrayOutputStream bytes=new ByteArrayOutputStream();byte[] buf=new byte[8192];int n;
+                    while((n=in.read(buf))!=-1)bytes.write(buf,0,n);
+                    byte[] raw=bytes.toByteArray();if(sourceCover(raw))return raw;
+                }
+            }
+        }catch(Exception ignored){}
+        // No network request or cover generation is permitted during export.
+        return null;
+    }
+    private static DocumentFile commonCover(Context ctx,DocumentFile folder,String uri)throws Exception{
+        DocumentFile previous=null;
+        for(DocumentFile doc:folder.listFiles()){
+            String name=doc.getName();
+            if(name!=null&&name.matches("(?i)cover\\.(jpg|jpeg|png|webp)")){previous=doc;break;}
+        }
+        if(previous!=null)return previous;
+        byte[] bytes=localCover(ctx,uri);
+        if(bytes==null)return null; // Audio player offers manual cover selection later.
+        String suffix=coverSuffix(bytes);
+        DocumentFile cover=folder.createFile("image/"+("png".equals(suffix)?"png":
+            "webp".equals(suffix)?"webp":"jpeg"),"cover."+suffix);
+        if(cover==null)throw new Exception("Не удалось создать файл обложки");
+        try(OutputStream out=ctx.getContentResolver().openOutputStream(cover.getUri(),"w")){
+            if(out==null)throw new Exception("Нет потока записи обложки");
+            out.write(bytes);out.flush();
+        }catch(Exception failure){cover.delete();throw failure;}
+        return cover;
+    }
+    /** Explicit transfer: a separate MP3 for EACH completed chapter; a single book cover.
+     * Original Edge clips, WordBoundary and manifests are never modified.
      */
     static synchronized int exportAudiobook(Context ctx,String uri,String title,
             Uri destinationTree,BookChapterIndex toc)throws Exception {
-        int expectedChapters=toc==null||toc.size()==0?1:toc.size();
-        if(expectedChapters<1)throw new Exception("Оглавление книги не определено");
-        if(destinationTree==null)throw new Exception("Папка аудиокниг не выбрана");
+        if(destinationTree==null)throw new Exception("Папка аудиотеки не выбрана");
         Uri sourceTree=EdgeFolderPicker.selected(ctx);
         if(sourceTree!=null&&sourceTree.equals(destinationTree))
-            throw new Exception("Выберите отдельную папку аудиокниг, не каталог Edge TTS");
+            throw new Exception("Выберите другую папку аудиотеки, не папку Edge TTS");
         DocumentFile source=chapters(ctx,uri,title,false);
-        if(source==null)throw new Exception("Сохранённые главы Edge TTS не найдены");
-        Map<String,DocumentFile> tracks=new java.util.TreeMap<>(AudioLibrary::naturalCompare);
-        Map<String,String> checksums=new HashMap<>();
-        boolean[] ready=new boolean[expectedChapters];
+        if(source==null)throw new Exception("Не найдены сохранённые главы Edge TTS");
+        java.util.TreeMap<Integer,ExportChapter> ready=new java.util.TreeMap<>();
         for(DocumentFile dir:source.listFiles()){
-            if(!dir.isDirectory())continue;
-            DocumentFile manifest=dir.findFile(INDEX_NAME);
-            if(manifest==null)continue;
-            JSONObject index=new JSONObject(text(ctx,manifest,16*1024*1024));
+            if(dir==null||!dir.isDirectory())continue;
+            DocumentFile manifest=dir.findFile(INDEX_NAME);if(manifest==null)continue;
+            JSONObject index;
+            try{index=new JSONObject(text(ctx,manifest,16*1024*1024));}
+            catch(Exception damaged){
+                Log.w(TAG,"Skipping unreadable chapter manifest during audio-library export",damaged);
+                continue; // Another completed chapter must still be exportable.
+            }
             if(!hash(BookUriMigration.legacy(ctx,uri)).equals(index.optString("bookId")))continue;
-            int chapter=index.optInt("chapter",0)-1;
-            if(chapter<0||chapter>=expectedChapters||ready[chapter])continue;
+            int number=index.optInt("chapter",0)-1;
+            if(number<0||(toc!=null&&toc.size()>0&&number>=toc.size())||ready.containsKey(number))continue;
+            ExportChapter chapter=new ExportChapter(number);
             if("fragments".equals(index.optString("mode"))){
-                DocumentFile fragments=dir.findFile("fragments");
-                JSONArray segments=index.optJSONArray("segments");
-                if(fragments==null||segments==null||segments.length()==0)continue;
-                boolean complete=true;
+                if(!fragmentsPresent(dir,index))continue;
+                DocumentFile clips=dir.findFile("fragments");JSONArray segments=index.optJSONArray("segments");
+                if(clips==null||segments==null)continue;
                 for(int i=0;i<segments.length();i++){
                     JSONObject row=segments.optJSONObject(i);
-                    String sha=row==null?"":row.optString("sha256","");
-                    DocumentFile clip=fragments.findFile(row==null?"":row.optString("audioFile",String.format(Locale.ROOT,"%04d.mp3",i+1)));
-                    if(sha.length()!=64||clip==null||!clip.isFile()||clip.length()<1500){
-                        complete=false;break;
-                    }
+                    DocumentFile mp3=row==null?null:clips.findFile(row.optString("audioFile",""));
+                    if(mp3==null||!mp3.isFile()){chapter.parts.clear();break;}
+                    chapter.parts.add(mp3);
                 }
-                if(!complete)continue;
-                for(int i=0;i<segments.length();i++){
-                    JSONObject row=segments.optJSONObject(i);
-                    String base=chapterAudioName(chapter,toc);
-                    String name=base.substring(0,base.length()-4)+
-                        String.format(Locale.ROOT,toc==null||toc.size()==0?"_%04d.mp3":" - %04d.mp3",i+1);
-                    tracks.put(name,fragments.findFile(row.optString("audioFile",String.format(Locale.ROOT,"%04d.mp3",i+1))));
-                    checksums.put(name,row.getString("sha256"));
-                }
-                ready[chapter]=true;
-            }else{
-                String sha=index.optString("audioSha256","");
-                String sourceName=audioName(index);
-                String name=chapterAudioName(chapter,toc);
-                DocumentFile mp3=indexedFile(ctx,dir,index,"audioUri","audioFile",sourceName);
-                if(sha.length()!=64||mp3==null||!mp3.isFile()||mp3.length()<1500)continue;
-                if(tracks.containsKey(name))throw new Exception("Повторяется имя MP3: "+name);
-                tracks.put(name,mp3);checksums.put(name,sha);ready[chapter]=true;
+            }else if(mergedPresent(ctx,dir,index)){
+                DocumentFile mp3=indexedFile(ctx,dir,index,"audioUri","audioFile",audioName(index));
+                if(mp3!=null)chapter.parts.add(mp3);
             }
+            if(!chapter.parts.isEmpty())ready.put(number,chapter);
         }
-        int completed=0;for(boolean ok:ready)if(ok)completed++;
-        if(completed!=expectedChapters)
-            throw new Exception("Готово "+completed+" из "+expectedChapters+
-                " глав. Дождитесь завершения озвучивания всех глав");
-        // Check each source before creating any destination files.
-        for(Map.Entry<String,DocumentFile> track:tracks.entrySet()){
-            try(InputStream in=ctx.getContentResolver().openInputStream(track.getValue().getUri())){
-                if(in==null||!checksums.get(track.getKey()).equals(digest(in)))
-                    throw new Exception("Повреждён MP3: "+track.getKey());
-            }
-        }
+        if(ready.isEmpty())throw new Exception("Нет полностью сохранённых глав для экспорта");
         DocumentFile root=DocumentFile.fromTreeUri(ctx,destinationTree);
-        if(root==null||!root.canWrite())throw new Exception("Нет доступа к папке аудиокниг");
+        if(root==null||!root.canWrite())throw new Exception("Нет доступа к выбранной аудиотеке");
         String folderName=safe(title,75);
         DocumentFile folder=root.findFile(folderName);
         if(folder==null)folder=root.createDirectory(folderName);
-        if(folder==null||!folder.isDirectory())throw new Exception("Не удалось создать папку аудиокниги");
-        // Never overwrite or mix unrelated files in an existing audiobook folder.
-        for(DocumentFile existing:folder.listFiles()){
-            String existingName=existing.getName();
-            if(tracks.containsKey(existingName))continue;
-            // Interrupted exports may leave only our own .pending track.
-            String unfinished=existingName==null?"":existingName;
-            String intended=unfinished.endsWith(".pending.mp3")?
-                unfinished.substring(0,unfinished.length()-12):
-                unfinished.endsWith(".pending")?
-                unfinished.substring(0,unfinished.length()-8):"";
-            if(tracks.containsKey(intended)){
-                if(!existing.delete())throw new Exception("Не удалось очистить временный MP3");
-                continue;
-            }
-            throw new Exception("Папка аудиокниги уже содержит другие файлы");
-        }
+        if(folder==null||!folder.isDirectory())throw new Exception("Не удалось создать папку книги");
+        // One bounded directory listing for the explicit export; no background polling.
+        java.util.HashMap<String,DocumentFile> existing=new java.util.HashMap<>();
+        for(DocumentFile doc:folder.listFiles())if(doc.getName()!=null)existing.put(doc.getName(),doc);
+        // The audio-library index is the commit record. An unindexed orphan left by a
+        // process crash is NOT counted as a successful completed MP3 chapter.
+        String docId;
+        try{docId=android.provider.DocumentsContract.getDocumentId(folder.getUri());}
+        catch(Exception e){docId=folder.getUri().toString();}
         AudioLibrary.Book book=new AudioLibrary.Book();
-        book.id=destinationTree.toString()+"#"+android.provider.DocumentsContract.getDocumentId(folder.getUri());
+        book.id=destinationTree.toString()+"#"+docId;
         book.name=folder.getName();book.updated=System.currentTimeMillis();
-        for(Map.Entry<String,DocumentFile> track:tracks.entrySet()){
-            String name=track.getKey();DocumentFile destination=folder.findFile(name);
-            if(destination!=null){
-                try(InputStream in=ctx.getContentResolver().openInputStream(destination.getUri())){
-                    if(in==null||!checksums.get(name).equals(digest(in)))
-                        throw new Exception("Файл "+name+" уже существует с другим содержимым");
-                }
-            }else{
-                String stagedName=name+".pending";
-                DocumentFile staged=folder.findFile(stagedName);
-                if(staged!=null)staged.delete();
-                staged=folder.createFile("audio/mpeg",stagedName);
-                if(staged==null)throw new Exception("Не удалось создать "+name);
-                try(InputStream in=ctx.getContentResolver().openInputStream(track.getValue().getUri());
-                    OutputStream out=ctx.getContentResolver().openOutputStream(staged.getUri(),"wt")){
-                    if(in==null||out==null)throw new Exception("Недоступен поток копирования "+name);
-                    byte[] buf=new byte[32768];int n;while((n=in.read(buf))!=-1)out.write(buf,0,n);
-                    out.flush();
-                }catch(Exception e){staged.delete();throw e;}
-                try(InputStream verify=ctx.getContentResolver().openInputStream(staged.getUri())){
-                    if(verify==null||!checksums.get(name).equals(digest(verify))){
-                        staged.delete();throw new Exception("Ошибка контрольной суммы "+name);
+        DocumentFile cover=commonCover(ctx,folder,uri);
+        if(cover!=null)book.coverUri=cover.getUri().toString();
+        java.util.TreeMap<String,DocumentFile> committed=new java.util.TreeMap<>(AudioLibrary::naturalCompare);
+        for(AudioLibrary.Book previous:AudioLibrary.load(ctx))if(book.id.equals(previous.id)){
+            for(String oldUri:previous.uris){
+                for(Map.Entry<String,DocumentFile> pair:existing.entrySet()){
+                    if(oldUri.equals(pair.getValue().getUri().toString())&&
+                        pair.getKey().toLowerCase(Locale.ROOT).endsWith(".mp3")&&
+                        !pair.getKey().matches(".* - [0-9]{4}\\.mp3")){
+                        committed.put(pair.getKey(),pair.getValue());break;
                     }
                 }
-                if(!staged.renameTo(name)){staged.delete();throw new Exception("Не удалось завершить "+name);}
-                destination=staged;
             }
-            book.uris.add(destination.getUri().toString());
-            book.chapters.add(AudioLibrary.clean(name));
+            break;
         }
-        ArrayList<AudioLibrary.Book> imported=new ArrayList<>();imported.add(book);
-        AudioLibrary.merge(ctx,imported);return book.uris.size();
+        for(ExportChapter entry:ready.values()){
+            String name=exportName(entry.number,toc);
+            DocumentFile already=existing.get(name);
+            if(already==null)already=existing.get(name+".mp3"); // Some SAF providers append extension.
+            if(already!=null){
+                if(!committed.containsKey(already.getName())||already.length()<1000)
+                    throw new Exception("В папке уже есть неподтверждённый MP3 главы "+(entry.number+1)+
+                        ". Файл не перезаписан; выберите другую папку или удалите остаток сбоя");
+                continue;
+            }
+            DocumentFile created=folder.createFile("audio/mpeg",name);
+            if(created==null)throw new Exception("Глава "+(entry.number+1)+": не удалось создать MP3");
+            try(OutputStream out=ctx.getContentResolver().openOutputStream(created.getUri(),"w")){
+                if(out==null)throw new Exception("Глава "+(entry.number+1)+": SAF не открыл запись");
+                String chapterTitle=toc!=null&&entry.number<toc.size()?toc.get(entry.number).title:
+                    "Глава "+(entry.number+1);
+                EdgeMp3ChapterExport.writeMetadata(out,chapterTitle,title,entry.number+1);
+                EdgeMp3ChapterExport.Format format=new EdgeMp3ChapterExport.Format();
+                for(DocumentFile part:entry.parts){
+                    try(InputStream in=ctx.getContentResolver().openInputStream(part.getUri())){
+                        if(in==null)throw new Exception("Глава "+(entry.number+1)+": фрагмент недоступен");
+                        EdgeMp3ChapterExport.append(in,out,format);
+                    }
+                }
+                if(format.frames==0||format.bytes<1000)throw new Exception("Глава "+(entry.number+1)+": нет MP3-кадров");
+                out.flush();
+            }catch(Exception failure){try{created.delete();}catch(Exception ignored){}
+                throw new Exception("Ошибка экспорта главы "+(entry.number+1)+": "+failure.getMessage(),failure);}
+            // Commit each successfully closed chapter immediately. A failure in a later
+            // chapter cannot erase earlier exported tracks from the audio-library index.
+            existing.put(created.getName(),created);
+            committed.put(created.getName(),created);
+            book.uris.clear();book.chapters.clear();
+            for(Map.Entry<String,DocumentFile> track:committed.entrySet()){
+                book.uris.add(track.getValue().getUri().toString());
+                book.chapters.add(AudioLibrary.clean(track.getKey()));
+            }
+            AudioLibrary.merge(ctx,new java.util.ArrayList<>(java.util.Collections.singletonList(book)));
+        }
+        // Reuse prior tracks when nothing new was exported; preserve the book's
+        // correct track order even after adding only chapters 1, 2 and 4.
+        book.uris.clear();book.chapters.clear();
+        for(Map.Entry<String,DocumentFile> track:committed.entrySet()){
+            book.uris.add(track.getValue().getUri().toString());
+            book.chapters.add(AudioLibrary.clean(track.getKey()));
+        }
+        if(!book.uris.isEmpty())
+            AudioLibrary.merge(ctx,new java.util.ArrayList<>(java.util.Collections.singletonList(book)));
+        if(cover!=null){String key="audio_cover:"+book.id;
+            if(ctx.getSharedPreferences("reader",0).getString(key,"").isEmpty())
+                ctx.getSharedPreferences("reader",0).edit().putString(key,book.coverUri).apply();}
+        return book.uris.size();
     }
 
     /** Delete ONLY application-owned chapter assets after an explicit user request. */

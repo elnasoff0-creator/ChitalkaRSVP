@@ -322,6 +322,7 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         if(coverImage==null||showingTtsCover)return;
         String id=selected==null?"":selected.id;
         String uri=getSharedPreferences("reader",0).getString("audio_cover:"+id,"");
+        if(uri.isEmpty()&&selected!=null)uri=selected.coverUri;
         if(uri.isEmpty())uri=AudiobookCoverStore.localUri(this,id);
         boolean hasCover=!uri.isEmpty();
         if(!hasCover){

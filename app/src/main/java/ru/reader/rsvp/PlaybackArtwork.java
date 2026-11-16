@@ -28,6 +28,11 @@ final class PlaybackArtwork {
                     if(id!=null&&!id.isEmpty())data=CoverLoader.get(app,id);
                 }else{
                     String uri=app.getSharedPreferences("reader",0).getString("audio_cover:"+id,"");
+                    if(uri.isEmpty()){
+                        for(AudioLibrary.Book book:AudioLibrary.load(app))if(id.equals(book.id)){
+                            uri=book.coverUri;break;
+                        }
+                    }
                     if(uri.isEmpty())uri=AudiobookCoverStore.localUri(app,id);
                     if(!uri.isEmpty()){
                         try(InputStream input=app.getContentResolver().openInputStream(Uri.parse(uri))){

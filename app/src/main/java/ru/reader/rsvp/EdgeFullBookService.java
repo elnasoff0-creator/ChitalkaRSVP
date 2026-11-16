@@ -288,15 +288,12 @@ public final class EdgeFullBookService extends Service {
                 EdgeFullBookStore.progress(job,completed,eligible,null);
                 notifyProgress(job.title,completed,eligible);
             }
-            // Complete chapters are saved as one MP3 + WordBoundary JSON under
-            // the user's SAF tree. Per-clip audio is ONLY disposable playback cache.
+            // Commit the original MP3 fragments and WordBoundary timings without merging.
+            // One MP3 per CHAPTER is created only during explicit audiobook export.
             if(!EdgeFullBookStore.running(job))return;
             EdgeFullBookStore.status(job,EdgeFullBookStore.SAVING);
-            int exported=EdgeChapterArchive.autoMerge(this)?
-                EdgeChapterArchive.publishOne(this,job.uri,job.title,job.mp3Folder(),index,
-                    book.chapters,wordOffsets,job.chapter):
-                EdgeChapterArchive.publishFragmentsOne(this,job.uri,job.title,job.mp3Folder(),index,
-                    book.chapters,wordOffsets,job.chapter);
+            int exported=EdgeChapterArchive.publishFragmentsOne(this,job.uri,job.title,job.mp3Folder(),
+                index,book.chapters,wordOffsets,job.chapter);
             Log.i("EdgeFullBook","Committed SAF chapters: "+exported);
             if(exported==0){
                 String reason=EdgeChapterArchive.publicationError();

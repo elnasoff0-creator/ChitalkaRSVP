@@ -27,7 +27,7 @@ final class DownloadsRepository {
         String voice="",author="",narrator="",provider="",format="";
         int done,total,coveragePercent;
         long downloadedBytes,totalBytes;
-        boolean ready,running,paused,failed,unknownTotal,previewOnly;
+        boolean ready,running,paused,failed,unknownTotal,previewOnly,confirmedReady;
         File folder;
         BookImportManager.Job job;
         LinkDownloadStore.Batch link;
@@ -78,6 +78,7 @@ final class DownloadsRepository {
             else if(file.isFile())item.downloadedBytes+=file.length();
         }
         item.ready=item.total>0&&item.done==item.total;
+        item.confirmedReady=item.ready;
         if(item.ready){item.running=false;item.status="Скачано";}
         else if(item.failed)item.status="Ошибка";
         else if(item.running)item.status="Скачивается";
@@ -101,6 +102,15 @@ final class DownloadsRepository {
         item.coveragePercent=coverage.percent();
         item.downloadedBytes=coverage.bytes;
         item.ready=coverage.complete();item.unknownTotal=totalWords<=0;
+        if(item.ready){
+            ArrayList<String> toc=EdgeTocSnapshot.load(ctx,uri);
+            EdgeChapterArchive.ChapterSnapshot committed=EdgeChapterArchive.snapshot(ctx,uri,title);
+            if(toc==null||toc.isEmpty())item.confirmedReady=!committed.states.isEmpty();
+            else{
+                item.confirmedReady=true;
+                for(int n=0;n<toc.size();n++)if(committed.state(n)==0){item.confirmedReady=false;break;}
+            }
+        }
         if(live!=null&&uri.equals(live.bookUri())){
             item.running=live.isActive();item.voice=live.voice();
             if(totalWords<=0)item.total=Math.max(item.total,live.snapshot().size());
@@ -148,6 +158,7 @@ final class DownloadsRepository {
         }
         item.provider="По ссылке";item.format=b.files.isEmpty()?"":b.files.get(0).format.toUpperCase(Locale.ROOT);item.status="Скачивание по ссылке";item.total=b.files.size();item.done=b.completed();
         item.ready=item.total>0&&item.done==item.total;
+        item.confirmedReady=item.ready;
         item.running="running".equals(b.status);item.paused="paused".equals(b.status);
         item.failed="error".equals(b.status);item.unknownTotal=true;
         if(item.ready)item.status="Скачано";else if(item.failed)item.status="Ошибка";

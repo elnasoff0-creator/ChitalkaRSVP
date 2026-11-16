@@ -40,25 +40,11 @@ final class EdgeChapterActions {
         }
         if(chosen.length()==0)throw new Exception("Нет сохранённой очереди фрагментов главы");
         if(missing>0)throw new Exception("Отсутствуют "+missing+" из "+chosen.length()+" MP3; готовые фрагменты сохранены");
-        boolean merged=EdgeChapterArchive.autoMerge(ctx);
-        int result=merged?
-            EdgeChapterArchive.publish(ctx,uri,title,job.mp3Folder(),chosen,book.toc,book.offsets):
-            EdgeChapterArchive.publishFragments(ctx,uri,title,job.mp3Folder(),chosen,book.toc,book.offsets);
+        int result=EdgeChapterArchive.publishFragmentsOne(ctx,uri,title,job.mp3Folder(),
+            chosen,book.toc,book.offsets,chapter);
         if(result<=0)
             throw new Exception("Публикация в SAF не завершена: "+EdgeChapterArchive.publicationError());
         EdgeFullBookStore.markPublished(job,chapter);
         return "Глава сохранена из готовых MP3";
-    }
-    static String merge(Context ctx,String uri,String title,int chapter)throws Exception {
-        if(chapter<0)throw new Exception("Выберите главу");
-        BookContext book=index(ctx,uri);
-        EdgeFullBookStore.Job job=EdgeFullBookStore.find(ctx,uri,title);
-        JSONArray queue=job==null?new JSONArray():EdgeFullBookStore.queue(job);
-        if(queue.length()==0)queue=EdgeChapterArchive.queueFromSAF(ctx,uri,title,chapter);
-        File local=new File(EdgeBookStorage.bookFolder(ctx,uri,title),"EdgeTTS");
-        boolean success=EdgeChapterArchive.mergeChapter(ctx,uri,title,chapter,local,queue,book.toc,book.offsets);
-        EdgeChapterArchive.invalidate();
-        if(!success)throw new Exception("Не удалось объединить фрагменты главы");
-        return "MP3 главы объединены";
     }
 }

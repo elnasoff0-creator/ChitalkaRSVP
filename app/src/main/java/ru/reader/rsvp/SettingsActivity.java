@@ -179,6 +179,11 @@ public class SettingsActivity extends NavigationActivity {
         header("Цвет выделения");drawUiColorScheme();
         header("Цвет обычных кнопок");buttonPalette(false);
         header("Цвет акцентных кнопок · Play, режимы");buttonPalette(true);
+        gap(16);
+        header("Диагностика");
+        audioLink(R.drawable.ic_dev_beaker,"Показать лог-файл",
+            "События Edge TTS, WebSocket, HTTP 429, кэша и воспроизведения",
+            "Открыть",()->startActivity(new Intent(this,ReaderLogActivity.class)));
         gap(18);
     }
     /** Compact help link. Only the icon is clickable; the setting itself retains its action. */
@@ -650,15 +655,6 @@ public class SettingsActivity extends NavigationActivity {
         sw.setChecked(prefs.getBoolean(key,initial));
         sw.setOnCheckedChangeListener((v,on)->{
             prefs.edit().putBoolean(key,on).apply();
-            // Newly enabled auto-merge applies to future chapters. Offer access
-            // to pre-existing complete fragment archives without deleting them.
-            if(on&&EdgeChapterArchive.AUTO_MERGE_PREF.equals(key)){
-                new SwipeDialogs.Builder(this).setTitle("Объединение глав Edge TTS")
-                    .setMessage("Следующие полностью озвученные главы будут объединяться автоматически. Уже сохранённые фрагменты можно преобразовать в разделе «Загрузки → Edge TTS → Главы».")
-                    .setNegativeButton("Позже",null)
-                    .setPositiveButton("Открыть загрузки",(d,w)->startActivity(new Intent(this,DownloadActivity.class)))
-                    .show();
-            }
         });
         LinearLayout row=audioCard(icon,title,null,sw,()->sw.setChecked(!sw.isChecked()));
         addInlineHelp(row,title,info);
@@ -693,20 +689,12 @@ public class SettingsActivity extends NavigationActivity {
         audioLink(R.drawable.ic_downloads,"Папка Book · Edge TTS",
             "Та же папка, что EPUB, FB2, HTML и ранобэ: "+DownloadFolderPicker.summary(this,DownloadFolderPicker.BOOK),
             EdgeFolderPicker.available(this)?"Изменить":"Выбрать",()->EdgeFolderPicker.show(this));
-        audioToggle(R.drawable.ic_edge_merge_chapter,"Автопреобразование озвучки главы в единый файл MP3",
-            "Когда глава озвучена полностью, собрать один MP3 с разметкой WordBoundary",
-            EdgeChapterArchive.AUTO_MERGE_PREF,true);
         audioDivider();
         header("Аудиокниги MP3 / M4A");
         audioLink(R.drawable.ic_equalizer,"Эквалайзер","Настройка звучания аудиокниг",equalizerLabel(),this::equalizerDialog);
         audioLink(R.drawable.ic_audio_timer,"Автоотмотка после паузы","Вернуться к ранее прослушанному месту",autoRewindLabel(),this::autoRewindDialog);
         audioLink(R.drawable.ic_rewind_10s,"Перемотка секундами","Интервал шагов плеера",AudioPlaybackPrefs.seekSeconds(this)+" сек",()->seekStepDialog(false));
         audioLink(R.drawable.ic_rewind_1m,"Перемотка минутами","Интервал шагов плеера",AudioPlaybackPrefs.seekMinutes(this)+" мин",()->seekStepDialog(true));
-        audioDivider();
-        header("Диагностика");
-        audioLink(R.drawable.ic_dev_beaker,"Показать лог-файл",
-            "События Edge TTS, WebSocket, HTTP 429, кэша и воспроизведения",
-            "Открыть",()->startActivity(new Intent(this,ReaderLogActivity.class)));
         gap(18);
     }
     private void edgeDictionaryDialog(){

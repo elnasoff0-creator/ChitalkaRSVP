@@ -188,7 +188,7 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
                 }
                 for(Entry item:result){
                     item.saved=saved.state(Math.max(0,item.chapter));
-                    if(merging.contains(item.chapter)){item.state="Объединение MP3";continue;}
+                    if(merging.contains(item.chapter)){item.state="Сохранение фрагментов";continue;}
                     EdgeFullBookStore.Task task=EdgeFullBookStore.task(job,item.chapter);
                     if(task!=null){item.jobDone=task.done;item.jobTotal=task.total;}
                     boolean pending=task!=null&&(EdgeFullBookStore.QUEUED.equals(task.status)||
@@ -204,7 +204,7 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
                         if(EdgeFullBookStore.QUEUED.equals(task.status))item.state="В очереди";
                         else if(EdgeFullBookStore.RUNNING.equals(task.status))item.state="Идёт загрузка";
                         else if(EdgeFullBookStore.WAITING.equals(task.status))item.state="Ожидание Edge TTS";
-                        else if(EdgeFullBookStore.SAVING.equals(task.status))item.state="Сохранение / сборка MP3";
+                        else if(EdgeFullBookStore.SAVING.equals(task.status))item.state="Сохранение фрагментов";
                         else if(EdgeFullBookStore.PAUSED.equals(task.status)){
                             item.state="Приостановлено";item.error=task.error;
                         }
@@ -260,7 +260,7 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
                         ChapterViews view=chapterViews.get(i);
                         if(!sameStats(old,item)){
                             boolean updating="В очереди".equals(item.state)||"Идёт загрузка".equals(item.state)||
-                                "Ожидание Edge TTS".equals(item.state)||"Сохранение / сборка MP3".equals(item.state);
+                                "Ожидание Edge TTS".equals(item.state)||"Сохранение фрагментов".equals(item.state);
                             EdgeFullBookStore.Task currentTask=EdgeFullBookStore.task(job,item.chapter);
                             int pct=item.saved>0&&!updating?100:item.stats.percent();
                             if(currentTask!=null&&currentTask.total>0&&updating)
@@ -270,8 +270,7 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
                             view.details.setText(details(item));
                             view.details.setTextColor(stateColor(item));
                             view.percent.setTextColor(stateColor(item));
-                            view.merge.setVisibility(item.saved==1?View.VISIBLE:View.GONE);
-                            view.merge.setEnabled(item.saved==1);
+                            view.completed.setVisibility(item.saved>0&&!updating?View.VISIBLE:View.GONE);
                         }
                         displayed.set(i,item);
                     }
@@ -296,8 +295,8 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
         if("Ошибка".equals(item.state))return UiColorScheme.error(this);
         if(item.saved>0)return UiColorScheme.success(this);
         if("В очереди".equals(item.state)||"Идёт загрузка".equals(item.state)||
-            "Ожидание Edge TTS".equals(item.state)||"Сохранение / сборка MP3".equals(item.state)||
-            "Объединение MP3".equals(item.state))return ACCENT;
+            "Ожидание Edge TTS".equals(item.state)||"Сохранение фрагментов".equals(item.state)||
+            "Сохранение фрагментов".equals(item.state))return ACCENT;
         return MUTED;
     }
     private static String details(Entry item){
@@ -305,9 +304,9 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
             (item.saved>0?"":" · "+item.stats.files+" MP3");
     }
     private static final class ChapterViews {
-        final TextView percent,details;final ProgressBar bar;final ImageView merge;
-        ChapterViews(TextView percent,TextView details,ProgressBar bar,ImageView merge){
-            this.percent=percent;this.details=details;this.bar=bar;this.merge=merge;
+        final TextView percent,details;final ProgressBar bar;final ImageView completed;
+        ChapterViews(TextView percent,TextView details,ProgressBar bar,ImageView completed){
+            this.percent=percent;this.details=details;this.bar=bar;this.completed=completed;
         }
     }
     private ImageView actionIcon(int resource,String hint,Runnable action){
@@ -327,6 +326,13 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
         if(item.saved==0)initialPct=Math.min(initialPct,99);
         TextView percent=text(initialPct+"%",14,true);
         percent.setTextColor(stateColor(item));headline.addView(percent);
+        ImageView completed=new ImageView(this);
+        completed.setImageResource(R.drawable.ic_download_chapter_complete);
+        completed.setImageTintList(android.content.res.ColorStateList.valueOf(UiColorScheme.accent(this)));
+        completed.setContentDescription("Глава загружена");
+        completed.setVisibility(item.saved>0?View.VISIBLE:View.GONE);
+        LinearLayout.LayoutParams completeLp=new LinearLayout.LayoutParams(dp(16),dp(16));
+        completeLp.leftMargin=dp(6);headline.addView(completed,completeLp);
         ProgressBar progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
         progress.setMax(100);progress.setProgress(initialPct);UiColorScheme.tintProgress(progress,this);
         LinearLayout.LayoutParams bar=new LinearLayout.LayoutParams(-1,dp(6));bar.topMargin=dp(7);card.addView(progress,bar);
@@ -334,10 +340,6 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
         meta.setTextColor(stateColor(item));LinearLayout.LayoutParams ml=new LinearLayout.LayoutParams(-1,-2);ml.topMargin=dp(5);card.addView(meta,ml);
         LinearLayout actions=new LinearLayout(this);actions.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,-2);ap.topMargin=dp(6);card.addView(actions,ap);
-        ImageView merge=actionIcon(R.drawable.ic_edge_merge_chapter,"Преобразовать файлы главы в один MP3",
-            ()->mergeChapter(item.chapter));
-        merge.setVisibility(item.saved==1?View.VISIBLE:View.GONE);
-        actions.addView(merge,new LinearLayout.LayoutParams(dp(38),dp(38)));
         TextView finalize=text("Сохранить",12,true);
         finalize.setGravity(Gravity.CENTER);finalize.setBackground(rounded(BG));
         finalize.setContentDescription("Завершить сохранение без повторной озвучки");
@@ -355,7 +357,7 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
             if(current.saved==0)command(item.chapter);
             else Toast.makeText(this,current.state,Toast.LENGTH_SHORT).show();
         });
-        chapterViews.add(new ChapterViews(percent,meta,progress,merge));
+        chapterViews.add(new ChapterViews(percent,meta,progress,completed));
     }
     /** Re-publish existing fragments ONLY. Never synthesize or discard them here. */
     private void finishCachedChapter(int chapter){
@@ -386,10 +388,8 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
                 if(selected.length()==0)throw new Exception("В очереди нет фрагментов для этой главы");
                 if(missing>0)throw new Exception("Не хватает "+missing+" из "+selected.length()+
                     " MP3. Готовые фрагменты сохранены; докачайте только отсутствующие");
-                boolean single=EdgeChapterArchive.autoMerge(this);
-                int published=single?
-                    EdgeChapterArchive.publish(this,uri,title,job.mp3Folder(),selected,toc,offsets):
-                    EdgeChapterArchive.publishFragments(this,uri,title,job.mp3Folder(),selected,toc,offsets);
+                int published=EdgeChapterArchive.publishFragmentsOne(this,uri,title,job.mp3Folder(),
+                    selected,toc,offsets,chapter);
                 success=published>0; // publish() returns success only after the SAF manifest commits.
                 if(!success)throw new Exception(EdgeChapterArchive.publicationError().isEmpty()?"Глава не сохранена":EdgeChapterArchive.publicationError());
                 EdgeFullBookStore.markPublished(job,chapter);
@@ -441,23 +441,6 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
                     main.post(()->{Toast.makeText(this,removed?"Глава удалена":"Не удалось удалить главу",Toast.LENGTH_SHORT).show();reload();});
                 });
             }).show();
-    }
-    private void mergeChapter(int chapter){
-        merging.add(chapter);
-        for(int i=0;i<displayed.size();i++)if(displayed.get(i).chapter==chapter&&i<chapterViews.size())
-            chapterViews.get(i).details.setText("Объединение MP3");
-        worker.execute(()->{
-            EdgeFullBookStore.Job job=EdgeFullBookStore.find(this,uri,title);
-            JSONArray queue=job==null?new JSONArray():EdgeFullBookStore.queue(job);
-            if(queue.length()==0)queue=EdgeChapterArchive.queueFromSAF(this,uri,title,Math.max(0,chapter));
-            File folder=new File(EdgeBookStorage.bookFolder(this,uri,title),"EdgeTTS");
-            boolean merged=EdgeChapterArchive.mergeChapter(this,uri,title,Math.max(0,chapter),folder,queue,toc,offsets);
-            lastSegmentsAt=0;
-            main.post(()->{
-                merging.remove(chapter);
-                Toast.makeText(this,merged?"Глава преобразована в MP3":"Не удалось объединить файлы главы",Toast.LENGTH_LONG).show();reload();
-            });
-        });
     }
     @Override protected void onResume(){super.onResume();
         if(paletteSignature!=UiColorScheme.paletteSignature(this)){recreate();return;}

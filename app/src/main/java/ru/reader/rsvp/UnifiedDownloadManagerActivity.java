@@ -299,7 +299,7 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
                 String status=task==null?"Не подготовлено":task.status;
                 if(saved>0&&(task==null||!EdgeFullBookStore.RUNNING.equals(task.status))) {
                     percentage=100;status=saved==2?"Единый MP3 готов":"MP3-фрагменты сохранены";
-                } else if(task!=null&&EdgeFullBookStore.DONE.equals(task.status))percentage=100;
+                } else if(task!=null&&EdgeFullBookStore.DONE.equals(task.status))percentage=99;
                 FileRow row=new FileRow("edge:"+chapter,chapterNames.get(chapter),status,
                     percentage,0,chapter,task);
                 if(task!=null)row.detail=task.error;
@@ -847,10 +847,6 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
                 workerAction(()->{DownloadsRepository.Item current=currentActionItem();
                     if(current==null||!DownloadsRepository.EDGE.equals(current.type))return "Произведение не найдено";
                     return EdgeChapterActions.saveCached(this,current.bookUri,current.title,row.ordinal);});return true;});
-            menu.getMenu().add("Объединить MP3 главы").setOnMenuItemClickListener(m->{
-                workerAction(()->{DownloadsRepository.Item current=currentActionItem();
-                    if(current==null||!DownloadsRepository.EDGE.equals(current.type))return "Произведение не найдено";
-                    return EdgeChapterActions.merge(this,current.bookUri,current.title,row.ordinal);});return true;});
         }
         menu.getMenu().add("Удалить файл").setOnMenuItemClickListener(m->{
             new SwipeDialogs.Builder(this).setTitle("Удалить файл?").setMessage(row.name)
@@ -880,17 +876,29 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
             RecyclerView.LayoutParams outer=new RecyclerView.LayoutParams(-1,-2);outer.bottomMargin=dp(8);card.setLayoutParams(outer);
             LinearLayout head=new LinearLayout(UnifiedDownloadManagerActivity.this);head.setGravity(Gravity.CENTER_VERTICAL);card.addView(head);
             TextView name=text("",14,true);head.addView(name,new LinearLayout.LayoutParams(0,-2,1));
+            ImageView complete=new ImageView(UnifiedDownloadManagerActivity.this);
+            complete.setImageResource(R.drawable.ic_download_chapter_complete);
+            complete.setImageTintList(android.content.res.ColorStateList.valueOf(UiColorScheme.accent(UnifiedDownloadManagerActivity.this)));
+            complete.setContentDescription("Глава загружена");
+            complete.setVisibility(View.GONE);
+            LinearLayout.LayoutParams checkLp=new LinearLayout.LayoutParams(dp(16),dp(16));
+            checkLp.rightMargin=dp(5);head.addView(complete,checkLp);
             ImageView more=bareMenuIcon("Действия файла");
             head.addView(more,new LinearLayout.LayoutParams(dp(40),dp(40)));
             TextView detail=text("",12,false);detail.setTextColor(muted);place(card,detail,3);
             ProgressBar bar=new ProgressBar(UnifiedDownloadManagerActivity.this,null,android.R.attr.progressBarStyleHorizontal);
             bar.setMax(100);UiColorScheme.tintProgress(bar,UnifiedDownloadManagerActivity.this);
             LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(5));p.topMargin=dp(7);card.addView(bar,p);
-            return new Holder(card,name,detail,bar,more);
+            return new Holder(card,name,detail,bar,more,complete);
         }
         @Override public void onBindViewHolder(Holder h,int position){
             FileRow row=items.get(position);
             h.title.setText(row.name);h.title.setMaxLines(2);
+            boolean edgeRow=row.key.startsWith("edge:");
+            boolean chapterReady=edgeRow?row.percent==100&&
+                (row.status.contains("сохранены")||row.status.contains("готов")):
+                row.percent==100;
+            h.completed.setVisibility(chapterReady?View.VISIBLE:View.GONE);
             StringBuilder status=new StringBuilder(row.status);
             if(row.percent>0&&row.percent<100)status.append(" · ").append(row.percent).append('%');
             if(row.bytes>0)status.append(" · ").append(size(row.bytes));
@@ -912,8 +920,10 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         }
         @Override public int getItemCount(){return items.size();}
         final class Holder extends RecyclerView.ViewHolder{
-            final TextView title,detail;final ProgressBar bar;final ImageView more;
-            Holder(View v,TextView name,TextView state,ProgressBar bar,ImageView menu){super(v);title=name;detail=state;this.bar=bar;more=menu;}
+            final TextView title,detail;final ProgressBar bar;final ImageView more,completed;
+            Holder(View v,TextView name,TextView state,ProgressBar bar,ImageView menu,ImageView completed){
+                super(v);title=name;detail=state;this.bar=bar;more=menu;this.completed=completed;
+            }
         }
     }
 }

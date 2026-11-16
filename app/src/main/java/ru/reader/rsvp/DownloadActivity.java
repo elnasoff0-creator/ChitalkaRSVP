@@ -420,7 +420,7 @@ public final class DownloadActivity extends NavigationActivity {
         if(row.item==null)return row.section;
         DownloadsRepository.Item i=row.item;
         return i.title+"\n"+i.description+"\n"+i.status+"\n"+i.cover+"\n"+
-            i.ready+":"+i.running+":"+i.failed+":"+i.paused+":"+i.done+":"+i.total+":"+i.coveragePercent;
+            i.ready+":"+i.confirmedReady+":"+i.running+":"+i.failed+":"+i.paused+":"+i.done+":"+i.total+":"+i.coveragePercent;
     }
     private static ArrayList<DisplayRow> makeRows(ArrayList<DownloadsRepository.Item> all,int filter,java.util.Set<String> hidden){
         ArrayList<DisplayRow> result=new ArrayList<>();
@@ -899,7 +899,7 @@ public final class DownloadActivity extends NavigationActivity {
         if(DownloadsRepository.EDGE.equals(item.type)){
             popup.getMenu().add(0,1,0,"Главы и загрузка");
             popup.getMenu().add(0,9,1,"Открыть Edge-плеер");
-            if(item.ready)popup.getMenu().add(0,42,2,"Перенести в аудиокниги");
+            popup.getMenu().add(0,42,2,"Перенести готовые аудиоглавы едиными файлами в аудиотеку");
             if(item.fullJob!=null&&!item.ready)
                 popup.getMenu().add(0,8,1,item.running?"Пауза полной подготовки":"Продолжить полную подготовку");
         }else{
@@ -931,21 +931,29 @@ public final class DownloadActivity extends NavigationActivity {
     }
     private void transferEdgeAudiobook(DownloadsRepository.Item item){
         if(item!=null&&item.previewOnly){resolvePreview(item,checked->transferEdgeAudiobook(checked));return;}
-        if(!DownloadsRepository.EDGE.equals(item.type)||!item.ready||item.running){
-            Toast.makeText(this,"Книга ещё подготавливается",Toast.LENGTH_LONG).show();return;
-        }
-        new SwipeDialogs.Builder(this).setTitle("Перенести в аудиокниги")
-            .setMessage("Выберите папку аудиокниг. В ней будет создана папка с названием книги, " +
-                "содержащая только готовые MP3 всех глав. JSON не копируются. " +
-                "Исходные файлы Edge TTS сохраняются для подсветки в ReaderActivity.")
-            .setNegativeButton("Отмена",null)
-            .setPositiveButton("Выбрать папку",(d,w)->{
-                pendingEdgeAudiobook=item;
-                Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|
-                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-                startActivityForResult(intent,EDGE_AUDIOBOOK_REQUEST);
-            }).show();
+        if(!DownloadsRepository.EDGE.equals(item.type))return;
+        // Query the already committed SAF indices off the main thread, only for this action.
+        new Thread(()->{
+            final int count=EdgeChapterArchive.exportableCount(getApplicationContext(),item.bookUri,item.title);
+            ArrayList<String> toc=EdgeTocSnapshot.load(getApplicationContext(),item.bookUri);
+            final int total=toc==null||toc.isEmpty()?count:toc.size();
+            runOnUiThread(()->{
+                if(isFinishing())return;
+                if(count==0){Toast.makeText(this,"Пока нет полностью сохранённых глав",Toast.LENGTH_LONG).show();return;}
+                new SwipeDialogs.Builder(this).setTitle("Экспорт глав в аудиотеку")
+                    .setMessage("Готово "+count+" из "+total+" глав. " +
+                        "Каждая готовая глава станет отдельным MP3 внутри папки книги. " +
+                        "Одна общая обложка cover; WordBoundary остаётся в Edge TTS.")
+                    .setNegativeButton("Отмена",null)
+                    .setPositiveButton(count<total?"Экспортировать готовые главы":"Выбрать папку",(d,w)->{
+                        pendingEdgeAudiobook=item;
+                        Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|
+                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                        startActivityForResult(intent,EDGE_AUDIOBOOK_REQUEST);
+                    }).show();
+            });
+        },"edge-export-count").start();
     }
     private void archive(DownloadsRepository.Item item){
         if(item.previewOnly){resolvePreview(item,this::archive);return;}
@@ -1129,7 +1137,19 @@ public final class DownloadActivity extends NavigationActivity {
 
             TextView info=text(item.description,12,false);info.setTextColor(MUTED);
             LinearLayout.LayoutParams il=new LinearLayout.LayoutParams(-1,-2);il.topMargin=dp(6);detail.addView(info,il);
-            TextView status=text(item.status,12,true);status.setTextColor(item.failed?ERROR:item.ready||"Идёт озвучивание".equals(item.status)?GREEN:ACCENT);detail.addView(status);
+            LinearLayout statusLine=new LinearLayout(DownloadActivity.this);
+            statusLine.setGravity(Gravity.CENTER_VERTICAL);detail.addView(statusLine);
+            TextView status=text(item.status,12,true);
+            status.setTextColor(item.failed?ERROR:item.ready||"Идёт озвучивание".equals(item.status)?GREEN:ACCENT);
+            statusLine.addView(status,new LinearLayout.LayoutParams(0,-2,1));
+            if(item.confirmedReady || (!DownloadsRepository.EDGE.equals(item.type)&&item.ready)){
+                ImageView complete=new ImageView(DownloadActivity.this);
+                complete.setImageResource(R.drawable.ic_download_chapter_complete);
+                complete.setImageTintList(android.content.res.ColorStateList.valueOf(UiColorScheme.accent(DownloadActivity.this)));
+                complete.setContentDescription("Все главы загружены");
+                LinearLayout.LayoutParams iconLp=new LinearLayout.LayoutParams(dp(18),dp(18));
+                iconLp.leftMargin=dp(7);statusLine.addView(complete,iconLp);
+            }
             if(!item.ready){
                 ProgressBar progress=new ProgressBar(DownloadActivity.this,null,android.R.attr.progressBarStyleHorizontal);
                 if(DownloadsRepository.EDGE.equals(item.type)){
@@ -1178,14 +1198,16 @@ public final class DownloadActivity extends NavigationActivity {
             try{getContentResolver().takePersistableUriPermission(destination,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);}
             catch(Exception e){Toast.makeText(this,"Папка аудиокниг недоступна",Toast.LENGTH_LONG).show();return;}
-            Toast.makeText(this,"Проверяем готовность MP3 глав…",Toast.LENGTH_SHORT).show();
+            Toast.makeText(this,"Экспорт готовых MP3-глав запущен…",Toast.LENGTH_SHORT).show();
             new Thread(()->{
                 try{
-                    BookLoader.Book book=BookLoader.load(this,Uri.parse(selected.bookUri));
+                    BookLoader.Book book=null;
+                    try{book=BookLoader.load(this,Uri.parse(selected.bookUri));}
+                    catch(Exception noToc){android.util.Log.w("EdgeExport","No table of contents; using chapter numbering",noToc);}
                     int moved=EdgeChapterArchive.exportAudiobook(getApplicationContext(),
-                        selected.bookUri,selected.title,destination,book.chapters);
+                        selected.bookUri,selected.title,destination,book==null?null:book.chapters);
                     runOnUiThread(()->Toast.makeText(this,
-                        "В аудиокниги добавлено MP3-глав: "+moved,Toast.LENGTH_LONG).show());
+                        "Аудиотека: готовых MP3-глав "+moved,Toast.LENGTH_LONG).show());
                 }catch(Exception ex){runOnUiThread(()->Toast.makeText(this,
                     "Перенос не выполнен: "+ex.getMessage(),Toast.LENGTH_LONG).show());}
             },"edge-audiobook-transfer").start();

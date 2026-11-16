@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    ПРОЧиталка v1.11.173-beta CLEAN — mini completed-download indicator.
+    Render at 16dp (chapter row) or 18dp (book card).
+    IMPORTANT: UiColorScheme.accent(context) is user-configurable, so the host
+    ImageView must apply imageTintList in Java when binding or changing themes.
+    White vector strokes here are neutral source artwork, NOT a fixed UI color.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2.1"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M12,2.7 C17.14,2.7 21.3,6.86 21.3,12 C21.3,17.14 17.14,21.3 12,21.3 C6.86,21.3 2.7,17.14 2.7,12 C2.7,6.86 6.86,2.7 12,2.7 Z" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M7.4,12.0 L10.5,15.1 L16.9,8.8" />
+</vector>
