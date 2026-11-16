@@ -77,6 +77,11 @@
     android:src="@drawable/ic_fishing_sparkles" android:visibility="gone" android:contentDescription="Мерцающий шлейф"/>
    <ImageView android:id="@+id/fishing_catch_shimmer_trail" android:layout_width="62dp" android:layout_height="62dp"
     android:src="@drawable/ic_fishing_sparkles" android:visibility="gone"/>
+   <!-- Static tail + slow arrows inside a circular, delta-time recovery countdown.
+        Position is updated in the same track coordinate system as the fish. -->
+   <ru.reader.rsvp.FishingFatigueIndicator
+    android:id="@+id/fishing_fatigue_indicator" android:layout_width="34dp" android:layout_height="34dp"
+    android:visibility="gone" android:clickable="false" android:focusable="false"/>
   </FrameLayout>
  </FrameLayout>
  </FrameLayout><!-- fishing_catch_viewport -->

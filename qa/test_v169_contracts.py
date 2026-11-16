@@ -7,8 +7,8 @@ def source(file):return (SRC/file).read_text(encoding='utf-8')
 class Release169(unittest.TestCase):
     def test_version_identity(self):
         gradle=(ROOT/'app/build.gradle').read_text()
-        self.assertIn('versionCode 17000',gradle)
-        self.assertIn("versionName '1.11.170-beta'",gradle)
+        self.assertIn('versionCode 17100',gradle)
+        self.assertIn("versionName '1.11.171-beta'",gradle)
     def test_manual_scan_only_inside_all_downloads_dropdown(self):
         downloads=source('DownloadActivity.java')
         self.assertIn('menu.getMenu().add(1,103,97,"Проверить загрузки")',downloads)
@@ -45,10 +45,10 @@ class Release169(unittest.TestCase):
         self.assertIn('SharedPreferences',info)
         self.assertIn('SHA-256',toc)
     def test_docs_only_for_current_release(self):
-        self.assertTrue((ROOT/'CHANGELOG-v1.11.170-beta.md').is_file())
-        self.assertTrue((ROOT/'README-v1.11.170-beta.md').is_file())
-        self.assertTrue((ROOT/'QA-REPORT-v1.11.170-beta.md').is_file())
+        self.assertTrue((ROOT/'CHANGELOG-v1.11.171-beta.md').is_file())
+        self.assertTrue((ROOT/'README-v1.11.171-beta.md').is_file())
+        self.assertTrue((ROOT/'QA-REPORT-v1.11.171-beta.md').is_file())
         for path in ROOT.rglob('*'):
             if path.is_file() and path.name.startswith(('CHANGELOG-v','README-v','QA-REPORT-v')):
-                self.assertIn('v1.11.170-beta',path.name)
+                self.assertIn('v1.11.171-beta',path.name)
 if __name__=='__main__':unittest.main(verbosity=2)

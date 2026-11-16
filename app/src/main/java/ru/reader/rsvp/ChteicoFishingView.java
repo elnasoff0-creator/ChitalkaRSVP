@@ -35,8 +35,6 @@ public final class ChteicoFishingView extends FrameLayout {
     private static final float[] SHIMMER_CHANCES={.01f,.025f,.05f,.10f,.15f};
     // Smaller visual target for more valuable fish, without altering the catch-zone collision rule.
     private static final float[] FISH_SCALE={1f,.90f,.80f,.70f,.60f};
-    // Grade order: Super, Excellent, Good, Fair, Failed. One quality modifier, not a double bonus.
-    private static final double[] QUALITY_RARITY_MULTIPLIER={1.80,1.40,1.00,.70,.40};
     private static final int BOOT_BROWN=0xff8b5a2b;
     private static final int[] BITE_TIMES={6000,5000,4000,3000,2000};
     private static final String[] ROD_NAMES={"Тренировочная удочка","Удочка новичка","Хорошая удочка","Удочка мастера","Удочка прочитателя"};
@@ -51,6 +49,8 @@ public final class ChteicoFishingView extends FrameLayout {
     private final TextView hud,goldCount,status,feedback,biteMessage,resultName,resultRarity,resultMass,resultRewards,resultContinue;
     private final ImageView bobber,fish,zone,castMark,castCursor,ring,wave1,wave2,resultFish,catchShimmer,catchShimmerTrail,resultShimmer,resultShimmerTrail;
     private final FrameLayout meter,catchPanel,track;
+    private final FishingFatigueIndicator fatigueIndicator;
+    private final FishingFatigue fatigue=new FishingFatigue();
     // The result panel is a LinearLayout in XML; only common View methods are needed.
     private final View resultPanel;
     private final FrameLayout catchProgress;
@@ -78,7 +78,8 @@ public final class ChteicoFishingView extends FrameLayout {
         bobber=findViewById(R.id.fishing_bobber);fish=findViewById(R.id.fishing_fish);zone=findViewById(R.id.fishing_zone);
         meter=findViewById(R.id.fishing_cast_meter);castMark=findViewById(R.id.fishing_cast_optimum);
         castCursor=findViewById(R.id.fishing_cast_indicator);catchPanel=findViewById(R.id.fishing_catch_panel);
-        track=findViewById(R.id.fishing_track);catchProgress=findViewById(R.id.fishing_catch_progress);
+        track=findViewById(R.id.fishing_track);fatigueIndicator=findViewById(R.id.fishing_fatigue_indicator);
+        catchProgress=findViewById(R.id.fishing_catch_progress);
         catchProgressFill=findViewById(R.id.fishing_catch_progress_fill);gameToolbar=findViewById(R.id.fishing_toolbar);
         feedback=findViewById(R.id.fishing_cast_feedback);biteMessage=findViewById(R.id.fishing_bite_message);
         ring=findViewById(R.id.fishing_bite_ring);wave1=findViewById(R.id.fishing_wave_1);wave2=findViewById(R.id.fishing_wave_2);
@@ -122,6 +123,7 @@ public final class ChteicoFishingView extends FrameLayout {
         hud.setTextColor(ink);goldCount.setTextColor(ink);status.setTextColor(ink);feedback.setTextColor(ink);biteMessage.setTextColor(ink);
         resultName.setTextColor(ink);resultMass.setTextColor(ink);resultRewards.setTextColor(ink);
         castMark.setColorFilter(accent);zone.setColorFilter(accent);ring.setColorFilter(accent);
+        fatigueIndicator.setPalette(ink,accent);
         catchShimmer.setColorFilter(accent);catchShimmerTrail.setColorFilter(accent);
         resultShimmer.setColorFilter(accent);resultShimmerTrail.setColorFilter(accent);
         // The vertical fill uses the live accent as an opaque bottom-up drawable.
@@ -150,6 +152,7 @@ public final class ChteicoFishingView extends FrameLayout {
     }
     public void resumeClock(){if(stopped)return;paused=false;lastMs=0;handler.removeCallbacks(clock);handler.post(clock);}
     public void stopClock(){stopped=true;paused=true;held=false;stopRing();handler.removeCallbacks(clock);
+        fatigue.reset();fatigueIndicator.setVisibility(GONE);
         wave1.animate().cancel();wave2.animate().cancel();}
     private void stopRing(){if(ring.getDrawable() instanceof Animatable)((Animatable)ring.getDrawable()).stop();}
     private void update(float dt,long now){
@@ -173,43 +176,44 @@ public final class ChteicoFishingView extends FrameLayout {
             stopRing();finish("Поклёвка упущена!");return;
         }
         if(phase==CATCHING){
+            int equippedRod=FishingBalance.clampRod(ChteicoStore.fishingRodEquipped(getContext()));
+            // Exhaustion is temporary, persists across progress drops until recovery expires.
+            // It never applies to the old-book-cover side reward.
+            boolean tired=!hookedBoot&&fatigue.isTired();
             fishSteer-=dt;
             if(fishSteer<=0){fishSteer=.27f+random.nextFloat()*.43f;
                 float previous=fishVelocity;
                 fishVelocity=(random.nextFloat()-.5f)*1.18f*(hookedBoot?.65f:SPEED[rarity])*(shimmering?1.2f:1f);
-                if(previous*fishVelocity<0f)turnBoostLeft=.30f;}
-            float endgameSlow=catchFillFactor(catchAmount);
-            // A better rod tires fish as the progress approaches completion.
-            // Training/novice rods and the old cover receive no movement bonus.
-            float movementFactor=!hookedBoot&&ChteicoStore.fishingRodEquipped(getContext())>=2
-                ?endgameSlow:1f;
-            // A short acceleration immediately after a reversal; velocity itself stays unchanged.
-            turnBoostLeft=Math.max(0f,turnBoostLeft-dt);
-            float turnBoost=1f+.22f*(turnBoostLeft/.30f);
-            fishY+=fishVelocity*dt*movementFactor*turnBoost;
-            if(fishY<.07f){fishY=.07f;fishVelocity=Math.abs(fishVelocity);turnBoostLeft=.30f;}
-            if(fishY>.91f){fishY=.91f;fishVelocity=-Math.abs(fishVelocity);turnBoostLeft=.30f;}
-            // Head points in the actual travel direction (positive Y = down).
+                if(previous*fishVelocity<0f&&!tired)turnBoostLeft=.30f;}
+            // Never apply the old 70/90 percent reversible fish-motion slowdown.
+            if(tired)turnBoostLeft=0f;
+            else turnBoostLeft=Math.max(0f,turnBoostLeft-dt);
+            float turnBoost=FishingBalance.turnMultiplier(tired,turnBoostLeft);
+            fishY+=fishVelocity*dt*FishingBalance.movementMultiplier(tired)*turnBoost;
+            if(fishY<.07f){fishY=.07f;fishVelocity=Math.abs(fishVelocity);turnBoostLeft=tired?0f:.30f;}
+            if(fishY>.91f){fishY=.91f;fishVelocity=-Math.abs(fishVelocity);turnBoostLeft=tired?0f:.30f;}
             updateFishHeading(fishVelocity<0f);
-            zoneY+=dt*(held?-.53f:.34f);
+            zoneY+=dt*(held?-FishingBalance.zoneRiseSpeed():FishingBalance.zoneFallSpeed(equippedRod));
             zoneY=Math.max(0f,Math.min(.75f,zoneY));
-            // Hit-testing must match the visibly smaller zone, not merely resize its drawable.
+            // Collision stays in the visible zone coordinate space.
             float trackHeight=Math.max(dp(140),track.getHeight());
             float fishCenter=(trackHeight-fish.getHeight())*fishY+fish.getHeight()/2f;
             float zoneCenter=(trackHeight-zone.getHeight())*zoneY/.75f+zone.getHeight()/2f;
             float zoneFactor=(hookedBoot?1.2f:CATCH_ZONE_WIDTH[rarity])*(shimmering?.85f:1f);
             boolean inside=Math.abs(fishCenter-zoneCenter)<=zone.getHeight()*zoneFactor/2f;
-            // Only the training rod retains the late-stage fill slowdown.
-            float slow=ChteicoStore.fishingRodEquipped(getContext())==0?endgameSlow:1f;
-            // Even the heaviest fish adds at most 12% to the fill time.
+            // The training rod alone retains its late-fill penalty.
+            float trainingSlow=equippedRod==0?catchFillFactor(catchAmount):1f;
             float massRatio=hookedBoot?0f:Math.max(0f,Math.min(1f,
                 (hookedMassKg-FISH_MASS_MIN_KG[rarity])/
                 (FISH_MASS_MAX_KG[rarity]-FISH_MASS_MIN_KG[rarity])));
             float fillTime=(hookedBoot?.70f:FILL_TIME[rarity])*(1f+.12f*massRatio);
             float shimmerFactor=shimmering?.75f:1f;
-            catchAmount=Math.max(0,Math.min(1,catchAmount+dt*(inside?.26f*slow*shimmerFactor/fillTime:-.12f)));
+            float gain=.26f*trainingSlow*shimmerFactor*FishingBalance.rodFillMultiplier(equippedRod)/fillTime;
+            catchAmount=Math.max(0f,Math.min(1f,catchAmount+dt*(inside?gain:-.12f)));
+            // Update fatigue AFTER progress. The active clock supplies dt; pause cannot consume it.
+            if(!hookedBoot){fatigue.update(catchAmount,dt);if(fatigue.isTired())turnBoostLeft=0f;}
             if(catchAmount>=1f){if(hookedBoot)showBootResult();else successfulCatch();return;}
-            if(catchAmount<=0f){finish(hookedBoot?"Находка сорвалась!":"Рыба сорвалась!");}
+            if(catchAmount<=0f){finish(hookedBoot?"Находка сорвалась!":"Рыба сорвалась!");return;}
         }
     }
     private static float catchFillFactor(float progress){
@@ -219,6 +223,7 @@ public final class ChteicoFishingView extends FrameLayout {
         // An old worn book cover is possible only after a failed cast and gives no rewards.
         hookedBoot=castGrade==4&&random.nextFloat()<.25f;
         rarity=hookedBoot?0:chooseRarity();
+        fatigue.reset();
         // Rarity governs base sparkle chance; the best rod retains its +5 pp perk.
         float shimmerChance=Math.min(1f,SHIMMER_CHANCES[rarity]+(ChteicoStore.fishingRodEquipped(getContext())==4?.05f:0f));
         shimmering=!hookedBoot&&(ChteicoStore.developerUnlocked(getContext())||random.nextFloat()<shimmerChance);
@@ -231,16 +236,13 @@ public final class ChteicoFishingView extends FrameLayout {
         vibrate(75);playWaves();
     }
     private int chooseRarity(){
-        // Baseline relative weights: common 55, uncommon 28, rare 12, legendary 4, mythical 1.
-        // Apply cast quality to the three rarest groups, then normalize by total weight.
-        double quality=QUALITY_RARITY_MULTIPLIER[Math.max(0,Math.min(4,castGrade))];
-        double[] weights={55d,28d,12d*quality,4d*quality,1d*quality};
-        int maxRarity=ChteicoStore.fishingRodEquipped(getContext());
-        for(int i=maxRarity+1;i<weights.length;i++)weights[i]=0d;
-        double total=0d;for(double w:weights)total+=w;
-        double roll=random.nextDouble()*total;
-        for(int i=0;i<weights.length;i++){roll-=weights[i];if(roll<0)return i;}
-        return 4;
+        // Approved probabilities, explicit bans and cast quality are centralised for testability.
+        double[] probabilities=FishingBalance.chances(ChteicoStore.fishingRodEquipped(getContext()),castGrade);
+        double roll=random.nextDouble();
+        for(int i=0;i<probabilities.length;i++){roll-=probabilities[i];if(roll<0)return i;}
+        // A floating-point rounding residue should never create a forbidden rarity.
+        for(int i=probabilities.length-1;i>=0;i--)if(probabilities[i]>0d)return i;
+        return 0;
     }
     private float fishAngle(boolean headUp){
         // The black fish silhouette is always the same vertical vector during catching.
@@ -256,6 +258,7 @@ public final class ChteicoFishingView extends FrameLayout {
         stopRing();ring.setVisibility(GONE);
         phase=CATCHING;held=true;
         zoneY=.58f;fishY=.52f;fishSteer=.25f;turnBoostLeft=0f;catchAmount=.28f;
+        fatigue.begin(rarity,shimmering,ChteicoStore.fishingRodEquipped(getContext()));
         fishVelocity=random.nextBoolean()?-.27f:.27f;
         // Keep the real item hidden until the reward: old covers use the same fish silhouette.
         fish.setImageResource(R.drawable.ic_fishing_catch_silhouette);
@@ -309,6 +312,7 @@ public final class ChteicoFishingView extends FrameLayout {
         finish("Улов сохранён!");
     }
     private void finish(String message){
+        fatigue.reset();fatigueIndicator.setVisibility(GONE);
         phase=RESULT;held=false;castWaitingSecondTap=false;outcome=message;
         boolean success="Улов сохранён!".equals(message)||"Старая обложка найдена!".equals(message);
         if(!success){
@@ -320,7 +324,7 @@ public final class ChteicoFishingView extends FrameLayout {
     }
     private void closeResult(){
         if(phase!=RESULT)return;
-        phase=READY;outcome="";held=false;ignoreUp=false;
+        phase=READY;outcome="";held=false;ignoreUp=false;fatigue.reset();fatigueIndicator.setVisibility(GONE);
         resultShimmer.setVisibility(GONE);resultShimmerTrail.setVisibility(GONE);render();
     }
     private void startCast(float x){
@@ -331,6 +335,7 @@ public final class ChteicoFishingView extends FrameLayout {
         }
         bobberX=Math.max(.06f,Math.min(.94f,x/Math.max(1f,getWidth())));
         cast=0f;castDirection=1f;phase=CASTING;held=true;castWaitingSecondTap=false;hookedBoot=false;
+        fatigue.reset();fatigueIndicator.setVisibility(GONE);
         castPressTime=SystemClock.uptimeMillis();feedbackUntil=0;outcome="";shimmering=false;
     }
     private void finishCast(){
@@ -482,6 +487,7 @@ public final class ChteicoFishingView extends FrameLayout {
         bobber.setVisibility(phase==FLYING||phase==FLOATING||phase==REELING||phase==BITE?VISIBLE:GONE);
         catchPanel.setVisibility(phase==CATCHING?VISIBLE:GONE);
         catchProgress.setVisibility(phase==CATCHING?VISIBLE:GONE);
+        fatigueIndicator.setVisibility(phase==CATCHING&&!hookedBoot&&fatigue.isTired()?VISIBLE:GONE);
         ring.setVisibility(phase==BITE?VISIBLE:GONE);
         biteMessage.setVisibility(phase==BITE?VISIBLE:GONE);
         boolean rewardVisible=phase==RESULT;
@@ -510,6 +516,16 @@ public final class ChteicoFishingView extends FrameLayout {
             float height=Math.max(dp(140),track.getHeight());
             zone.setY((height-zone.getHeight())*zoneY/.75f);
             fish.setY((height-fish.getHeight())*fishY);
+            if(fatigueIndicator.getVisibility()==VISIBLE){
+                // Same parent coordinate system; parent does not rotate with the fish.
+                // Keep the circular countdown inside the visible track at the top edge.
+                float indicatorX=fish.getX()+fish.getWidth()/2f-fatigueIndicator.getWidth()/2f;
+                float indicatorY=fish.getY()-fatigueIndicator.getHeight()-dp(3f);
+                fatigueIndicator.setX(Math.max(0f,Math.min(indicatorX,track.getWidth()-fatigueIndicator.getWidth())));
+                fatigueIndicator.setY(Math.max(0f,Math.min(indicatorY,track.getHeight()-fatigueIndicator.getHeight())));
+                fatigueIndicator.setRotation(0f);
+                fatigueIndicator.setRingFraction(fatigue.ringFraction());
+            }
             renderVerticalCatchProgress();
             updateStatus("Удерживайте рыбку внутри акцентной зоны");
         }else if(phase==RESULT)updateStatus(outcome+" · Нажмите «Продолжить»");
