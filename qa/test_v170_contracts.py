@@ -35,8 +35,8 @@ class FixtureParser(HTMLParser):
 class Release170(unittest.TestCase):
     def test_version(self):
         gradle=(ROOT/'app/build.gradle').read_text(encoding='utf-8')
-        self.assertIn('versionCode 17100',gradle)
-        self.assertIn("versionName '1.11.171-beta'",gradle)
+        self.assertIn('versionCode 17200',gradle)
+        self.assertIn("versionName '1.11.172-beta'",gradle)
     def test_cached_row_menu_never_requires_source(self):
         java=src('UnifiedDownloadManagerActivity.java')
         segment=java[java.index('private void fileMenu('):java.index('private final class FileAdapter')]
@@ -84,5 +84,5 @@ class Release170(unittest.TestCase):
         self.assertNotIn('0xff30221e',ui)
         for path in ROOT.rglob('*'):
             if path.is_file() and path.name.startswith(('CHANGELOG-v','README-v','QA-REPORT-v')):
-                self.assertIn('v1.11.171-beta',path.name)
+                self.assertIn('v1.11.172-beta',path.name)
 if __name__=='__main__':unittest.main(verbosity=2)

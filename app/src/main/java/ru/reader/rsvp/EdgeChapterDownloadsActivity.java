@@ -390,9 +390,8 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
                 int published=single?
                     EdgeChapterArchive.publish(this,uri,title,job.mp3Folder(),selected,toc,offsets):
                     EdgeChapterArchive.publishFragments(this,uri,title,job.mp3Folder(),selected,toc,offsets);
-                EdgeChapterArchive.invalidate();
-                success=published>0&&EdgeChapterArchive.snapshot(this,uri,title).state(chapter)>0;
-                if(!success)throw new Exception(EdgeChapterArchive.publicationError().isEmpty()?"Проверка SAF не пройдена":EdgeChapterArchive.publicationError());
+                success=published>0; // publish() returns success only after the SAF manifest commits.
+                if(!success)throw new Exception(EdgeChapterArchive.publicationError().isEmpty()?"Глава не сохранена":EdgeChapterArchive.publicationError());
                 EdgeFullBookStore.markPublished(job,chapter);
                 message="Глава сохранена из готовых MP3 без новой озвучки";
             }catch(Exception ex){message="Не удалось завершить сохранение: "+ex.getMessage();

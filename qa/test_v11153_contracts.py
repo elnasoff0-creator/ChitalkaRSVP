@@ -4,14 +4,14 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 root=Path(__file__).resolve().parents[1];p=root/'app/src/main/java/ru/reader/rsvp'
 def source(name):return (p/name).read_text()
-assert any('versionCode %d00' % v in (root/'app/build.gradle').read_text() for v in (153,154))
-assert any("versionName '1.11.%d-beta'" % v in (root/'app/build.gradle').read_text() for v in (153,154))
+assert any('versionCode %d00' % v in (root/'app/build.gradle').read_text() for v in (153,154,172))
+assert any("versionName '1.11.%d-beta'" % v in (root/'app/build.gradle').read_text() for v in (153,154,172))
 assert '.DownloadArchiveActivity' in (root/'app/src/main/AndroidManifest.xml').read_text()
 main=source('DownloadActivity.java')
 archive=source('DownloadArchiveActivity.java')
 store=source('DownloadArchiveStore.java')
 delete=source('DownloadArchiveDelete.java')
-assert 'ItemTouchHelper.RIGHT' in main and 'getSwipeThreshold' in main
+assert 'list.addOnItemTouchListener(' in main and 'ArchiveSwipeMath.horizontal(' in main
 assert 'getBindingAdapterPosition()' in main
 assert 'DownloadArchiveStore.archive(' in main and 'DownloadArchiveStore.hiddenIds(' in main
 assert 'if(hidden.contains(item.id))continue;' in main

@@ -16,6 +16,8 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.view.Gravity;
+import android.view.MotionEvent;
+import android.view.ViewConfiguration;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
@@ -28,11 +30,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.recyclerview.widget.LinearLayoutManager;
-import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.DefaultItemAnimator;
-import android.graphics.Canvas;
-import android.graphics.Paint;
-import android.graphics.Rect;
 import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
@@ -983,49 +981,82 @@ public final class DownloadActivity extends NavigationActivity {
             return true;
         }catch(Exception error){Toast.makeText(this,"Не удалось приостановить: "+error.getMessage(),Toast.LENGTH_LONG).show();return false;}
     }
-    /** Swipe only the foreground card; keep actions anchored in the same FrameLayout. */
+    /** Open the archive actions with a RIGHT swipe, without ItemTouchHelper's
+     * swipe-to-dismiss pending-cleanup state (which intercepted button clicks).
+     * Vertical RecyclerView scrolling and child clicks remain native.
+     */
     private void attachArchiveSwipe(){
-        ItemTouchHelper.Callback callback=new ItemTouchHelper.SimpleCallback(0,ItemTouchHelper.LEFT){
-            @Override public boolean onMove(RecyclerView rv,RecyclerView.ViewHolder from,RecyclerView.ViewHolder to){return false;}
-            @Override public boolean isLongPressDragEnabled(){return false;}
-            @Override public float getSwipeThreshold(RecyclerView.ViewHolder h){return .22f;}
-            @Override public int getSwipeDirs(RecyclerView rv,RecyclerView.ViewHolder h){
-                int p=h.getBindingAdapterPosition();
-                return p>=0&&p<rows.size()&&rows.get(p).item!=null?ItemTouchHelper.LEFT:0;
-            }
-            @Override public void onChildDraw(android.graphics.Canvas canvas,RecyclerView rv,
-                RecyclerView.ViewHolder holder,float dX,float dY,int actionState,boolean active){
-                int p=holder.getBindingAdapterPosition();
-                if(actionState!=ItemTouchHelper.ACTION_STATE_SWIPE||p<0||p>=rows.size()||rows.get(p).item==null){
-                    super.onChildDraw(canvas,rv,holder,dX,dY,actionState,active);return;
+        final int slop=ViewConfiguration.get(this).getScaledTouchSlop();
+        list.addOnItemTouchListener(new RecyclerView.OnItemTouchListener(){
+            private RecyclerView.ViewHolder candidate;
+            private View foreground,actions;
+            private float downX,downY,initialOffset;
+            private boolean dragging;
+            @Override public boolean onInterceptTouchEvent(RecyclerView rv,MotionEvent e){
+                int action=e.getActionMasked();
+                if(action==MotionEvent.ACTION_DOWN){
+                    candidate=null;foreground=null;actions=null;dragging=false;
+                    downX=e.getX();downY=e.getY();
+                    View row=rv.findChildViewUnder(downX,downY);
+                    if(row==null)return false;
+                    RecyclerView.ViewHolder holder=rv.getChildViewHolder(row);
+                    int pos=holder.getBindingAdapterPosition();
+                    if(pos<0||pos>=rows.size()||rows.get(pos).item==null)return false;
+                    LinearLayout itemRoot=(LinearLayout)holder.itemView;
+                    if(itemRoot.getChildCount()==0||!(itemRoot.getChildAt(0) instanceof FrameLayout))return false;
+                    FrameLayout frame=(FrameLayout)itemRoot.getChildAt(0);
+                    if(frame.getChildCount()<2)return false;
+                    candidate=holder;actions=frame.getChildAt(0);foreground=frame.getChildAt(1);
+                    initialOffset=foreground.getTranslationX();
+                    return false;
                 }
-                LinearLayout root=(LinearLayout)holder.itemView;
-                if(root.getChildCount()==0||!(root.getChildAt(0) instanceof FrameLayout))return;
-                FrameLayout swipe=(FrameLayout)root.getChildAt(0);
-                if(swipe.getChildCount()<2)return;
-                View back=swipe.getChildAt(0),front=swipe.getChildAt(1);
-                float width=Math.max(dp(1),back.getWidth());
-                float distance=Math.max(-width,Math.min(0,dX));
-                front.setTranslationX(distance);
-                back.setVisibility(distance<0?View.VISIBLE:View.INVISIBLE);
-                // Never translate the RecyclerView row itself. This also prevents the
-                // disappearing-actions bug caused by combining two independent offsets.
-                holder.itemView.setTranslationX(0f);
-            }
-            @Override public void onSwiped(RecyclerView.ViewHolder holder,int direction){
-                int p=holder.getBindingAdapterPosition();
-                String previous=revealedSwipeId;
-                revealedSwipeId=p>=0&&p<rows.size()&&rows.get(p).item!=null?rows.get(p).item.id:"";
-                holder.itemView.setTranslationX(0f);
-                if(p>=0)adapter.notifyItemChanged(p);
-                if(!previous.equals(revealedSwipeId)){
-                    for(int i=0;i<rows.size();i++)if(rows.get(i).item!=null&&previous.equals(rows.get(i).item.id)){
-                        adapter.notifyItemChanged(i);break;
+                if(action==MotionEvent.ACTION_MOVE&&candidate!=null){
+                    float dx=e.getX()-downX,dy=e.getY()-downY;
+                    // A closed card opens to the right; an open card may close to the left.
+                    if(ArchiveSwipeMath.horizontal(dx,dy,slop,initialOffset)){
+                        dragging=true;
+                        actions.setVisibility(View.VISIBLE);
+                        float width=Math.max(dp(1),actions.getWidth());
+                        foreground.setTranslationX(ArchiveSwipeMath.offset(initialOffset,dx,width));
+                        rv.getParent().requestDisallowInterceptTouchEvent(true);
+                        return true;
                     }
                 }
+                if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL)
+                    clearGesture();
+                return false;
             }
-        };
-        new ItemTouchHelper(callback).attachToRecyclerView(list);
+            @Override public void onTouchEvent(RecyclerView rv,MotionEvent e){
+                if(!dragging||candidate==null||foreground==null)return;
+                int action=e.getActionMasked();
+                int pos=candidate.getBindingAdapterPosition();
+                if(pos<0||pos>=rows.size()||rows.get(pos).item==null){clearGesture();return;}
+                float limit=Math.max(dp(1),actions.getWidth());
+                if(action==MotionEvent.ACTION_MOVE){
+                    float offset=ArchiveSwipeMath.offset(initialOffset,e.getX()-downX,limit);
+                    foreground.setTranslationX(offset);
+                }else if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL){
+                    DownloadsRepository.Item item=rows.get(pos).item;
+                    boolean open=ArchiveSwipeMath.reveal(foreground.getTranslationX(),limit,
+                        action==MotionEvent.ACTION_UP);
+                    String old=revealedSwipeId;
+                    revealedSwipeId=open?item.id:"";
+                    foreground.animate().translationX(open?limit:0f).setDuration(140L).start();
+                    if(!open)actions.setVisibility(View.INVISIBLE);
+                    if(!old.isEmpty()&&!old.equals(revealedSwipeId)){
+                        for(int i=0;i<rows.size();i++){
+                            if(rows.get(i).item!=null&&old.equals(rows.get(i).item.id)){
+                                if(i!=pos)adapter.notifyItemChanged(i);
+                                break;
+                            }
+                        }
+                    }
+                    clearGesture();
+                }
+            }
+            @Override public void onRequestDisallowInterceptTouchEvent(boolean disallow){}
+            private void clearGesture(){candidate=null;foreground=null;actions=null;dragging=false;}
+        });
     }
     private final class JobsAdapter extends RecyclerView.Adapter<JobsAdapter.Holder>{
         @Override public long getItemId(int position){return rowId(rows.get(position)).hashCode();}
@@ -1045,8 +1076,8 @@ public final class DownloadActivity extends NavigationActivity {
             LinearLayout.LayoutParams fp=new LinearLayout.LayoutParams(-1,-2);fp.bottomMargin=dp(10);
             root.addView(swipeFrame,fp);
             LinearLayout swipeActions=new LinearLayout(DownloadActivity.this);
-            swipeActions.setOrientation(LinearLayout.HORIZONTAL);swipeActions.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);
-            FrameLayout.LayoutParams ap=new FrameLayout.LayoutParams(-2,-1,Gravity.RIGHT);
+            swipeActions.setOrientation(LinearLayout.HORIZONTAL);swipeActions.setGravity(Gravity.LEFT|Gravity.CENTER_VERTICAL);
+            FrameLayout.LayoutParams ap=new FrameLayout.LayoutParams(-2,-1,Gravity.LEFT);
             swipeFrame.addView(swipeActions,ap);
             // An opened swipe always inherits the current theme. Never use hard-coded
             // purple/brown fills that become unreadable in a night/custom theme.
@@ -1068,12 +1099,12 @@ public final class DownloadActivity extends NavigationActivity {
             LinearLayout card=new LinearLayout(DownloadActivity.this);card.setOrientation(LinearLayout.VERTICAL);
             card.setPadding(dp(12),dp(12),dp(12),dp(12));card.setBackground(bg(PANEL,19));
             swipeFrame.addView(card,new FrameLayout.LayoutParams(-1,-2));
-            // Measure actual action width after layout, not a fixed 154 dp assumption.
-            swipeFrame.post(()->{
-                if(h.getBindingAdapterPosition()==RecyclerView.NO_POSITION)return;
-                boolean exposed=item.id.equals(revealedSwipeId);
-                swipeActions.setVisibility(exposed?View.VISIBLE:View.INVISIBLE);
-                card.setTranslationX(exposed?-swipeActions.getWidth():0f);
+            // One layout-driven offset is authoritative across RecyclerView rebinds.
+            // No delayed post() may overwrite an ongoing gesture.
+            swipeFrame.addOnLayoutChangeListener((view,l,t,r,b,ol,ot,oright,ob)->{
+                boolean opened=item.id.equals(revealedSwipeId);
+                swipeActions.setVisibility(opened?View.VISIBLE:View.INVISIBLE);
+                card.setTranslationX(opened?swipeActions.getWidth():0f);
             });
             LinearLayout top=new LinearLayout(DownloadActivity.this);top.setGravity(Gravity.TOP);card.addView(top);
             FrameLayout coverFrame=new FrameLayout(DownloadActivity.this);coverFrame.setBackground(bg(UiColorScheme.blend(PANEL,INK,.09f),12));

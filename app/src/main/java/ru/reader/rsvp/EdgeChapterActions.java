@@ -44,9 +44,8 @@ final class EdgeChapterActions {
         int result=merged?
             EdgeChapterArchive.publish(ctx,uri,title,job.mp3Folder(),chosen,book.toc,book.offsets):
             EdgeChapterArchive.publishFragments(ctx,uri,title,job.mp3Folder(),chosen,book.toc,book.offsets);
-        EdgeChapterArchive.invalidate();
-        if(result<=0||EdgeChapterArchive.snapshot(ctx,uri,title).state(chapter)<=0)
-            throw new Exception("Публикация в SAF не подтверждена: "+EdgeChapterArchive.publicationError());
+        if(result<=0)
+            throw new Exception("Публикация в SAF не завершена: "+EdgeChapterArchive.publicationError());
         EdgeFullBookStore.markPublished(job,chapter);
         return "Глава сохранена из готовых MP3";
     }

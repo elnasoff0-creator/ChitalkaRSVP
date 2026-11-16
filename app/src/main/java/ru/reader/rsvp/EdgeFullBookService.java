@@ -178,8 +178,21 @@ public final class EdgeFullBookService extends Service {
                 if(only!=null&&(row.optInt("end",0)<=chapterStart||row.optInt("start",0)>=chapterEnd))continue;
                 eligible++;
             }
-            // Restore known persistent fragments after cache eviction, before synthesis.
-            if(!job.forceReload)EdgeChapterArchive.restore(this,job.uri,job.title,job.mp3Folder());
+            // Restoring every existing chapter for each individual job is expensive.
+            // Read SAF only if a clip needed for THIS chapter is actually absent.
+            if(!job.forceReload){
+                boolean missingCache=false;
+                for(int k=0;k<index.length();k++){
+                    JSONObject row=index.getJSONObject(k);
+                    if(only!=null && (row.optInt("end",0)<=chapterStart ||
+                        row.optInt("start",0)>=chapterEnd))continue;
+                    if(!EdgeFullBookStore.ready(new File(job.mp3Folder(),row.getString("key")+".mp3"))){
+                        missingCache=true;break;
+                    }
+                }
+                if(missingCache)EdgeChapterArchive.restoreChapter(this,job.uri,job.title,
+                    job.mp3Folder(),job.chapter);
+            }
             if(job.forceReload){
                 for(int k=0;k<index.length();k++){
                     JSONObject row=index.getJSONObject(k);
@@ -280,13 +293,16 @@ public final class EdgeFullBookService extends Service {
             if(!EdgeFullBookStore.running(job))return;
             EdgeFullBookStore.status(job,EdgeFullBookStore.SAVING);
             int exported=EdgeChapterArchive.autoMerge(this)?
-                EdgeChapterArchive.publish(this,job.uri,job.title,job.mp3Folder(),index,book.chapters,wordOffsets):
-                EdgeChapterArchive.publishFragments(this,job.uri,job.title,job.mp3Folder(),index,book.chapters,wordOffsets);
-            Log.i("EdgeFullBook","Verified chapters in SAF: "+exported);
-            EdgeChapterArchive.invalidate();
-            if(exported==0||job.chapter>=0&&
-                EdgeChapterArchive.snapshot(this,job.uri,job.title).state(job.chapter)==0)
-                throw new Exception("Не удалось записать завершённую главу в выбранную папку Edge TTS");
+                EdgeChapterArchive.publishOne(this,job.uri,job.title,job.mp3Folder(),index,
+                    book.chapters,wordOffsets,job.chapter):
+                EdgeChapterArchive.publishFragmentsOne(this,job.uri,job.title,job.mp3Folder(),index,
+                    book.chapters,wordOffsets,job.chapter);
+            Log.i("EdgeFullBook","Committed SAF chapters: "+exported);
+            if(exported==0){
+                String reason=EdgeChapterArchive.publicationError();
+                throw new Exception("Не удалось сохранить главу Edge TTS: "+
+                    (reason.isEmpty()?"нет готовых фрагментов выбранной главы":reason));
+            }
             // Keep the pre-existing in-app chapter dashboard functional while
             // all of its source files live in disposable internal cache.
             EdgeChapterLayout.publish(job,index,book.chapters,wordOffsets);

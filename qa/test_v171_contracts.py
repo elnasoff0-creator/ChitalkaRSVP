@@ -10,12 +10,12 @@ def read(name):return (SRC/name).read_text(encoding='utf-8')
 class Release171(unittest.TestCase):
     def test_version(self):
         g=(ROOT/'app/build.gradle').read_text()
-        self.assertIn('versionCode 17100',g)
-        self.assertIn("versionName '1.11.171-beta'",g)
+        self.assertIn('versionCode 17200',g)
+        self.assertIn("versionName '1.11.172-beta'",g)
     def test_no_old_release_docs(self):
         docs=[p.name for p in ROOT.iterdir() if p.name.startswith(('CHANGELOG-v','README-v','QA-REPORT-v'))]
         self.assertEqual(len(docs),3)
-        self.assertTrue(all('v1.11.171-beta' in x for x in docs))
+        self.assertTrue(all('v1.11.172-beta' in x for x in docs))
     def test_balance_per_rod_probability_rows(self):
         j=read('FishingBalance.java')
         for row in ('{87.80, 12.20, 0, 0, 0}', '{60, 16, 10, 8, 6}',
