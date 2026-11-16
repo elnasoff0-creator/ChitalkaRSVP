@@ -21,3 +21,6 @@
 Откройте корень проекта в Android Studio; соберите `:app:assembleDebug` либо `:app:assembleRelease` при наличии Android SDK 35, Gradle и зависимостей. APK не включён. Автономные проверки (Linux/macOS) — `sh qa/check_v172.sh`.
 
 **Ограничение:** доступная при подготовке среда не имела Android SDK/Gradle/устройства, поэтому настоящая компиляция APK и проверка SAF/касания кнопок на телефоне в этом релизном пакете не подтверждены. Подробности — в QA-REPORT.
+
+
+**Gradle compile hotfix:** в `EdgeChapterArchive.publishFragments()` исправлено повторное имя переменной. Перед сборкой смотрите `GRADLE-COMPILE-HOTFIX-v1.11.172.md`. Проверка `sh qa/check_v172.sh` включает typecheck этого класса.

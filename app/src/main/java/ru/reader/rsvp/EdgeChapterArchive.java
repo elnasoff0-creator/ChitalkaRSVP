@@ -660,9 +660,9 @@ final class EdgeChapterArchive {
                         if(older!=null)for(int n=0;n<older.length();n++){
                             JSONObject part=older.optJSONObject(n);if(part==null)continue;
                             String prefix=String.format(Locale.ROOT,"%04d",n+1);
-                            for(String name:new String[]{part.optString("audioFile",prefix+".mp3"),
+                            for(String staleName:new String[]{part.optString("audioFile",prefix+".mp3"),
                                     part.optString("wordsFile",prefix+".words.json")}){
-                                try{DocumentFile stale=clips.findFile(name);if(stale!=null)stale.delete();}
+                                try{DocumentFile stale=clips.findFile(staleName);if(stale!=null)stale.delete();}
                                 catch(Exception ignored){Log.w(TAG,"Old fragment cleanup deferred");}
                             }
                         }
