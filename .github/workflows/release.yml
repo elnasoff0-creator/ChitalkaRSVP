@@ -70,6 +70,21 @@ jobs:
           build_tools="$ANDROID_HOME/build-tools/35.0.0"
           test -x "$build_tools/zipalign"
           test -x "$build_tools/apksigner"
+          test -x "$build_tools/aapt"
+
+          # The APK manifest (not the tag or a hardcoded constant) is the source of truth.
+          app_version="$("$build_tools/aapt" dump badging "$unsigned_apk" | sed -n "s/^package:.*versionName='\([^']*\)'.*/\1/p" | head -n 1)"
+          test -n "$app_version" || { echo '::error::Cannot read versionName from APK'; exit 1; }
+          [[ "$app_version" =~ ^[0-9A-Za-z._-]+$ ]] || { echo '::error::Invalid APK versionName'; exit 1; }
+          app_code="$("$build_tools/aapt" dump badging "$unsigned_apk" | sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p" | head -n 1)"
+          test -n "$app_code" || { echo '::error::Cannot read versionCode'; exit 1; }
+          if [[ "$GITHUB_REF" == refs/tags/v* && "$GITHUB_REF_NAME" != "v$app_version" ]]; then
+            echo "::error::Git tag $GITHUB_REF_NAME does not match APK version v$app_version"
+            exit 1
+          fi
+          release_apk="ChitalkaRSVP-v${app_version}.apk"
+          echo "RELEASE_APK=$release_apk" >> "$GITHUB_ENV"
+          echo "APK manifest versionName: $app_version"
 
           keystore="$RUNNER_TEMP/chitalka-release-${GITHUB_RUN_ID}.jks"
           aligned_apk="$RUNNER_TEMP/chitalka-aligned-${GITHUB_RUN_ID}.apk"
@@ -77,7 +92,6 @@ jobs:
           umask 077
           printf '%s' "$RELEASE_KEYSTORE_B64" | base64 --decode > "$keystore"
           test -s "$keystore" || { echo '::error::Decoded keystore is empty'; exit 1; }
-
           mkdir -p dist
           "$build_tools/zipalign" -f -p 4 "$unsigned_apk" "$aligned_apk"
           "$build_tools/apksigner" sign \
@@ -85,16 +99,18 @@ jobs:
             --ks-key-alias "$RELEASE_KEY_ALIAS" \
             --ks-pass env:RELEASE_KEYSTORE_PASSWORD \
             --key-pass env:RELEASE_KEY_PASSWORD \
-            --out dist/ChitalkaRSVP-v1.11.58-beta.apk "$aligned_apk"
-          "$build_tools/apksigner" verify --verbose --print-certs dist/ChitalkaRSVP-v1.11.58-beta.apk
-          (cd dist && sha256sum ChitalkaRSVP-v1.11.58-beta.apk > SHA256SUMS.txt)
+            --out "dist/$release_apk" "$aligned_apk"
+          "$build_tools/apksigner" verify --verbose --print-certs "dist/$release_apk"
+          signed_version="$("$build_tools/aapt" dump badging "dist/$release_apk" | sed -n "s/^package:.*versionName='\([^']*\)'.*/\1/p" | head -n 1)"
+          test "$signed_version" = "$app_version" || { echo '::error::Signed APK manifest version changed'; exit 1; }
+          (cd dist && sha256sum "$release_apk" > SHA256SUMS.txt)
 
       - name: Upload signed release APK
         uses: actions/upload-artifact@v4
         with:
-          name: ChitalkaRSVP-v1.11.58-beta-signed-release
+          name: signed-release-apk
           path: |
-            dist/ChitalkaRSVP-v1.11.58-beta.apk
+            dist/${{ env.RELEASE_APK }}
             dist/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
@@ -107,12 +123,20 @@ jobs:
         run: |
           set -euo pipefail
           tag="$GITHUB_REF_NAME"
+          expected="ChitalkaRSVP-${tag}.apk"
+          [[ "$RELEASE_APK" == "$expected" ]] || { echo "::error::Refusing version mismatch: $tag / $RELEASE_APK"; exit 1; }
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" dist/ChitalkaRSVP-v1.11.58-beta.apk dist/SHA256SUMS.txt --clobber
+            # Remove only stale APK names under this tag; preserve all other assets.
+            while IFS= read -r old_apk; do
+              if [[ -n "$old_apk" && "$old_apk" != "$RELEASE_APK" ]]; then
+                gh release delete-asset "$tag" "$old_apk" --yes
+              fi
+            done < <(gh release view "$tag" --json assets --jq '.assets[].name | select(endswith(".apk"))')
+            gh release upload "$tag" "dist/$RELEASE_APK" dist/SHA256SUMS.txt --clobber
           elif [[ "$tag" == *-beta* || "$tag" == *-alpha* || "$tag" == *-rc* ]]; then
-            gh release create "$tag" dist/ChitalkaRSVP-v1.11.58-beta.apk dist/SHA256SUMS.txt \
+            gh release create "$tag" "dist/$RELEASE_APK" dist/SHA256SUMS.txt \
               --title "ChitalkaRSVP ${tag#v}" --notes 'Signed Android release APK.' --prerelease
           else
-            gh release create "$tag" dist/ChitalkaRSVP-v1.11.58-beta.apk dist/SHA256SUMS.txt \
+            gh release create "$tag" "dist/$RELEASE_APK" dist/SHA256SUMS.txt \
               --title "ChitalkaRSVP ${tag#v}" --notes 'Signed Android release APK.'
           fi

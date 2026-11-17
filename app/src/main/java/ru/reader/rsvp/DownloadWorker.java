@@ -16,9 +16,56 @@ public class DownloadWorker extends Service {
             Math.abs(source.hashCode()%15000)+4100,open,
             android.app.PendingIntent.FLAG_UPDATE_CURRENT|(Build.VERSION.SDK_INT>=23?android.app.PendingIntent.FLAG_IMMUTABLE:0));
         n.setContentIntent(click);n.setSmallIcon(android.R.drawable.stat_sys_download).setContentTitle("Загрузка аудиокниги").setContentText(msg).setOnlyAlertOnce(true).setOngoing(true).setProgress(total,done,false);return n.build();}
-    @Override public int onStartCommand(Intent intent,int flags,int startId){if(intent==null)return START_NOT_STICKY;String action=intent.getAction();String requested=intent.getStringExtra("source");if(requested==null)return START_NOT_STICKY;
-        if(PAUSE.equals(action)||CANCEL.equals(action)){halt=true;cancel=CANCEL.equals(action);BookImportManager.Job j=lookup(requested);if(j!=null){j.paused=!cancel;j.cancelled=cancel;j.status=cancel?"cancelled":"paused";BookImportManager.put(this,j);}return START_NOT_STICKY;}
-        if(START.equals(action)){if(thread!=null&&thread.isAlive())return START_STICKY;source=requested;halt=false;cancel=false;BookImportManager.Job j=lookup(source);if(j==null)return START_NOT_STICKY;j.paused=false;j.cancelled=false;j.status="running";BookImportManager.put(this,j);startForeground(4112,note(j.title,0,100));thread=new Thread(()->runQueue(j),"AudioBookDownloader");thread.start();}return START_STICKY;}
+    private final java.util.concurrent.ExecutorService commandLane=
+        java.util.concurrent.Executors.newSingleThreadExecutor();
+    private final java.util.ArrayDeque<String> waiting=new java.util.ArrayDeque<>();
+    @Override public int onStartCommand(Intent intent,int flags,int startId){
+        if(intent==null)return START_NOT_STICKY;
+        String action=intent.getAction();String requested=intent.getStringExtra("source");
+        if(requested==null||requested.isEmpty())return START_NOT_STICKY;
+        // Foreground acknowledgement must not wait for full JSON/SAF queue load.
+        if(START.equals(action)&&(thread==null||!thread.isAlive()))try{
+            startForeground(4112,note("Подготовка загрузки",0,100));
+        }
+        catch(Exception error){android.util.Log.w("AudioDownloads","Foreground unavailable",error);}
+        commandLane.execute(()->handleCommand(action,requested));
+        return START_STICKY;
+    }
+    private void handleCommand(String action,String requested){
+        if(PAUSE.equals(action)||CANCEL.equals(action)){
+            boolean cancelled=CANCEL.equals(action);
+            waiting.remove(requested);
+            if(requested.equals(source)&&thread!=null&&thread.isAlive()){
+                halt=true;cancel=cancelled;
+            }
+            BookImportManager.Job job=lookup(requested);
+            if(job!=null){job.paused=!cancelled;job.cancelled=cancelled;
+                job.status=cancelled?"cancelled":"paused";BookImportManager.put(this,job);}
+            if(thread==null||!thread.isAlive())startNext();
+            return;
+        }
+        if(!START.equals(action))return;
+        if(requested.equals(source)&&thread!=null&&thread.isAlive())return;
+        if(!waiting.contains(requested))waiting.addLast(requested);
+        BookImportManager.Job job=lookup(requested);
+        if(job!=null){job.paused=false;job.cancelled=false;job.status="queued";
+            BookImportManager.put(this,job);}
+        startNext();
+    }
+    /** Only one network worker at a time, but no Play command for another book is lost. */
+    private void startNext(){
+        if(thread!=null&&thread.isAlive())return;
+        while(!waiting.isEmpty()){
+            String next=waiting.removeFirst();
+            BookImportManager.Job job=lookup(next);
+            if(job==null||job.paused||job.cancelled)continue;
+            source=next;halt=false;cancel=false;
+            job.status="running";BookImportManager.put(this,job);
+            thread=new Thread(()->runQueue(job),"AudioBookDownloader");
+            thread.start();return;
+        }
+        stopForeground(true);stopSelf();
+    }
     BookImportManager.Job lookup(String s){for(BookImportManager.Job j:BookImportManager.load(this))if(j.source.equals(s))return j;return null;}
     void runQueue(BookImportManager.Job job){try{
         // Artwork is downloaded independently; failure never prevents MP3 downloading.
@@ -37,12 +84,20 @@ public class DownloadWorker extends Service {
             long[] recent={0,android.os.SystemClock.elapsedRealtime()};
             final long[] lastPersist={0};job.index=i;KvuheDownloader.download(this,job,i,new KvuheDownloader.Callback(){public boolean cancelled(){return halt;}public void progress(long done,long total){long now=android.os.SystemClock.elapsedRealtime();if(now-recent[1]<600&&done!=total)return;long elapsed=Math.max(1,now-recent[1]);long speed=(done-recent[0])*1000/elapsed;recent[0]=done;recent[1]=now;int p=total>0?(int)Math.min(99,done*100/total):0;job.states.set(index,p);job.bytes=done;job.total=total;if(now-lastPersist[0]>=3500L||done==total){
                     lastPersist[0]=now;BookImportManager.put(DownloadWorker.this,job);
-                }else DownloadChangeBus.publish("audio:"+job.source);
+                }
+                DownloadChangeBus.progress(DownloadWorker.this,"audio:"+job.source,
+                    "audio:"+job.source+":"+index,p,100,false);
                 int completed=0;for(Integer x:job.states)if(x==100)completed++;String label=(completed+1)+"/"+count+" · "+(done/1024)+" KB · "+(speed/1024)+" KB/s";((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(4112,note(label,(completed*100+p)/Math.max(1,count),100));}});
             publishAudioTrack(job,i);
-            job.states.set(i,100);BookImportManager.put(this,job);BookImportManager.updateLibrary(this,job);
+            job.states.set(i,100);BookImportManager.put(this,job);
+            DownloadChangeBus.progress(this,"audio:"+job.source,
+                "audio:"+job.source+":"+i,100,100,true);
+            BookImportManager.updateLibrary(this,job);
         }if(!halt){job.status="finished";}else job.status=cancel?"cancelled":"paused";
-        }catch(Exception e){job.status=halt?(cancel?"cancelled":"paused"):"error";job.error=e.getMessage()==null?e.getClass().getSimpleName():e.getMessage();}finally{BookImportManager.put(this,job);stopForeground(true);stopSelf();}}
+        }catch(Exception e){job.status=halt?(cancel?"cancelled":"paused"):"error";job.error=e.getMessage()==null?e.getClass().getSimpleName():e.getMessage();}finally{
+            BookImportManager.put(this,job);
+            commandLane.execute(()->{thread=null;startNext();});
+        }}
     private void exportAudioCover(BookImportManager.Job job){
         try{
             java.io.File source=AudiobookCoverStore.coverFile(this,job);
@@ -78,5 +133,6 @@ public class DownloadWorker extends Service {
             if(!track.delete())android.util.Log.w("PROChitalka-SAF","Не удалось удалить временный MP3: "+track.getName());
         }
     }
+    @Override public void onDestroy(){halt=true;commandLane.shutdownNow();super.onDestroy();}
     @Override public android.os.IBinder onBind(Intent i){return null;}
 }

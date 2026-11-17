@@ -36,6 +36,10 @@ public final class EdgeFullBookService extends Service {
     private static final String CHANNEL="edge_full_book";
     private static final int NOTIFICATION_ID=1472;
     private final ExecutorService worker=Executors.newSingleThreadExecutor();
+    // Commands must remain responsive while a long-running synthesis occupies worker.
+    private final ExecutorService commandLane=Executors.newSingleThreadExecutor();
+    private final java.util.concurrent.atomic.AtomicInteger pendingCommands=new java.util.concurrent.atomic.AtomicInteger();
+    private volatile int latestStartId;
     private volatile boolean destroyed,processing;
     private static volatile boolean serviceAlive;
     static boolean isServiceAlive(){return serviceAlive;}
@@ -90,7 +94,8 @@ public final class EdgeFullBookService extends Service {
     }
 
     @Override public void onCreate(){super.onCreate();
-        EdgeFullBookStore.recoverInterrupted(this);serviceAlive=true;
+        serviceAlive=true;
+        commandLane.execute(()->EdgeFullBookStore.recoverInterrupted(this));
         EdgeSpeechQueue.restoreCooldown(getSharedPreferences("reader",0)
                 .getLong("edge_v2_retry_after_epoch_ms",0));
         if(Build.VERSION.SDK_INT>=26){NotificationManager nm=getSystemService(NotificationManager.class);
@@ -98,6 +103,27 @@ public final class EdgeFullBookService extends Service {
     }
     @Override public IBinder onBind(Intent intent){return null;}
     @Override public int onStartCommand(Intent intent,int flags,int startId){
+        if(intent==null)return START_NOT_STICKY;
+        latestStartId=startId;
+        final Intent request=new Intent(intent);
+        pendingCommands.incrementAndGet();
+        if(!processing && (ADD.equals(request.getAction())||RESUME.equals(request.getAction()))) {
+            // ForegroundService must be acknowledged before slower SAF/JSON work.
+            try{startForeground(NOTIFICATION_ID,notification("Подготовка очереди",0,0));}
+            catch(Exception error){Log.w("EdgeFullBook","Foreground rejected",error);}
+        }
+        commandLane.execute(()->{
+            try{
+                applyCommand(request);
+            }catch(Exception error){Log.e("EdgeFullBook","Не удалось выполнить команду",error);}
+            finally{
+                pendingCommands.decrementAndGet();
+                scheduleDrain();
+            }
+        });
+        return START_REDELIVER_INTENT;
+    }
+    private void applyCommand(Intent intent){
         if(intent!=null){
             String action=intent.getAction(),uri=intent.getStringExtra(EXTRA_URI);
             if(ADD.equals(action)&&uri!=null&&!uri.isEmpty()){
@@ -126,13 +152,9 @@ public final class EdgeFullBookService extends Service {
                 }
             }
         }
-        if(!processing){processing=true;
-            // startForegroundService callers require promotion within a few seconds.
-            try{startForeground(NOTIFICATION_ID,notification("Подготовка очереди",0,0));}
-            catch(Exception e){Log.w("EdgeFullBook","Foreground rejected",e);}
-            worker.execute(this::drain);
-        }
-        return START_REDELIVER_INTENT;
+    }
+    private synchronized void scheduleDrain(){
+        if(!destroyed&&!processing){processing=true;worker.execute(this::drain);}
     }
     private Notification notification(String name,int done,int total){
         Intent click=new Intent(this,DownloadActivity.class);
@@ -158,14 +180,17 @@ public final class EdgeFullBookService extends Service {
                 runJob(next);
             }
         }finally{
-            processing=false;
-            // A command can arrive while drain is winding down; onStartCommand rechecks below.
+            synchronized(this){processing=false;}
             boolean awaiting=false;
             for(EdgeFullBookStore.Job job:EdgeFullBookStore.list(this)){
                 if(EdgeFullBookStore.QUEUED.equals(job.status)){awaiting=true;break;}
             }
-            if(awaiting&&!destroyed){processing=true;worker.execute(this::drain);}
-            else {stopForeground(STOP_FOREGROUND_REMOVE);stopSelf();}
+            if(awaiting&&!destroyed){scheduleDrain();}
+            else if(pendingCommands.get()==0&&!processing){
+                // stopSelfResult protects a command accepted during drain shutdown.
+                int stopId=latestStartId;
+                if(stopSelfResult(stopId))stopForeground(STOP_FOREGROUND_REMOVE);
+            }
         }
     }
     private void runJob(EdgeFullBookStore.Job job){
@@ -317,6 +342,8 @@ public final class EdgeFullBookService extends Service {
                 i++;
                 completed=readyInRange(job,index,chapterStart,chapterEnd,only!=null);
                 EdgeFullBookStore.progress(job,completed,eligible,null);
+                if(job.chapter>=0)DownloadChangeBus.progress(this,"edge:"+job.uri,
+                    "edge:"+job.chapter,completed,eligible,false);
                 notifyProgress(job.title,completed,eligible);
             }
             // Commit the original MP3 fragments and WordBoundary timings without merging.
@@ -326,6 +353,8 @@ public final class EdgeFullBookService extends Service {
             int exported=EdgeChapterArchive.publishFragmentsOne(this,job.uri,job.title,job.mp3Folder(),
                 index,book.chapters,wordOffsets,job.chapter);
             Log.i("EdgeFullBook","Committed SAF chapters: "+exported);
+            if(exported>0&&job.chapter>=0)DownloadChangeBus.progress(this,"edge:"+job.uri,
+                "edge:"+job.chapter,100,100,true);
             if(exported==0){
                 String reason=EdgeChapterArchive.publicationError();
                 throw new Exception("Не удалось сохранить главу Edge TTS: "+
@@ -429,5 +458,5 @@ public final class EdgeFullBookService extends Service {
             if(EdgeFullBookStore.RUNNING.equals(job.status)||EdgeFullBookStore.WAITING.equals(job.status)||
                 EdgeFullBookStore.SAVING.equals(job.status))EdgeFullBookStore.pauseRunning(job);
         serviceAlive=false;
-        EdgeTtsClient client=currentClient;if(client!=null)client.cancel();worker.shutdownNow();super.onDestroy();}
+        EdgeTtsClient client=currentClient;if(client!=null)client.cancel();worker.shutdownNow();commandLane.shutdownNow();super.onDestroy();}
 }

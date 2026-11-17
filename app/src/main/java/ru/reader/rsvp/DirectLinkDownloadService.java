@@ -27,21 +27,36 @@ public final class DirectLinkDownloadService extends Service {
     private String activeId="";
     @Override public void onCreate(){super.onCreate();if(Build.VERSION.SDK_INT>=26){NotificationChannel ch=new NotificationChannel(CHANNEL,"Загрузка файлов по ссылке",NotificationManager.IMPORTANCE_LOW);getSystemService(NotificationManager.class).createNotificationChannel(ch);}}
     private Notification note(String text,int count,int total){Notification.Builder n=Build.VERSION.SDK_INT>=26?new Notification.Builder(this,CHANNEL):new Notification.Builder(this);return n.setSmallIcon(android.R.drawable.stat_sys_download).setContentTitle("Скачать по ссылке").setContentText(text).setOnlyAlertOnce(true).setOngoing(true).setProgress(Math.max(1,total),Math.min(count,Math.max(1,total)),false).build();}
-    @Override public int onStartCommand(Intent intent,int flags,int id){if(intent==null)return START_NOT_STICKY;String action=intent.getAction(),batchId=intent.getStringExtra(EXTRA_ID);if(batchId==null)return START_NOT_STICKY;
+    private final java.util.concurrent.ExecutorService commands=java.util.concurrent.Executors.newSingleThreadExecutor();
+    @Override public int onStartCommand(Intent intent,int flags,int id){
+        if(intent==null)return START_NOT_STICKY;
+        String action=intent.getAction(),batchId=intent.getStringExtra(EXTRA_ID);
+        if(batchId==null)return START_NOT_STICKY;
+        if(START.equals(action)&&(worker==null||!worker.isAlive()))try{
+            // Acknowledge foreground immediately; never parse the batch JSON on main.
+            startForeground(NOTIFICATION_ID,note("Подготовка файлов…",0,1));
+        }catch(Exception error){android.util.Log.w("LinkDownloads","Foreground unavailable",error);}
         if(PAUSE.equals(action)||CANCEL.equals(action)){
-            LinkDownloadStore.Batch b=LinkDownloadStore.get(this,batchId);if(b!=null){b.status=CANCEL.equals(action)?"cancelled":"paused";LinkDownloadStore.put(this,b);}
             if(batchId.equals(activeId)){halt=true;cancel=CANCEL.equals(action);}
+            commands.execute(()->{
+                LinkDownloadStore.Batch b=LinkDownloadStore.get(this,batchId);
+                if(b!=null){b.status=CANCEL.equals(action)?"cancelled":"paused";LinkDownloadStore.put(this,b);}
+            });
             return START_NOT_STICKY;
         }
         if(START.equals(action)){
-            LinkDownloadStore.Batch batch=LinkDownloadStore.get(this,batchId);if(batch==null)return START_NOT_STICKY;
-            batch.status="queued";batch.error="";LinkDownloadStore.put(this,batch);
-            if(worker==null||!worker.isAlive()){
-                halt=false;cancel=false;startForeground(NOTIFICATION_ID,note("Подготовка файлов…",0,1));
-                worker=new Thread(this::drain,"direct-link-queue");worker.start();
-            }
+            commands.execute(()->{
+                LinkDownloadStore.Batch batch=LinkDownloadStore.get(this,batchId);
+                if(batch==null)return;
+                batch.status="queued";batch.error="";LinkDownloadStore.put(this,batch);
+                if(worker==null||!worker.isAlive()){
+                    halt=false;cancel=false;
+                    worker=new Thread(this::drain,"direct-link-queue");worker.start();
+                }
+            });
             return START_STICKY;
-        }return START_NOT_STICKY;
+        }
+        return START_NOT_STICKY;
     }
     private File part(String id,int index){File root=getExternalFilesDir(null);if(root==null)root=getFilesDir();File dir=new File(root,"direct-link-parts");if(!dir.exists())dir.mkdirs();return new File(dir,id+"_"+index+".part");}
     private DocumentFile destination(LinkDownloadStore.Batch b)throws Exception{
@@ -97,14 +112,21 @@ public final class DirectLinkDownloadService extends Service {
             entry.status="running";entry.error="";entry.bytes=position;LinkDownloadStore.put(this,b);
             try(InputStream in=conn.getInputStream();FileOutputStream out=new FileOutputStream(temp,position>0)){
                 byte[] bytes=new byte[32768];int len;long last=android.os.SystemClock.elapsedRealtime();
+                final long[] lastDurable={last};
                 while((len=in.read(bytes))!=-1){if(halt||Thread.currentThread().isInterrupted())throw new InterruptedException("Остановлено");out.write(bytes,0,len);entry.bytes+=len;
-                    long now=android.os.SystemClock.elapsedRealtime();if(now-last>=650){last=now;LinkDownloadStore.put(this,b);((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(NOTIFICATION_ID,note(entry.name+" · "+(entry.bytes/1024)+" КБ",index,b.files.size()));}
+                    long now=android.os.SystemClock.elapsedRealtime();if(now-last>=650){last=now;
+                        DownloadChangeBus.progress(this,"link:"+b.id,"link:"+b.id+":"+index,
+                            entry.size>0?(int)Math.min(999,Math.floor(1000.0*entry.bytes/entry.size)):0,
+                            entry.size>0?1000:0,false);
+                        if(now-lastDurable[0]>=3500){lastDurable[0]=now;LinkDownloadStore.put(this,b);}
+                        ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(NOTIFICATION_ID,note(entry.name+" · "+(entry.bytes/1024)+" КБ",index,b.files.size()));}
                 }
                 out.flush();
             }
             if(entry.size>0&&temp.length()<entry.size)throw new Exception("Получен неполный файл");
             LinkFileTypes.verify(temp,entry.format);
             saveCompleted(b,entry,temp);LinkDownloadStore.put(this,b);
+            DownloadChangeBus.progress(this,"link:"+b.id,"link:"+b.id+":"+index,100,100,true);
         }finally{conn.disconnect();}
     }
     private void drain(){try {
@@ -127,6 +149,6 @@ public final class DirectLinkDownloadService extends Service {
         }
         }finally{activeId="";stopForeground(true);stopSelf();}
     }
-    @Override public void onDestroy(){halt=true;super.onDestroy();}
+    @Override public void onDestroy(){halt=true;commands.shutdownNow();super.onDestroy();}
     @Override public IBinder onBind(Intent i){return null;}
 }

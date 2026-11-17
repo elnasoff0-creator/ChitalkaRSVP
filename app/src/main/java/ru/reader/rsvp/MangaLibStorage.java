@@ -34,7 +34,8 @@ final class MangaLibStorage {
     private static final java.util.Map<String,Job> liveProgress=new java.util.HashMap<>();
     static synchronized void progress(Context ctx,Job job){
         liveProgress.put(job.id(),Job.read(job.json()));
-        DownloadChangeBus.publish("manga:"+job.slug.trim().toLowerCase(Locale.ROOT));
+        String bookId="manga:"+job.slug.trim().toLowerCase(Locale.ROOT);
+        DownloadChangeBus.progress(ctx,bookId,"manga:"+job.id(),job.done,job.total,false);
     }
 
     private static ArrayList<Job> persistedCache;
@@ -94,7 +95,31 @@ final class MangaLibStorage {
         }
         persistedCache=all;
         if(movedSource!=null)movedSource.delete();
-        DownloadChangeBus.publish("manga:"+job.slug.trim().toLowerCase(Locale.ROOT));
+        String bookId="manga:"+job.slug.trim().toLowerCase(Locale.ROOT);
+        DownloadChangeBus.publish(bookId);
+        DownloadChangeBus.progress(ctx,bookId,"manga:"+job.id(),job.done,job.total,
+            "complete".equals(job.status));
+    }
+    /** One durable JSON commit for a batch of queued/paused chapters; no SAF copying. */
+    static synchronized void putAll(Context ctx,java.util.List<Job> jobs){
+        if(jobs==null||jobs.isEmpty())return;
+        ArrayList<Job> all=persistedJobs(ctx);
+        java.util.HashMap<String,Integer> positions=new java.util.HashMap<>();
+        for(int i=0;i<all.size();i++)positions.put(all.get(i).id(),i);
+        java.util.HashSet<String> changedBooks=new java.util.HashSet<>();
+        for(Job job:jobs){
+            liveProgress.remove(job.id());
+            Integer at=positions.get(job.id());
+            if(at==null){positions.put(job.id(),all.size());all.add(Job.read(job.json()));}
+            else all.set(at,Job.read(job.json()));
+            changedBooks.add("manga:"+job.slug.trim().toLowerCase(Locale.ROOT));
+        }
+        JSONArray data=new JSONArray();for(Job job:all)data.put(job.json());
+        if(!ctx.getSharedPreferences("reader",0).edit().putString(STORE,data.toString()).commit()){
+            persistedCache=null;throw new IllegalStateException("Не удалось сохранить очередь MangaLib");
+        }
+        persistedCache=all;
+        for(String book:changedBooks)DownloadChangeBus.publish(book);
     }
     static synchronized Job find(Context ctx,String id){for(Job j:jobs(ctx))if(j.id().equals(id))return j;return null;}
     static ArrayList<Job> seriesJobs(Context ctx,String slug){ArrayList<Job> out=new ArrayList<>();for(Job j:jobs(ctx))if(j.slug.equals(slug)&&"complete".equals(j.status)&&exists(ctx,j.file))out.add(j);

@@ -65,13 +65,41 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
     private volatile boolean visible,loading;
     private boolean queuedReload,firstResume=true,rowsVerified;
     private long appliedRevision;
+    private Boolean pendingDesiredRunning;
+    private String pendingCommandState="";
+    private long pendingCommandGeneration;
+    private int cachedOverallPercent=-1;
+    // Declare before listeners: Java forbids illegal forward references in field initializers.
+    private final Runnable reloadDebounced=this::reload;
+    private final DownloadChangeBus.ProgressListener chapterProgressListener=event->{
+        if(!visible||!id.equals(event.id))return;
+        if(event.kind==DownloadChangeBus.Kind.COMMAND_STATE){
+            if(event.generation<pendingCommandGeneration)return;
+            pendingCommandGeneration=event.generation;
+            pendingCommandState=event.state;
+            if("ERROR".equals(event.state)){
+                pendingDesiredRunning=null;
+                if(event.message!=null&&!event.message.isEmpty())notifyUser("Не удалось выполнить команду: "+event.message);
+            }else pendingDesiredRunning=event.desiredRunning;
+            if(selected!=null)refreshHeader();
+            return;
+        }
+        if(event.permille<0)return;
+        // A change to one chapter must not rebuild the entire tab or read SAF.
+        adapter.updateChapterProgress(event.chapterKey,event.permille,event.committed);
+        DownloadProgressTracker.Summary summary=DownloadProgressTracker.summary(id);
+        if(summary!=null&&summary.hasPlan&&summary.percent>=0){
+            cachedOverallPercent=summary.percent;
+            progress.setProgress(summary.percent);percent.setText(summary.percent+"%");
+        }
+        main.removeCallbacks(reloadDebounced);
+    };
     private String lastCoverUri="",lastInfoKey="";
     private DownloadInfoSnapshot.Entry currentInfo;
-    // Declare the debounce callback before the listener that uses it.
-    // Java field initializers cannot read a later instance field by simple name.
-    private final Runnable reloadDebounced=this::reload;
     private final DownloadChangeBus.Listener downloadListener=changed->{
         if(id.equals(changed)&&visible){
+            // Legacy structural changes still invalidate rows; frequent progress events do not.
+            if(DownloadChangeBus.hasLiveProgress(id))return;
             main.removeCallbacks(reloadDebounced);main.postDelayed(reloadDebounced,350);
         }
     };
@@ -160,23 +188,27 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         appliedRevision=DownloadChangeBus.revision();
         // The card and its previous chapter list are available before the verification finishes.
         disk.execute(()->{
+            org.json.JSONObject cached=DownloadProgressStore.read(getApplicationContext(),id);
             ArrayList<FileRow> saved=DownloadRowsSnapshot.load(getApplicationContext(),id);
-            main.post(()->{if(!isFinishing()&&!isDestroyed()&&!rowsVerified&&!saved.isEmpty()){
-                rows=saved;adapter.submit(rows);
+            main.post(()->{if(!isFinishing()&&!isDestroyed()&&!rowsVerified){
+                if(cached!=null){int prior=cached.optInt("overallPercent",-1);
+                    if(prior>=0&&prior<=100){cachedOverallPercent=prior;progress.setProgress(prior);percent.setText("≈"+prior+"%");
+                        percent.setContentDescription("Предварительный прогресс из кэша");}}
+                if(!saved.isEmpty()){rows=saved;adapter.submit(rows);}
             }});
         });
         reload();
     }
     @Override protected void onResume(){super.onResume();
         if(paletteSignature!=UiColorScheme.paletteSignature(this)){recreate();return;}
-        visible=true;DownloadChangeBus.add(downloadListener);
+        visible=true;DownloadChangeBus.add(downloadListener);DownloadChangeBus.addProgress(chapterProgressListener);
         ArrayList<String> missed=DownloadChangeBus.since(appliedRevision);
         if(!firstResume&&(missed==null||missed.contains(id)||selected==null))reload();
         firstResume=false;
     }
-    @Override protected void onPause(){visible=false;DownloadChangeBus.remove(downloadListener);
+    @Override protected void onPause(){visible=false;DownloadChangeBus.remove(downloadListener);DownloadChangeBus.removeProgress(chapterProgressListener);
         main.removeCallbacks(reloadDebounced);super.onPause();}
-    @Override protected void onDestroy(){visible=false;DownloadChangeBus.remove(downloadListener);
+    @Override protected void onDestroy(){visible=false;DownloadChangeBus.remove(downloadListener);DownloadChangeBus.removeProgress(chapterProgressListener);
         main.removeCallbacksAndMessages(null);disk.shutdownNow();super.onDestroy();}
     @Override protected void onSaveInstanceState(Bundle out){out.putString("tab",tab);super.onSaveInstanceState(out);}
     private void showTabs(){tabContainer.removeAllViews();
@@ -225,6 +257,15 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
                 if(isFinishing()||isDestroyed())return;
                 if(snapshot.item!=null){
                     rowsVerified=true;selected=snapshot.item;rows=snapshot.files;currentInfo=snapshot.info;
+                    if(selected.ready||selected.paused||selected.failed||
+                        (pendingDesiredRunning!=null&&pendingDesiredRunning==selected.running)){
+                        pendingDesiredRunning=null;pendingCommandState="";
+                    }
+                    ArrayList<DownloadProgressTracker.Seed> plan=new ArrayList<>(rows.size());
+                    for(FileRow row:rows)if(!"edge:planner".equals(row.key))plan.add(new DownloadProgressTracker.Seed(row.key,row.percent,
+                        row.percent>=100&&(row.status.contains("готов")||row.status.contains("сохран")||row.status.contains("Скачан")||row.status.contains("Заверш")||row.status.contains("complete"))));
+                    DownloadProgressTracker.Summary summary=DownloadProgressTracker.plan(id,plan);
+                    cachedOverallPercent=summary.percent;
                     refreshHeader();adapter.submit(rows);
                     if("info".equals(tab)&&currentInfo!=null)showInfo(currentInfo);
                     appliedRevision=Math.max(appliedRevision,requestedRevision);
@@ -355,12 +396,16 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         if(!i.cover.isEmpty()&&!i.cover.equals(lastCoverUri)){
             lastCoverUri=i.cover;CoverImageLoader.show(artwork,i.cover,DownloadsRepository.EDGE.equals(i.type));
         }
-        int value=i.coveragePercent;
+        int value=cachedOverallPercent>=0?cachedOverallPercent:i.coveragePercent;
         if(i.total>0&&value<=0)value=(int)Math.min(100,100L*i.done/i.total);
         if(i.ready)value=100;value=Math.max(0,Math.min(100,value));
         progress.setProgress(value);percent.setText(value+"%");
-        playPause.setImageResource(i.running?R.drawable.ic_pause:R.drawable.ic_play);
-        playPause.setContentDescription(i.running?"Пауза загрузки":"Продолжить загрузку");
+        boolean showPause=pendingDesiredRunning!=null?pendingDesiredRunning:i.running;
+        playPause.setImageResource(showPause?R.drawable.ic_pause:R.drawable.ic_play);
+        String caption="STARTING".equals(pendingCommandState)?"Запуск загрузки":
+            "PAUSING".equals(pendingCommandState)?"Остановка загрузки":
+            showPause?"Пауза загрузки":"Продолжить загрузку";
+        playPause.setContentDescription(caption);playPause.setTooltipText(caption);
         playPause.setEnabled(!i.ready);playPause.setAlpha(i.ready?.35f:1f);
         boolean remaining=!i.ready||i.total==0||i.done<i.total;
         allIcon.setEnabled(remaining);allIcon.setAlpha(remaining?1f:.35f);
@@ -492,25 +537,39 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
             return; // Async completion callback refreshes once.
         }
     }
-    private void control(DownloadsRepository.Item i){try{
-        if(DownloadsRepository.AUDIO.equals(i.type)){
-            Intent request=new Intent(this,DownloadWorker.class).setAction(i.running?DownloadWorker.PAUSE:DownloadWorker.START).putExtra("source",i.source);
-            launch(request,!i.running);
-        }else if(DownloadsRepository.MANGA.equals(i.type)){
-            if(i.running)MangaLibQueue.pause(this,i.source);else MangaLibQueue.resume(this,i.source);
-        }else if(DownloadsRepository.RANOBE.equals(i.type)){
-            if(i.running)RanobeLibQueue.pause(this,i.source);else RanobeLibQueue.resume(this,i.source);
-        }else if(DownloadsRepository.RANOBES.equals(i.type)){
-            if(i.running)RanobesQueue.pause(this,i.source);else RanobesQueue.resume(this,i.source);
-        }else if(DownloadsRepository.LINK.equals(i.type)){
-            launch(new Intent(this,DirectLinkDownloadService.class).setAction(i.running?DirectLinkDownloadService.PAUSE:DirectLinkDownloadService.START)
-                .putExtra(DirectLinkDownloadService.EXTRA_ID,i.id.replaceFirst("^link:","")),!i.running);
-        }else if(DownloadsRepository.EDGE.equals(i.type)){
-            launch(new Intent(this,EdgeFullBookService.class).setAction(i.running?EdgeFullBookService.PAUSE:EdgeFullBookService.RESUME)
-                .putExtra(EdgeFullBookService.EXTRA_URI,i.bookUri),!i.running);
-        }
-        main.postDelayed(this::reload,450);
-    }catch(Exception error){notifyUser("Ошибка загрузки: "+error.getMessage());}}
+    /** Return control to the user immediately; queue and SAF operations never run on UI. */
+    private void control(DownloadsRepository.Item i){
+        final boolean current=pendingDesiredRunning!=null?pendingDesiredRunning:i.running;
+        final boolean start=!current;
+        pendingDesiredRunning=start;pendingCommandState=start?"STARTING":"PAUSING";
+        refreshHeader();
+        Context app=getApplicationContext();
+        pendingCommandGeneration=DownloadCommandController.submit(app,id,start,()->{
+            if(DownloadsRepository.AUDIO.equals(i.type)){
+                startDownloadService(app,new Intent(app,DownloadWorker.class)
+                    .setAction(start?DownloadWorker.START:DownloadWorker.PAUSE).putExtra("source",i.source),start);
+            }else if(DownloadsRepository.MANGA.equals(i.type)){
+                if(start)MangaLibQueue.resume(app,i.source);else MangaLibQueue.pause(app,i.source);
+            }else if(DownloadsRepository.RANOBE.equals(i.type)){
+                if(start)RanobeLibQueue.resume(app,i.source);else RanobeLibQueue.pause(app,i.source);
+            }else if(DownloadsRepository.RANOBES.equals(i.type)){
+                if(start)RanobesQueue.resume(app,i.source);else RanobesQueue.pause(app,i.source);
+            }else if(DownloadsRepository.LINK.equals(i.type)){
+                startDownloadService(app,new Intent(app,DirectLinkDownloadService.class)
+                    .setAction(start?DirectLinkDownloadService.START:DirectLinkDownloadService.PAUSE)
+                    .putExtra(DirectLinkDownloadService.EXTRA_ID,i.id.replaceFirst("^link:","")),start);
+            }else if(DownloadsRepository.EDGE.equals(i.type)){
+                startDownloadService(app,new Intent(app,EdgeFullBookService.class)
+                    .setAction(start?EdgeFullBookService.RESUME:EdgeFullBookService.PAUSE)
+                    .putExtra(EdgeFullBookService.EXTRA_URI,i.bookUri),start);
+            }else throw new IllegalArgumentException("Неизвестный загрузчик: "+i.type);
+            return null;
+        });
+    }
+    private static void startDownloadService(Context context,Intent request,boolean foreground){
+        if(foreground&&Build.VERSION.SDK_INT>=26)context.startForegroundService(request);
+        else context.startService(request);
+    }
     private void launch(Intent request,boolean foreground){if(foreground&&Build.VERSION.SDK_INT>=26)startForegroundService(request);else startService(request);}
     private void enqueueEdge(DownloadsRepository.Item item,int chapter,boolean force){
         if(!EdgeFolderPicker.available(this)){
@@ -858,6 +917,19 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
     }
     private final class FileAdapter extends RecyclerView.Adapter<FileAdapter.Holder>{
         private final ArrayList<FileRow> items=new ArrayList<>();
+        private final Map<String,Integer> byKey=new HashMap<>();
+        private static final String PAYLOAD_PROGRESS="progress";
+        void updateChapterProgress(String key,int permille,boolean committed){
+            Integer at=byKey.get(key);
+            if(at==null||at<0||at>=items.size())return;
+            FileRow row=items.get(at);
+            int value=committed?100:Math.min(99,Math.max(0,(permille+5)/10));
+            if(row.percent==value&&!(committed&&!row.status.equals("Скачано")))return;
+            row.percent=value;
+            if(committed)row.status="Скачано";
+            else if(!row.status.equals("Пауза")&&!row.status.equals("Отменено"))row.status="Скачивается";
+            notifyItemChanged(at,PAYLOAD_PROGRESS);
+        }
         FileAdapter(){setHasStableIds(true);}
         void submit(ArrayList<FileRow> incoming){
             boolean sameKeys=items.size()==incoming.size();
@@ -874,12 +946,34 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
                         @Override public boolean areItemsTheSame(int a,int b){return previous.get(a).key.equals(next.get(b).key);}
                         @Override public boolean areContentsTheSame(int a,int b){return previous.get(a).same(next.get(b));}
                     },true);
-                items.clear();items.addAll(next);delta.dispatchUpdatesTo(this);return;
+                items.clear();items.addAll(next);reindex();delta.dispatchUpdatesTo(this);return;
             }
+            reindex();
             for(int i=0;i<items.size();i++){
                 FileRow previous=items.set(i,incoming.get(i));
                 if(!previous.same(incoming.get(i)))notifyItemChanged(i);
             }
+        }
+        private void reindex(){byKey.clear();for(int p=0;p<items.size();p++)byKey.put(items.get(p).key,p);}
+        @Override public void onBindViewHolder(Holder h,int position,java.util.List<Object> payloads){
+            if(payloads!=null&&payloads.contains(PAYLOAD_PROGRESS)){
+                bindRowProgress(h,items.get(position));return;
+            }
+            onBindViewHolder(h,position);
+        }
+        private void bindRowProgress(Holder h,FileRow row){
+            boolean edgeRow=row.key.startsWith("edge:");
+            boolean chapterReady=edgeRow?row.percent==100&&
+                (row.status.contains("сохран")||row.status.contains("готов")||row.status.equals("Скачано")):
+                row.percent==100;
+            h.completed.setVisibility(chapterReady?View.VISIBLE:View.GONE);
+            StringBuilder status=new StringBuilder(row.status);
+            if(row.percent>0&&row.percent<100)status.append(" · ").append(row.percent).append('%');
+            if(row.bytes>0)status.append(" · ").append(size(row.bytes));
+            if(!row.detail.isEmpty()&&!row.detail.equals(row.status))status.append(" · ").append(row.detail);
+            h.detail.setText(status.toString());
+            h.bar.setVisibility(row.percent>=0&&row.percent<100?View.VISIBLE:View.GONE);
+            if(row.percent>=0)h.bar.setProgress(row.percent);
         }
         @Override public long getItemId(int i){return items.get(i).key.hashCode();}
         @Override public Holder onCreateViewHolder(ViewGroup parent,int type){
@@ -906,18 +1000,7 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         @Override public void onBindViewHolder(Holder h,int position){
             FileRow row=items.get(position);
             h.title.setText(row.name);h.title.setMaxLines(2);
-            boolean edgeRow=row.key.startsWith("edge:");
-            boolean chapterReady=edgeRow?row.percent==100&&
-                (row.status.contains("сохранены")||row.status.contains("готов")):
-                row.percent==100;
-            h.completed.setVisibility(chapterReady?View.VISIBLE:View.GONE);
-            StringBuilder status=new StringBuilder(row.status);
-            if(row.percent>0&&row.percent<100)status.append(" · ").append(row.percent).append('%');
-            if(row.bytes>0)status.append(" · ").append(size(row.bytes));
-            if(!row.detail.isEmpty()&&!row.detail.equals(row.status))status.append(" · ").append(row.detail);
-            h.detail.setText(status.toString());
-            h.bar.setVisibility(row.percent>=0&&row.percent<100?View.VISIBLE:View.GONE);
-            if(row.percent>=0)h.bar.setProgress(row.percent);
+            bindRowProgress(h,row);
             h.itemView.setBackground(rounded(checked.contains(row.key)?UiColorScheme.selected(UnifiedDownloadManagerActivity.this):bg,12));
             h.more.setOnClickListener(v->fileMenu(h.more,row));
             h.itemView.setOnLongClickListener(v->{if(!checked.add(row.key))checked.remove(row.key);

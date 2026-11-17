@@ -4,7 +4,7 @@ R=Path(__file__).resolve().parents[1];J=R/'app/src/main/java/ru/reader/rsvp'
 def src(n):return (J/n).read_text(encoding='utf-8')
 class V175Contracts(unittest.TestCase):
  def test_version(self):
-  x=(R/'app/build.gradle').read_text();self.assertIn('versionCode 17500',x);self.assertIn("versionName '1.11.175-beta'",x)
+  x=(R/'app/build.gradle').read_text();self.assertIn('versionCode 17600',x);self.assertIn("versionName '1.11.176-beta'",x)
  def test_fishing_clock_preserves_cast_and_bite(self):
   x=src('ChteicoFishingView.java');self.assertIn('phase==READY||(phase==RESULT&&!shimmering)',x);self.assertIn('phase==BITE&&now-biteStartedMs',x)
  def test_sleep_badge_change_only(self):

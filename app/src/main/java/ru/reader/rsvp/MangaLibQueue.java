@@ -19,9 +19,10 @@ final class MangaLibQueue {
     static int enqueue(Context ctx,List<MangaLibStorage.Job> selected){
         WorkManager manager=WorkManager.getInstance(ctx);
         WorkContinuation chain=null;int count=0;
+        ArrayList<MangaLibStorage.Job> changed=new ArrayList<>();
         for(MangaLibStorage.Job job:selected){
             if("complete".equals(job.status)||"running".equals(job.status))continue;
-            job.status="queued";job.error="";MangaLibStorage.put(ctx,job);
+            job.status="queued";job.error="";changed.add(job);
             Constraints connected=new Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED).build();
             OneTimeWorkRequest request=new OneTimeWorkRequest.Builder(MangaLibDownloadWorker.class)
@@ -34,30 +35,23 @@ final class MangaLibQueue {
                 ExistingWorkPolicy.APPEND_OR_REPLACE,request):chain.then(request);
             count++;
         }
-        if(chain!=null)chain.enqueue();
+        if(chain!=null){MangaLibStorage.putAll(ctx,changed);chain.enqueue();}
         return count;
     }
-    static int pause(Context ctx,String slug){
-        int count=0;
-        for(MangaLibStorage.Job job:MangaLibStorage.jobs(ctx)){
-            if(!slug.equals(job.slug))continue;
-            if("running".equals(job.status)||"queued".equals(job.status)){
-                job.status="paused";MangaLibStorage.put(ctx,job);count++;
-            }
-        }
-        return count;
-    }
+    static int pause(Context ctx,String slug){return changeState(ctx,slug,"paused",false);}
     /** Cancel only this manga; do not cancel the shared queue containing other series. */
-    static int cancelSeries(Context ctx,String slug){
-        int count=0;
+    static int cancelSeries(Context ctx,String slug){return changeState(ctx,slug,"cancelled",true);}
+    private static int changeState(Context ctx,String slug,String state,boolean includePaused){
+        ArrayList<MangaLibStorage.Job> changed=new ArrayList<>();
         for(MangaLibStorage.Job job:MangaLibStorage.jobs(ctx)){
             if(!slug.equals(job.slug))continue;
             if("running".equals(job.status)||"queued".equals(job.status)
-                ||"paused".equals(job.status)){
-                job.status="cancelled";MangaLibStorage.put(ctx,job);count++;
+                ||(includePaused&&"paused".equals(job.status))){
+                job.status=state;changed.add(job);
             }
         }
-        return count;
+        MangaLibStorage.putAll(ctx,changed);
+        return changed.size();
     }
     static int resume(Context ctx,String slug){
         ArrayList<MangaLibStorage.Job> resume=new ArrayList<>();

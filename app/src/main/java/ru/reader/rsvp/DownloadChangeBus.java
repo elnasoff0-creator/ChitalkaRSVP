@@ -39,4 +39,59 @@ final class DownloadChangeBus {
         for(Map.Entry<String,Long> e:changes.entrySet())if(e.getValue()>from)result.add(e.getKey());
         return result;
     }
+
+    enum Kind {CHAPTER_PROGRESS,CHAPTER_COMMITTED,COMMAND_STATE,ERROR}
+    interface ProgressListener {void onProgress(ProgressEvent event);}
+    static final class ProgressEvent {
+        final Kind kind; final String id,chapterKey,state,message;
+        final int permille;final boolean committed,desiredRunning;
+        final long sequence,generation;
+        ProgressEvent(Kind type,String id,String key,int fraction,boolean done,boolean desired,
+            String state,String message,long sequence,long generation){
+            this.kind=type;this.id=id;chapterKey=key;permille=fraction;committed=done;
+            desiredRunning=desired;this.state=state;this.message=message;this.sequence=sequence;this.generation=generation;
+        }
+    }
+    private static final CopyOnWriteArraySet<ProgressListener> progressListeners=new CopyOnWriteArraySet<>();
+    private static final LinkedHashMap<String,ProgressEvent> pendingProgress=new LinkedHashMap<>();
+    private static boolean progressScheduled;
+    private static long progressSequence;
+    private static final LinkedHashMap<String,Long> recentProgress=new LinkedHashMap<>();
+    static synchronized boolean hasLiveProgress(String id){
+        Long at=recentProgress.get(id);
+        return at!=null&&android.os.SystemClock.elapsedRealtime()-at<1400;
+    }
+    private static final Runnable deliverProgress=()->{
+        ArrayList<ProgressEvent> events;
+        synchronized(DownloadChangeBus.class){events=new ArrayList<>(pendingProgress.values());
+            pendingProgress.clear();progressScheduled=false;}
+        for(ProgressEvent event:events)for(ProgressListener l:progressListeners)l.onProgress(event);
+    };
+    static void addProgress(ProgressListener l){progressListeners.add(l);}
+    static void removeProgress(ProgressListener l){progressListeners.remove(l);}
+    static void progress(android.content.Context context,String id,String chapterKey,int done,int total,boolean committed){
+        if(id==null||id.isEmpty()||chapterKey==null||chapterKey.isEmpty())return;
+        int fraction=total>0?(int)Math.min(1000,Math.max(0,(1000L*Math.max(0,done))/total)):-1;
+        long sequence; synchronized(DownloadChangeBus.class){
+            sequence=++progressSequence;
+            recentProgress.put(id,android.os.SystemClock.elapsedRealtime());
+            while(recentProgress.size()>64)recentProgress.remove(recentProgress.keySet().iterator().next());
+        }
+        DownloadProgressTracker.Summary summary=DownloadProgressTracker.update(id,chapterKey,fraction,committed,sequence);
+        DownloadProgressStore.changed(context,summary,committed);
+        ProgressEvent event=new ProgressEvent(committed?Kind.CHAPTER_COMMITTED:Kind.CHAPTER_PROGRESS,
+            id,chapterKey,committed?1000:fraction,committed,false,"","",sequence,0);
+        if(committed){
+            synchronized(DownloadChangeBus.class){pendingProgress.remove(id+"\n"+chapterKey);}
+            MAIN.post(()->{for(ProgressListener l:progressListeners)l.onProgress(event);});
+        }else synchronized(DownloadChangeBus.class){
+            pendingProgress.put(id+"\n"+chapterKey,event);
+            if(!progressScheduled){progressScheduled=true;MAIN.postDelayed(deliverProgress,225);}
+        }
+    }
+    static void command(String id,long generation,boolean desired,String state,String message){
+        ProgressEvent event=new ProgressEvent(Kind.COMMAND_STATE,id,"",-1,false,desired,
+            state,message,0,generation);
+        MAIN.post(()->{for(ProgressListener l:progressListeners)l.onProgress(event);});
+    }
 }

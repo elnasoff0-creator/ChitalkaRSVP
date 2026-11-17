@@ -80,7 +80,31 @@ public final class DownloadActivity extends NavigationActivity {
     private int filterGeneration;
     private long appliedEventRevision=0;
     private final java.util.Set<String> pendingIds=new java.util.HashSet<>();
-    private final DownloadChangeBus.Listener downloadListener=id->queueUpdate(id);
+    private final DownloadChangeBus.Listener downloadListener=id->{
+        if(!DownloadChangeBus.hasLiveProgress(id))queueUpdate(id);
+    };
+    private final DownloadChangeBus.ProgressListener progressListener=event->{
+        if(!visible||event.kind==DownloadChangeBus.Kind.COMMAND_STATE)return;
+        DownloadsRepository.Item changed=null;
+        for(DownloadsRepository.Item item:lastAll)if(event.id.equals(item.id)){changed=item;break;}
+        if(changed==null)return;
+        DownloadProgressTracker.Summary progress=DownloadProgressTracker.summary(event.id);
+        if(progress!=null&&progress.hasPlan&&progress.percent>=0){
+            changed.coveragePercent=progress.percent;
+            if(changed.total>0)changed.done=Math.min(changed.total,
+                (int)((long)changed.total*progress.percent/100L));
+        }
+        if(event.kind==DownloadChangeBus.Kind.CHAPTER_PROGRESS){
+            changed.running=true;changed.status="Скачивается";
+        }
+        for(int i=0;i<rows.size();i++)if(rows.get(i).item!=null&&event.id.equals(rows.get(i).item.id)){
+            adapter.notifyItemChanged(i,"fast-progress");break;
+        }
+        // Only when the last chapter is committed reconcile durable flags and the green badge.
+        if(event.committed&&progress!=null&&progress.hasPlan&&progress.chapters>0&&progress.finished>=progress.chapters){
+            queueUpdate(event.id);
+        }
+    };
     private final Runnable pendingRunner=this::flushUpdates;
     /** A downloader event invalidates one card; pending events are merged over 350 ms. */
     private void queueUpdate(String id){
@@ -290,7 +314,7 @@ public final class DownloadActivity extends NavigationActivity {
         if(previous!=null&&!previous.isEmpty()){
             lastAll=new ArrayList<>(previous);showCachedFilter();updateSummary();
         }
-        DownloadChangeBus.add(downloadListener);
+        DownloadChangeBus.add(downloadListener);DownloadChangeBus.addProgress(progressListener);
         ArrayList<String> missing=DownloadChangeBus.since(appliedEventRevision);
         if(missing==null){refresh();}
         else{for(String changed:missing)queueUpdate(changed);}
@@ -306,10 +330,10 @@ public final class DownloadActivity extends NavigationActivity {
             }),"DownloadCoverIndex").start();
         }
     }
-    @Override protected void onPause(){visible=false;DownloadChangeBus.remove(downloadListener);
+    @Override protected void onPause(){visible=false;DownloadChangeBus.remove(downloadListener);DownloadChangeBus.removeProgress(progressListener);
         main.removeCallbacks(pendingRunner);super.onPause();}
     @Override protected void onDestroy(){if(bound)unbindService(edgeConnection);
-        DownloadChangeBus.remove(downloadListener);main.removeCallbacksAndMessages(null);
+        DownloadChangeBus.remove(downloadListener);DownloadChangeBus.removeProgress(progressListener);main.removeCallbacksAndMessages(null);
         scan.shutdownNow();selectionCheck.shutdownNow();super.onDestroy();}
     /** Never traverse book directories, parse JSON or stat MP3 on the UI thread.
      * Only one explicit full reconciliation can run; ordinary progress uses
@@ -1112,6 +1136,13 @@ public final class DownloadActivity extends NavigationActivity {
                 h.swipeActions.setVisibility(opened?View.VISIBLE:View.INVISIBLE);
                 h.swipeCard.setTranslationX(opened?h.swipeActions.getWidth():0f);
             }
+        }
+        @Override public void onBindViewHolder(Holder h,int pos,java.util.List<Object> payloads){
+            if(payloads.contains("fast-progress")&&rows.get(pos).item!=null
+                &&rows.get(pos).item.id.equals(h.boundId)){
+                updateFast(h,rows.get(pos).item);return;
+            }
+            onBindViewHolder(h,pos);
         }
         @Override public void onBindViewHolder(Holder h,int pos){
             DisplayRow row=rows.get(pos);
