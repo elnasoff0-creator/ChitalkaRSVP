@@ -1783,10 +1783,11 @@ public class ReaderActivity extends NavigationActivity {
     }
     @Override protected void onActivityResult(int req,int result,Intent data){super.onActivityResult(req,result,data);
         if(req==EdgeFolderPicker.REQUEST){
-            EdgeFolderPicker.accept(this,req,result,data);
             boolean shouldResume=resumeEdgeAfterFolderPick;
             resumeEdgeAfterFolderPick=false;
-            if(EdgeFolderPicker.available(this)&&shouldResume)toggleTtsPlayback();
+            EdgeFolderPicker.accept(this,req,result,data,ok->{
+                if(ok&&shouldResume)toggleTtsPlayback();
+            });
             return;
         }
         if(req==12212&&result==RESULT_OK&&data!=null&&ttsStreamer!=null&&words.length>0){

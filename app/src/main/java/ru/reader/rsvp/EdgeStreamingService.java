@@ -46,6 +46,9 @@ public final class EdgeStreamingService extends Service {
     private final Handler main=new Handler(Looper.getMainLooper());
     private final ExecutorService io=Executors.newSingleThreadExecutor();
     // SAF chapter publication must never hold the active speech/cache IO queue.
+    private final ExecutorService clipRestore=Executors.newSingleThreadExecutor(r->{
+        Thread t=new Thread(r,"EdgeClipRestore");t.setPriority(Thread.NORM_PRIORITY);return t;
+    });
     private final ExecutorService chapterWriter=Executors.newSingleThreadExecutor(r->{
         Thread t=new Thread(r,"EdgeChapterPublisher");t.setPriority(Thread.MIN_PRIORITY);return t;
     });
@@ -177,6 +180,9 @@ public final class EdgeStreamingService extends Service {
     // accidentally surface the same HTTP 429 as a user-visible Toast.
     private volatile boolean lastHttp429;
     private BookChapterIndex chapters=BookChapterIndex.empty();
+    // Only requested clips are ever recovered from SAF. One attempt per key/revision.
+    private final java.util.HashSet<String> lazyAttempted=new java.util.HashSet<>();
+    private final java.util.HashSet<String> lazyPending=new java.util.HashSet<>();
     private File directory;
     private boolean bookReady,active,destroyed,playerBound,idlePrefetchRequested;
     private int anchorWord;
@@ -417,6 +423,7 @@ public final class EdgeStreamingService extends Service {
         invalidateSpeech();trackReadyLoggedAt=-1L;restoreStartedAt=SystemClock.elapsedRealtime();
         cachedSavedPercent=0;lastCoverageCheck=0;
         archive.clear();byStart.clear();pendingStarts.clear();priorityStart=-1;
+        lazyAttempted.clear();lazyPending.clear();
         selectedOverrides.clear();selectedSeekWord=-1;deferredSelectedWord=-1;
         prefetchForStart=-1;prefetchIssued=0;
         offsets.clear();sentenceParts.clear();sentenceIndex=SentenceIndex.fromText("");sentenceHistory.bind(sentenceIndex);bookText="";chapters=BookChapterIndex.empty();directory=null;error="";
@@ -436,10 +443,8 @@ public final class EdgeStreamingService extends Service {
                 ArrayList<SentenceChunks.Chunk> newParts=session.edgeGroups();
                 File bookDir=EdgeBookStorage.bookFolder(this,requested,name);
                 File dir=new File(bookDir,"EdgeTTS");dir.mkdirs();
-                // Rehydrate SAF-only complete chapters to temporary playback clips.
-                // ReaderActivity keeps its exact per-fragment WordBoundary semantics.
-                if(EdgeFolderPicker.available(this))
-                    EdgeChapterArchive.restore(this,requested,name,dir);
+                // v174: do NOT restore every saved MP3/WordBoundary before bookReady.
+                // Individual missing clips are recovered on demand by lazyRestore().
                 DownloadsRepository.storeEdgeMeta(bookDir,requested,name,positions.size());
                 main.post(()->{
                     if(destroyed||!requested.equals(bookUri))return;
@@ -509,7 +514,8 @@ public final class EdgeStreamingService extends Service {
      * A subsequent Play can attach to the very same buffered live MP3.
      */
     private void warmCurrent(){
-        if(!EdgeFolderPicker.available(this))return; // Never synthesize without a selected tree.
+        if(!DownloadFolderPicker.granted(this,DownloadFolderPicker.BOOK))return;
+        // Permission check only: avoid slow SAF provider stats on UI thread.
         if(!bookReady||directory==null)return;
         if(!idlePrefetchRequested && !(active && player!=null&&!player.playRequested()))return;
         if(active&&player!=null&&player.playRequested())return;
@@ -517,6 +523,7 @@ public final class EdgeStreamingService extends Service {
         if(target!=null&&shouldIgnore(target))return; // no warmup WebSocket
         // Never retry a failed warmup automatically. Only an explicit Play
         // or a manual selection can permit another synthesis attempt.
+        if(target!=null && lazyRestore(target))return;
         if(target==null||target.ready()||target.awaitingUserRetry||
                 target.retryAt>SystemClock.elapsedRealtime()||
                 EdgeSpeechQueue.remainingMs()>0||!EdgeSpeechQueue.allowPrefetch()){
@@ -751,6 +758,7 @@ public final class EdgeStreamingService extends Service {
         if(!bookReady||directory==null||destroyed||!active)return;
         Clip current=skipIgnored(clipAt(anchorWord));
         if(current==null)return;
+        if(lazyRestore(current)){changed();return;}
         Clip ahead=clipAt(current.end);
         // A skipped next segment must never be added as a cached track.
         if(shouldIgnore(ahead))ahead=null;
@@ -792,6 +800,47 @@ public final class EdgeStreamingService extends Service {
         if(startedAudio&&EdgeSpeechQueue.allowPrefetch())prefetchWindow(current);
         changed();
     }
+    /** Returns true while the currently requested clip is being restored from SAF.
+     * A failed/absent clip is attempted only once and then falls back to synthesis.
+     * No SAF operation runs on the main thread or blocks bookReady.
+     */
+    private boolean lazyRestore(Clip clip){
+        if(clip==null||directory==null||clip.ready()||clip.ignored)return false;
+        prepareClip(clip);
+        if(clip.ready()||clip.key==null||clip.key.isEmpty())return false;
+        String identity=bookUri+"|"+clip.key;
+        if(lazyPending.contains(identity))return true;
+        if(!lazyAttempted.add(identity))return false;
+        if(EdgeFolderPicker.selected(this)==null)return false;
+        int chapterNumber=0;
+        int character=charForWord(clip.start);
+        if(chapters!=null)for(int i=0;i<chapters.size();i++){
+            if(chapters.get(i).startChar<=character)chapterNumber=i;else break;
+        }
+        final int chapter=chapterNumber;
+        final String requested=bookUri,requestedKey=clip.key,requestedTitle=title;
+        final File folder=directory;
+        lazyPending.add(identity);
+        clipRestore.execute(()->{
+            boolean restored=EdgeChapterArchive.restoreClip(this,requested,requestedTitle,folder,
+                chapter,requestedKey);
+            main.post(()->{
+                lazyPending.remove(identity);
+                if(destroyed||!requested.equals(bookUri)||directory!=folder)return;
+                if(restored){
+                    File file=new File(folder,requestedKey+".mp3");
+                    clip.file=file;clip.bytes=file.length();
+                    for(Clip candidate:archive)if(requestedKey.equals(candidate.key)){
+                        candidate.file=file;candidate.bytes=file.length();
+                    }
+                    firstTrackReady(clip,"saf-lazy");
+                }
+                if(active)pump();
+                else if(idlePrefetchRequested)warmCurrent();
+            });
+        });
+        return true;
+    }
     /** Quickify-inspired finite window: candidate selection and network concurrency
      * are separate. Cache, existing jobs, and failed requests are checked first. */
     private void prefetchWindow(Clip current){
@@ -816,6 +865,7 @@ public final class EdgeStreamingService extends Service {
                 EdgePrefetchPlanner.countLimit(budget))){
             if(pending>=EdgeSpeechQueue.MAX_PREFETCH||prefetchIssued>=EdgeSpeechQueue.MAX_PREFETCH)break;
             Clip candidate=candidates.get(index);
+            if(lazyRestore(candidate))continue;
             if(candidate.ready()||liveFor(candidate)!=null||candidate.awaitingUserRetry||
                     candidate.retryAt>SystemClock.elapsedRealtime())continue;
             // Cache key is scoped by spoken text, voice, rate and pronunciation.
@@ -837,10 +887,11 @@ public final class EdgeStreamingService extends Service {
     private void startLive(Clip clip){startLive(clip,false,false);}
     private void startLive(Clip clip,boolean warmup){startLive(clip,warmup,false);}
     private void startLive(Clip clip,boolean warmup,boolean ahead){
-        if(!EdgeFolderPicker.available(this)){
+        if(!DownloadFolderPicker.granted(this,DownloadFolderPicker.BOOK)){
             error="Выберите папку Edge TTS в настройках";changed();return;
         }
         if(clip==null||clip.ready()||directory==null||liveFor(clip)!=null||shouldIgnore(clip))return;
+        if(lazyRestore(clip))return;
         ReaderDiagnosticLog.event("CACHE","cache_miss schedule start="+clip.start+" end="+clip.end+
             " warmup="+warmup+" ahead="+ahead);
         lastHttp429=false; // a new explicit synthesis may report other real errors
@@ -1138,7 +1189,7 @@ public final class EdgeStreamingService extends Service {
         main.removeCallbacks(idleExpiry);
         main.removeCallbacks(saveIndex);
         persistNow(); // Last selected sentence / interrupted work survives process shutdown.
-        destroyed=true;chapterWriter.shutdown();main.removeCallbacks(refreshReady);
+        destroyed=true;clipRestore.shutdown();chapterWriter.shutdown();main.removeCallbacks(refreshReady);
         EdgeSpeechQueue.setInteractivePlayback(false);
         cancelLiveExcept(null);
         liveJobs.clear();

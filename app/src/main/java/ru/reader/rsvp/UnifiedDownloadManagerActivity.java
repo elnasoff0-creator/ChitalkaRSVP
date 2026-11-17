@@ -483,12 +483,13 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         infoScroll.post(()->{if(!isFinishing()&&"info".equals(tab))infoScroll.scrollTo(0,previousScroll);});
     }
     @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);
-        if(DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.BOOK_REQUEST,DownloadFolderPicker.BOOK)
-            ||DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.MANGA_REQUEST,DownloadFolderPicker.MANGA)
-            ||DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.AUDIO_REQUEST,DownloadFolderPicker.AUDIO)){
-            EdgeChapterArchive.invalidate();
-            DownloadInfoSnapshot.remove(this,id);currentInfo=null;lastInfoKey="";
-            reload();
+        if(DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.BOOK_REQUEST,DownloadFolderPicker.BOOK,ok->{if(ok){EdgeChapterArchive.invalidate();DownloadInfoSnapshot.remove(this,id);
+                currentInfo=null;lastInfoKey="";reload();}})
+            ||DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.MANGA_REQUEST,DownloadFolderPicker.MANGA,ok->{if(ok){EdgeChapterArchive.invalidate();DownloadInfoSnapshot.remove(this,id);
+                currentInfo=null;lastInfoKey="";reload();}})
+            ||DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.AUDIO_REQUEST,DownloadFolderPicker.AUDIO,ok->{if(ok){EdgeChapterArchive.invalidate();DownloadInfoSnapshot.remove(this,id);
+                currentInfo=null;lastInfoKey="";reload();}})){
+            return; // Async completion callback refreshes once.
         }
     }
     private void control(DownloadsRepository.Item i){try{

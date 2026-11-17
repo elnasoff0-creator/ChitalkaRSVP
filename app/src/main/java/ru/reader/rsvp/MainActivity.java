@@ -1638,11 +1638,11 @@ public class MainActivity extends NavigationActivity {
     }
     @Override protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
-        if(DownloadFolderPicker.receive(this,req,res,data,DownloadFolderPicker.BOOK_REQUEST,DownloadFolderPicker.BOOK)){
-            Uri book=pendingBookImport;pendingBookImport=null;
-            if(book!=null&&DownloadFolderPicker.available(this,DownloadFolderPicker.BOOK))saveImportedBook(book);
-            return;
-        }
+        if(DownloadFolderPicker.receive(this,req,res,data,DownloadFolderPicker.BOOK_REQUEST,
+                DownloadFolderPicker.BOOK,ok->{
+                    Uri book=pendingBookImport;pendingBookImport=null;
+                    if(ok&&book!=null)saveImportedBook(book);
+                }))return;
         if(req==MOVE_LIBRARY_REQUEST){finishLibraryMove(req,res,data);return;}
         if(req==IMPORT_HTML_FOLDER_REQUEST){
             if(res==RESULT_OK&&data!=null&&data.getData()!=null){
@@ -1730,6 +1730,8 @@ public class MainActivity extends NavigationActivity {
         new Thread(() -> {
             try {
                 BookLoader.Book book = BookLoader.load(this, Uri.parse(uriString));
+                // Build the expensive word and chapter maps on the book IO thread.
+                final PreparedText prepared=PreparedText.from(book.text==null?"":book.text);
                 runOnUiThread(() -> {
                     stop();
                     if (!currentUri.isEmpty() && !currentUri.equals(uriString)) saveAll();
@@ -1737,7 +1739,10 @@ public class MainActivity extends NavigationActivity {
                     title = BookTitleStore.title(this,BookTitleStore.TEXT,uriString,book.title == null ? "Книга" : book.title);
                     author = book.author == null ? "" : book.author;
                     body = book.text == null ? "" : book.text;
-                    prepareWords();
+                    words=prepared.words;wordStarts=prepared.starts;
+                    cachedChapterStarts=prepared.chapterStarts;
+                    cachedChapterNames=prepared.chapterNames;
+                    if(index>=words.length)index=Math.max(0,words.length-1);
                     if (words.length == 0) {
                         screen = 0;
                         Toast.makeText(this, "В книге нет доступного текста", Toast.LENGTH_LONG).show();
@@ -1776,17 +1781,41 @@ public class MainActivity extends NavigationActivity {
         words = list.toArray(new String[0]);
         wordStarts = new int[starts.size()];
         for (int i = 0; i < starts.size(); i++) wordStarts[i] = starts.get(i);
+        PreparedText prepared=PreparedText.from(body==null?"":body);
+        cachedChapterStarts=prepared.chapterStarts;cachedChapterNames=prepared.chapterNames;
         if (index >= words.length) index = Math.max(0, words.length - 1);
     }
 
+    private int[] cachedChapterStarts=new int[0];
+    private String[] cachedChapterNames=new String[0];
+    private static final class PreparedText {
+        final String[] words,chapterNames;final int[] starts,chapterStarts;
+        PreparedText(String[] words,int[] starts,int[] chapterStarts,String[] chapterNames){
+            this.words=words;this.starts=starts;this.chapterStarts=chapterStarts;
+            this.chapterNames=chapterNames;
+        }
+        static PreparedText from(String text){
+            ArrayList<String> tokens=new ArrayList<>();ArrayList<Integer> positions=new ArrayList<>();
+            Matcher word=Pattern.compile("\\S+").matcher(text);
+            while(word.find()){tokens.add(word.group());positions.add(word.start());}
+            int[] wordPositions=new int[positions.size()];for(int i=0;i<positions.size();i++)wordPositions[i]=positions.get(i);
+            ArrayList<Integer> chapterPositions=new ArrayList<>();ArrayList<String> titles=new ArrayList<>();
+            Matcher chapter=Pattern.compile("(?im)^\\s*((Глава|Часть|Chapter)[^\\n]{0,80})").matcher(text);
+            while(chapter.find()){chapterPositions.add(chapter.start());titles.add(chapter.group(1).trim());}
+            int[] chapterOffsets=new int[chapterPositions.size()];
+            for(int i=0;i<chapterPositions.size();i++)chapterOffsets[i]=chapterPositions.get(i);
+            return new PreparedText(tokens.toArray(new String[0]),wordPositions,chapterOffsets,
+                titles.toArray(new String[0]));
+        }
+    }
     String findChapterForIndex(int idx) {
-        if (body == null || body.isEmpty()) return "";
-        int pos = (idx >= 0 && idx < wordStarts.length) ? wordStarts[idx] : Math.min(body.length(), Math.max(0, body.length() - 1));
-        String head = body.substring(0, Math.max(0, Math.min(pos, body.length())));
-        Matcher m = Pattern.compile("(?im)^\\s*((Глава|Часть|Chapter)[^\\n]{0,80})").matcher(head);
-        String last = "";
-        while (m.find()) last = m.group(1).trim();
-        return last.isEmpty() ? "Последнее место" : last;
+        if(body==null||body.isEmpty())return "";
+        int pos=(idx>=0&&idx<wordStarts.length)?wordStarts[idx]:
+            Math.min(body.length(),Math.max(0,body.length()-1));
+        if(cachedChapterStarts.length==0)return "Последнее место";
+        int at=java.util.Arrays.binarySearch(cachedChapterStarts,pos);
+        if(at<0)at=-at-2;
+        return at<0?"Последнее место":cachedChapterNames[at];
     }
 
     String excerptAroundIndex(int idx) {
@@ -1866,18 +1895,27 @@ public class MainActivity extends NavigationActivity {
         container.addView(scroll,new android.widget.LinearLayout.LayoutParams(-1,dp(350)));
         final android.app.AlertDialog dialog=new SwipeDialogs.Builder(this)
             .setTitle("Поиск по библиотекам").setView(container).setNegativeButton("Закрыть",null).create();
+        final ArrayList<BookMeta> textBooks=new ArrayList<>();
+        final ArrayList<AudioLibrary.Book> audioBooks=new ArrayList<>();
+        final boolean[] librariesReady={false};
+        final Handler searchHandler=new Handler(Looper.getMainLooper());
         final Runnable render=()->{
             results.removeAllViews();
+            if(!librariesReady[0]){
+                results.addView(text("Подготовка поиска…",14,false));return;
+            }
             String needle=query.getText().toString().trim().toLowerCase(java.util.Locale.ROOT);
             int matches=0;
-            for(BookMeta b:sortedLibraryBooks()){
+            for(BookMeta b:textBooks){
+                if(matches>=100)break;
                 if(!b.title.toLowerCase(java.util.Locale.ROOT).contains(needle))continue;
                 TextView item=text("Книга · "+b.title,16,false);
                 item.setPadding(dp(10),dp(12),dp(10),dp(12));
                 item.setOnClickListener(v->{dialog.dismiss();openBook(b.uri,false,true);});
                 results.addView(item);matches++;
             }
-            for(AudioLibrary.Book b:sortedAudioBooks(AudioLibrary.load(this))){
+            for(AudioLibrary.Book b:audioBooks){
+                if(matches>=100)break;
                 if(!b.name.toLowerCase(java.util.Locale.ROOT).contains(needle))continue;
                 TextView item=text("Аудиокнига · "+b.name,16,false);
                 item.setPadding(dp(10),dp(12),dp(10),dp(12));
@@ -1885,13 +1923,27 @@ public class MainActivity extends NavigationActivity {
                 results.addView(item);matches++;
             }
             if(matches==0)results.addView(text("Ничего не найдено",14,false));
+            if(matches>=100)results.addView(text("Показано 100 совпадений. Уточните запрос.",12,false));
         };
         query.addTextChangedListener(new android.text.TextWatcher(){
             public void beforeTextChanged(CharSequence t,int start,int count,int after){}
-            public void onTextChanged(CharSequence t,int start,int before,int count){render.run();}
+            public void onTextChanged(CharSequence t,int start,int before,int count){
+                searchHandler.removeCallbacks(render);searchHandler.postDelayed(render,200L);
+            }
             public void afterTextChanged(android.text.Editable e){}
         });
-        render.run();dialog.setOnShowListener(d->{query.requestFocus();
+        dialog.setOnDismissListener(d->searchHandler.removeCallbacks(render));
+        render.run();
+        new Thread(()->{
+            ArrayList<BookMeta> foundText=sortedLibraryBooks();
+            ArrayList<AudioLibrary.Book> foundAudio=sortedAudioBooks(AudioLibrary.load(this));
+            runOnUiThread(()->{
+                if(isFinishing()||isDestroyed())return;
+                textBooks.addAll(foundText);audioBooks.addAll(foundAudio);
+                librariesReady[0]=true;searchHandler.removeCallbacks(render);render.run();
+            });
+        },"library-search-index").start();
+        dialog.setOnShowListener(d->{query.requestFocus();
             dialog.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
             ((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).showSoftInput(query,android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
         });dialog.show();

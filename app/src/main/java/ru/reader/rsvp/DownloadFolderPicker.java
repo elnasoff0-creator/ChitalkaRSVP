@@ -15,6 +15,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /** Android 16 SAF: three independently persisted destination trees, never one parent tree. */
 final class DownloadFolderPicker {
@@ -24,6 +26,12 @@ final class DownloadFolderPicker {
     static final String MANGA="mangalib_search_tree",AUDIO="audiobook_search_tree";
     private static final String OLD_RANOBE="ranobelib_search_tree",OLD_EDGE="edge_audio_folder_uri_v150";
     private DownloadFolderPicker(){}
+    private static final ExecutorService VERIFY=Executors.newSingleThreadExecutor(r->{
+        Thread thread=new Thread(r,"PROChitalka-SAF-Picker");
+        thread.setPriority(Thread.NORM_PRIORITY-1);return thread;
+    });
+    interface PickResult { void completed(boolean success); }
+
     static String sourceKey(String provider){
         if(provider==null)return BOOK;
         String p=provider.toLowerCase(Locale.ROOT);
@@ -48,28 +56,44 @@ final class DownloadFolderPicker {
         }
         try{return text.isEmpty()?null:Uri.parse(text);}catch(Exception bad){return null;}
     }
-    static boolean available(Context context,String key){
+    /** Lightweight permission lookup; no provider file stats. */
+    static boolean granted(Context context,String key){
         Uri uri=selected(context,key);
         if(uri==null)return false;
+        try{for(android.content.UriPermission permission:context.getContentResolver().getPersistedUriPermissions())
+            if(uri.equals(permission.getUri())&&permission.isReadPermission()&&permission.isWritePermission())
+                return true;
+        }catch(Exception ignored){}
+        return false;
+    }
+    static boolean available(Context context,String key){
+        Uri uri=selected(context,key);
+        if(uri==null||!granted(context,key))return false;
         try{
-            boolean grant=false;
-            for(android.content.UriPermission permission:context.getContentResolver().getPersistedUriPermissions())
-                if(uri.equals(permission.getUri())&&permission.isReadPermission()&&permission.isWritePermission()){
-                    grant=true;break;
-                }
-            if(!grant)return false;
             DocumentFile tree=DocumentFile.fromTreeUri(context,uri);
             return tree!=null&&tree.exists()&&tree.isDirectory()&&tree.canWrite();
         }catch(Exception error){return false;}
     }
+    /** UI summary: never query a remote DocumentFile synchronously. */
     static String summary(Context c,String key){
         Uri uri=selected(c,key);
         if(uri==null)return "Не выбрана";
+        String folder="Выбранная папка";
         try{
-            DocumentFile folder=DocumentFile.fromTreeUri(c,uri);
-            String name=folder==null?null:folder.getName();
-            return (name==null||name.isEmpty()?"Выбранная папка":name)+(available(c,key)?" · доступна":" · нет доступа");
-        }catch(Exception error){return "Нет доступа к выбранной папке";}
+            String documentId=DocumentsContract.getTreeDocumentId(uri);
+            if(documentId!=null){
+                int slash=Math.max(documentId.lastIndexOf('/'),documentId.lastIndexOf(':'));
+                folder=slash<0?documentId:documentId.substring(slash+1);
+                if(folder.trim().isEmpty())folder="Корень накопителя";
+            }
+        }catch(Exception ignored){}
+        boolean granted=false;
+        try{for(android.content.UriPermission permission:c.getContentResolver().getPersistedUriPermissions())
+            if(uri.equals(permission.getUri())&&permission.isReadPermission()&&permission.isWritePermission()){
+                granted=true;break;
+            }
+        }catch(Exception ignored){}
+        return folder+(granted?" · разрешена":" · требуется доступ");
     }
     /** SAF tree display path: folder names only, never media filenames or raw content URIs.
      * The UI ellipsizes at START, leaving the important final directories readable.
@@ -180,21 +204,37 @@ final class DownloadFolderPicker {
         finally{if(probe!=null)probe.delete();}
     }
     static boolean receive(Activity activity,int request,int result,Intent data,int expected,String key){
+        return receive(activity,request,result,data,expected,key,null);
+    }
+    /** Never touch a slow SAF provider from Activity.onActivityResult(). */
+    static boolean receive(Activity activity,int request,int result,Intent data,int expected,String key,
+            PickResult callback){
         if(request!=expected)return false;
         if(result!=Activity.RESULT_OK||data==null||data.getData()==null)return true;
-        Uri uri=data.getData();
-        try{
-            int flags=data.getFlags()&(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-            if((flags&Intent.FLAG_GRANT_WRITE_URI_PERMISSION)==0)
-                throw new IOException("Android не выдал доступ на запись");
-            activity.getContentResolver().takePersistableUriPermission(uri,flags);
-            verifyWritable(activity,DocumentFile.fromTreeUri(activity,uri));
-            if(!activity.getSharedPreferences("reader",0).edit().putString(key,uri.toString())
-                    .remove("saf_last_error_"+key).commit())throw new IOException("Не сохранилось разрешение на папку");
-            Toast.makeText(activity,"Путь "+label(key)+" сохранён",Toast.LENGTH_LONG).show();
-        }catch(Exception ex){
-            Toast.makeText(activity,"Папка не выбрана: "+ex.getMessage(),Toast.LENGTH_LONG).show();
-        }
+        final Uri uri=data.getData();
+        final int flags=data.getFlags()&
+            (Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        final Context context=activity.getApplicationContext();
+        Toast.makeText(activity,"Проверка доступа к папке…",Toast.LENGTH_SHORT).show();
+        VERIFY.execute(()->{
+            String problem=null;
+            try{
+                if((flags&Intent.FLAG_GRANT_WRITE_URI_PERMISSION)==0)
+                    throw new IOException("Android не выдал доступ на запись");
+                context.getContentResolver().takePersistableUriPermission(uri,flags);
+                verifyWritable(context,DocumentFile.fromTreeUri(context,uri));
+                if(!context.getSharedPreferences("reader",0).edit().putString(key,uri.toString())
+                    .remove("saf_last_error_"+key).commit())
+                    throw new IOException("Не сохранилось разрешение на папку");
+            }catch(Exception ex){problem=ex.getMessage()==null?"Ошибка SAF":ex.getMessage();}
+            final String error=problem;
+            activity.runOnUiThread(()->{
+                if(activity.isFinishing()||activity.isDestroyed())return;
+                Toast.makeText(activity,error==null?"Путь "+label(key)+" сохранён":
+                    "Папка не выбрана: "+error,Toast.LENGTH_LONG).show();
+                if(callback!=null)callback.completed(error==null);
+            });
+        });
         return true;
     }
     static void recordIssue(Context context,String key,Exception error){

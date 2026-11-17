@@ -115,9 +115,9 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
     }
     @Override protected void onActivityResult(int req,int result,Intent data){
         super.onActivityResult(req,result,data);
-        if(EdgeFolderPicker.accept(this,req,result,data)){
-            int chapter=pendingFolderChapter;pendingFolderChapter=-2;
-            if(chapter!=-2&&EdgeFolderPicker.available(this))command(chapter);
+        if(req==EdgeFolderPicker.REQUEST){
+            final int chapter=pendingFolderChapter;pendingFolderChapter=-2;
+            EdgeFolderPicker.accept(this,req,result,data,ok->{if(ok&&chapter!=-2)command(chapter);});
         }
     }
     private void command(int chapter){command(chapter,false);}

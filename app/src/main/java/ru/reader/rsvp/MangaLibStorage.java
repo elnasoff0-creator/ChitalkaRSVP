@@ -29,11 +29,42 @@ final class MangaLibStorage {
         String id(){return slug+"|"+volume+"|"+number+"|"+branch;}
     }
     private static final String STORE="mangalib_jobs_v1";
-    static synchronized ArrayList<Job> jobs(Context ctx){ArrayList<Job> out=new ArrayList<>();try{
-        JSONArray a=new JSONArray(ctx.getSharedPreferences("reader",0).getString(STORE,"[]"));for(int i=0;i<a.length();i++){
-            JSONObject o=a.optJSONObject(i);if(o!=null)out.add(Job.read(o));
+    // In-memory page progress; disk checkpoints are batched and the image files
+    // themselves are durable. A pause/cancel always overrides transient progress.
+    private static final java.util.Map<String,Job> liveProgress=new java.util.HashMap<>();
+    static synchronized void progress(Context ctx,Job job){
+        liveProgress.put(job.id(),Job.read(job.json()));
+        DownloadChangeBus.publish("manga:"+job.slug.trim().toLowerCase(Locale.ROOT));
+    }
+
+    private static ArrayList<Job> persistedCache;
+    /** Once per process (or after an intentional mutation): no repeated JSON parsing
+     * on every page, pause probe, or manager refresh. Return defensive Job copies.
+     */
+    private static ArrayList<Job> persistedJobs(Context ctx){
+        if(persistedCache==null){
+            persistedCache=new ArrayList<>();
+            try{
+                JSONArray records=new JSONArray(ctx.getSharedPreferences("reader",0).getString(STORE,"[]"));
+                for(int i=0;i<records.length();i++){
+                    JSONObject row=records.optJSONObject(i);
+                    if(row!=null)persistedCache.add(Job.read(row));
+                }
+            }catch(Exception ignored){}
         }
-    }catch(Exception ignored){}return out;}
+        ArrayList<Job> result=new ArrayList<>();
+        for(Job item:persistedCache)result.add(Job.read(item.json()));
+        return result;
+    }
+    static synchronized ArrayList<Job> jobs(Context ctx){
+        ArrayList<Job> out=persistedJobs(ctx);
+        for(int i=0;i<out.size();i++){
+            Job durable=out.get(i),latest=liveProgress.get(durable.id());
+            if(latest!=null&&("running".equals(durable.status)||"queued".equals(durable.status)))
+                out.set(i,Job.read(latest.json()));
+        }
+        return out;
+    }
     static synchronized void put(Context ctx,Job job){
         File movedSource=null;
         // A downloaded chapter is published to the selected external folder after
@@ -52,11 +83,16 @@ final class MangaLibStorage {
                 }catch(Exception ex){android.util.Log.w("MangaLibStorage","SAF publish deferred; CBZ kept locally",ex);}
             }
         }
-        ArrayList<Job> all=jobs(ctx);boolean found=false;
-        for(int i=0;i<all.size();i++)if(all.get(i).id().equals(job.id())){all.set(i,job);found=true;break;}
-        if(!found)all.add(job);JSONArray a=new JSONArray();for(Job j:all)a.put(j.json());
-        if(!ctx.getSharedPreferences("reader",0).edit().putString(STORE,a.toString()).commit())
+        // Do not serialize a volatile progress overlay into unrelated jobs.
+        liveProgress.remove(job.id());
+        ArrayList<Job> all=persistedJobs(ctx);boolean found=false;
+        for(int i=0;i<all.size();i++)if(all.get(i).id().equals(job.id())){all.set(i,Job.read(job.json()));found=true;break;}
+        if(!found)all.add(Job.read(job.json()));JSONArray a=new JSONArray();for(Job j:all)a.put(j.json());
+        if(!ctx.getSharedPreferences("reader",0).edit().putString(STORE,a.toString()).commit()){
+            persistedCache=null;
             throw new IllegalStateException("Не удалось сохранить главу MangaLib");
+        }
+        persistedCache=all;
         if(movedSource!=null)movedSource.delete();
         DownloadChangeBus.publish("manga:"+job.slug.trim().toLowerCase(Locale.ROOT));
     }

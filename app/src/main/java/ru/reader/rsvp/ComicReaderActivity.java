@@ -73,7 +73,8 @@ public final class ComicReaderActivity extends NavigationActivity {
         int targetOrientation=savedOrientation==0?android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT:
             android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE;
         if(getRequestedOrientation()!=targetOrientation)setRequestedOrientation(targetOrientation);
-        chapters=ComicLibrary.chapters(this,comic);comic.chapterTotal=chapters.size();
+        // v174: SAF traversal/archive extraction must never delay the Activity first frame.
+        // chapter list and thumbnails are resolved after the WebView shell is shown.
         FrameLayout main=new FrameLayout(this);
         SharedPreferences prefs=getSharedPreferences("reader",0);
         int bg=prefs.getInt("bg",0xfff3e7d5), fg=prefs.getInt("fg",0xff30221e);
@@ -222,17 +223,28 @@ public final class ComicReaderActivity extends NavigationActivity {
         FrameLayout.LayoutParams bottomParams=new FrameLayout.LayoutParams(-1,dp(74),Gravity.BOTTOM);
         bottomParams.setMargins(dp(8),0,dp(8),dp(8));
         main.addView(footerOverlay,bottomParams);
-        loadChapter();
-        new Thread(()->{ComicLibrary.indexCounts(getApplicationContext(),comic);
+        web.loadData("<p style='padding:16px'>Подготовка оглавления и страниц…</p>",
+            "text/html","UTF-8");
+        final String openedUri=comic.uri;
+        new Thread(()->{
+            final ArrayList<ComicLibrary.Chapter> loaded=ComicLibrary.chapters(getApplicationContext(),comic);
             runOnUiThread(()->{
-                if(isFinishing()||comic==null)return;
-                ComicLibrary.Comic current=ComicLibrary.find(this,comic.uri);
-                if(current!=null&&!current.pageCounts.isEmpty()){
-                    comic.pageCounts=new ArrayList<>(current.pageCounts);
-                    updateChapterButton();
-                }
+                if(isFinishing()||isDestroyed()||comic==null||!openedUri.equals(comic.uri))return;
+                chapters=loaded;comic.chapterTotal=loaded.size();updateChapterButton();loadChapter();
+                // Counting all page assets is deferred until after the first chapter starts.
+                new Thread(()->{
+                    ComicLibrary.indexCounts(getApplicationContext(),comic);
+                    runOnUiThread(()->{
+                        if(isFinishing()||isDestroyed()||comic==null)return;
+                        ComicLibrary.Comic current=ComicLibrary.find(this,openedUri);
+                        if(current!=null&&!current.pageCounts.isEmpty()){
+                            comic.pageCounts=new ArrayList<>(current.pageCounts);
+                            updateChapterButton();
+                        }
+                    });
+                },"comic-index").start();
             });
-        },"comic-index").start();
+        },"comic-chapter-discovery").start();
     }
 
     /** ReaderActivity-like chrome: overlays leave the WebView viewport untouched. */

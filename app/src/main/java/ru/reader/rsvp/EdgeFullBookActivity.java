@@ -80,10 +80,10 @@ public final class EdgeFullBookActivity extends NavigationActivity {
     }
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
-        if(EdgeFolderPicker.accept(this,request,result,data)&&EdgeFolderPicker.available(this)){
-            String uri=pendingFolderBookUri,title=pendingFolderBookTitle;
+        if(request==EdgeFolderPicker.REQUEST){
+            final String uri=pendingFolderBookUri,title=pendingFolderBookTitle;
             pendingFolderBookUri="";pendingFolderBookTitle="";
-            if(!uri.isEmpty())choose(uri,title);
+            EdgeFolderPicker.accept(this,request,result,data,ok->{if(ok&&!uri.isEmpty())choose(uri,title);});
         }
     }
     private void choose(String uri,String title){

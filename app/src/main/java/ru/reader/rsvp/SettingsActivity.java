@@ -67,13 +67,11 @@ public class SettingsActivity extends NavigationActivity {
     }
     @Override protected void onActivityResult(int request,int result,android.content.Intent data){
         super.onActivityResult(request,result,data);
-        if(EdgeFolderPicker.accept(this,request,result,data)){
-            draw();return;
-        }
-        if(DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.BOOK_REQUEST,DownloadFolderPicker.BOOK)
-            ||DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.MANGA_REQUEST,DownloadFolderPicker.MANGA)
-            ||DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.AUDIO_REQUEST,DownloadFolderPicker.AUDIO)){
-            EdgeChapterArchive.invalidate();draw();return;
+        if(EdgeFolderPicker.accept(this,request,result,data,ok->{if(ok)draw();}))return;
+        if(DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.BOOK_REQUEST,DownloadFolderPicker.BOOK,ok->{if(ok){EdgeChapterArchive.invalidate();draw();}})
+            ||DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.MANGA_REQUEST,DownloadFolderPicker.MANGA,ok->{if(ok)draw();})
+            ||DownloadFolderPicker.receive(this,request,result,data,DownloadFolderPicker.AUDIO_REQUEST,DownloadFolderPicker.AUDIO,ok->{if(ok)draw();})){
+            return; // The async picker redraws only after successful SAF verification.
         }
         if(request!=12122||result!=RESULT_OK||data==null||data.getData()==null)return;
         try{String name=ReaderFontLibrary.importFont(this,data.getData());prefs.edit().putString(ReaderFontLibrary.KEY,name).apply();draw();}

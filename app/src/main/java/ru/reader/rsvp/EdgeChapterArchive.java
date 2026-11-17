@@ -38,7 +38,28 @@ final class EdgeChapterArchive {
     private static long bookCacheAt;
     private static final Map<String,ChapterSnapshot> chapterCache=new HashMap<>();
     private static final Map<String,Long> chapterCacheAt=new HashMap<>();
-    static synchronized void invalidate(){bookCache=null;bookCacheAt=0;chapterCache.clear();chapterCacheAt.clear();}
+    private static final class LazyChapter {
+        final JSONObject index;final java.util.Map<String,JSONObject> rows=new HashMap<>();
+        final java.util.Map<String,DocumentFile> files=new HashMap<>();
+        LazyChapter(JSONObject data,DocumentFile clips){
+            index=data;
+            JSONArray segments=data.optJSONArray("segments");
+            if(segments!=null)for(int i=0;i<segments.length();i++){
+                JSONObject item=segments.optJSONObject(i);
+                if(item!=null)rows.put(item.optString("key"),item);
+            }
+            if(clips!=null)for(DocumentFile file:clips.listFiles())
+                if(file!=null&&file.getName()!=null)files.put(file.getName(),file);
+        }
+    }
+    private static final java.util.HashSet<String> lazyMissingChapters=new java.util.HashSet<>();
+    private static final java.util.LinkedHashMap<String,LazyChapter> lazyChapters=
+        new java.util.LinkedHashMap<String,LazyChapter>(16,0.75f,true){
+            @Override protected boolean removeEldestEntry(java.util.Map.Entry<String,LazyChapter> entry){
+                return size()>12;
+            }
+        };
+    static synchronized void invalidate(){bookCache=null;bookCacheAt=0;chapterCache.clear();chapterCacheAt.clear();lazyChapters.clear();lazyMissingChapters.clear();}
     static final class ChapterSnapshot {
         final Map<Integer,Integer> states=new HashMap<>(); // 0=none,1=fragments,2=merged
         int state(int chapter){Integer v=states.get(chapter);return v==null?0:v;}
@@ -46,7 +67,7 @@ final class EdgeChapterArchive {
     static synchronized ChapterSnapshot snapshot(Context c,String uri,String title){
         String key=(EdgeFolderPicker.selected(c)==null?"":EdgeFolderPicker.selected(c).toString())+":"+uri;
         long now=android.os.SystemClock.elapsedRealtime();Long at=chapterCacheAt.get(key);
-        if(at!=null&&now-at<9000L&&chapterCache.containsKey(key))return chapterCache.get(key);
+        if(chapterCache.containsKey(key))return chapterCache.get(key);
         ChapterSnapshot result=new ChapterSnapshot();
         try{
             DocumentFile dir=chapters(c,uri,title,false);
@@ -584,6 +605,93 @@ final class EdgeChapterArchive {
             return restored;
         }catch(Exception ex){Log.w(TAG,"Could not restore SAF audio",ex);return 0;}
     }
+    /** Load one chapter's manifest and document map once for the nearby clip window.
+     * Immutable indices are invalidated on publish/delete/folder change, not by timer.
+     */
+    private static LazyChapter lazyChapter(Context ctx,String uri,String title,int chapterNumber)
+            throws Exception {
+        Uri tree=EdgeFolderPicker.selected(ctx);
+        String cacheKey=String.valueOf(tree)+"|"+uri+"|"+chapterNumber;
+        LazyChapter cached=lazyChapters.get(cacheKey);
+        if(cached!=null)return cached;
+        // A fresh book has no SAF chapter at all. Never traverse its folder for
+        // every single text fragment until a publish/invalidation event arrives.
+        if(lazyMissingChapters.contains(cacheKey))return null;
+        DocumentFile all=chapters(ctx,uri,title,false);
+        if(all==null){lazyMissingChapters.add(cacheKey);return null;}
+        String prefix=String.format(Locale.ROOT,"%03d - ",chapterNumber+1);
+        for(DocumentFile chapter:all.listFiles()){
+            if(chapter==null||!chapter.isDirectory()||chapter.getName()==null||
+                !chapter.getName().startsWith(prefix))continue;
+            DocumentFile manifest=chapter.findFile(INDEX_NAME);
+            if(manifest==null){lazyMissingChapters.add(cacheKey);return null;}
+            JSONObject index=new JSONObject(text(ctx,manifest,16*1024*1024));
+            if(!hash(BookUriMigration.legacy(ctx,uri)).equals(index.optString("bookId"))){
+                lazyMissingChapters.add(cacheKey);return null;
+            }
+            DocumentFile clips=index.optInt("version")==2?chapter.findFile("fragments"):null;
+            LazyChapter result=new LazyChapter(index,clips);
+            lazyChapters.put(cacheKey,result);
+            return result;
+        }
+        lazyMissingChapters.add(cacheKey);
+        return null;
+    }
+    /** v174: only a requested MP3+WordBoundary is restored. No full-book walk,
+     * no repeated SHA-256 reads for a fragment already present in the local cache.
+     * Called only on the chapter publisher executor, never on the main thread.
+     */
+    static synchronized boolean restoreClip(Context ctx,String uri,String title,File target,
+            int chapterNumber,String key){
+        if(key==null||!key.matches("[a-fA-F0-9]{64}"))return false;
+        File audio=new File(target,key+".mp3");
+        File words=new File(target,key+".mp3.words.json");
+        if(audio.isFile()&&audio.length()>1500&&words.isFile()&&words.length()>0)return true;
+        try{
+            if(!target.isDirectory()&&!target.mkdirs())return false;
+            LazyChapter chapter=lazyChapter(ctx,uri,title,chapterNumber);
+            if(chapter==null)return false;
+            JSONObject index=chapter.index;
+            if(index.optInt("version")==1){
+                // Old merged chapters remain readable via bounded chapter extraction.
+                restoreChapter(ctx,uri,title,target,chapterNumber);
+                return audio.isFile()&&audio.length()>1500;
+            }
+            if(index.optInt("version")!=2||!"fragments".equals(index.optString("mode")))return false;
+            JSONObject row=chapter.rows.get(key);
+            if(row==null)return false;
+            DocumentFile source=chapter.files.get(row.optString("audioFile",""));
+            DocumentFile timing=chapter.files.get(row.optString("wordsFile",""));
+            if(source==null||timing==null)return false;
+            if(!audio.isFile()||audio.length()!=source.length()){
+                File part=new File(target,key+".lazy.part");
+                try(InputStream in=ctx.getContentResolver().openInputStream(source.getUri());
+                    OutputStream out=new FileOutputStream(part)){
+                    if(in==null)throw new Exception("SAF MP3 недоступен");
+                    byte[] buffer=new byte[32768];int n;
+                    while((n=in.read(buffer))!=-1)out.write(buffer,0,n);
+                }
+                if(part.length()!=source.length()||
+                    !row.optString("sha256").equals(digest(part))){part.delete();return false;}
+                if(audio.exists()&&!audio.delete()){part.delete();return false;}
+                if(!part.renameTo(audio))throw new Exception("Не удалось сохранить MP3 фрагмент");
+            }
+            if(!words.isFile()||words.length()==0){
+                File temp=new File(target,key+".words.lazy.part");
+                try(InputStream in=ctx.getContentResolver().openInputStream(timing.getUri());
+                    OutputStream out=new FileOutputStream(temp)){
+                    if(in==null)throw new Exception("SAF WordBoundary недоступен");
+                    byte[] buffer=new byte[8192];int n;
+                    while((n=in.read(buffer))!=-1)out.write(buffer,0,n);
+                }
+                if(temp.length()==0){temp.delete();return false;}
+                if(words.exists()&&!words.delete()){temp.delete();return false;}
+                if(!temp.renameTo(words))throw new Exception("Не удалось сохранить WordBoundary");
+            }
+            return audio.isFile()&&audio.length()>1500&&words.isFile();
+        }catch(Exception problem){Log.w(TAG,"Lazy restore failed, chapter="+chapterNumber,problem);}
+        return false;
+    }
     /** Publish all complete chapter fragments without auto-merging. SAF is authoritative. */
     static synchronized int publishFragments(Context ctx,String uri,String title,File localMp3,
         JSONArray queue,BookChapterIndex toc,ArrayList<Integer> wordStarts){
@@ -747,7 +855,7 @@ final class EdgeChapterArchive {
     /** Find persisted SAF chapters even if Android has cleared our temporary cache. */
     static synchronized ArrayList<SavedBook> savedBooks(Context ctx){
         long now=android.os.SystemClock.elapsedRealtime();
-        if(bookCache!=null&&now-bookCacheAt<15000L)return new ArrayList<>(bookCache);
+        if(bookCache!=null)return new ArrayList<>(bookCache);
         ArrayList<SavedBook> result=new ArrayList<>();
         if(!EdgeFolderPicker.available(ctx))return result;
         try{

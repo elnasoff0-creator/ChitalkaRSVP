@@ -20,9 +20,15 @@ public final class EdgeFolderPicker {
             .setNegativeButton("Отмена",null).setPositiveButton("Выбрать папку Book",(d,w)->choose(activity)).show();
     }
     public static void browse(Activity activity){choose(activity);}
+    interface Result {void completed(boolean success);}
     public static boolean accept(Activity activity,int request,int result,Intent data){
-        if(!DownloadFolderPicker.receive(activity,request,result,data,REQUEST,DownloadFolderPicker.BOOK))return false;
-        if(result==Activity.RESULT_OK&&available(activity))EdgeChapterArchive.invalidate();
-        return true;
+        return accept(activity,request,result,data,null);
+    }
+    public static boolean accept(Activity activity,int request,int result,Intent data,Result callback){
+        return DownloadFolderPicker.receive(activity,request,result,data,REQUEST,
+            DownloadFolderPicker.BOOK,ok->{
+                if(ok)EdgeChapterArchive.invalidate();
+                if(callback!=null)callback.completed(ok);
+            });
     }
 }

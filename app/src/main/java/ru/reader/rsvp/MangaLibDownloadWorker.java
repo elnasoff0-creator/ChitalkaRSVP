@@ -159,6 +159,7 @@ public final class MangaLibDownloadWorker extends Worker {
             List<MangaLibApi.Page> pages=api.pages(job.slug,chapter);
             job.total=pages.size();job.done=0;job.bytes=0;
             MangaLibStorage.put(ctx,job);
+            long lastCheckpoint=android.os.SystemClock.elapsedRealtime();
             for(int i=1;i<=pages.size();i++){
                 if(stoppedOrPaused(id))return halted(job);
                 File image=cachedPage(stage,i);
@@ -171,7 +172,12 @@ public final class MangaLibDownloadWorker extends Worker {
                 job.done=i;job.bytes+=image.length();
                 // A concurrent Pause must not be overwritten by a normal progress update.
                 if(stoppedOrPaused(id))return halted(job);
-                MangaLibStorage.put(ctx,job);
+                // One durable checkpoint per 8 pages or 2.5 seconds, not on every image.
+                // Every page is already durable in stageDir; a process restart rescans it.
+                long now=android.os.SystemClock.elapsedRealtime();
+                if(i%8==0||i==pages.size()||now-lastCheckpoint>=2500L){
+                    MangaLibStorage.put(ctx,job);lastCheckpoint=now;
+                }else MangaLibStorage.progress(ctx,job);
                 if(i%5==1)try{setForegroundAsync(foreground(job));}catch(Exception ignored){}
                 setProgressAsync(new Data.Builder().putInt("done",job.done)
                     .putInt("total",job.total).putLong("bytes",job.bytes).build());

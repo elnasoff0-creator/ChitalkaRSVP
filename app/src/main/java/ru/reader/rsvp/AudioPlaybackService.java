@@ -148,6 +148,18 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     private int segment=0, ttsPosition=0, duration=0;
     private final ArrayList<Long> chapterDurations=new ArrayList<>();
     private long durationGeneration=0;
+    private long[] durationPrefix=new long[]{0};
+    private long cachedTotalDuration=0;
+    private boolean allDurationsReady=false;
+    private void rebuildDurationPrefix(){
+        durationPrefix=new long[chapterDurations.size()+1];allDurationsReady=!chapterDurations.isEmpty();
+        for(int n=0;n<chapterDurations.size();n++){
+            Long ms=chapterDurations.get(n);
+            if(ms==null||ms<=0)allDurationsReady=false;
+            durationPrefix[n+1]=durationPrefix[n]+Math.max(0,ms==null?0:ms);
+        }
+        cachedTotalDuration=allDurationsReady?durationPrefix[chapterDurations.size()]:0;
+    }
     private final ArrayList<Integer> chunkWordPositions=new ArrayList<>();
     private final ArrayList<Integer> ttsChunkCharPositions=new ArrayList<>();
     private int ttsWordCount=0;
@@ -332,6 +344,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         final long generation=++durationGeneration;
         chapterDurations.clear();
         for(int k=0;k<copy.size();k++)chapterDurations.add(0L);
+        rebuildDurationPrefix();
         new Thread(()->{
             ArrayList<Long> result=new ArrayList<>();
             for(String path:copy){
@@ -346,11 +359,12 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
             }
             handler.post(()->{
                 if(generation!=durationGeneration||!currentId.equals(bookId)||ttsMode)return;
-                chapterDurations.clear();chapterDurations.addAll(result);notifyState();
+                chapterDurations.clear();chapterDurations.addAll(result);
+                rebuildDurationPrefix();notifyState();
             });
         },"audiobook-duration-scan").start();
     }
-    public long getTotalDuration(){long sum=0;for(Long ms:chapterDurations){if(ms==null||ms<=0)return 0;sum+=ms;}return sum;}
+    public long getTotalDuration(){return cachedTotalDuration;}
     public long getChapterSleepRemainingMillis(int chapterCount){
         if(ttsMode||playlist.isEmpty())return -1;
         long sum=Math.max(0,getDuration()-getPosition());
@@ -360,7 +374,10 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         }
         return sum;
     }
-    public long getTotalPosition(){long position=Math.max(0,getPosition());for(int n=0;n<Math.min(segment,chapterDurations.size());n++)position+=chapterDurations.get(n);return position;}
+    public long getTotalPosition(){
+        int at=Math.max(0,Math.min(segment,durationPrefix.length-1));
+        return Math.max(0,getPosition())+durationPrefix[at];
+    }
     public void seekTotal(long target){
         if(ttsMode)return;
         long total=getTotalDuration();if(total<=0)return;
@@ -389,7 +406,9 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
             player.setOnPreparedListener(mp->{
                 if(mp!=player||preparedChapter!=segment)return;
                 duration=mp.getDuration();
-                if(segment>=0&&segment<chapterDurations.size()&&duration>0)chapterDurations.set(segment,(long)duration);
+                if(segment>=0&&segment<chapterDurations.size()&&duration>0){
+                    chapterDurations.set(segment,(long)duration);rebuildDurationPrefix();
+                }
                 long desired=fromChapterEnd?duration+requestedOffset:requestedOffset;
                 if(pendingRelativeWhilePreparing!=0){desired+=pendingRelativeWhilePreparing;pendingRelativeWhilePreparing=0;}
                 if(pendingChapterFraction>0){desired=(long)(pendingChapterFraction*duration);pendingChapterFraction=0;}
