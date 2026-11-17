@@ -333,13 +333,19 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
             if(job!=null)for(EdgeFullBookStore.Task t:job.tasks)tasks.put(t.chapter,t);
             ArrayList<String> chapterNames=edgeChapters(item);
             EdgeChapterArchive.ChapterSnapshot published=EdgeChapterArchive.snapshot(this,item.bookUri,item.title);
+            int dictionaryRevision=EdgeDictionaryStore.get(this).revisionNumber();
             for(int chapter=0;chapter<chapterNames.size();chapter++){
                 EdgeFullBookStore.Task task=tasks.get(chapter);
                 int saved=published.state(chapter);
                 int percentage=task!=null&&task.total>0?(int)Math.min(99,100L*task.done/task.total):0;
                 String status=task==null?"Не подготовлено":task.status;
                 if(saved>0&&(task==null||!EdgeFullBookStore.RUNNING.equals(task.status))) {
-                    percentage=100;status=saved==2?"Единый MP3 готов":"MP3-фрагменты сохранены";
+                    if(published.dictionaryRevision(chapter)!=dictionaryRevision){
+                        // Unknown or older dictionary revision: verify on demand.
+                        percentage=99;status="Требуется проверка словаря";
+                    }else{
+                        percentage=100;status=saved==2?"Единый MP3 готов":"MP3-фрагменты сохранены";
+                    }
                 } else if(task!=null&&EdgeFullBookStore.DONE.equals(task.status))percentage=99;
                 FileRow row=new FileRow("edge:"+chapter,chapterNames.get(chapter),status,
                     percentage,0,chapter,task);

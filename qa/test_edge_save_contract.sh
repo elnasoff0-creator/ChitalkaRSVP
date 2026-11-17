@@ -8,8 +8,8 @@ python3 - "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeStreamingService.java" "$T
 import re, sys
 from pathlib import Path
 source = Path(sys.argv[1]).read_text(encoding="utf-8")
-pattern = r'try\{saved=EdgeSpeechFiles\.saveMapped\(job\.folder,clip\.key,clip\.text,mp3,metadata,job\.speech\.aligned\(metadata\)\);.*?\}'
-match = re.search(pattern, source)
+pattern = r'try\{saved=EdgeSpeechFiles\.saveMapped\(job\.folder,\s*job\.speech\.cacheKey\(voiceNameAtRequest,rateAtRequest\),clip\.text,\s*mp3,metadata,job\.speech\.aligned\(metadata\)\);.*?\}'
+match = re.search(pattern, source, re.S)
 if not match:
     raise SystemExit("FAIL: EdgeSpeechFiles.saveMapped completion handler not found")
 statement = match.group(0)
@@ -17,13 +17,14 @@ code = '''package ru.reader.rsvp;
 import java.io.File;
 import java.util.List;
 class TestEdgeSaveContract {
-  static class Speech { List<EdgeWordTimings.Word> aligned(List<EdgeWordTimings.Boundary> a){return java.util.Collections.emptyList();} }
+  static class Speech { String cacheKey(String voice,String rate){return "stable-key";} List<EdgeWordTimings.Word> aligned(List<EdgeWordTimings.Boundary> a){return java.util.Collections.emptyList();} }
   static class Job { File folder; Speech speech=new Speech(); }
   static class Clip { String key, text; }
   static class EdgeAudioManager { static void invalidate(File folder) {} }
   static void save(Job job,Clip clip,byte[] mp3,List<EdgeWordTimings.Boundary> metadata){
     File saved=null;
     String failed=null;
+    String voiceNameAtRequest="v",rateAtRequest="r";
     %s
     catch(Exception e){failed=e.getMessage();}
   }
@@ -47,4 +48,4 @@ javac -encoding UTF-8 -d "$TMP/classes" \
   "$TMP/src/ru/reader/rsvp/TestEdgeSaveContract.java" \
   "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeAudioFormat.java" \
   "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeSpeechFiles.java"
-echo "PASS: EdgeStreamingService save expression matches File return type"
+echo "PASS: stable request identity used for EdgeStreamingService cache commit"

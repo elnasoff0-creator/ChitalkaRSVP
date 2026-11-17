@@ -239,14 +239,16 @@ final class EdgeFullBookStore {
         if(result!=null&&first!=null){result.chapter=first.chapter;result.forceReload=first.force;}
         return result;
     }
-    static synchronized void planMissing(Job job,BookChapterIndex toc,EdgeChapterArchive.ChapterSnapshot saved){
+    static synchronized void planMissing(Job job,BookChapterIndex toc,
+            EdgeChapterArchive.ChapterSnapshot saved,int dictionaryRevision){
         Job current=read(job.directory);if(current==null)return;
         Task plan=findTask(current,PLAN);if(plan!=null)plan.status=DONE;
         if(!current.autoContinue){save(current);return;}
         int size=toc.size();
         for(int chapter=0;chapter<Math.max(1,size);chapter++){
             int number=size==0?-1:chapter;
-            if(number>=0&&saved.state(number)>0){
+            if(number>=0&&saved.state(number)>0 &&
+                saved.dictionaryRevision(number)==dictionaryRevision){
                 Task ready=findTask(current,number);
                 if(ready!=null&&!ready.force&&(QUEUED.equals(ready.status)||PAUSED.equals(ready.status))){
                     ready.status=DONE;ready.error="";

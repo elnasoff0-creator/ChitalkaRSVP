@@ -444,8 +444,14 @@ public class ReaderActivity extends NavigationActivity {
                     else if(which==(mode==TTS?4:3))openEdgeDictionary();
                     else if(which==(mode==TTS?5:4))showBookSearch();
                     else if(which==(mode==TTS?6:5))EdgeFolderPicker.show(this);
-                    else if(!docUri.isEmpty())startActivity(new Intent(this,EdgeChapterDownloadsActivity.class)
-                        .putExtra("book_uri",docUri).putExtra("book_title",title));});
+                    else if(!docUri.isEmpty()){
+                        DownloadsRepository.showEdge(this,docUri);
+                        startActivity(new Intent(this,UnifiedDownloadManagerActivity.class)
+                            .putExtra(UnifiedDownloadManagerActivity.EXTRA_ID,"edge:"+docUri)
+                            .putExtra(UnifiedDownloadManagerActivity.EXTRA_TITLE,title)
+                            .putExtra(UnifiedDownloadManagerActivity.EXTRA_COVER,docUri)
+                            .putExtra(UnifiedDownloadManagerActivity.EXTRA_TYPE,DownloadsRepository.EDGE));
+                    }});
         });
         // Toolbar overflow follows the same configured ordinary button surface as the
         // other Reader toolbar controls. List-item ellipses remain frameless.
@@ -1857,8 +1863,8 @@ public class ReaderActivity extends NavigationActivity {
         }
         if(req==12212&&result==RESULT_OK&&data!=null&&ttsStreamer!=null&&words.length>0){
             int selected=map.clamp(data.getIntExtra("dictionary_selected_word_index",index));
-            // New speech revision makes every affected clip's key change; old audio
-            // remains a historical cache, never reused for a modified dictionary.
+            // Reconcile the current spoken sentence first and verify the chapter in background.
+            // Unchanged speech keys retain their cached MP3.
             ttsStreamer.refreshSelectedClip(selected);
             cachedTimingKey="";cachedTimingWords=java.util.Collections.emptyList();
             if(ttsPendingPlay&&ttsPlayer!=null){

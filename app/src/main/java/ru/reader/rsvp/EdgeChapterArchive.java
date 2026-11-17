@@ -66,7 +66,9 @@ final class EdgeChapterArchive {
     static synchronized void invalidate(){cacheEpoch++;bookCache=null;bookCacheAt=0;chapterCache.clear();chapterCacheAt.clear();lazyChapters.clear();lazyMissingChapters.clear();locatedBooks.clear();}
     static final class ChapterSnapshot {
         final Map<Integer,Integer> states=new HashMap<>(); // 0=none,1=fragments,2=merged
+        final Map<Integer,Integer> dictionaryRevisions=new HashMap<>();
         int state(int chapter){Integer v=states.get(chapter);return v==null?0:v;}
+        int dictionaryRevision(int chapter){Integer v=dictionaryRevisions.get(chapter);return v==null?-1:v;}
     }
     /** SAF snapshot I/O must not monopolize the global archive monitor.
      * A striped book lock serializes concurrent readers of the same index while
@@ -95,7 +97,10 @@ final class EdgeChapterArchive {
                     if(number<0)continue;
                     boolean merged=mergedPresent(c,chapter,row);
                     boolean clips=fragmentsPresent(chapter,row);
-                    if(merged||clips)result.states.put(number,merged?2:1);
+                    if(merged||clips){
+                        result.states.put(number,merged?2:1);
+                        result.dictionaryRevisions.put(number,row.optInt("dictionaryRevision",-1));
+                    }
                 }
             }catch(Exception error){Log.w(TAG,"SAF chapter snapshot error",error);}
             synchronized(EdgeChapterArchive.class){
@@ -758,6 +763,10 @@ final class EdgeChapterArchive {
                     previousIndex=old;
                     if(fingerprint.equals(old.optString("fingerprint"))&&
                         "fragments".equals(old.optString("mode"))&&fragmentsPresent(dir,old)){
+                        if(old.optInt("dictionaryRevision",-1)!=EdgeDictionaryStore.get(ctx).revisionNumber()){
+                            old.put("dictionaryRevision",EdgeDictionaryStore.get(ctx).revisionNumber());
+                            writeManifest(ctx,dir,old);
+                        }
                         count++;continue;
                     }
                     if(fingerprint.equals(old.optString("fingerprint"))&&
@@ -787,6 +796,7 @@ final class EdgeChapterArchive {
                     JSONObject index=new JSONObject();index.put("version",2);
                     index.put("mode","fragments");index.put("chapter",chapter+1);
                     index.put("bookId",hash(BookUriMigration.legacy(ctx,uri)));index.put("fingerprint",fingerprint);
+                    index.put("dictionaryRevision",EdgeDictionaryStore.get(ctx).revisionNumber());
                     index.put("segments",segments);
                     writeManifest(ctx,dir,index);
                     count++;

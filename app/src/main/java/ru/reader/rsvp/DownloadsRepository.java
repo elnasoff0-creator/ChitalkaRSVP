@@ -173,6 +173,20 @@ final class DownloadsRepository {
     static Item loadOne(Context ctx,String id){
         if(id==null||id.isEmpty())return null;
         for(Item item:load(ctx,null,id))if(id.equals(item.id))return item;
+        // ReaderActivity may navigate here before any audio has been generated.
+        // The selected book is real, not a fabricated download job.
+        if(id.startsWith("edge:")&&id.length()>5){
+            String uri=id.substring(5);
+            String title=ctx.getSharedPreferences("reader",0)
+                .getString("book_title:"+uri,"Книга");
+            Item item=new Item();item.type=EDGE;item.id=id;item.bookUri=uri;
+            item.title=title;item.sourceTitle=title;item.cover=uri;
+            item.provider="Edge TTS";item.format="MP3";item.status="Не подготовлено";
+            item.description="Озвучка ещё не загружена";
+            item.folder=new File(EdgeBookStorage.bookFolder(ctx,uri,title),"EdgeTTS");
+            item.fullJob=EdgeFullBookStore.find(ctx,uri,title);
+            return item;
+        }
         return null;
     }
     private static ArrayList<Item> load(Context ctx,EdgeStreamingService live,String onlyId){

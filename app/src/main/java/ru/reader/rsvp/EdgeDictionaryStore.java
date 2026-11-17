@@ -19,6 +19,8 @@ final class EdgeDictionaryStore extends SQLiteOpenHelper {
     private static final String DB="edge_dictionary_v132.db";
     private static final String MIGRATED="edge_dictionary_sqlite_migrated_v132";
     private static final String REVISION="edge_dictionary_revision_v132";
+    static final String ACTION_CHANGED="ru.reader.rsvp.edge.DICTIONARY_CHANGED";
+    static final String EXTRA_REVISION="dictionary_revision";
     private final Context app;
     private static EdgeDictionaryStore shared;
     static synchronized EdgeDictionaryStore get(Context context){
@@ -108,7 +110,14 @@ final class EdgeDictionaryStore extends SQLiteOpenHelper {
         if(!p.edit().putInt(REVISION,p.getInt(REVISION,0)+1).commit())
             throw new IllegalStateException("Failed to update dictionary revision");
         invalidate();
+        android.content.Intent event=new android.content.Intent(ACTION_CHANGED);
+        event.setPackage(app.getPackageName());
+        event.putExtra(EXTRA_REVISION,p.getInt(REVISION,0));
+        app.sendBroadcast(event);
+        ReaderDiagnosticLog.event("DICTIONARY_CHANGED","revision="+p.getInt(REVISION,0));
     }
+    /** Cheap revision probe for background producers; does not query SQLite. */
+    int revisionNumber(){return prefs().getInt(REVISION,0);}
     int count(int kind){ensureMigrated();try(Cursor c=getReadableDatabase().rawQuery(
         "SELECT count(*) FROM rules WHERE kind=?",new String[]{String.valueOf(kind)})){
         return c.moveToFirst()?c.getInt(0):0;
@@ -151,6 +160,14 @@ final class EdgeDictionaryStore extends SQLiteOpenHelper {
         SQLiteDatabase db=getWritableDatabase();
         int order;
         if(id>0){
+            try(Cursor unchanged=db.rawQuery("SELECT kind,pattern,context,replacement,is_regex FROM rules WHERE id=?",
+                    new String[]{String.valueOf(id)})){
+                if(unchanged.moveToFirst() && unchanged.getInt(0)==kind &&
+                    unchanged.getString(1).equals(pattern) &&
+                    unchanged.getString(2).equals(regex?"":context) &&
+                    unchanged.getString(3).equals(replacement) &&
+                    (unchanged.getInt(4)!=0)==regex)return;
+            }
             try(Cursor c=db.rawQuery("SELECT ordinal FROM rules WHERE id=?",new String[]{String.valueOf(id)})){
                 if(!c.moveToFirst())throw new IllegalArgumentException("Правило уже удалено");
                 order=c.getInt(0);

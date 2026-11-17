@@ -199,7 +199,8 @@ public final class EdgeFullBookService extends Service {
                 BookLoader.Book book=prepared(job).book;
                 EdgeChapterArchive.invalidate(); // avoid using a stale 9-second SAF snapshot
                 EdgeChapterArchive.ChapterSnapshot snapshot=EdgeChapterArchive.snapshot(this,job.uri,job.title);
-                EdgeFullBookStore.planMissing(job,book.chapters,snapshot);
+                EdgeFullBookStore.planMissing(job,book.chapters,snapshot,
+                    EdgeDictionaryStore.get(this).revisionNumber());
             }catch(Exception error){
                 EdgeFullBookStore.progress(job,0,0,"Не удалось открыть оглавление: "+error.getMessage());
                 EdgeFullBookStore.status(job,EdgeFullBookStore.FAILED);
@@ -264,6 +265,14 @@ public final class EdgeFullBookService extends Service {
             EdgeFullBookStore.progress(job,completed,eligible,null);
             for(int i=0;i<count&&!destroyed;){
                 if(!EdgeFullBookStore.running(job))return;
+                // If the user edits pronunciation during a full-book download,
+                // do not publish a chapter built from the previous dictionary.
+                if(EdgeDictionaryStore.get(this).revisionNumber()!=speechOptions.revision){
+                    lastPrepared=null;
+                    EdgeFullBookStore.status(job,EdgeFullBookStore.QUEUED);
+                    ReaderDiagnosticLog.event("REFRESH_CANCELLED","download chapter dictionary revision changed");
+                    return;
+                }
                 JSONObject o=index.getJSONObject(i);String key=o.getString("key");
                 if(only!=null && (o.optInt("end",0)<=chapterStart || o.optInt("start",0)>=chapterEnd)){
                     i++;continue; // never synthesize unselected chapters
@@ -289,6 +298,11 @@ public final class EdgeFullBookService extends Service {
                         }
                         Result result=synthesize(o.getString("text"),job,speechOptions);
                         if(!EdgeFullBookStore.running(job))return;
+                        if(EdgeDictionaryStore.get(this).revisionNumber()!=speechOptions.revision){
+                            lastPrepared=null;
+                            EdgeFullBookStore.status(job,EdgeFullBookStore.QUEUED);
+                            return;
+                        }
                         if(result.data!=null&&(EdgeAudioFormat.identify(result.data,result.data.length)!=null && ".mp3".equals(EdgeAudioFormat.identify(result.data,result.data.length).extension))){
                             try{
                                 File tmp=new File(job.mp3Folder(),key+".full.part");
@@ -349,6 +363,9 @@ public final class EdgeFullBookService extends Service {
             // Commit the original MP3 fragments and WordBoundary timings without merging.
             // One MP3 per CHAPTER is created only during explicit audiobook export.
             if(!EdgeFullBookStore.running(job))return;
+            if(EdgeDictionaryStore.get(this).revisionNumber()!=speechOptions.revision){
+                lastPrepared=null;EdgeFullBookStore.status(job,EdgeFullBookStore.QUEUED);return;
+            }
             EdgeFullBookStore.status(job,EdgeFullBookStore.SAVING);
             int exported=EdgeChapterArchive.publishFragmentsOne(this,job.uri,job.title,job.mp3Folder(),
                 index,book.chapters,wordOffsets,job.chapter);
