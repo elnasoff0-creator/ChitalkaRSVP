@@ -21,6 +21,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     public static AudioPlaybackService instance;
     private MediaPlayer player;
     private TextToSpeech tts;
+    private boolean fallbackSession, fallbackDefaultAttempted;
     private MediaPlayer ttsAudio;
     private int localGeneration=0,localPlayingIndex=-1;
     private final java.util.concurrent.ConcurrentHashMap<Integer,java.util.List<int[]>> localWordFrames=new java.util.concurrent.ConcurrentHashMap<>();
@@ -253,6 +254,15 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
               preparedSwitch=new Intent(intent);break;
           }
           preparedSwitch=null;
+          String overrideEngine=intent.getStringExtra("fallback_engine_override");
+          fallbackSession=overrideEngine!=null;
+          fallbackDefaultAttempted=overrideEngine==null||overrideEngine.isEmpty();
+          if(overrideEngine!=null){
+              if(tts!=null){try{tts.stop();tts.shutdown();}catch(Exception ignored){}}
+              ttsReady=false;
+              tts=overrideEngine.isEmpty()?new TextToSpeech(this,this):
+                  new TextToSpeech(this,this,overrideEngine);
+          }
           if(ttsSleepClock!=null)ttsSleepClock.reload();
           ttsSleepEndWord=getSharedPreferences("reader",0).getInt(PlaybackSleepCountdown.TTS_CHAPTER_KEY,-1);
           interruptedByExternalAudio=false;if(active)saveProgress(); if(tts!=null)tts.stop();resetLocalSession(); title="Загрузка книги…";currentBook=intent.getStringExtra("bookUri");ChteicoStore.openAudio(this,currentBook);final String source=currentBook;
@@ -648,7 +658,20 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         sentenceHistory.observe(getTtsAnchorWord());
         playLocalFile(ttsPosition);saveProgress();
     }
-    @Override public void onInit(int status){ttsReady=status==TextToSpeech.SUCCESS;if(ttsReady){
+    @Override public void onInit(int status){
+        if(status!=TextToSpeech.SUCCESS&&fallbackSession&&!fallbackDefaultAttempted){
+            fallbackDefaultAttempted=true;
+            // A configured secondary engine can disappear after package removal.
+            // Try the system default once; never enter an initialization loop.
+            if(tts!=null)try{tts.shutdown();}catch(Exception ignored){}
+            tts=new TextToSpeech(this,this);return;
+        }
+        ttsReady=status==TextToSpeech.SUCCESS;
+        if(!ttsReady&&fallbackSession){
+            ReaderDiagnosticLog.event("EDGE","fallback_tts_unavailable");
+            paused=true;ttsStartRequested=false;notifyState();
+        }
+        if(ttsReady){
         tts.setLanguage(new Locale("ru"));
         String name=getSharedPreferences("reader",0).getString("tts_voice","");
         if(!name.isEmpty()&&tts.getVoices()!=null)for(android.speech.tts.Voice v:tts.getVoices()){
@@ -765,6 +788,12 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         try{return player.getCurrentPosition();}catch(Exception e){return preparedPosition;}
     }
     public int getDuration(){return ttsMode?chunks.size():duration;}
+    public boolean isWaitingForAudio(){
+        if(!active)return false;
+        if(ttsMode)return ttsStartRequested||(!paused && !localPending.isEmpty());
+        return playWhenPrepared || playAfterSeek || (!paused && (!playerReady || seekPending));
+    }
+    public boolean isBackupEdgeSession(){return fallbackSession&&ttsMode&&active;}
     public boolean isPaused(){return paused;} public boolean isTtsMode(){return ttsMode;} public float getSpeed(){return speed;} public long getSleepRemainingMillis(){PlaybackSleepCountdown clock=ttsMode?ttsSleepClock:audiobookSleepClock;return clock==null?0:clock.remainingMillis();}public String getTitle(){return title;}public String getTtsBookUri(){return ttsMode?currentBook:"";}public int getSegment(){return segment;} public int getChapterCount(){return playlist.size();} public String getChapterName(int n){return n>=0&&n<chapterNames.size()?chapterNames.get(n):"Глава "+(n+1);} public String getBookId(){return bookId;} public String getCurrentText(){return ttsMode&&ttsPosition>=0&&ttsPosition<chunks.size()?chunks.get(ttsPosition):"";}
     private void saveProgress(){android.content.SharedPreferences.Editor e=getSharedPreferences("reader",0).edit();if(ttsMode){e.putInt("tts_pos:"+currentBook,ttsPosition);saveTtsReadingPosition(e);}else{e.putInt("audio_pos:"+bookId,getPosition()).putInt("audio_segment:"+bookId,segment).putString("audio_current_title",title).putInt("audio_progress:"+bookId,audioProgressPercent()).putFloat("audio_speed",speed);}e.putBoolean("audio_tts",ttsMode).apply();}
     private void notifyState(){updateMediaSession();Intent i=new Intent(ACTION_STATE);i.setPackage(getPackageName());sendBroadcast(i);if(active)postNotification();}
@@ -809,6 +838,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
                 |PlaybackState.ACTION_PLAY_PAUSE|PlaybackState.ACTION_STOP
                 |PlaybackState.ACTION_SKIP_TO_NEXT|PlaybackState.ACTION_SKIP_TO_PREVIOUS;
         int state = !active?PlaybackState.STATE_STOPPED:
+                isWaitingForAudio()?PlaybackState.STATE_BUFFERING:
                 paused?PlaybackState.STATE_PAUSED:PlaybackState.STATE_PLAYING;
         long total=ttsMode?(long)ttsWordCount*60000L/Math.max(100,TtsWpm.get(this))
             :Math.max(0,getDuration());

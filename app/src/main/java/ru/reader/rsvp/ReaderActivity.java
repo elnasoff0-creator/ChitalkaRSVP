@@ -1277,8 +1277,13 @@ public class ReaderActivity extends NavigationActivity {
     private void updatePlayButton(){
         boolean active=mode==TTS?ttsCurrentlyPlaying():playing;
         if(mode==TTS){lastRenderedTtsPlayState=active;playStateRendered=true;}
-        if(playIcon!=null)playIcon.setImageResource(active?R.drawable.ic_pause:R.drawable.ic_play);
-        if(floatingPlayIcon!=null)floatingPlayIcon.setImageResource(active?R.drawable.ic_pause:R.drawable.ic_play);
+        AudioPlaybackService local=AudioPlaybackService.instance;
+        boolean waiting=mode==TTS && (
+            (!ttsLocal&&!backupTtsForThisBook()&&ttsPlayer!=null
+                &&ttsPlayer.playRequested()&&!ttsPlayer.isPlaying())
+            || (local!=null&&(ttsLocal||backupTtsForThisBook())&&local.isWaitingForAudio()));
+        LoadingPlayIcon.show(playIcon,waiting,active?R.drawable.ic_pause:R.drawable.ic_play);
+        LoadingPlayIcon.show(floatingPlayIcon,waiting,active?R.drawable.ic_pause:R.drawable.ic_play);
     }
     private void togglePlayback(){
         chteicoTouch();
@@ -2011,8 +2016,14 @@ public class ReaderActivity extends NavigationActivity {
         return ttsPendingPlay||(ttsPlayer!=null&&ttsPlayer.playRequested()
             &&("edge:"+docUri).equals(ttsPlayer.currentBookId()));
     }
+    private boolean backupTtsForThisBook(){
+        AudioPlaybackService service=AudioPlaybackService.instance;
+        return mode==TTS&&service!=null&&service.isBackupEdgeSession()
+            &&docUri!=null&&docUri.equals(service.getTtsBookUri());
+    }
     private boolean ttsCurrentlyPlaying(){
-        if(ttsLocal){AudioPlaybackService s=AudioPlaybackService.instance;
+        if(ttsLocal||backupTtsForThisBook()){
+            AudioPlaybackService s=AudioPlaybackService.instance;
             return s!=null&&s.isTtsMode()&&!s.isPaused();}
         return ttsPendingPlay||ttsPlayer!=null&&ttsPlayer.playRequested()
             &&("edge:"+docUri).equals(ttsPlayer.currentBookId());
@@ -2029,7 +2040,8 @@ public class ReaderActivity extends NavigationActivity {
         // Rewind is owned by the playback services, not the on-screen button.
         // This also covers Bluetooth/headset and MediaSession commands.
         if(!ttsCurrentlyPlaying())returnToActiveWord();
-        if(ttsLocal){ReaderTtsController.localPauseOrResume(this);
+        if(ttsLocal||backupTtsForThisBook()){
+            ReaderTtsController.localPauseOrResume(this);
         }else if(ttsPlayer!=null){
             boolean thisBook=("edge:"+docUri).equals(ttsPlayer.currentBookId());
             if(thisBook&&ttsPlayer.playRequested())ttsPlayer.pause();
@@ -2050,7 +2062,7 @@ public class ReaderActivity extends NavigationActivity {
         ReaderDiagnosticLog.event("NAVIGATION","USER_SELECT chapter="+chapterForWord(index)+" word="+index+" epoch="+navigationEpoch);
         prefs.edit().putInt("tts_word:"+docUri,index).apply();
         boolean autoplay=prefs.getBoolean("tts_tap_autoplay",false);
-        if(ttsLocal){
+        if(ttsLocal||backupTtsForThisBook()){
             ReaderTtsController.localSelect(this,index);
         }else if(ttsStreamer!=null){
             boolean audible=ttsPlayer!=null&&ttsPlayer.isPlaying();

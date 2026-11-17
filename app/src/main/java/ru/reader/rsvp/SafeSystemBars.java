@@ -45,6 +45,14 @@ public final class SafeSystemBars {
         WindowCompat.setDecorFitsSystemWindows(window, false);
         View content = activity.findViewById(android.R.id.content);
         if (content == null) return;
+        // ReaderActivity and ComicReaderActivity also invoke install explicitly.
+        // Never capture already inset-adjusted padding as the new base padding.
+        if (Boolean.TRUE.equals(content.getTag(R.id.safe_system_bars_installed))) {
+            matchBackground(activity, activity.getSharedPreferences("reader", 0)
+                .getInt("bg", 0xfff3e7d5));
+            return;
+        }
+        content.setTag(R.id.safe_system_bars_installed, Boolean.TRUE);
         final int left = content.getPaddingLeft(), top = content.getPaddingTop();
         final int right = content.getPaddingRight(), bottom = content.getPaddingBottom();
         ViewCompat.setOnApplyWindowInsetsListener(content, (view, insets) -> {

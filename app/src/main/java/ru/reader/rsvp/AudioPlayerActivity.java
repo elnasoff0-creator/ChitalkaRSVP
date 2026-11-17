@@ -532,10 +532,13 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
     void refresh(){
         AudioPlaybackService service=AudioPlaybackService.instance;
         if(title==null||playIcon==null)return;
-        if(service==null){if(lastPlayImage!=R.drawable.ic_play){playIcon.setImageResource(R.drawable.ic_play);playIcon.setColorFilter(Color.WHITE);lastPlayImage=R.drawable.ic_play;}return;}
+        if(service==null){LoadingPlayIcon.show(playIcon,false,R.drawable.ic_play);
+            playIcon.setColorFilter(Color.WHITE);lastPlayImage=R.drawable.ic_play;return;}
         boolean selectedPlaying=selected!=null&&!service.isTtsMode()&&selected.id.equals(service.getBookId());
         int desiredPlayIcon=!selectedPlaying||service.isPaused()?R.drawable.ic_play:R.drawable.ic_pause;
-        if(lastPlayImage!=desiredPlayIcon){playIcon.setImageResource(desiredPlayIcon);
+        boolean waiting=selectedPlaying&&service.isWaitingForAudio();
+        LoadingPlayIcon.show(playIcon,waiting,desiredPlayIcon);
+        if(lastPlayImage!=desiredPlayIcon){
             playIcon.setColorFilter(Color.WHITE);lastPlayImage=desiredPlayIcon;}
         if(selected!=null&&!selectedPlaying){
             // A different audible source keeps its own timeline; this screen shows

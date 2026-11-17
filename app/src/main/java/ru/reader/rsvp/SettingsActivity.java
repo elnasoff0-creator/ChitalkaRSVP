@@ -127,7 +127,7 @@ public class SettingsActivity extends NavigationActivity {
     void draw(){
         // Retain the scroll position of the tab being replaced, including after a live preference change.
         if(settingsScroll!=null&&shownTab>=0)sectionScroll[shownTab]=settingsScroll.getScrollY();
-        root=col();root.setBackgroundColor(bg);root.setPadding(dp(13),dp(24),dp(13),dp(9));setContentView(root);SafeSystemBars.matchBackground(this,bg);
+        root=col();root.setBackgroundColor(bg);root.setPadding(dp(13),dp(4),dp(13),dp(9));setContentView(root);SafeSystemBars.matchBackground(this,bg);
         String[] names={"Общие","Чтение","Аудио","Онлайн","Чтейцо"};
         AppToolbar.add(this,root,"Настройки · "+names[Math.max(0,Math.min(currentTab,names.length-1))]);
         final int[] icons={R.drawable.ic_tab_appearance,R.drawable.ic_book,R.drawable.ic_tab_music,
@@ -135,7 +135,7 @@ public class SettingsActivity extends NavigationActivity {
         android.widget.HorizontalScrollView tabs=BrowserTabs.iconStrip(this,names,icons,currentTab,index->{
             if(index!=currentTab)drawSelectedTab(index);
         });
-        LinearLayout.LayoutParams tabsLp=new LinearLayout.LayoutParams(-1,dp(52));tabsLp.topMargin=dp(12);root.addView(tabs,tabsLp);
+        LinearLayout.LayoutParams tabsLp=new LinearLayout.LayoutParams(-1,dp(56));tabsLp.topMargin=dp(6);root.addView(tabs,tabsLp);
         settingsScroll=new ScrollView(this);settingsScroll.setFillViewport(true);
         root.addView(settingsScroll,new LinearLayout.LayoutParams(-1,0,1));
         list=BrowserTabs.panel(this);settingsScroll.addView(list,new ScrollView.LayoutParams(-1,-2));
@@ -148,8 +148,8 @@ public class SettingsActivity extends NavigationActivity {
         if(currentTab==4){drawChteicoSettings();return;}
         header("Редактирование меню");
         settingSwitch("Редактирование долгим нажатием",MenuEditPrefs.LONG_PRESS,false);
-        addHelpIcon("Редактирование меню");gap(12);
-        preview=new TextView(this);preview.setText("Предпросмотр текста");preview.setGravity(Gravity.CENTER);preview.setLineSpacing(dp(5),1.18f);preview.setPadding(dp(19),dp(21),dp(19),dp(21));LinearLayout.LayoutParams previewLp=new LinearLayout.LayoutParams(-1,dp(90));previewLp.topMargin=dp(15);list.addView(preview,previewLp);applyPreview();
+        addHelpIcon("Редактирование меню");gap(4);
+        preview=new TextView(this);preview.setText("Предпросмотр текста");preview.setGravity(Gravity.CENTER);preview.setLineSpacing(dp(5),1.18f);preview.setPadding(dp(19),dp(21),dp(19),dp(21));LinearLayout.LayoutParams previewLp=new LinearLayout.LayoutParams(-1,dp(90));previewLp.topMargin=dp(6);list.addView(preview,previewLp);applyPreview();
         header("Шрифт");
         list.addView(action(ReaderFontLibrary.choice(this,prefs)+"   ▾",this::fontDialog));
         gap(9);
@@ -193,7 +193,7 @@ public class SettingsActivity extends NavigationActivity {
         help.setPadding(dp(10),dp(10),dp(10),dp(10));
         help.setContentDescription("Справка: "+section);
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(dp(40),dp(40));
-        lp.topMargin=dp(5);lp.bottomMargin=dp(7);lp.gravity=Gravity.END;
+        lp.topMargin=0;lp.bottomMargin=0;lp.gravity=Gravity.END;
         list.addView(help,lp);
         help.setOnClickListener(v->startActivity(new Intent(this,ActivityInfo.class).putExtra("help_section",section)));
     }
@@ -653,6 +653,7 @@ public class SettingsActivity extends NavigationActivity {
         sw.setChecked(prefs.getBoolean(key,initial));
         sw.setOnCheckedChangeListener((v,on)->{
             prefs.edit().putBoolean(key,on).apply();
+            if("edge_backup_tts_enabled".equals(key))draw();
         });
         LinearLayout row=audioCard(icon,title,null,sw,()->sw.setChecked(!sw.isChecked()));
         addInlineHelp(row,title,info);
@@ -681,6 +682,14 @@ public class SettingsActivity extends NavigationActivity {
         audioLink(R.drawable.ic_audio_timer,"Продолжение TTS после паузы",
             "",TtsResumeChoice.summary(this),this::ttsResumeChoiceDialog);
         audioLink(R.drawable.ic_tts_engine,"Локальный голос","Установленные русские голоса Samsung, Google и других движков","Выбрать",()->startActivity(new Intent(this,TtsVoiceActivity.class)));
+        audioToggle(R.drawable.ic_tts_engine,"Резервный способ озвучивания",
+            "При недоступности Edge TTS автоматически продолжать через установленный TTS-движок",
+            "edge_backup_tts_enabled",false);
+        if(prefs.getBoolean("edge_backup_tts_enabled",false)){
+            audioLink(R.drawable.ic_tts_engine,"Резервный TTS-движок",
+                "Системный либо установленный движок для автоматического переключения",
+                backupTtsSummary(),this::backupTtsEngineDialog);
+        }
         audioToggle(R.drawable.ic_tts_autoplay,"Автовоспроизведение при касании","Начинать озвучку сразу после выбора предложения","tts_tap_autoplay",false);
         audioLink(R.drawable.ic_edge_dictionary,"Словарь MS Edge",
             "", "",()->startActivity(new android.content.Intent(this,EdgeDictionaryActivity.class)));
@@ -694,6 +703,40 @@ public class SettingsActivity extends NavigationActivity {
         audioLink(R.drawable.ic_rewind_10s,"Перемотка секундами","Интервал шагов плеера",AudioPlaybackPrefs.seekSeconds(this)+" сек",()->seekStepDialog(false));
         audioLink(R.drawable.ic_rewind_1m,"Перемотка минутами","Интервал шагов плеера",AudioPlaybackPrefs.seekMinutes(this)+" мин",()->seekStepDialog(true));
         gap(18);
+    }
+    private String backupTtsSummary(){
+        String value=prefs.getString("edge_backup_tts_engine","");
+        if(value.isEmpty())return "Системный Android TTS";
+        android.content.pm.PackageManager manager=getPackageManager();
+        try{return manager.getApplicationLabel(manager.getApplicationInfo(value,0)).toString();}
+        catch(Exception ignored){return value;}
+    }
+    private void backupTtsEngineDialog(){
+        // Android's installed engine list is available from a temporary TTS instance.
+        final android.speech.tts.TextToSpeech[] holder=new android.speech.tts.TextToSpeech[1];
+        holder[0]=new android.speech.tts.TextToSpeech(this,status->{
+            runOnUiThread(()->{
+                if(isFinishing()||isDestroyed()){
+                    if(holder[0]!=null)holder[0].shutdown();return;
+                }
+                java.util.ArrayList<String> labels=new java.util.ArrayList<>();
+                java.util.ArrayList<String> ids=new java.util.ArrayList<>();
+                labels.add("Системный Android TTS");ids.add("");
+                if(holder[0]!=null&&status==android.speech.tts.TextToSpeech.SUCCESS){
+                    for(android.speech.tts.TextToSpeech.EngineInfo engine:holder[0].getEngines()){
+                        if(engine!=null&&!ids.contains(engine.name)){
+                            labels.add(engine.label+" ("+engine.name+")");ids.add(engine.name);
+                        }
+                    }
+                }
+                if(holder[0]!=null){holder[0].shutdown();holder[0]=null;}
+                new SwipeDialogs.Builder(this).setTitle("Резервный TTS-движок")
+                    .setItems(labels.toArray(new String[0]),(dialog,which)->{
+                        prefs.edit().putString("edge_backup_tts_engine",ids.get(which)).apply();
+                        draw();
+                    }).setNegativeButton("Отмена",null).show();
+            });
+        });
     }
     private void edgeDictionaryDialog(){
         // The old 8 KB SharedPreferences text editor would overwrite migrated rules.

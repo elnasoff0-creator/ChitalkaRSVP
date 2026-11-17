@@ -193,6 +193,33 @@ public final class EdgeStreamingService extends Service {
     // Set before failing a live buffer so Media3's generic I/O error cannot
     // accidentally surface the same HTTP 429 as a user-visible Toast.
     private volatile boolean lastHttp429;
+    private boolean backupTtsActivated;
+    private void startBackupTtsForFailedClip(Clip failed){
+        if(backupTtsActivated||!active||failed==null||player==null||!player.playRequested())return;
+        android.content.SharedPreferences pref=getSharedPreferences("reader",0);
+        if(!pref.getBoolean("edge_backup_tts_enabled",false)||bookUri==null||bookUri.isEmpty())return;
+        int playingStart=player.currentStartWord();
+        if(playingStart>=0&&playingStart!=failed.start)return;
+        // On the first stream Media3 may not yet have a current track.
+        if(playingStart<0&&(anchorWord<failed.start||anchorWord>=failed.end))return;
+        backupTtsActivated=true;
+        final int word=Math.max(0,failed.start);
+        String fallbackEngine=pref.getString("edge_backup_tts_engine","");
+        ReaderDiagnosticLog.event("EDGE","fallback_local_tts start="+word);
+        // Pause Edge before handing off the same sentence to Android TTS.
+        player.pause();
+        try{
+            startService(new Intent(this,AudioPlaybackService.class)
+                .setAction(AudioPlaybackService.TTS).putExtra("bookUri",bookUri)
+                .putExtra("word_index",word).putExtra("auto_on_selection",true)
+                .putExtra("fallback_engine_override",fallbackEngine));
+        }catch(Exception ex){
+            backupTtsActivated=false;
+            error="Не удалось запустить резервный TTS";
+            changed();
+        }
+    }
+
     private BookChapterIndex chapters=BookChapterIndex.empty();
     // Only requested clips are ever recovered from SAF. One attempt per key/revision.
     private final java.util.HashSet<String> lazyAttempted=new java.util.HashSet<>();
@@ -332,6 +359,7 @@ public final class EdgeStreamingService extends Service {
             String uri=intent.getStringExtra(EXTRA_URI);
             if(uri!=null&&!uri.isEmpty())openBook(uri,intent.getIntExtra(EXTRA_ANCHOR,0));
             active=true;
+            backupTtsActivated=false;
             if(uri!=null&&!uri.isEmpty())DownloadsRepository.showEdge(this,uri);
             pump();
         }else if(intent!=null && ACTION_PREFETCH.equals(intent.getAction()) && !active){
@@ -1127,6 +1155,8 @@ public final class EdgeStreamingService extends Service {
                                 error="";
                             }else error="Edge TTS: "+problem;
                             persist();changed();
+                            if(!problem.contains("прерван ради активного чтения"))
+                                startBackupTtsForFailedClip(clip);
                             if(idlePrefetchRequested&&!active){idlePrefetchRequested=false;stopSelf();}
                         });
                         return;

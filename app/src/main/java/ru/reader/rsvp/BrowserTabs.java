@@ -40,15 +40,16 @@ final class BrowserTabs {
         HorizontalScrollView scroll=new HorizontalScrollView(context);
         scroll.setHorizontalScrollBarEnabled(false);scroll.setFillViewport(true);
         scroll.setClipToPadding(false);
-        scroll.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(context,52)));
+        final int height=icons==null?52:56;
+        scroll.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(context,height)));
         LinearLayout row=new LinearLayout(context);row.setOrientation(LinearLayout.HORIZONTAL);row.setGravity(Gravity.BOTTOM);
         // MATCH_PARENT is essential for weighted equal-width tabs inside HorizontalScrollView.
         scroll.addView(row,new HorizontalScrollView.LayoutParams(
-            equal?ViewGroup.LayoutParams.MATCH_PARENT:ViewGroup.LayoutParams.WRAP_CONTENT,dp(context,52)));
+            equal?ViewGroup.LayoutParams.MATCH_PARENT:ViewGroup.LayoutParams.WRAP_CONTENT,dp(context,height)));
         for(int i=0;i<names.length;i++){
             final int index=i;final boolean chosen=i==active;
             LinearLayout tab=new LinearLayout(context);tab.setGravity(Gravity.CENTER);tab.setOrientation(LinearLayout.VERTICAL);
-            tab.setPadding(dp(context,6),dp(context,5),dp(context,6),0);
+            tab.setPadding(dp(context,6),dp(context,3),dp(context,6),0);
             int passive=UiColorScheme.blend(bg,panel,.48f);
             tab.setBackground(top(context,chosen?panel:passive,14));
             tab.setContentDescription(names[i]);tab.setSelected(chosen);tab.setClickable(true);
@@ -64,14 +65,14 @@ final class BrowserTabs {
                 image.setContentDescription(names[i]);image.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
                 LinearLayout.LayoutParams iconParams=new LinearLayout.LayoutParams(dp(context,25),dp(context,25));
                 iconParams.gravity=Gravity.CENTER;tab.addView(image,iconParams);
-                View filler=new View(context);tab.addView(filler,new LinearLayout.LayoutParams(1,0,1));
+                // Center the icon within all available height; never use a weighted trailing spacer.
             }
             View indicator=new View(context);indicator.setBackgroundColor(chosen?accent:Color.TRANSPARENT);
             LinearLayout.LayoutParams underline=new LinearLayout.LayoutParams(-1,dp(context,3));
             underline.leftMargin=dp(context,8);underline.rightMargin=dp(context,8);tab.addView(indicator,underline);
             int tabWidth=icons!=null?dp(context,66):dp(context,92);
-            LinearLayout.LayoutParams lp=equal?new LinearLayout.LayoutParams(0,dp(context,49),1f)
-                :new LinearLayout.LayoutParams(tabWidth,dp(context,49));
+            LinearLayout.LayoutParams lp=equal?new LinearLayout.LayoutParams(0,dp(context,height),1f)
+                :new LinearLayout.LayoutParams(tabWidth,dp(context,height));
             if(i>0)lp.leftMargin=dp(context,3);
             row.addView(tab,lp);
             tab.setOnClickListener(v->{if(index!=active)clicked.accept(index);});

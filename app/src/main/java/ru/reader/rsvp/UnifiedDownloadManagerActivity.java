@@ -53,6 +53,7 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
     private int bg,panel,ink,muted,accent,paletteSignature;
     private TextView bookTitle,metadata,percent,selectionLabel;
     private ImageView artwork,playPause,allIcon;
+    private boolean allPreparationPending;
     private ProgressBar progress;
     private LinearLayout tabContainer,tabContent,infoList,selectionBar;
     private RecyclerView filesView;
@@ -136,7 +137,7 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         ink=UiColorScheme.foreground(this);muted=UiColorScheme.muted(this);
         paletteSignature=UiColorScheme.paletteSignature(this);
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(bg);
-        root.setPadding(dp(13),dp(24),dp(13),dp(9));setContentView(root);SafeSystemBars.matchBackground(this,bg);
+        root.setPadding(dp(13),dp(4),dp(13),dp(9));setContentView(root);SafeSystemBars.matchBackground(this,bg);
         AppToolbar.add(this,root,"Менеджер");
         LinearLayout hero=new LinearLayout(this);hero.setGravity(Gravity.CENTER_VERTICAL);hero.setPadding(dp(11),dp(11),dp(11),dp(11));
         hero.setBackground(rounded(panel,17));place(root,hero,12);
@@ -407,14 +408,19 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         if(i.ready)value=100;value=Math.max(0,Math.min(100,value));
         progress.setProgress(value);percent.setText(value+"%");
         boolean showPause=pendingDesiredRunning!=null?pendingDesiredRunning:i.running;
-        playPause.setImageResource(showPause?R.drawable.ic_pause:R.drawable.ic_play);
+        boolean waitingForCommand="STARTING".equals(pendingCommandState)
+            ||"PAUSING".equals(pendingCommandState);
+        LoadingPlayIcon.show(playPause,waitingForCommand,
+            showPause?R.drawable.ic_pause:R.drawable.ic_play);
         String caption="STARTING".equals(pendingCommandState)?"Запуск загрузки":
             "PAUSING".equals(pendingCommandState)?"Остановка загрузки":
             showPause?"Пауза загрузки":"Продолжить загрузку";
         playPause.setContentDescription(caption);playPause.setTooltipText(caption);
         playPause.setEnabled(!i.ready);playPause.setAlpha(i.ready?.35f:1f);
         boolean remaining=!i.ready||i.total==0||i.done<i.total;
-        allIcon.setEnabled(remaining);allIcon.setAlpha(remaining?1f:.35f);
+        LoadingPlayIcon.show(allIcon,allPreparationPending,R.drawable.ic_autoload);
+        allIcon.setEnabled(remaining&&!allPreparationPending);
+        allIcon.setAlpha(remaining?1f:.35f);
     }
     private static void append(StringBuilder b,String value){if(value!=null&&!value.trim().isEmpty()){
         if(b.length()>0)b.append(" · ");b.append(value.trim());}}
@@ -599,12 +605,18 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
             try{message=task.call();}catch(Exception error){message="Ошибка: "+error.getMessage();}
             final String result=message;
             main.post(()->{if(isFinishing()||isDestroyed())return;
+                if(allPreparationPending){allPreparationPending=false;refreshHeader();}
                 if(result!=null&&!result.isEmpty())notifyUser(result);
                 reload();});
         });
     }
     private void downloadAll(DownloadsRepository.Item i){
-        if(DownloadsRepository.EDGE.equals(i.type)){enqueueEdge(i,-1,false);return;}
+        if(allPreparationPending)return;
+        if(DownloadsRepository.EDGE.equals(i.type)){
+            // Service takes ownership immediately; its progress is displayed below.
+            enqueueEdge(i,-1,false);return;
+        }
+        allPreparationPending=true;refreshHeader();
         if(DownloadsRepository.AUDIO.equals(i.type)){
             workerAction(()->{
                 BookImportManager.Job job=null;
@@ -657,8 +669,10 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         if(DownloadsRepository.LINK.equals(i.type)){
             launch(new Intent(this,DirectLinkDownloadService.class).setAction(DirectLinkDownloadService.START)
                 .putExtra(DirectLinkDownloadService.EXTRA_ID,i.id.replaceFirst("^link:","")),true);
+            allPreparationPending=false;refreshHeader();
             notifyUser("Очередь файлов возобновлена");return;
         }
+        allPreparationPending=false;refreshHeader();
     }
     private void openContent(DownloadsRepository.Item i){
         Intent next=null;
