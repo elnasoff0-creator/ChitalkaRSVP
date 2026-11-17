@@ -41,12 +41,13 @@ public final class LinkDownloadDetailsActivity extends NavigationActivity {
     private final java.util.ArrayList<TextView> fileStates=new java.util.ArrayList<>();
     private final java.util.ArrayList<TextView> fileErrors=new java.util.ArrayList<>();
     private final java.util.ArrayList<Button> fileOpen=new java.util.ArrayList<>();
+    // Initialize the runnable before the listener that references it.
+    private final Runnable refreshRow=this::render;
     private final DownloadChangeBus.Listener downloadListener=changed->{
         if(visible&&("link:"+id).equals(changed)){
             handler.removeCallbacks(refreshRow);handler.postDelayed(refreshRow,160L);
         }
     };
-    private final Runnable refreshRow=this::render;
     private void command(String cmd){
         Intent intent=new Intent(this,DirectLinkDownloadService.class).setAction(cmd)
             .putExtra(DirectLinkDownloadService.EXTRA_ID,id);

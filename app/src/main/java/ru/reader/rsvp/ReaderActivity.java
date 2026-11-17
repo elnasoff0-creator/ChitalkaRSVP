@@ -1618,12 +1618,12 @@ public class ReaderActivity extends NavigationActivity {
                     if(searchWorker.isShutdown())return;
                     searchWorker.execute(()->{
                         String haystack=textSnapshot.toLowerCase(java.util.Locale.ROOT);
-                        int offset=0,count=0;
+                        int offset=0,matchCount=0;
                         ArrayList<Integer> found=new ArrayList<>();
                         ArrayList<String> snippets=new ArrayList<>();
                         while(!Thread.currentThread().isInterrupted()&&
                                 (offset=haystack.indexOf(needle,offset))>=0){
-                            count++;
+                            matchCount++;
                             if(found.size()<100){
                                 found.add(offset);
                                 snippets.add(textSnapshot.substring(Math.max(0,offset-48),
@@ -1632,7 +1632,7 @@ public class ReaderActivity extends NavigationActivity {
                             }
                             offset+=Math.max(1,needle.length());
                         }
-                        final int total=count;
+                        final int total=matchCount;
                         searchHandler.post(()->{
                             if(request!=generation.get()||searchWorker.isShutdown()||!dialog.isShowing())return;
                             matches.replace(found,snippets);

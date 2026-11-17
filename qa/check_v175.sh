@@ -4,6 +4,7 @@ cd "$(dirname "$0")/.."
 python3 -m unittest qa.test_v175_contracts -v
 python3 qa/test_v175_coverage.py
 python3 qa/test_v172_archive_typecheck.py
+python3 qa/test_v175_javac_hotfix.py
 sh qa/check_java_syntax.sh
 python3 - <<'PYS'
 from pathlib import Path
