@@ -32,8 +32,24 @@ public final class AudioLibrary {
             for(Entry e:tracks){book.uris.add(DocumentsContract.buildDocumentUriUsingTree(tree,e.docId).toString());book.chapters.add(clean(e.name));}result.add(book);}
         if(recursive)for(Entry e:subfolders)traverse(ctx,tree,e.docId,e.name,true,result,depth+1);
     }
-    static int naturalCompare(String a,String b){java.util.regex.Matcher x=java.util.regex.Pattern.compile("\\d+|\\D+").matcher(a.toLowerCase(Locale.ROOT)),y=java.util.regex.Pattern.compile("\\d+|\\D+").matcher(b.toLowerCase(Locale.ROOT));while(x.find()){if(!y.find())return 1;String p=x.group(),q=y.group();if(p.matches("\\d+")&&q.matches("\\d+")){int n=Long.compare(parseNum(p),parseNum(q));if(n!=0)return n;}else{int n=p.compareTo(q);if(n!=0)return n;}}return y.find()?-1:0;}
+    private static final java.util.regex.Pattern NATURAL_PARTS=java.util.regex.Pattern.compile("\\d+|\\D+");
+    static int naturalCompare(String a,String b){java.util.regex.Matcher x=NATURAL_PARTS.matcher(a.toLowerCase(Locale.ROOT)),y=NATURAL_PARTS.matcher(b.toLowerCase(Locale.ROOT));while(x.find()){if(!y.find())return 1;String p=x.group(),q=y.group();if(Character.isDigit(p.charAt(0))&&Character.isDigit(q.charAt(0))){int n=Long.compare(parseNum(p),parseNum(q));if(n!=0)return n;}else{int n=p.compareTo(q);if(n!=0)return n;}}return y.find()?-1:0;}
     static long parseNum(String s){try{return Long.parseLong(s);}catch(Exception e){return 0;}}
     public static ArrayList<Book> importTree(Context ctx,Uri tree,boolean recursive)throws Exception{ArrayList<Book> found=new ArrayList<>();String root=DocumentsContract.getTreeDocumentId(tree);String title="Аудиокнига";try(Cursor c=ctx.getContentResolver().query(DocumentsContract.buildDocumentUriUsingTree(tree,root),new String[]{DocumentsContract.Document.COLUMN_DISPLAY_NAME},null,null,null)){if(c!=null&&c.moveToFirst())title=c.getString(0);}traverse(ctx,tree,root,title,recursive,found,0);return found;}
-    public static void merge(Context ctx,ArrayList<Book> found){ArrayList<Book> all=load(ctx);for(Book b:found){boolean replaced=false;for(int i=0;i<all.size();i++)if(all.get(i).id.equals(b.id)){if(all.get(i).customName){b.name=all.get(i).name;b.customName=true;}if(b.coverUri.isEmpty())b.coverUri=all.get(i).coverUri;all.set(i,b);replaced=true;break;}if(!replaced)all.add(b);}save(ctx,all);}
+    public static void merge(Context ctx,ArrayList<Book> found){
+        ArrayList<Book> all=load(ctx);
+        java.util.Map<String,Integer> positions=new java.util.HashMap<>();
+        for(int i=0;i<all.size();i++)positions.put(all.get(i).id,i);
+        for(Book b:found){
+            Integer at=positions.get(b.id);
+            if(at==null){positions.put(b.id,all.size());all.add(b);}
+            else{
+                Book before=all.get(at);
+                if(before.customName){b.name=before.name;b.customName=true;}
+                if(b.coverUri.isEmpty())b.coverUri=before.coverUri;
+                all.set(at,b);
+            }
+        }
+        save(ctx,all);
+    }
 }

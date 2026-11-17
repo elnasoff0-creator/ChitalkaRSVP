@@ -18,15 +18,39 @@ import java.util.Map;
 /** Background, bounded first-page thumbnails. No network access; safely loads SAF or offline CBZ. */
 final class ComicCovers {
     private ComicCovers(){}
-    private static final int MEMORY_LIMIT=24;
-    private static final Map<String,Bitmap> MEMORY=new LinkedHashMap<String,Bitmap>(32,.75f,true){
-        @Override protected boolean removeEldestEntry(Map.Entry<String,Bitmap> e){return size()>MEMORY_LIMIT;}
-    };
-    private static synchronized Bitmap fromMemory(String key){return MEMORY.get(key);}
-    private static synchronized void toMemory(String key,Bitmap bmp){if(bmp!=null)MEMORY.put(key,bmp);}
+    private static final long MAX_MEMORY_BYTES=12L*1024*1024;
+    private static final long DISK_FRESH_MS=10L*60*1000;
+    private static long memoryBytes;
+    private static final Map<String,Bitmap> MEMORY=new LinkedHashMap<>(24,.75f,true);
+    private static synchronized Bitmap fromMemory(String key){
+        Bitmap bitmap=MEMORY.get(key);
+        if(bitmap!=null&&bitmap.isRecycled()){
+            memoryBytes-=bitmap.getByteCount();MEMORY.remove(key);return null;
+        }
+        return bitmap;
+    }
+    private static synchronized void toMemory(String key,Bitmap bitmap){
+        if(bitmap==null)return;
+        Bitmap old=MEMORY.remove(key);
+        if(old!=null&&!old.isRecycled())memoryBytes-=old.getByteCount();
+        MEMORY.put(key,bitmap);memoryBytes+=bitmap.getByteCount();
+        java.util.Iterator<Map.Entry<String,Bitmap>> it=MEMORY.entrySet().iterator();
+        while(memoryBytes>MAX_MEMORY_BYTES&&MEMORY.size()>1&&it.hasNext()){
+            Bitmap victim=it.next().getValue();
+            if(victim!=null&&!victim.isRecycled())memoryBytes-=victim.getByteCount();
+            it.remove(); // Do not recycle: a visible ImageView may own the bitmap.
+        }
+    }
     private static synchronized void clearMemory(String prefix){
-        java.util.Iterator<String> it=MEMORY.keySet().iterator();
-        while(it.hasNext())if(it.next().startsWith(prefix))it.remove();
+        java.util.Iterator<Map.Entry<String,Bitmap>> it=MEMORY.entrySet().iterator();
+        while(it.hasNext()){
+            Map.Entry<String,Bitmap> row=it.next();
+            if(row.getKey().startsWith(prefix)){
+                Bitmap bmp=row.getValue();
+                if(bmp!=null&&!bmp.isRecycled())memoryBytes-=bmp.getByteCount();
+                it.remove();
+            }
+        }
     }
     private static String signature(ComicLibrary.Chapter ch){
         if(ch==null)return "none";
@@ -52,19 +76,23 @@ final class ComicCovers {
         return coverFromChapter(c,comic,index);
     }
     static Bitmap continueCover(Context c,ComicLibrary.Comic comic) throws Exception {
-        ArrayList<ComicLibrary.Chapter> chapters=ComicLibrary.chapters(c,comic);
-        ComicLibrary.Chapter current=chapters.isEmpty()?null:chapters.get(Math.max(0,Math.min(comic.chapter,chapters.size()-1)));
-        boolean archive=current!=null&&(current.type.equals("mangalib_cbz")||current.type.equals("archive_tree")||current.type.equals("archive"));
+        boolean archive=ComicLibrary.isArchiveKind(comic.kind)||"archive_folder".equals(comic.kind)
+            ||comic.uri.toLowerCase(java.util.Locale.ROOT).contains("mangalib");
         return coverFromChapter(c,comic,archive?comic.chapter:0);
     }
     static Bitmap coverFromChapter(Context c,ComicLibrary.Comic comic,int chapterIndex) throws Exception {
+        String key=comic.uri+"#"+chapterIndex;
+        Bitmap resident=fromMemory(key);if(resident!=null)return resident;
+        File cached=cached(c,key);
+        // Avoid expensive ComicLibrary.chapters()/SAF before consulting the disk cache.
+        if(cached.isFile()&&cached.length()>0&&
+                System.currentTimeMillis()-cached.lastModified()<DISK_FRESH_MS){
+            Bitmap found=decodeFile(cached.getAbsolutePath());
+            if(found!=null){toMemory(key,found);return found;}
+        }
         ArrayList<ComicLibrary.Chapter> chapters=ComicLibrary.chapters(c,comic);
         if(chapters.isEmpty())return null;
         ComicLibrary.Chapter chapter=chapters.get(Math.max(0,Math.min(chapterIndex,chapters.size()-1)));
-        String key=comic.uri+"#"+chapterIndex+"#"+signature(chapter);
-        Bitmap resident=fromMemory(key);if(resident!=null&&!resident.isRecycled())return resident;
-        File cached=cached(c,key);
-        if(cached.isFile()&&cached.length()>0){Bitmap found=BitmapFactory.decodeFile(cached.getAbsolutePath());if(found!=null){toMemory(key,found);return found;}}
         Bitmap bitmap=null;
         if("mangalib_cbz".equals(chapter.type)){
             if(!chapter.imagePaths.isEmpty())bitmap=MangaDownloadCover.firstPage(MangaLibStorage.localArchive(c,chapter.imagePaths.get(0)));

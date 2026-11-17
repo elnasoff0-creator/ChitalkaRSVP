@@ -68,7 +68,10 @@ public final class ChteicoFishingView extends FrameLayout {
         if(stopped||paused||!isAttachedToWindow())return;
         long now=SystemClock.uptimeMillis();
         float dt=lastMs==0?0f:Math.min(.055f,Math.max(0f,(now-lastMs)/1000f));lastMs=now;
-        update(dt,now);render();handler.postDelayed(this,16);
+        update(dt,now);render();
+        // Static phases do not need a continuous 60-fps loop.
+        boolean idle=phase==READY||(phase==RESULT&&!shimmering);
+        if(!idle)handler.postDelayed(this,16);
     }};
     public ChteicoFishingView(Context context,Runnable onExit,int petCardColor){
         super(context);exit=onExit;
@@ -566,7 +569,7 @@ public final class ChteicoFishingView extends FrameLayout {
             else if(phase==BITE){
                 if(!biteNeedsRelease&&SystemClock.uptimeMillis()-biteStartedMs<(hookedBoot?7000:BITE_TIMES[rarity]))beginCatch();
             }else if(phase==CATCHING)held=true;
-            render();return true;
+            render();if(!paused&&!stopped&&phase!=READY)resumeClock();return true;
         }
         if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL){
             if(ignoreUp){ignoreUp=false;return true;}
@@ -579,7 +582,7 @@ public final class ChteicoFishingView extends FrameLayout {
             else if(phase==BITE){held=false;biteNeedsRelease=false;}
             else if(phase==CATCHING)held=false;
             else held=false;
-            render();return true;
+            render();if(!paused&&!stopped&&phase!=READY)resumeClock();return true;
         }
         return true;
     }

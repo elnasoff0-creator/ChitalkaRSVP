@@ -17,7 +17,8 @@ import android.widget.Toast;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import android.widget.ProgressBar;
-import android.widget.ScrollView;
+import androidx.recyclerview.widget.RecyclerView;
+import androidx.recyclerview.widget.LinearLayoutManager;
 import android.widget.TextView;
 
 import java.io.File;
@@ -41,22 +42,24 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
     private int pendingFolderChapter=-2;
     private TextView summary,pauseButton,totalPercent,totalDetail;
     private ProgressBar totalProgress;
-    private LinearLayout entries;
+    private RecyclerView entries;
+    private final ChapterAdapter chapterAdapter=new ChapterAdapter();
     private boolean visible,loading;
     private long lastSegmentsAt;
     private ArrayList<EdgeOfflineIndex.Segment> lastSegments=new ArrayList<>();
     private final java.util.Set<Integer> merging=new java.util.HashSet<>();
     private final ArrayList<Entry> displayed=new ArrayList<>();
-    private final ArrayList<ChapterViews> chapterViews=new ArrayList<>();
     private ArrayList<Integer> offsets=new ArrayList<>();
     private BookChapterIndex toc=BookChapterIndex.empty();
     private static final class Entry {
         String title,state="",error="";int chapter,from,to,saved,jobDone,jobTotal;
         EdgeOfflineIndex.Stats stats;
     }
-    private final Runnable ticker=new Runnable(){@Override public void run(){
-        if(!visible)return;reload();main.postDelayed(this,3000);
-    }};
+    private final Runnable changesReload=this::reload;
+    private final DownloadChangeBus.Listener changeListener=id->{
+        if(!visible||id==null||!id.equals("edge:"+uri))return;
+        main.removeCallbacks(changesReload);main.postDelayed(changesReload,250L);
+    };
     private int dp(int value){return Math.round(getResources().getDisplayMetrics().density*value);}
     private GradientDrawable rounded(int fill){GradientDrawable d=new GradientDrawable();d.setColor(fill);d.setCornerRadius(dp(13));return d;}
     private TextView text(String value,int size,boolean bold){TextView view=new TextView(this);
@@ -101,9 +104,11 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
         pauseButton=button("Пауза",this::toggle);pauseButton.setSingleLine(true);
         LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(0,dp(47),1);
         pp.leftMargin=dp(8);controls.addView(pauseButton,pp);
-        ScrollView scroll=new ScrollView(this);LinearLayout.LayoutParams sl=new LinearLayout.LayoutParams(-1,0,1);
-        sl.topMargin=dp(10);root.addView(scroll,sl);
-        entries=new LinearLayout(this);entries.setOrientation(LinearLayout.VERTICAL);scroll.addView(entries);
+        entries=new RecyclerView(this);entries.setLayoutManager(new LinearLayoutManager(this));
+        entries.setItemAnimator(null);entries.setHasFixedSize(false);
+        entries.setAdapter(chapterAdapter);
+        LinearLayout.LayoutParams sl=new LinearLayout.LayoutParams(-1,0,1);
+        sl.topMargin=dp(10);root.addView(entries,sl);
         worker.execute(()->{
             try{
                 BookLoader.Book b=BookLoader.load(this,Uri.parse(uri));
@@ -132,7 +137,7 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
         }
         for(int i=0;i<displayed.size();i++)if(chapter==-1||displayed.get(i).chapter==chapter){
             displayed.get(i).state=force?"Перезагрузка":"В очереди";
-            if(i<chapterViews.size())chapterViews.get(i).details.setText(displayed.get(i).state);
+            chapterAdapter.notifyItemChanged(i);
         }
         android.content.SharedPreferences pref=getSharedPreferences("reader",0);
         Intent intent=new Intent(this,EdgeFullBookService.class).setAction(EdgeFullBookService.ADD)
@@ -173,7 +178,8 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
                     lastSegments=EdgeAudioManager.segments(audio);lastSegmentsAt=now;
                 }
                 ArrayList<EdgeOfflineIndex.Segment> segments=lastSegments;
-                EdgeOfflineIndex.Stats total=EdgeOfflineIndex.stats(segments,0,positions.size());
+                EdgeOfflineIndex.CoverageIndex coverage=new EdgeOfflineIndex.CoverageIndex(segments);
+                EdgeOfflineIndex.Stats total=coverage.stats(0,positions.size());
                 EdgeChapterArchive.ChapterSnapshot saved=EdgeChapterArchive.snapshot(this,uri,title);
                 ArrayList<Entry> result=new ArrayList<>();
                 if(chapters.size()==0){
@@ -184,7 +190,7 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
                     item.title=chapter.title;item.chapter=i;
                     item.from=SentenceChunks.lowerBound(positions,chapter.startChar);
                     item.to=Math.max(item.from,SentenceChunks.lowerBound(positions,chapter.endChar));
-                    item.stats=EdgeOfflineIndex.stats(segments,item.from,item.to);result.add(item);
+                    item.stats=coverage.stats(item.from,item.to);result.add(item);
                 }
                 for(Entry item:result){
                     item.saved=saved.state(Math.max(0,item.chapter));
@@ -252,27 +258,12 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
                     totalDetail.setText(allPublished?"Завершено · Готово глав: "+finalPublished+" из "+result.size():
                         "Готово: "+finalPublished+" из "+result.size()+" · В очереди/работе: "+
                         finalPending+(currentStage.isEmpty()?"":" · "+currentStage));
-                    if(chapterViews.size()!=result.size()||!sameChapters(result)){
-                        entries.removeAllViews();chapterViews.clear();displayed.clear();
-                        for(Entry entry:result){addEntry(entry);displayed.add(entry);}
+                    if(!sameChapters(result)){
+                        displayed.clear();displayed.addAll(result);chapterAdapter.notifyDataSetChanged();
                     }else for(int i=0;i<result.size();i++){
                         Entry item=result.get(i),old=displayed.get(i);
-                        ChapterViews view=chapterViews.get(i);
-                        if(!sameStats(old,item)){
-                            boolean updating="В очереди".equals(item.state)||"Идёт загрузка".equals(item.state)||
-                                "Ожидание Edge TTS".equals(item.state)||"Сохранение фрагментов".equals(item.state);
-                            EdgeFullBookStore.Task currentTask=EdgeFullBookStore.task(job,item.chapter);
-                            int pct=item.saved>0&&!updating?100:item.stats.percent();
-                            if(currentTask!=null&&currentTask.total>0&&updating)
-                                pct=Math.max(pct,Math.min(98,currentTask.done*100/currentTask.total));
-                            if(item.saved==0)pct=Math.min(pct,99);
-                            view.percent.setText(updating&&item.saved>0?"↻":pct+"%");view.bar.setProgress(updating&&item.saved>0?0:pct);
-                            view.details.setText(details(item));
-                            view.details.setTextColor(stateColor(item));
-                            view.percent.setTextColor(stateColor(item));
-                            view.completed.setVisibility(item.saved>0&&!updating?View.VISIBLE:View.GONE);
-                        }
                         displayed.set(i,item);
+                        if(!sameStats(old,item))chapterAdapter.notifyItemChanged(i);
                     }
                 });
             }catch(Exception error){
@@ -303,61 +294,79 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
         return item.state+((item.error==null||item.error.isEmpty())?"":" · "+item.error)+
             (item.saved>0?"":" · "+item.stats.files+" MP3");
     }
-    private static final class ChapterViews {
-        final TextView percent,details;final ProgressBar bar;final ImageView completed;
-        ChapterViews(TextView percent,TextView details,ProgressBar bar,ImageView completed){
-            this.percent=percent;this.details=details;this.bar=bar;this.completed=completed;
-        }
-    }
     private ImageView actionIcon(int resource,String hint,Runnable action){
         ImageView view=new ImageView(this);view.setImageResource(resource);view.setColorFilter(INK);
         view.setContentDescription(hint);view.setPadding(dp(7),dp(7),dp(7),dp(7));
         view.setBackground(rounded(BG));view.setOnClickListener(v->action.run());return view;
     }
-    private void addEntry(Entry item){
-        LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(rounded(PANEL));card.setPadding(dp(12),dp(10),dp(12),dp(10));
-        LinearLayout.LayoutParams outer=new LinearLayout.LayoutParams(-1,-2);outer.bottomMargin=dp(8);
-        entries.addView(card,outer);
-        LinearLayout headline=new LinearLayout(this);headline.setGravity(Gravity.CENTER_VERTICAL);card.addView(headline);
-        TextView name=text(item.title,15,true);headline.addView(name,new LinearLayout.LayoutParams(0,-2,1));
-        int initialPct=item.saved>0?100:item.stats.percent();
-        if(item.jobTotal>0&&item.saved==0)initialPct=Math.max(initialPct,Math.min(98,item.jobDone*100/item.jobTotal));
-        if(item.saved==0)initialPct=Math.min(initialPct,99);
-        TextView percent=text(initialPct+"%",14,true);
-        percent.setTextColor(stateColor(item));headline.addView(percent);
-        ImageView completed=new ImageView(this);
-        completed.setImageResource(R.drawable.ic_download_chapter_complete);
-        completed.setImageTintList(android.content.res.ColorStateList.valueOf(UiColorScheme.accent(this)));
-        completed.setContentDescription("Глава загружена");
-        completed.setVisibility(item.saved>0?View.VISIBLE:View.GONE);
-        LinearLayout.LayoutParams completeLp=new LinearLayout.LayoutParams(dp(16),dp(16));
-        completeLp.leftMargin=dp(6);headline.addView(completed,completeLp);
-        ProgressBar progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
-        progress.setMax(100);progress.setProgress(initialPct);UiColorScheme.tintProgress(progress,this);
-        LinearLayout.LayoutParams bar=new LinearLayout.LayoutParams(-1,dp(6));bar.topMargin=dp(7);card.addView(progress,bar);
-        TextView meta=text(details(item),12,false);
-        meta.setTextColor(stateColor(item));LinearLayout.LayoutParams ml=new LinearLayout.LayoutParams(-1,-2);ml.topMargin=dp(5);card.addView(meta,ml);
-        LinearLayout actions=new LinearLayout(this);actions.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,-2);ap.topMargin=dp(6);card.addView(actions,ap);
-        TextView finalize=text("Сохранить",12,true);
-        finalize.setGravity(Gravity.CENTER);finalize.setBackground(rounded(BG));
-        finalize.setContentDescription("Завершить сохранение без повторной озвучки");
-        finalize.setVisibility(item.saved==0&&item.stats.files>0?View.VISIBLE:View.GONE);
-        finalize.setOnClickListener(v->finishCachedChapter(item.chapter));
-        LinearLayout.LayoutParams fp=new LinearLayout.LayoutParams(-2,dp(38));fp.leftMargin=dp(6);
-        finalize.setPadding(dp(8),0,dp(8),0);actions.addView(finalize,fp);
-        ImageView reload=actionIcon(R.drawable.ic_retry_fragment,"Перезагрузить главу",()->confirmReload(item.chapter));
-        LinearLayout.LayoutParams rr=new LinearLayout.LayoutParams(dp(38),dp(38));rr.leftMargin=dp(8);actions.addView(reload,rr);
-        ImageView delete=actionIcon(R.drawable.ic_edge_delete_chapter,"Удалить главу",()->confirmDelete(item.chapter));
-        LinearLayout.LayoutParams dd=new LinearLayout.LayoutParams(dp(38),dp(38));dd.leftMargin=dp(8);actions.addView(delete,dd);
-        card.setOnClickListener(v->{
-            Entry current=item;
-            for(Entry cached:displayed)if(cached.chapter==item.chapter){current=cached;break;}
-            if(current.saved==0)command(item.chapter);
-            else Toast.makeText(this,current.state,Toast.LENGTH_SHORT).show();
-        });
-        chapterViews.add(new ChapterViews(percent,meta,progress,completed));
+    private final class ChapterAdapter extends RecyclerView.Adapter<ChapterHolder> {
+        ChapterAdapter(){setHasStableIds(true);}
+        @Override public long getItemId(int position){return displayed.get(position).chapter;}
+        @Override public int getItemCount(){return displayed.size();}
+        @Override public ChapterHolder onCreateViewHolder(android.view.ViewGroup parent,int type){
+            LinearLayout card=new LinearLayout(EdgeChapterDownloadsActivity.this);
+            card.setOrientation(LinearLayout.VERTICAL);card.setBackground(rounded(PANEL));
+            card.setPadding(dp(12),dp(10),dp(12),dp(10));
+            RecyclerView.LayoutParams lp=new RecyclerView.LayoutParams(-1,-2);lp.bottomMargin=dp(8);card.setLayoutParams(lp);
+            LinearLayout headline=new LinearLayout(EdgeChapterDownloadsActivity.this);
+            headline.setGravity(Gravity.CENTER_VERTICAL);card.addView(headline);
+            TextView name=text("",15,true);headline.addView(name,new LinearLayout.LayoutParams(0,-2,1));
+            TextView percent=text("0%",14,true);headline.addView(percent);
+            ImageView completed=new ImageView(EdgeChapterDownloadsActivity.this);
+            completed.setImageResource(R.drawable.ic_download_chapter_complete);
+            completed.setImageTintList(android.content.res.ColorStateList.valueOf(UiColorScheme.accent(EdgeChapterDownloadsActivity.this)));
+            completed.setContentDescription("Глава загружена");
+            LinearLayout.LayoutParams completeLp=new LinearLayout.LayoutParams(dp(16),dp(16));
+            completeLp.leftMargin=dp(6);headline.addView(completed,completeLp);
+            ProgressBar progress=new ProgressBar(EdgeChapterDownloadsActivity.this,null,android.R.attr.progressBarStyleHorizontal);
+            progress.setMax(100);UiColorScheme.tintProgress(progress,EdgeChapterDownloadsActivity.this);
+            LinearLayout.LayoutParams bar=new LinearLayout.LayoutParams(-1,dp(6));bar.topMargin=dp(7);card.addView(progress,bar);
+            TextView details=text("",12,false);LinearLayout.LayoutParams ml=new LinearLayout.LayoutParams(-1,-2);
+            ml.topMargin=dp(5);card.addView(details,ml);
+            LinearLayout actions=new LinearLayout(EdgeChapterDownloadsActivity.this);
+            actions.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
+            LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,-2);ap.topMargin=dp(6);card.addView(actions,ap);
+            TextView finalize=text("Сохранить",12,true);finalize.setGravity(Gravity.CENTER);finalize.setBackground(rounded(BG));
+            finalize.setContentDescription("Завершить сохранение без повторной озвучки");
+            LinearLayout.LayoutParams fp=new LinearLayout.LayoutParams(-2,dp(38));fp.leftMargin=dp(6);
+            finalize.setPadding(dp(8),0,dp(8),0);actions.addView(finalize,fp);
+            ImageView reload=actionIcon(R.drawable.ic_retry_fragment,"Перезагрузить главу",()->{});
+            LinearLayout.LayoutParams rr=new LinearLayout.LayoutParams(dp(38),dp(38));rr.leftMargin=dp(8);actions.addView(reload,rr);
+            ImageView delete=actionIcon(R.drawable.ic_edge_delete_chapter,"Удалить главу",()->{});
+            LinearLayout.LayoutParams dd=new LinearLayout.LayoutParams(dp(38),dp(38));dd.leftMargin=dp(8);actions.addView(delete,dd);
+            ChapterHolder h=new ChapterHolder(card,name,percent,details,progress,completed,finalize);
+            // Actions always read the bound row index, not a recycled view's old chapter.
+            finalize.setOnClickListener(v->{Entry row=current(h);if(row!=null)finishCachedChapter(row.chapter);});
+            reload.setOnClickListener(v->{Entry row=current(h);if(row!=null)confirmReload(row.chapter);});
+            delete.setOnClickListener(v->{Entry row=current(h);if(row!=null)confirmDelete(row.chapter);});
+            card.setOnClickListener(v->{Entry row=current(h);if(row==null)return;
+                if(row.saved==0)command(row.chapter);
+                else Toast.makeText(EdgeChapterDownloadsActivity.this,row.state,Toast.LENGTH_SHORT).show();});
+            return h;
+        }
+        @Override public void onBindViewHolder(ChapterHolder h,int position){
+            Entry item=displayed.get(position);h.name.setText(item.title);
+            boolean updating="В очереди".equals(item.state)||"Идёт загрузка".equals(item.state)||
+                "Ожидание Edge TTS".equals(item.state)||"Сохранение фрагментов".equals(item.state);
+            int pct=item.saved>0&&!updating?100:item.stats.percent();
+            if(item.jobTotal>0&&updating)pct=Math.max(pct,Math.min(98,item.jobDone*100/item.jobTotal));
+            if(item.saved==0)pct=Math.min(pct,99);
+            h.percent.setText(updating&&item.saved>0?"↻":pct+"%");h.bar.setProgress(updating&&item.saved>0?0:pct);
+            h.details.setText(details(item));h.details.setTextColor(stateColor(item));h.percent.setTextColor(stateColor(item));
+            h.completed.setVisibility(item.saved>0&&!updating?View.VISIBLE:View.GONE);
+            h.finalize.setVisibility(item.saved==0&&item.stats.files>0?View.VISIBLE:View.GONE);
+        }
+    }
+    private static final class ChapterHolder extends RecyclerView.ViewHolder {
+        final TextView name,percent,details,finalize;final ProgressBar bar;final ImageView completed;
+        ChapterHolder(View root,TextView name,TextView percent,TextView details,ProgressBar bar,ImageView completed,TextView finalize){
+            super(root);this.name=name;this.percent=percent;this.details=details;this.bar=bar;this.completed=completed;this.finalize=finalize;
+        }
+    }
+    private Entry current(ChapterHolder h){int pos=h.getBindingAdapterPosition();
+        return pos>=0&&pos<displayed.size()?displayed.get(pos):null;}
+    private void notifyChapter(int chapter){
+        for(int i=0;i<displayed.size();i++)if(displayed.get(i).chapter==chapter){chapterAdapter.notifyItemChanged(i);break;}
     }
     /** Re-publish existing fragments ONLY. Never synthesize or discard them here. */
     private void finishCachedChapter(int chapter){
@@ -365,8 +374,8 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
             Toast.makeText(this,"Сначала выберите папку Edge TTS",Toast.LENGTH_LONG).show();return;
         }
         if(!merging.add(chapter))return;
-        for(int i=0;i<displayed.size();i++)if(displayed.get(i).chapter==chapter&&i<chapterViews.size())
-            chapterViews.get(i).details.setText("Проверка MP3 и завершение записи…");
+        for(Entry entry:displayed)if(entry.chapter==chapter)entry.state="Сохранение фрагментов";
+        notifyChapter(chapter);
         worker.execute(()->{
             String message="";boolean success=false;
             try{
@@ -444,8 +453,10 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
     }
     @Override protected void onResume(){super.onResume();
         if(paletteSignature!=UiColorScheme.paletteSignature(this)){recreate();return;}
-        visible=true;main.post(ticker);}
-    @Override protected void onPause(){visible=false;main.removeCallbacks(ticker);super.onPause();}
-    @Override protected void onDestroy(){visible=false;main.removeCallbacksAndMessages(null);worker.shutdownNow();super.onDestroy();}
+        visible=true;DownloadChangeBus.add(changeListener);main.post(changesReload);}
+    @Override protected void onPause(){visible=false;DownloadChangeBus.remove(changeListener);
+        main.removeCallbacks(changesReload);super.onPause();}
+    @Override protected void onDestroy(){visible=false;DownloadChangeBus.remove(changeListener);
+        main.removeCallbacksAndMessages(null);worker.shutdownNow();super.onDestroy();}
     @Override public void onBackPressed(){BackNavigation.back(this);}
 }

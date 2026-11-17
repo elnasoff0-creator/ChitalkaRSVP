@@ -119,6 +119,8 @@ public class MainActivity extends NavigationActivity {
 
     final String[] fontNames = {"Без засечек", "С засечками", "Моноширинный"};
 
+    private int lastTickerSavedIndex=-1;
+    private long lastTickerPersistMs=0;
     Runnable ticker = new Runnable() {
         @Override public void run() {
             if (!playing) return;
@@ -135,7 +137,11 @@ public class MainActivity extends NavigationActivity {
                     updateNormalPage(true);
                 }
             }
-            if (index % 8 == 0) saveAll();
+            // A stationary index must never trigger repeated whole-library JSON writes.
+            long now=android.os.SystemClock.elapsedRealtime();
+            if(index!=lastTickerSavedIndex && now-lastTickerPersistMs>=3000L){
+                lastTickerSavedIndex=index;lastTickerPersistMs=now;saveAll();
+            }
             handler.postDelayed(this, rsvp ? Math.max(60, 60000L / Math.max(1, wpm)) : 80);
         }
     };
@@ -1150,7 +1156,10 @@ public class MainActivity extends NavigationActivity {
             normalY = y;
             syncIndexFromScroll();
             long now = android.os.SystemClock.uptimeMillis();
-            if (now - lastScrollSave > 800) { lastScrollSave = now; saveAll(); }
+            if (now-lastScrollSave>3000 && index!=lastTickerSavedIndex){
+                lastScrollSave=now;lastTickerSavedIndex=index;
+                lastTickerPersistMs=android.os.SystemClock.elapsedRealtime();saveAll();
+            }
         });
         normalScroll.post(() -> { if (!rsvp) normalScroll.scrollTo(0, 0); });
 

@@ -34,7 +34,11 @@ public class DownloadWorker extends Service {
             }
             if(job.states.get(i)==100&&BookImportManager.trackFile(this,job,i).exists()&&KvuheDownloader.isPlayable(BookImportManager.trackFile(this,job,i))){
                 publishAudioTrack(job,i);continue;}
-            long[] recent={0,android.os.SystemClock.elapsedRealtime()};job.index=i;KvuheDownloader.download(this,job,i,new KvuheDownloader.Callback(){public boolean cancelled(){return halt;}public void progress(long done,long total){long now=android.os.SystemClock.elapsedRealtime();if(now-recent[1]<600&&done!=total)return;long elapsed=Math.max(1,now-recent[1]);long speed=(done-recent[0])*1000/elapsed;recent[0]=done;recent[1]=now;int p=total>0?(int)Math.min(99,done*100/total):0;job.states.set(index,p);job.bytes=done;job.total=total;BookImportManager.put(DownloadWorker.this,job);int completed=0;for(Integer x:job.states)if(x==100)completed++;String label=(completed+1)+"/"+count+" · "+(done/1024)+" KB · "+(speed/1024)+" KB/s";((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(4112,note(label,(completed*100+p)/Math.max(1,count),100));}});
+            long[] recent={0,android.os.SystemClock.elapsedRealtime()};
+            final long[] lastPersist={0};job.index=i;KvuheDownloader.download(this,job,i,new KvuheDownloader.Callback(){public boolean cancelled(){return halt;}public void progress(long done,long total){long now=android.os.SystemClock.elapsedRealtime();if(now-recent[1]<600&&done!=total)return;long elapsed=Math.max(1,now-recent[1]);long speed=(done-recent[0])*1000/elapsed;recent[0]=done;recent[1]=now;int p=total>0?(int)Math.min(99,done*100/total):0;job.states.set(index,p);job.bytes=done;job.total=total;if(now-lastPersist[0]>=3500L||done==total){
+                    lastPersist[0]=now;BookImportManager.put(DownloadWorker.this,job);
+                }else DownloadChangeBus.publish("audio:"+job.source);
+                int completed=0;for(Integer x:job.states)if(x==100)completed++;String label=(completed+1)+"/"+count+" · "+(done/1024)+" KB · "+(speed/1024)+" KB/s";((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(4112,note(label,(completed*100+p)/Math.max(1,count),100));}});
             publishAudioTrack(job,i);
             job.states.set(i,100);BookImportManager.put(this,job);BookImportManager.updateLibrary(this,job);
         }if(!halt){job.status="finished";}else job.status=cancel?"cancelled":"paused";

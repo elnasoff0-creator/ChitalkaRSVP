@@ -43,6 +43,51 @@ public final class EdgeFullBookService extends Service {
     private volatile String synthesizingUri="";
     private volatile int synthesizingChapter=EdgeFullBookStore.PLAN;
     private int notificationCounter;
+    /** Single bounded prepared-book cache: no repeated segmentation for each queued chapter. */
+    private PreparedJob lastPrepared;
+    private static final class PreparedJob {
+        final String key;final long createdAt;
+        final BookLoader.Book book;final JSONArray index;
+        final ArrayList<Integer> offsets;
+        final EdgeSpeechTextTransform.Options speech;
+        PreparedJob(String key,long now,BookLoader.Book book,JSONArray index,
+                ArrayList<Integer> offsets,EdgeSpeechTextTransform.Options speech){
+            this.key=key;createdAt=now;this.book=book;this.index=index;
+            this.offsets=offsets;this.speech=speech;
+        }
+    }
+    private long contentStamp(String uri){
+        try(android.database.Cursor c=getContentResolver().query(Uri.parse(uri),
+                new String[]{android.provider.DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+                    android.provider.DocumentsContract.Document.COLUMN_SIZE},null,null,null)){
+            if(c!=null&&c.moveToFirst())return c.getLong(0)*31L+c.getLong(1);
+        }catch(Exception ignored){}
+        return 0L;
+    }
+    private PreparedJob prepared(EdgeFullBookStore.Job job)throws Exception{
+        EdgeSpeechTextTransform.Options speech=EdgeDictionaryStore.get(this).options();
+        long now=android.os.SystemClock.elapsedRealtime();
+        String key=job.uri+"|"+job.voice+"|"+job.rate+"|"+job.chars+"|"+
+            speech.fingerprint()+"|"+contentStamp(job.uri);
+        if(lastPrepared!=null&&key.equals(lastPrepared.key)
+                &&now-lastPrepared.createdAt<120000L)return lastPrepared;
+        BookLoader.Book book=BookLoader.load(this,Uri.parse(job.uri));
+        String raw=book.text==null?"":book.text;
+        if(raw.trim().isEmpty())throw new Exception("В книге нет текста для озвучки");
+        ArrayList<EdgeTextSegments.Part> parts=EdgeTextSegments.all(raw,book.chapters,job.chars);
+        if(parts.isEmpty())throw new Exception("Не удалось разбить текст на фрагменты");
+        JSONArray index=new JSONArray();
+        for(EdgeTextSegments.Part part:parts){
+            EdgeSpeechTextTransform.Result converted=speech.apply(part.text);
+            if(converted.skipSynthesis())continue;
+            JSONObject row=new JSONObject();row.put("start",part.start).put("end",part.end);
+            row.put("text",part.text).put("key",converted.cacheKey(job.voice,job.rate));
+            index.put(row);
+        }
+        PreparedJob ready=new PreparedJob(key,now,book,index,
+            EdgeTextSegments.positions(raw),speech);
+        lastPrepared=ready;return ready;
+    }
 
     @Override public void onCreate(){super.onCreate();
         EdgeFullBookStore.recoverInterrupted(this);serviceAlive=true;
@@ -126,7 +171,7 @@ public final class EdgeFullBookService extends Service {
     private void runJob(EdgeFullBookStore.Job job){
         if(job.chapter==EdgeFullBookStore.PLAN){
             try{
-                BookLoader.Book book=BookLoader.load(this,Uri.parse(job.uri));
+                BookLoader.Book book=prepared(job).book;
                 EdgeChapterArchive.invalidate(); // avoid using a stale 9-second SAF snapshot
                 EdgeChapterArchive.ChapterSnapshot snapshot=EdgeChapterArchive.snapshot(this,job.uri,job.title);
                 EdgeFullBookStore.planMissing(job,book.chapters,snapshot);
@@ -143,32 +188,18 @@ public final class EdgeFullBookService extends Service {
         }
         EdgeFullBookStore.status(job,EdgeFullBookStore.RUNNING);
         try{
-            BookLoader.Book book=BookLoader.load(this,Uri.parse(job.uri));
+            PreparedJob prepared=prepared(job);
+            BookLoader.Book book=prepared.book;
             String raw=book.text==null?"":book.text;
-            if(raw.trim().isEmpty())throw new Exception("В книге нет текста для озвучки");
-            // Use exactly the same segmentation and hash keys as the live reader.
-            // Jobs never resynthesize cached MP3 solely because a previous version
-            // offered a different configurable chunk size.
-            ArrayList<EdgeTextSegments.Part> parts=EdgeTextSegments.all(raw,book.chapters,job.chars);
-            if(parts.isEmpty())throw new Exception("Не удалось разбить текст на фрагменты");
-            final EdgeSpeechTextTransform.Options speechOptions=
-                EdgeDictionaryStore.get(this).options();
-            JSONArray index=new JSONArray();
-            for(EdgeTextSegments.Part part:parts){
-                JSONObject o=new JSONObject();
-                EdgeSpeechTextTransform.Result speech=speechOptions.apply(part.text);
-                if(speech.skipSynthesis())continue; // no index/MP3/WebSocket for ignored parts
-                String key=speech.cacheKey(job.voice,job.rate);
-                o.put("start",part.start).put("end",part.end).put("text",part.text).put("key",key);
-                index.put(o);
-            }
+            JSONArray index=prepared.index;
+            final EdgeSpeechTextTransform.Options speechOptions=prepared.speech;
             EdgeFullBookStore.writeQueue(job,index);
             DownloadsRepository.storeEdgeMeta(EdgeBookStorage.bookFolder(this,job.uri,job.title),
-                job.uri,job.title,EdgeTextSegments.positions(raw).size());
+                job.uri,job.title,prepared.offsets.size());
             int count=index.length();
             BookChapterIndex.Chapter only=job.chapter>=0 && job.chapter<book.chapters.size()
                 ?book.chapters.get(job.chapter):null;
-            ArrayList<Integer> wordOffsets=EdgeTextSegments.positions(raw);
+            ArrayList<Integer> wordOffsets=prepared.offsets;
             int chapterStart=only==null?0:SentenceChunks.lowerBound(wordOffsets,only.startChar);
             int chapterEnd=only==null?wordOffsets.size():SentenceChunks.lowerBound(wordOffsets,only.endChar);
             if(job.chapter>=0&&only==null)throw new Exception("Выбранная глава недоступна");

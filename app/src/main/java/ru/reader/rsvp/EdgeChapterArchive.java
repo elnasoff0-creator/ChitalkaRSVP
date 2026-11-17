@@ -59,32 +59,53 @@ final class EdgeChapterArchive {
                 return size()>12;
             }
         };
-    static synchronized void invalidate(){bookCache=null;bookCacheAt=0;chapterCache.clear();chapterCacheAt.clear();lazyChapters.clear();lazyMissingChapters.clear();}
+    private static final java.util.Map<String,DocumentFile> locatedBooks=new java.util.concurrent.ConcurrentHashMap<>();
+    private static long cacheEpoch;
+    private static final Object[] SNAPSHOT_LOCKS=new Object[32];
+    static {for(int i=0;i<SNAPSHOT_LOCKS.length;i++)SNAPSHOT_LOCKS[i]=new Object();}
+    static synchronized void invalidate(){cacheEpoch++;bookCache=null;bookCacheAt=0;chapterCache.clear();chapterCacheAt.clear();lazyChapters.clear();lazyMissingChapters.clear();locatedBooks.clear();}
     static final class ChapterSnapshot {
         final Map<Integer,Integer> states=new HashMap<>(); // 0=none,1=fragments,2=merged
         int state(int chapter){Integer v=states.get(chapter);return v==null?0:v;}
     }
-    static synchronized ChapterSnapshot snapshot(Context c,String uri,String title){
+    /** SAF snapshot I/O must not monopolize the global archive monitor.
+     * A striped book lock serializes concurrent readers of the same index while
+     * the metadata cache itself has only short synchronized critical sections.
+     */
+    static ChapterSnapshot snapshot(Context c,String uri,String title){
         String key=(EdgeFolderPicker.selected(c)==null?"":EdgeFolderPicker.selected(c).toString())+":"+uri;
-        long now=android.os.SystemClock.elapsedRealtime();Long at=chapterCacheAt.get(key);
-        if(chapterCache.containsKey(key))return chapterCache.get(key);
-        ChapterSnapshot result=new ChapterSnapshot();
-        try{
-            DocumentFile dir=chapters(c,uri,title,false);
-            if(dir!=null)for(DocumentFile chapter:dir.listFiles()){
-                if(!chapter.isDirectory())continue;
-                DocumentFile idx=chapter.findFile(INDEX_NAME);
-                if(idx==null)continue;
-                JSONObject row=new JSONObject(text(c,idx,16*1024*1024));
-                if(!hash(BookUriMigration.legacy(c,uri)).equals(row.optString("bookId")))continue;
-                int number=row.optInt("chapter",0)-1;
-                if(number<0)continue;
-                boolean merged=mergedPresent(c,chapter,row);
-                boolean clips=fragmentsPresent(chapter,row);
-                if(merged||clips)result.states.put(number,merged?2:1);
+        final Object lock=SNAPSHOT_LOCKS[(key.hashCode()&0x7fffffff)%SNAPSHOT_LOCKS.length];
+        synchronized(lock){
+            long epoch;
+            synchronized(EdgeChapterArchive.class){
+                ChapterSnapshot cached=chapterCache.get(key);
+                if(cached!=null)return cached;
+                epoch=cacheEpoch;
             }
-        }catch(Exception error){Log.w(TAG,"SAF chapter snapshot error",error);}
-        chapterCache.put(key,result);chapterCacheAt.put(key,now);return result;
+            ChapterSnapshot result=new ChapterSnapshot();
+            try{
+                DocumentFile dir=chapters(c,uri,title,false);
+                if(dir!=null)for(DocumentFile chapter:dir.listFiles()){
+                    if(!chapter.isDirectory())continue;
+                    DocumentFile idx=chapter.findFile(INDEX_NAME);
+                    if(idx==null)continue;
+                    JSONObject row=new JSONObject(text(c,idx,16*1024*1024));
+                    if(!hash(BookUriMigration.legacy(c,uri)).equals(row.optString("bookId")))continue;
+                    int number=row.optInt("chapter",0)-1;
+                    if(number<0)continue;
+                    boolean merged=mergedPresent(c,chapter,row);
+                    boolean clips=fragmentsPresent(chapter,row);
+                    if(merged||clips)result.states.put(number,merged?2:1);
+                }
+            }catch(Exception error){Log.w(TAG,"SAF chapter snapshot error",error);}
+            synchronized(EdgeChapterArchive.class){
+                // A successful publish/rename can invalidate the cache while SAF is read.
+                // Never publish a stale snapshot from an earlier index generation.
+                if(epoch==cacheEpoch){chapterCache.put(key,result);
+                    chapterCacheAt.put(key,android.os.SystemClock.elapsedRealtime());}
+                return chapterCache.getOrDefault(key,result);
+            }
+        }
     }
     private EdgeChapterArchive(){}
 
@@ -274,12 +295,17 @@ final class EdgeChapterArchive {
     private static DocumentFile book(Context c,String uri,String title,boolean create)throws Exception {
         DocumentFile r=root(c);
         String basename=safe(title,75),identity=hash(BookUriMigration.legacy(c,uri));
+        String lookupKey=r.getUri().toString()+"|"+identity;
+        DocumentFile located=locatedBooks.get(lookupKey);
+        if(located!=null)return located;
         // Reuse a book folder even if the user renamed the book in the library.
         for(DocumentFile candidate:r.listFiles()){
             if(!candidate.isDirectory())continue;
             DocumentFile marker=candidate.findFile(".edge-book.json");
             if(marker!=null)try{
-                if(identity.equals(new JSONObject(text(c,marker,4096)).optString("id")))return candidate;
+                if(identity.equals(new JSONObject(text(c,marker,4096)).optString("id"))){
+                    locatedBooks.put(lookupKey,candidate);return candidate;
+                }
             }catch(Exception ignored){}
         }
         for(int n=1;n<=100;n++){
@@ -289,14 +315,16 @@ final class EdgeChapterArchive {
                 if(folder==null)throw new Exception("Нельзя создать папку книги");}
             DocumentFile marker=folder.findFile(".edge-book.json");
             if(marker!=null){
-                try{if(identity.equals(new JSONObject(text(c,marker,4096)).optString("id")))return folder;}
+                try{if(identity.equals(new JSONObject(text(c,marker,4096)).optString("id"))){
+                    locatedBooks.put(lookupKey,folder);return folder;
+                }}
                 catch(Exception ignored){} // A foreign folder: don't overwrite it.
                 continue;
             }
             if(!create)continue;
             JSONObject info=new JSONObject();info.put("id",identity);info.put("title",title);info.put("uri",uri);
             writeBookMarker(c,folder,info.toString().getBytes(StandardCharsets.UTF_8));
-            return folder;
+            locatedBooks.put(lookupKey,folder);return folder;
         }
         throw new Exception("Не удалось найти папку книги");
     }
@@ -879,7 +907,7 @@ final class EdgeChapterArchive {
         return result;
     }
     /** Completed, index-committed chapters only. This is executed off the UI thread. */
-    static synchronized int exportableCount(Context ctx,String uri,String title){
+    static int exportableCount(Context ctx,String uri,String title){
         return snapshot(ctx,uri,title).states.size();
     }
     private static final class ExportChapter {

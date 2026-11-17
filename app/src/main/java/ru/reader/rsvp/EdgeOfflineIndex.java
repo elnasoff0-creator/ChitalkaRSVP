@@ -54,6 +54,34 @@ final class EdgeOfflineIndex {
         found.sort(Comparator.comparingInt((Segment v)->v.start).thenComparingInt(v->v.end));
         return found;
     }
+    /** Bounded coverage lookup: O(log N + overlapping segments) per chapter.
+     * Prefix maxima avoid rescanning earlier chapters while keeping overlapping clips correct.
+     */
+    static final class CoverageIndex {
+        final ArrayList<Segment> segments;
+        final int[] prefixMaxEnd;
+        CoverageIndex(ArrayList<Segment> sorted){
+            segments=sorted;prefixMaxEnd=new int[sorted.size()];int max=0;
+            for(int i=0;i<sorted.size();i++){max=Math.max(max,sorted.get(i).end);prefixMaxEnd[i]=max;}
+        }
+        Stats stats(int from,int to){
+            int total=Math.max(0,to-from);if(total==0||segments.isEmpty())return new Stats(0,total,0,0);
+            int lo=0,hi=segments.size();
+            while(lo<hi){int m=(lo+hi)>>>1;if(prefixMaxEnd[m]<=from)lo=m+1;else hi=m;}
+            int current=from,covered=0,files=0;long bytes=0;
+            HashSet<String> keys=new HashSet<>();
+            for(int i=lo;i<segments.size();i++){
+                Segment segment=segments.get(i);
+                if(segment.start>=to)break;
+                if(segment.end<=from)continue;
+                int left=Math.max(from,segment.start),right=Math.min(to,segment.end);
+                if(right<=left)continue;
+                if(right>current){covered+=right-Math.max(left,current);current=right;}
+                if(keys.add(segment.key)){bytes+=segment.bytes;files++;}
+            }
+            return new Stats(Math.min(total,covered),total,files,bytes);
+        }
+    }
     static Stats stats(ArrayList<Segment> rows,int from,int to){
         int total=Math.max(0,to-from),covered=0,current=from,files=0;
         long bytes=0;HashSet<String> keys=new HashSet<>();

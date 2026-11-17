@@ -864,7 +864,18 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
             if(sameKeys)for(int i=0;i<items.size();i++)if(!items.get(i).key.equals(incoming.get(i).key)){
                 sameKeys=false;break;
             }
-            if(!sameKeys){items.clear();items.addAll(incoming);notifyDataSetChanged();return;}
+            if(!sameKeys){
+                final ArrayList<FileRow> previous=new ArrayList<>(items);
+                final ArrayList<FileRow> next=new ArrayList<>(incoming);
+                androidx.recyclerview.widget.DiffUtil.DiffResult delta=
+                    androidx.recyclerview.widget.DiffUtil.calculateDiff(new androidx.recyclerview.widget.DiffUtil.Callback(){
+                        @Override public int getOldListSize(){return previous.size();}
+                        @Override public int getNewListSize(){return next.size();}
+                        @Override public boolean areItemsTheSame(int a,int b){return previous.get(a).key.equals(next.get(b).key);}
+                        @Override public boolean areContentsTheSame(int a,int b){return previous.get(a).same(next.get(b));}
+                    },true);
+                items.clear();items.addAll(next);delta.dispatchUpdatesTo(this);return;
+            }
             for(int i=0;i<items.size();i++){
                 FileRow previous=items.set(i,incoming.get(i));
                 if(!previous.same(incoming.get(i)))notifyItemChanged(i);

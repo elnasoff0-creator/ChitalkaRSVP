@@ -1554,36 +1554,101 @@ public class ReaderActivity extends NavigationActivity {
             .putExtra("dictionary_selected_word_index",map.clamp(index));
         startActivityForResult(intent,12212);
     }
+    /** Searches a snapshot of the text off the UI thread; only the latest query may bind. */
     private void showBookSearch(){
         if(body.isEmpty())return;
+        final String textSnapshot=body;
+        final Handler searchHandler=new Handler(Looper.getMainLooper());
+        final java.util.concurrent.ExecutorService searchWorker=
+            java.util.concurrent.Executors.newSingleThreadExecutor(r->{
+                Thread t=new Thread(r,"ReaderBookSearch");t.setDaemon(true);return t;
+            });
+        final java.util.concurrent.atomic.AtomicInteger generation=new java.util.concurrent.atomic.AtomicInteger();
         EditText query=new EditText(this);query.setSingleLine(true);query.setHint("Поиск по всей книге");
         LinearLayout panel=column();panel.setPadding(dp(16),0,dp(16),0);panel.addView(query);
         TextView result=text("Введите слово или фразу",13);add(panel,result);
-        ScrollView scroll=new ScrollView(this);LinearLayout matches=column();scroll.addView(matches);
-        panel.addView(scroll,new LinearLayout.LayoutParams(-1,dp(290)));
+        RecyclerView list=new RecyclerView(this);list.setLayoutManager(new LinearLayoutManager(this));
+        panel.addView(list,new LinearLayout.LayoutParams(-1,dp(290)));
+        final android.app.AlertDialog[] dialogRef=new android.app.AlertDialog[1];
+        final class Results extends RecyclerView.Adapter<Results.Holder> {
+            final ArrayList<Integer> offsets=new ArrayList<>();
+            final ArrayList<String> contexts=new ArrayList<>();
+            final class Holder extends RecyclerView.ViewHolder {
+                final TextView value;
+                Holder(TextView view){super(view);value=view;}
+            }
+            @Override public Holder onCreateViewHolder(android.view.ViewGroup parent,int type){
+                TextView view=text("",15);view.setPadding(dp(8),dp(12),dp(8),dp(12));
+                view.setLayoutParams(new RecyclerView.LayoutParams(-1,-2));
+                return new Holder(view);
+            }
+            @Override public void onBindViewHolder(Holder holder,int pos){
+                holder.value.setText(contexts.get(pos));
+                holder.value.setOnClickListener(v->{
+                    int at=holder.getBindingAdapterPosition();
+                    if(at<0||at>=offsets.size())return;
+                    int position=offsets.get(at),previous=index;
+                    index=map.atCharacter(position);selectedWordActive=true;
+                    abandonViewportPreview();refreshHighlight(previous);
+                    updateProgress();ensureWordVisible(true);saveLight(true);dialogRef[0].dismiss();
+                });
+            }
+            @Override public int getItemCount(){return contexts.size();}
+            void replace(ArrayList<Integer> places,ArrayList<String> snippets){
+                offsets.clear();offsets.addAll(places);
+                contexts.clear();contexts.addAll(snippets);notifyDataSetChanged();
+            }
+        }
+        // The adapter lives only as long as the search dialog.
+        final Results matches=new Results();list.setAdapter(matches);
         final android.app.AlertDialog dialog=new RoundedDialogs.Builder(this)
             .setTitle("Поиск по книге").setView(panel).setNegativeButton("Закрыть",null).create();
-        Runnable update=()->{
-            matches.removeAllViews();String needle=query.getText().toString().trim().toLowerCase(java.util.Locale.ROOT);
-            if(needle.isEmpty()){result.setText("Введите слово или фразу");return;}
-            String haystack=body.toLowerCase(java.util.Locale.ROOT);int offset=0,count=0;java.util.ArrayList<Integer> positions=new java.util.ArrayList<>();
-            while((offset=haystack.indexOf(needle,offset))>=0){count++;if(positions.size()<100)positions.add(offset);offset+=Math.max(1,needle.length());}
-            result.setText("Найдено: "+count+(count>100?" · первые 100 результатов":""));
-            for(int position:positions){
-                String context=body.substring(Math.max(0,position-48),Math.min(body.length(),position+needle.length()+65)).replaceAll("\\s+"," ");
-                TextView entry=text(context,15);entry.setPadding(dp(8),dp(12),dp(8),dp(12));
-                matches.addView(entry,new LinearLayout.LayoutParams(-1,-2));
-                entry.setOnClickListener(v->{int previous=index;index=map.atCharacter(position);selectedWordActive=true;
-                    abandonViewportPreview();
-                    refreshHighlight(previous);
-                    updateProgress();ensureWordVisible(true);saveLight(true);dialog.dismiss();});
-            }
-        };
+        dialogRef[0]=dialog;
+        final Runnable[] pending=new Runnable[1];
         query.addTextChangedListener(new android.text.TextWatcher(){
-            public void beforeTextChanged(CharSequence s,int a,int count,int after){}
-            public void onTextChanged(CharSequence s,int start,int before,int count){update.run();}
+            public void beforeTextChanged(CharSequence s,int start,int count,int after){}
+            public void onTextChanged(CharSequence s,int start,int before,int count){
+                int request=generation.incrementAndGet();
+                if(pending[0]!=null)searchHandler.removeCallbacks(pending[0]);
+                final String needle=s.toString().trim().toLowerCase(java.util.Locale.ROOT);
+                if(needle.isEmpty()){matches.replace(new ArrayList<>(),new ArrayList<>());
+                    result.setText("Введите слово или фразу");return;}
+                result.setText("Поиск…");
+                pending[0]=()->{
+                    if(searchWorker.isShutdown())return;
+                    searchWorker.execute(()->{
+                        String haystack=textSnapshot.toLowerCase(java.util.Locale.ROOT);
+                        int offset=0,count=0;
+                        ArrayList<Integer> found=new ArrayList<>();
+                        ArrayList<String> snippets=new ArrayList<>();
+                        while(!Thread.currentThread().isInterrupted()&&
+                                (offset=haystack.indexOf(needle,offset))>=0){
+                            count++;
+                            if(found.size()<100){
+                                found.add(offset);
+                                snippets.add(textSnapshot.substring(Math.max(0,offset-48),
+                                    Math.min(textSnapshot.length(),offset+needle.length()+65))
+                                    .replaceAll("\\s+"," "));
+                            }
+                            offset+=Math.max(1,needle.length());
+                        }
+                        final int total=count;
+                        searchHandler.post(()->{
+                            if(request!=generation.get()||searchWorker.isShutdown()||!dialog.isShowing())return;
+                            matches.replace(found,snippets);
+                            result.setText("Найдено: "+total+(total>100?" · первые 100 результатов":""));
+                        });
+                    });
+                };
+                searchHandler.postDelayed(pending[0],250L);
+            }
             public void afterTextChanged(android.text.Editable e){}
-        });dialog.show();
+        });
+        dialog.setOnDismissListener(d->{generation.incrementAndGet();
+            if(pending[0]!=null)searchHandler.removeCallbacks(pending[0]);
+            searchWorker.shutdownNow();
+        });
+        dialog.show();
     }
     private void modeDialog(){
         ReaderSheets.modes(this,mode,selected->{

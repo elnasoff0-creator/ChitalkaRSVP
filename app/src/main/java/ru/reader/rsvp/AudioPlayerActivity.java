@@ -19,6 +19,9 @@ public class AudioPlayerActivity extends NavigationActivity {
     private int shownTtsPosition = -1;
     private int shownSeekSeconds=-1,shownSeekMinutes=-1;
     private boolean shownTtsMode = false;
+    private int lastPlayImage=0;
+    private String lastSpokenText="";
+    private int lastSpokenFrom=-2,lastSpokenTo=-2;
     private boolean showingTtsCover = false;
     private String displayedTtsCoverUri = "";
     private int ttsCoverRequest = 0;
@@ -116,6 +119,7 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
     @Override protected void onDestroy(){coverExecutor.shutdownNow();super.onDestroy();}
     @Override protected void onPause(){handler.removeCallbacks(updater);try{unregisterReceiver(receiver);}catch(Exception ignored){}super.onPause();}
     void draw(){
+        lastPlayImage=0;lastSpokenText="";lastSpokenFrom=-2;lastSpokenTo=-2;
         final long renderStart=android.os.SystemClock.elapsedRealtime();
         readPalette();drawnBackground=BACKGROUND;drawnText=TEXT;drawnAccent=UiColorScheme.accent(this);
         root=new LinearLayout(this);root.setOrientation(1);root.setBackgroundColor(BACKGROUND);
@@ -206,7 +210,10 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         coverArea.addView(coverImage,new android.widget.FrameLayout.LayoutParams(-1,-1));
         showingTtsCover=false;displayedTtsCoverUri="";ttsCoverRequest++;
         updateCover();
-        wholeProgress=label("Текущая глава · 0%",15);wholeProgress.setGravity(Gravity.CENTER);root.addView(wholeProgress);
+        wholeProgress=label("Текущая глава · 0%",15);wholeProgress.setGravity(Gravity.CENTER);
+        wholeProgress.setSingleLine(true);
+        wholeProgress.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        root.addView(wholeProgress);
         progress=new SeekBar(this);progress.setMax(10000);root.addView(progress);
         progress.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
             public void onProgressChanged(SeekBar b,int value,boolean from){}
@@ -336,8 +343,10 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         if(cached==null&&target.equals(pendingAudioCoverUri))return;
         final int request=++audioCoverRequest;
         if(cached!=null){applyAudioCover(cached);return;}
-        coverImage.setVisibility(View.INVISIBLE);
-        if(coverPlaceholderText!=null){coverPlaceholderText.setText("Загрузка обложки…");coverPlaceholderText.setVisibility(View.VISIBLE);}
+        // Keep the old cover visible until the new bitmap is decoded.
+        if(coverImage.getDrawable()==null&&coverPlaceholderText!=null){
+            coverPlaceholderText.setText("Загрузка обложки…");coverPlaceholderText.setVisibility(View.VISIBLE);
+        }
         pendingAudioCoverUri=target;
         coverExecutor.execute(()->{
             android.graphics.Bitmap bitmap=null;
@@ -368,8 +377,9 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         if(showingTtsCover&&uri.equals(displayedTtsCoverUri))return;
         showingTtsCover=true;displayedTtsCoverUri=uri;
         final int request=++ttsCoverRequest;
-        coverImage.setImageDrawable(null);coverImage.setVisibility(View.INVISIBLE);
-        if(coverPlaceholderIcon!=null){coverPlaceholderIcon.setImageResource(R.drawable.ic_book);coverPlaceholderIcon.setVisibility(View.VISIBLE);}
+        // Never blank a valid cover during an asynchronous TTS-cover request.
+        if(coverImage.getDrawable()==null){coverImage.setVisibility(View.INVISIBLE);
+            if(coverPlaceholderIcon!=null){coverPlaceholderIcon.setImageResource(R.drawable.ic_book);coverPlaceholderIcon.setVisibility(View.VISIBLE);}}
         if(coverPlaceholderText!=null){coverPlaceholderText.setText("Загрузка обложки…");coverPlaceholderText.setVisibility(View.VISIBLE);}
         new Thread(()->{
             android.graphics.Bitmap bitmap=null;
@@ -522,10 +532,11 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
     void refresh(){
         AudioPlaybackService service=AudioPlaybackService.instance;
         if(title==null||playIcon==null)return;
-        if(service==null){playIcon.setImageResource(R.drawable.ic_play);playIcon.setColorFilter(Color.WHITE);return;}
+        if(service==null){if(lastPlayImage!=R.drawable.ic_play){playIcon.setImageResource(R.drawable.ic_play);playIcon.setColorFilter(Color.WHITE);lastPlayImage=R.drawable.ic_play;}return;}
         boolean selectedPlaying=selected!=null&&!service.isTtsMode()&&selected.id.equals(service.getBookId());
-        playIcon.setImageResource(!selectedPlaying||service.isPaused()?R.drawable.ic_play:R.drawable.ic_pause);
-        playIcon.setColorFilter(Color.WHITE);
+        int desiredPlayIcon=!selectedPlaying||service.isPaused()?R.drawable.ic_play:R.drawable.ic_pause;
+        if(lastPlayImage!=desiredPlayIcon){playIcon.setImageResource(desiredPlayIcon);
+            playIcon.setColorFilter(Color.WHITE);lastPlayImage=desiredPlayIcon;}
         if(selected!=null&&!selectedPlaying){
             // A different audible source keeps its own timeline; this screen shows
             // the selected book, which remains silent until its Play is pressed.
@@ -579,13 +590,14 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         long totalPos=service.getTotalPosition();
         if(total>0){
             if(!draggingTotal)totalProgress.setProgress((int)(totalPos*10000/total));
-            overallTime.setText(formatLong(totalPos)+" / "+formatLong(total));
-            overallPercent.setText((totalPos*100/total)+"%");
-            overallRemaining.setText("−"+formatLong(Math.max(0,total-totalPos)));
+            setTextIfDifferent(overallTime,formatLong(totalPos)+" / "+formatLong(total));
+            setTextIfDifferent(overallPercent,(totalPos*100/total)+"%");
+            setTextIfDifferent(overallRemaining,"−"+formatLong(Math.max(0,total-totalPos)));
             totalProgress.setEnabled(true);
         }else{
             if(!draggingTotal)totalProgress.setProgress(0);
-            overallTime.setText("Подсчёт длительности…");overallPercent.setText("—");overallRemaining.setText("—");
+            setTextIfDifferent(overallTime,"Подсчёт длительности…");
+            setTextIfDifferent(overallPercent,"—");setTextIfDifferent(overallRemaining,"—");
             totalProgress.setEnabled(false);
         }
 
@@ -609,7 +621,10 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
             android.text.SpannableString display=new android.text.SpannableString(current);
             if(range[0]>=0 && range[1]>range[0] && range[1]<=current.length())
                 display.setSpan(new android.text.style.BackgroundColorSpan(0xffa9d5d0),range[0],range[1],android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            spokenText.setText(display);
+            if(!current.equals(lastSpokenText)||range[0]!=lastSpokenFrom||range[1]!=lastSpokenTo){
+                spokenText.setText(display);lastSpokenText=current;
+                lastSpokenFrom=range[0];lastSpokenTo=range[1];
+            }
             if(changed)ttsTextFrame.post(()->{if(ttsTextFrame!=null)ttsTextFrame.scrollTo(0,0);});
         }
     }

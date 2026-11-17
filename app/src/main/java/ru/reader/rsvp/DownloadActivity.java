@@ -77,6 +77,7 @@ public final class DownloadActivity extends NavigationActivity {
     private static volatile boolean coversIndexedThisProcess;
     private long mangaCoversAt;
     private int archiveRevision;
+    private int filterGeneration;
     private long appliedEventRevision=0;
     private final java.util.Set<String> pendingIds=new java.util.HashSet<>();
     private final DownloadChangeBus.Listener downloadListener=id->queueUpdate(id);
@@ -397,21 +398,31 @@ public final class DownloadActivity extends NavigationActivity {
         });
     }
     /** Filter changes only touch the already indexed snapshot, never wait on storage. */
+    /** Diff large lists in the scanner thread, publish only the current generation. */
     private void showCachedFilter(){
-        if(lastAll.isEmpty()){refresh();return;}
-        ArrayList<DisplayRow> next=makeRows(lastAll,filter,DownloadArchiveStore.hiddenIds(this));
-        ArrayList<DisplayRow> previous=new ArrayList<>(rows);
-        DiffUtil.DiffResult diff=DiffUtil.calculateDiff(new DiffUtil.Callback(){
-            @Override public int getOldListSize(){return previous.size();}
-            @Override public int getNewListSize(){return next.size();}
-            @Override public boolean areItemsTheSame(int old,int nextIndex){
-                return rowId(previous.get(old)).equals(rowId(next.get(nextIndex)));
-            }
-            @Override public boolean areContentsTheSame(int old,int nextIndex){
-                return rowState(previous.get(old)).equals(rowState(next.get(nextIndex)));
-            }
-        },false);
-        rows.clear();rows.addAll(next);diff.dispatchUpdatesTo(adapter);
+        if(adapter==null||scan.isShutdown())return;
+        final int epoch=++filterGeneration;
+        final int wantedFilter=filter;
+        final ArrayList<DownloadsRepository.Item> snapshot=new ArrayList<>(lastAll);
+        final ArrayList<DisplayRow> previous=new ArrayList<>(rows);
+        scan.execute(()->{
+            final java.util.Set<String> hidden=DownloadArchiveStore.hiddenIds(getApplicationContext());
+            final ArrayList<DisplayRow> next=makeRows(snapshot,wantedFilter,hidden);
+            DiffUtil.DiffResult diff=DiffUtil.calculateDiff(new DiffUtil.Callback(){
+                @Override public int getOldListSize(){return previous.size();}
+                @Override public int getNewListSize(){return next.size();}
+                @Override public boolean areItemsTheSame(int a,int b){
+                    return rowId(previous.get(a)).equals(rowId(next.get(b)));
+                }
+                @Override public boolean areContentsTheSame(int a,int b){
+                    return rowState(previous.get(a)).equals(rowState(next.get(b)));
+                }
+            },false);
+            main.post(()->{
+                if(epoch!=filterGeneration||adapter==null||filter!=wantedFilter)return;
+                rows.clear();rows.addAll(next);diff.dispatchUpdatesTo(adapter);
+            });
+        });
     }
     private static String rowId(DisplayRow row){
         return row.item==null?"section:"+row.section:row.item.id;
@@ -1073,13 +1084,50 @@ public final class DownloadActivity extends NavigationActivity {
             LinearLayout root=new LinearLayout(DownloadActivity.this);root.setOrientation(LinearLayout.VERTICAL);
             root.setLayoutParams(new RecyclerView.LayoutParams(-1,-2));return new Holder(root);
         }
+        private String staticSignature(DownloadsRepository.Item item){
+            return item.id+"|"+item.title+"|"+item.description+"|"+item.cover+"|"+
+                item.author+"|"+item.narrator+"|"+item.format+"|"+item.type+"|"+
+                item.ready+"|"+item.confirmedReady;
+        }
+        private void updateFast(Holder h,DownloadsRepository.Item item){
+            h.boundItem=item;
+            if(h.currentStatus!=null){
+                if(!item.status.contentEquals(h.currentStatus.getText()))h.currentStatus.setText(item.status);
+                h.currentStatus.setTextColor(item.failed?ERROR:
+                    item.ready||"Идёт озвучивание".equals(item.status)?GREEN:ACCENT);
+            }
+            if(h.progressBar!=null){
+                if(DownloadsRepository.EDGE.equals(item.type)||
+                   (DownloadsRepository.MANGA.equals(item.type)&&item.unknownTotal)){
+                    h.progressBar.setMax(100);h.progressBar.setProgress(item.coveragePercent);
+                    h.progressBar.setIndeterminate(false);
+                }else{
+                    h.progressBar.setMax(Math.max(1,item.total));
+                    h.progressBar.setProgress(Math.min(item.done,item.total));
+                    h.progressBar.setIndeterminate(item.total==0&&item.running);
+                }
+            }
+            if(h.swipeActions!=null&&h.swipeCard!=null){
+                boolean opened=item.id.equals(revealedSwipeId);
+                h.swipeActions.setVisibility(opened?View.VISIBLE:View.INVISIBLE);
+                h.swipeCard.setTranslationX(opened?h.swipeActions.getWidth():0f);
+            }
+        }
         @Override public void onBindViewHolder(Holder h,int pos){
-            LinearLayout root=(LinearLayout)h.itemView;root.removeAllViews();DisplayRow row=rows.get(pos);
+            DisplayRow row=rows.get(pos);
+            if(row.item!=null&&row.item.id.equals(h.boundId)
+                    &&staticSignature(row.item).equals(h.boundStatic)){
+                updateFast(h,row.item);return;
+            }
+            LinearLayout root=(LinearLayout)h.itemView;root.removeAllViews();
+            h.boundId="";h.boundStatic="";h.boundItem=row.item;
+            h.currentStatus=null;h.progressBar=null;h.swipeActions=null;h.swipeCard=null;
             if(row.item==null){
                 TextView label=text(row.section,23,true);label.setTypeface(Typeface.SERIF,Typeface.BOLD);
                 label.setPadding(dp(2),dp(8),0,dp(12));root.addView(label);return;
             }
             DownloadsRepository.Item item=row.item;
+            h.boundId=item.id;h.boundStatic=staticSignature(item);
             FrameLayout swipeFrame=new FrameLayout(DownloadActivity.this);
             LinearLayout.LayoutParams fp=new LinearLayout.LayoutParams(-1,-2);fp.bottomMargin=dp(10);
             root.addView(swipeFrame,fp);
@@ -1100,13 +1148,14 @@ public final class DownloadActivity extends NavigationActivity {
             LinearLayout.LayoutParams cancelParams=new LinearLayout.LayoutParams(dp(80),-1);
             cancelParams.leftMargin=dp(5);swipeActions.addView(cancel,cancelParams);
             confirm.setContentDescription("В архив");cancel.setContentDescription("Отмена");
-            confirm.setOnClickListener(v->archive(item));
+            confirm.setOnClickListener(v->{if(h.boundItem!=null)archive(h.boundItem);});
             cancel.setOnClickListener(v->{revealedSwipeId="";int at=h.getBindingAdapterPosition();
                 if(at>=0)notifyItemChanged(at);});
             swipeActions.setVisibility(item.id.equals(revealedSwipeId)?View.VISIBLE:View.INVISIBLE);
             LinearLayout card=new LinearLayout(DownloadActivity.this);card.setOrientation(LinearLayout.VERTICAL);
             card.setPadding(dp(12),dp(12),dp(12),dp(12));card.setBackground(bg(PANEL,19));
             swipeFrame.addView(card,new FrameLayout.LayoutParams(-1,-2));
+            h.swipeCard=card;h.swipeActions=swipeActions;
             // One layout-driven offset is authoritative across RecyclerView rebinds.
             // No delayed post() may overwrite an ongoing gesture.
             swipeFrame.addOnLayoutChangeListener((view,l,t,r,b,ol,ot,oright,ob)->{
@@ -1139,7 +1188,7 @@ public final class DownloadActivity extends NavigationActivity {
             LinearLayout.LayoutParams il=new LinearLayout.LayoutParams(-1,-2);il.topMargin=dp(6);detail.addView(info,il);
             LinearLayout statusLine=new LinearLayout(DownloadActivity.this);
             statusLine.setGravity(Gravity.CENTER_VERTICAL);detail.addView(statusLine);
-            TextView status=text(item.status,12,true);
+            TextView status=text(item.status,12,true);h.currentStatus=status;
             status.setTextColor(item.failed?ERROR:item.ready||"Идёт озвучивание".equals(item.status)?GREEN:ACCENT);
             statusLine.addView(status,new LinearLayout.LayoutParams(0,-2,1));
             if(item.confirmedReady || (!DownloadsRepository.EDGE.equals(item.type)&&item.ready)){
@@ -1164,6 +1213,7 @@ public final class DownloadActivity extends NavigationActivity {
                     if(item.total==0)progress.setIndeterminate(item.running);
                 }
                 UiColorScheme.tintProgress(progress,DownloadActivity.this);
+                h.progressBar=progress;
                 LinearLayout.LayoutParams pl=new LinearLayout.LayoutParams(-1,dp(7));pl.topMargin=dp(9);detail.addView(progress,pl);
             }
             // Every row exposes its actions through one compact overflow menu.
@@ -1173,18 +1223,24 @@ public final class DownloadActivity extends NavigationActivity {
             more.setColorFilter(UiColorScheme.prefs(DownloadActivity.this).getInt("fg",INK));
             LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(43),dp(43));
             moreParams.leftMargin=dp(5);top.addView(more,moreParams);
-            more.setOnClickListener(v->menu(more,item));card.setOnClickListener(v->{
+            more.setOnClickListener(v->{if(h.boundItem!=null)menu(more,h.boundItem);});card.setOnClickListener(v->{
                 if(!revealedSwipeId.isEmpty()){
                     String previous=revealedSwipeId;revealedSwipeId="";
                     for(int k=0;k<rows.size();k++)if(rows.get(k).item!=null&&previous.equals(rows.get(k).item.id)){
                         notifyItemChanged(k);break;
                     }
-                }else open(item);
+                }else if(h.boundItem!=null)open(h.boundItem);
             });
         }
         TextView control(String caption){TextView b=center(caption,13);int fill=ReaderButtonColors.neutral(DownloadActivity.this,PANEL);b.setBackground(bg(fill,12));b.setTextColor(ReaderButtonColors.contrastingText(fill));return b;}
         @Override public int getItemCount(){return rows.size();}
-        final class Holder extends RecyclerView.ViewHolder{Holder(View v){super(v);}}
+        final class Holder extends RecyclerView.ViewHolder{
+            String boundId="",boundStatic="";
+            DownloadsRepository.Item boundItem;
+            TextView currentStatus;ProgressBar progressBar;
+            LinearLayout swipeCard,swipeActions;
+            Holder(View v){super(v);}
+        }
     }
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);

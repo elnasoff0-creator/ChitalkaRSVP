@@ -34,7 +34,18 @@ import java.util.Locale;
 
 /** Local comic reader supporting HTML chapters, image folders and CBZ/CBR archives. */
 public final class ComicReaderActivity extends NavigationActivity {
-    private static final class PageAsset { String relativePath; File localFile; String mime="image/*"; }
+    private static final class PageAsset {
+        String relativePath;File localFile;String mime="image/*";
+        int width=0,height=0;DocumentFile tree;volatile Uri cachedUri;
+    }
+    private static final class PreparedChapter {
+        final String html;final ArrayList<PageAsset> assets;
+        PreparedChapter(String html,ArrayList<PageAsset> assets){this.html=html;this.assets=assets;}
+    }
+    // WebView requests are asynchronous. Keep the immutable asset set indexed by
+    // chapter generation so late requests never render another chapter's pages.
+    private final java.util.concurrent.ConcurrentHashMap<Integer,ArrayList<PageAsset>> generations=
+        new java.util.concurrent.ConcurrentHashMap<>();
     private ComicLibrary.Comic comic; private ArrayList<ComicLibrary.Chapter> chapters=new ArrayList<>(); private WebView web;
     private TextView chapterTitle, chapterInfo, comicHeading;private ImageView modeAction,orientationAction;
     private boolean restoringPage=false;private int restoringToken=0;
@@ -44,7 +55,8 @@ public final class ComicReaderActivity extends NavigationActivity {
     private float gestureStartX, gestureStartY;
     private long gestureStartedAt;
     private int restoringScroll=0,restoringIndex=0;
-    private int generation=0;private final ArrayList<PageAsset> currentAssets=new ArrayList<>();
+    private volatile int generation=0;private final ArrayList<PageAsset> currentAssets=new ArrayList<>();
+    private boolean lastPositionKnown=false;
     private final Handler tracker=new Handler(Looper.getMainLooper());private boolean tracking=false;
     private final Runnable trackPosition=new Runnable(){@Override public void run(){
         if(!tracking||web==null||isFinishing())return;
@@ -56,9 +68,13 @@ public final class ComicReaderActivity extends NavigationActivity {
             if(parts.length==2)try{
                 int page=Integer.parseInt(parts[0]),offset=Integer.parseInt(parts[1]);
                 int max; synchronized(currentAssets){max=currentAssets.size();}
-                comic.page=Math.max(0,Math.min(page,Math.max(0,max-1)));
-                comic.scroll=Math.max(0,offset);
-                ChteicoStore.recordComicPage(ComicReaderActivity.this,comic.uri,comic.chapter,comic.page);
+                if(page<0||page>=max)return; // No trustworthy page before WebView layout.
+                int nextScroll=Math.max(0,offset),oldPage=comic.page;
+                if(oldPage==page&&comic.scroll==nextScroll)return;
+                comic.page=page;comic.scroll=nextScroll;lastPositionKnown=true;
+                getSharedPreferences("reader",0).edit()
+                    .putBoolean("comic_anchor_v175:"+comic.uri,true).apply();
+                if(oldPage!=page)ChteicoStore.recordComicPage(ComicReaderActivity.this,comic.uri,comic.chapter,page);
                 updateChapterButton();
             }catch(Exception ignored){}
         });}catch(Exception ignored){}
@@ -126,7 +142,8 @@ public final class ComicReaderActivity extends NavigationActivity {
                 };
                 if(!restoringPage&&web!=null)web.evaluateJavascript("positionInfo()",value->{
                     try{String[] parts=value.replace("\"","").split("\\|");
-                        comic.page=Integer.parseInt(parts[0]);comic.scroll=Integer.parseInt(parts[1]);}
+                        int pg=Integer.parseInt(parts[0]);if(pg>=0){comic.page=pg;comic.scroll=Math.max(0,Integer.parseInt(parts[1]));
+                            getSharedPreferences("reader",0).edit().putBoolean("comic_anchor_v175:"+comic.uri,true).apply();}}
                     catch(Exception ignored){}
                     rotate.run();
                 });else rotate.run();
@@ -178,15 +195,29 @@ public final class ComicReaderActivity extends NavigationActivity {
             }
             @Override public WebResourceResponse shouldInterceptRequest(WebView view,WebResourceRequest request){
                 Uri requestUri=request.getUrl(); if(!"comic.local".equals(requestUri.getHost())) return forbidden();
-                String path=requestUri.getPath(); if(path==null||!path.startsWith("/page/")) return forbidden();
+                String path=requestUri.getPath();
+                if(path==null||!path.startsWith("/chapter/"))return forbidden();
                 try {
-                    int index=Integer.parseInt(path.substring(6)); PageAsset asset; synchronized(currentAssets){ if(index<0||index>=currentAssets.size()) return forbidden(); asset=currentAssets.get(index); }
-                    if(asset.localFile!=null && asset.localFile.isFile()) return new WebResourceResponse(asset.mime,null,new FileInputStream(asset.localFile));
+                    String[] bits=path.split("/");
+                    if(bits.length!=5||!"page".equals(bits[3]))return forbidden();
+                    int version=Integer.parseInt(bits[2]),index=Integer.parseInt(bits[4]);
+                    ArrayList<PageAsset> pages=generations.get(version);
+                    if(pages==null||index<0||index>=pages.size())return forbidden();
+                    PageAsset asset=pages.get(index);
+                    if(asset.localFile!=null&&asset.localFile.isFile())
+                        return new WebResourceResponse(asset.mime,null,new FileInputStream(asset.localFile));
                     if(asset.relativePath!=null){
-                        DocumentFile tree=ComicLibrary.tree(ComicReaderActivity.this,comic); if(tree==null) return forbidden();
-                        DocumentFile file=lookup(tree,asset.relativePath); if(file==null||!file.isFile()) return forbidden();
-                        InputStream input=getContentResolver().openInputStream(file.getUri()); if(input==null) return forbidden();
-                        String mime=getContentResolver().getType(file.getUri()); if(mime==null) mime=guessMime(asset.relativePath); asset.mime=mime; return new WebResourceResponse(mime,null,input);
+                        Uri uri=asset.cachedUri;
+                        if(uri==null)synchronized(asset){
+                            uri=asset.cachedUri;
+                            if(uri==null&&asset.tree!=null){
+                                DocumentFile file=lookup(asset.tree,asset.relativePath);
+                                if(file!=null&&file.isFile())asset.cachedUri=uri=file.getUri();
+                            }
+                        }
+                        if(uri==null)return forbidden();
+                        InputStream input=getContentResolver().openInputStream(uri);
+                        if(input!=null)return new WebResourceResponse(asset.mime,null,input);
                     }
                 } catch(Exception ignored){}
                 return forbidden();
@@ -327,91 +358,118 @@ public final class ComicReaderActivity extends NavigationActivity {
             return;
         }
         comic.chapter=Math.max(0,Math.min(comic.chapter,chapters.size()-1));
-        synchronized(currentAssets){currentAssets.clear();}
+        // Retain existing assets until the prepared replacement is ready.
         comic.pageTotal=comic.chapter<comic.pageCounts.size()?Math.max(0,comic.pageCounts.get(comic.chapter)):0;
         persist();updateChapterButton();
         final ComicLibrary.Chapter chapter=chapters.get(comic.chapter);final int token=++generation;
         final int previousScroll=comic.scroll,previousPage=comic.page,mode=comic.mode;
         restoringScroll=previousScroll;restoringIndex=previousPage;restoringToken=token;restoringPage=true;
-        web.animate().cancel();web.setAlpha(0f);
+        web.animate().cancel(); // Never hide the entire WebView during lazy-image loading.
         new Thread(() -> {
             try {
-                String content = buildChapterHtml(chapter, mode);
+                PreparedChapter ready=buildChapterHtml(chapter,mode,token);
                 runOnUiThread(() -> {if(token!=generation||isFinishing())return;
+                    generations.put(token,ready.assets);
+                    // Keep only the current and immediately previous generation.
+                    for(Integer old:generations.keySet())if(old<token-1)generations.remove(old);
+                    synchronized(currentAssets){currentAssets.clear();currentAssets.addAll(ready.assets);}
                     updateChapterButton();
-                    web.loadDataWithBaseURL("https://comic.local/",content,"text/html","UTF-8",null);
-                    // No fixed-delay jump. The JS bridge reveals the document only after restoration.
+                    web.loadDataWithBaseURL("https://comic.local/",ready.html,"text/html","UTF-8",null);
                     web.postDelayed(()->{if(token==generation&&restoringPage){
                         web.evaluateJavascript("restore("+previousScroll+","+previousPage+")",null);
-                        restoringPage=false;web.setAlpha(1f);
-                    }},10000L);
+                        restoringPage=false;
+                    }},1800L);
                 });
             } catch(Exception e){runOnUiThread(()->{if(token!=generation)return;
-                    restoringPage=false;web.setAlpha(1f);
+                    restoringPage=false;
                     Toast.makeText(this,"Ошибка открытия главы: "+e.getMessage(),Toast.LENGTH_LONG).show();});}
         },"comic-open").start();
     }
 
-    private String buildChapterHtml(ComicLibrary.Chapter chapter, int mode) throws Exception {
-        synchronized(currentAssets){ currentAssets.clear(); }
-        if("html".equals(chapter.type)) prepareHtmlAssets(chapter); else prepareImageAssets(chapter);
-        return renderCurrentAssets(mode);
+    private PreparedChapter buildChapterHtml(ComicLibrary.Chapter chapter,int mode,int token) throws Exception {
+        ArrayList<PageAsset> assets="html".equals(chapter.type)
+            ?prepareHtmlAssets(chapter):prepareImageAssets(chapter);
+        return new PreparedChapter(renderCurrentAssets(assets,mode,token),assets);
     }
-    private void prepareHtmlAssets(ComicLibrary.Chapter chapter) throws Exception {
+    private ArrayList<PageAsset> prepareHtmlAssets(ComicLibrary.Chapter chapter) throws Exception {
         ByteArrayOutputStream output=new ByteArrayOutputStream();
         try(InputStream in=getContentResolver().openInputStream(chapter.htmlFile.getUri())){
-            if(in==null) throw new Exception("HTML недоступен"); byte[] buffer=new byte[8192]; int total=0,n;
-            while((n=in.read(buffer))!=-1){ total+=n; if(total>4*1024*1024) throw new Exception("HTML превышает 4 МБ"); output.write(buffer,0,n); }
+            if(in==null)throw new Exception("HTML недоступен");
+            byte[] buffer=new byte[8192];int total=0,n;
+            while((n=in.read(buffer))!=-1){total+=n;
+                if(total>4*1024*1024)throw new Exception("HTML превышает 4 МБ");output.write(buffer,0,n);}
         }
         Document doc=Jsoup.parse(new String(output.toByteArray(),java.nio.charset.StandardCharsets.UTF_8));
         ArrayList<PageAsset> pages=new ArrayList<>();
+        DocumentFile tree=ComicLibrary.tree(this,comic);
         for(Element img:doc.select("img")){
             String path=img.hasAttr("data-src")?img.attr("data-src"):img.attr("src");
-            if(path.isEmpty()||path.startsWith("data:")||path.contains(":")||path.startsWith("/")||path.contains("..")) continue;
-            PageAsset asset=new PageAsset(); asset.relativePath=path; asset.mime=guessMime(path); pages.add(asset);
-        }
-        synchronized(currentAssets){ currentAssets.addAll(pages); }
-    }
-    private void prepareImageAssets(ComicLibrary.Chapter chapter) throws Exception {
-        ArrayList<PageAsset> pages=new ArrayList<>();
-        ArrayList<String> imagePaths="mangalib_cbz".equals(chapter.type)
-            ? MangaLibStorage.extractForReading(this,chapter.imagePaths.get(0))
-            : ComicLibrary.pagesForChapter(this,comic,chapter);
-        chapter.pageCount=imagePaths.size();
-        for(String path:imagePaths){
-            PageAsset asset=new PageAsset();
-            if("archive".equals(chapter.type)||"archive_tree".equals(chapter.type)||"mangalib_cbz".equals(chapter.type)){ asset.localFile=new File(path); asset.mime=guessMime(path); }
-            else { asset.relativePath=path; asset.mime=guessMime(path); }
+            if(path.isEmpty()||path.startsWith("data:")||path.contains(":")||path.startsWith("/")||path.contains(".."))continue;
+            PageAsset asset=new PageAsset();asset.relativePath=path;asset.mime=guessMime(path);asset.tree=tree;
+            try{asset.width=Integer.parseInt(img.attr("width"));asset.height=Integer.parseInt(img.attr("height"));}
+            catch(Exception ignored){}
             pages.add(asset);
         }
-        synchronized(currentAssets){ currentAssets.addAll(pages); }
+        return pages;
     }
-    private String renderCurrentAssets(int mode){
+    private ArrayList<PageAsset> prepareImageAssets(ComicLibrary.Chapter chapter) throws Exception {
+        ArrayList<PageAsset> pages=new ArrayList<>();
+        ArrayList<String> imagePaths="mangalib_cbz".equals(chapter.type)
+            ?MangaLibStorage.extractForReading(this,chapter.imagePaths.get(0))
+            :ComicLibrary.pagesForChapter(this,comic,chapter);
+        chapter.pageCount=imagePaths.size();
+        DocumentFile tree=null;
+        if(!"archive".equals(chapter.type)&&!"archive_tree".equals(chapter.type)
+                &&!"mangalib_cbz".equals(chapter.type))tree=ComicLibrary.tree(this,comic);
+        for(String path:imagePaths){
+            PageAsset asset=new PageAsset();
+            if("archive".equals(chapter.type)||"archive_tree".equals(chapter.type)||"mangalib_cbz".equals(chapter.type)){
+                asset.localFile=new File(path);asset.mime=guessMime(path);
+            }else{asset.relativePath=path;asset.mime=guessMime(path);asset.tree=tree;}
+            pages.add(asset);
+        }
+        return pages;
+    }
+    private String renderCurrentAssets(ArrayList<PageAsset> pages,int mode,int token){
         StringBuilder html=new StringBuilder();
         html.append("<html><head><meta name='viewport' content='width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=5, user-scalable=yes'>");
-        html.append("<style>html,body{margin:0;padding:0;background:#fff}img{display:block;margin:0 auto;image-rendering:auto;}");
+        int bg=getSharedPreferences("reader",0).getInt("bg",0xfff3e7d5);
+        String background=String.format(Locale.ROOT,"#%06X",bg&0xffffff);
+        html.append("<style>html,body{margin:0;padding:0;background:").append(background)
+            .append("}img{display:block;margin:0 auto;image-rendering:auto;}");
         if(mode==0) html.append("#pages{display:flex;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;width:100vw;height:100vh;-webkit-overflow-scrolling:touch}img{width:100vw;height:100vh;object-fit:contain;flex-shrink:0;scroll-snap-align:start}");
-        else html.append("#pages{display:block}img{width:100%;height:auto}");
+        else html.append("html{overflow-anchor:auto}#pages{display:block}img{width:100%;height:auto;aspect-ratio:3 / 4;overflow-anchor:auto}");
         html.append("</style></head><body><div id='pages'>");
-        synchronized(currentAssets){ for(int i=0;i<currentAssets.size();i++) html.append("<img loading='lazy' src='https://comic.local/page/").append(i).append("'>"); }
+        for(int i=0;i<pages.size();i++){
+            PageAsset asset=pages.get(i);
+            html.append("<img loading='").append(i==0?"eager":"lazy").append("' ");
+            if(asset.width>0&&asset.height>0)html.append("width='").append(asset.width)
+                .append("' height='").append(asset.height).append("' ");
+            html.append("src='https://comic.local/chapter/").append(token).append("/page/").append(i).append("'>");
+        }
         html.append("</div><script>");
         html.append("function pictures(){return document.getElementById('pages').getElementsByTagName('img')}");
         html.append("function page(){var images=pictures();if(!images.length)return 0;");
         if(mode==0)html.append("var el=document.getElementById('pages');return Math.min(images.length-1,Math.round(el.scrollLeft/Math.max(1,el.clientWidth)))");
-        else html.append("var y=window.scrollY+window.innerHeight*.25;var result=0;for(var i=0;i<images.length;i++){if(images[i].offsetTop<=y)result=i;else break;}return result");
+        else html.append("var target=window.innerHeight*.3,best=-1,dist=1e30;for(var i=0;i<images.length;i++){var r=images[i].getBoundingClientRect();if(r.height<2)continue;if(r.top<=target&&r.bottom>=target)return i;var d=r.top>target?r.top-target:target-r.bottom;if(d<dist){dist=d;best=i}}return best");
         html.append("}");
         html.append("function positionInfo(){var n=page();var v=");
         html.append(mode==0?"document.getElementById('pages').scrollLeft":"window.scrollY");
-        html.append(";return n+'|'+Math.round(v)}");
+        html.append(mode==0?";return n+'|'+Math.round(v)}":";return n+'|'+(n<0?0:Math.round(v-pictures()[n].offsetTop))}");
         html.append("function restore(offset,index){var imgs=pictures();if(!imgs.length)return;var n=Math.max(0,Math.min(index,imgs.length-1));");
         if(mode==0)html.append("var el=document.getElementById('pages');el.scrollLeft=n*el.clientWidth;");
-        else html.append("window.scrollTo(0,offset>0?offset:imgs[n].offsetTop);");
+        else {
+            boolean anchored=getSharedPreferences("reader",0).getBoolean("comic_anchor_v175:"+comic.uri,false);
+            html.append("window.scrollTo(0,")
+                .append(anchored?"imgs[n].offsetTop+Math.max(0,offset)":"offset>0?offset:imgs[n].offsetTop")
+                .append(");");
+        }
         html.append("}");
+        // Geometry is reserved before image loads. Restore the page anchor immediately;
+        // never force downloads of all preceding pages or do repeated scrollTo loops.
         html.append("function restoreWhenReady(offset,index,token){var imgs=pictures(),n=Math.max(0,Math.min(index,imgs.length-1));");
-        html.append("var target=");html.append(mode==0?"[imgs[n]]":"Array.prototype.slice.call(imgs,0,n+1)");
-        html.append(";target.forEach(function(im){if(im)im.loading='eager'});");
-        html.append("var waits=target.map(function(im){return new Promise(function(done){if(!im||im.complete){done();return;}im.addEventListener('load',done,{once:true});im.addEventListener('error',done,{once:true});});});");
-        html.append("Promise.race([Promise.all(waits),new Promise(function(done){setTimeout(done,6500)})]).then(function(){restore(offset,index);requestAnimationFrame(function(){restore(offset,index);if(window.ComicRestore)ComicRestore.onPositionRestored(token);});});}");
+        html.append("for(var i=Math.max(0,n-1);i<=Math.min(imgs.length-1,n+2);i++)imgs[i].loading='eager';");
+        html.append("requestAnimationFrame(function(){restore(offset,index);requestAnimationFrame(function(){if(window.ComicRestore)ComicRestore.onPositionRestored(token);});});}");
         // Page swipes remain native; an ACTION_UP without movement toggles the floating chrome.
         html.append("</script></body></html>");
         return html.toString();
@@ -429,7 +487,9 @@ public final class ComicReaderActivity extends NavigationActivity {
         tracking=false;tracker.removeCallbacks(trackPosition);
         if(web!=null&&!restoringPage){try{web.evaluateJavascript("positionInfo()",value->{try{
             String[] parts=value.replace("\"","").split("\\|");
-            comic.page=Integer.parseInt(parts[0]);comic.scroll=Integer.parseInt(parts[1]);persist();
+            int page=Integer.parseInt(parts[0]);
+            if(page>=0){comic.page=page;comic.scroll=Math.max(0,Integer.parseInt(parts[1]));
+                getSharedPreferences("reader",0).edit().putBoolean("comic_anchor_v175:"+comic.uri,true).apply();persist();}
         }catch(Exception ignored){}});}catch(Exception ignored){}}
         super.onPause();
     }

@@ -13,6 +13,8 @@ final class DownloadArchiveStore {
     private static final String PREF="downloads_archive_v153";
     private static final String ITEMS="records";
     private static final String DISMISSED="dismissed";
+    private static Set<String> cachedHidden;
+    private static String cachedOwner="";
 
     static final class Entry {
         String id="",type="",title="",sourceTitle="",displayTitle="",cover="",description="",source="",bookUri="";
@@ -42,11 +44,15 @@ final class DownloadArchiveStore {
         }catch(Exception ignored){}return out;
     }
     static synchronized Set<String> hiddenIds(Context c){
+        String owner=c.getApplicationContext().getPackageName();
+        if(cachedHidden!=null&&owner.equals(cachedOwner))return new HashSet<>(cachedHidden);
         HashSet<String> hidden=new HashSet<>(pref(c).getStringSet(DISMISSED,java.util.Collections.emptySet()));
         for(Entry e:entries(c))hidden.add(e.id);
-        return hidden;
+        cachedOwner=owner;cachedHidden=hidden;
+        return new HashSet<>(hidden);
     }
     private static boolean persist(Context c,ArrayList<Entry> values,Set<String> dismissed){
+        cachedHidden=null; // Archive revision changed; rebuild only on the next actual query.
         JSONArray a=new JSONArray();try{for(Entry e:values)a.put(e.json());}catch(Exception ex){return false;}
         return pref(c).edit().putString(ITEMS,a.toString())
             .putStringSet(DISMISSED,new HashSet<>(dismissed)).commit();
