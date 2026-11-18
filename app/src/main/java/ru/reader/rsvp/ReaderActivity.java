@@ -1179,6 +1179,7 @@ public class ReaderActivity extends NavigationActivity {
             toolbarEngineAction.setImageDrawable(TtsEngineIcons.load(this,prefs.getString("tts_engine","")));
             toolbarEngineAction.clearColorFilter();
         }
+        refreshActiveTtsIcon();
         if(toolbarVoiceAction!=null)toolbarVoiceAction.setVisibility(mode==TTS?View.VISIBLE:View.GONE);
         if(toolbarSleepAction!=null)toolbarSleepAction.setVisibility(mode==TTS?View.VISIBLE:View.GONE);
         if(toolbarWpm!=null)toolbarWpm.setVisibility(mode==NORMAL?View.GONE:View.VISIBLE);
@@ -2190,6 +2191,30 @@ public class ReaderActivity extends NavigationActivity {
         updatePlayButtonIfChanged();
         updateSleepTimerBadge();
     }
+    /** Keep the overlay icon in sync with the engine actually speaking this book. */
+    private String lastRenderedTtsEngineIconKey="";
+    private void refreshActiveTtsIcon(){
+        if(toolbarEngineAction==null || mode!=TTS)return;
+        AudioPlaybackService backup=AudioPlaybackService.instance;
+        boolean backupActive=!ttsLocal && backupTtsForThisBook();
+        String packageName=backupActive && backup!=null ? backup.activeBackupEnginePackage() :
+            (ttsLocal ? prefs.getString("tts_engine","") : "");
+        if(packageName==null)packageName="";
+        String iconKey=backupActive?"backup:"+packageName:(ttsLocal?"local:"+packageName:"edge");
+        if(iconKey.equals(lastRenderedTtsEngineIconKey))return;
+        lastRenderedTtsEngineIconKey=iconKey;
+        if(backupActive || ttsLocal){
+            toolbarEngineAction.setImageDrawable(TtsEngineIcons.load(this,packageName));
+            toolbarEngineAction.clearColorFilter();
+            toolbarEngineAction.setContentDescription(backupActive?
+                "Резервная озвучка: "+TtsEngineIcons.label(this,packageName):
+                "Метод озвучивания: "+TtsEngineIcons.label(this,packageName));
+        }else{
+            toolbarEngineAction.setImageResource(R.drawable.ic_edge_tts);
+            toolbarEngineAction.setColorFilter(contrast(accent()));
+            toolbarEngineAction.setContentDescription("Метод озвучивания: Microsoft Edge TTS");
+        }
+    }
     private void updatePlayButtonIfChanged(){
         refreshActiveTtsIcon();
         boolean now=ttsCurrentlyPlaying();
@@ -2220,6 +2245,7 @@ public class ReaderActivity extends NavigationActivity {
             row.setOnClickListener(v->{dialog.dismiss();
                 if(localChoice==ttsLocal)return;
                 int position=index;releaseTts();ttsLocal=localChoice;
+                lastRenderedTtsEngineIconKey="";
                 prefs.edit().putBoolean("tts_last_local",localChoice)
                     .putInt("tts_word:"+docUri,position).apply();
                 if(toolbarEngineAction!=null){

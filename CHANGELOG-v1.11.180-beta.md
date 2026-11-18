@@ -10,3 +10,11 @@
 - Версия 1.11.180-beta, versionCode 18000.
 
 Ограничение: сквозная проверка работы Edge TTS на реальном устройстве и полная Android Gradle сборка не подтверждены.
+
+
+## Build Hotfix — ReaderActivity
+
+- Added missing refreshActiveTtsIcon() method required by ReaderActivity compilation.
+- The overlay icon reflects active Edge, manually selected local, or actual fallback TTS engine and avoids repeated drawable loads.
+- All previous versioned MD release notes removed from this CLEAN archive.
+- Full Android Gradle build must be verified in GitHub Actions.
