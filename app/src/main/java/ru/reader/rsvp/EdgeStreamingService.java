@@ -204,10 +204,14 @@ public final class EdgeStreamingService extends Service {
         if(playingStart>=0&&playingStart!=failed.start)return;
         // On the first stream Media3 may not yet have a current track.
         if(playingStart<0&&(anchorWord<failed.start||anchorWord>=failed.end))return;
+        if(failed.failures<2){
+            ReaderDiagnosticLog.event("EDGE","fallback_deferred retries="+failed.failures);
+            return;
+        }
         backupTtsActivated=true;
         final int word=Math.max(0,failed.start);
         String fallbackEngine=pref.getString("edge_backup_tts_engine","");
-        ReaderDiagnosticLog.event("EDGE","fallback_local_tts start="+word);
+        ReaderDiagnosticLog.event("EDGE","FALLBACK_ACTIVATED start="+word);
         // Pause Edge before handing off the same sentence to Android TTS.
         player.pause();
         try{
@@ -1179,8 +1183,24 @@ public final class EdgeStreamingService extends Service {
                                 error="";
                             }else error="Edge TTS: "+problem;
                             persist();changed();
-                            if(!problem.contains("прерван ради активного чтения"))
+                            // A transient first-packet timeout is not proof Edge is offline.
+                            // Retry only the active foreground fragment once, never prefetch.
+                            boolean retryNow=clip.failures==1&&active&&player!=null&&
+                                player.playRequested()&&!problem.contains("HTTP 429")&&
+                                !problem.contains("прерван ради активного чтения")&&
+                                (anchorWord>=clip.start&&anchorWord<clip.end);
+                            if(retryNow){
+                                ReaderDiagnosticLog.event("EDGE","EDGE_RETRY_SCHEDULED attempt=2");
+                                main.postDelayed(()->{
+                                    if(destroyed||!active||player==null||!player.playRequested()||
+                                        !bookUri.equals(job.bookId)||clip.ready()||
+                                        anchorWord<clip.start||anchorWord>=clip.end)return;
+                                    clip.awaitingUserRetry=false;clip.retryAt=0;
+                                    startLive(clip);
+                                },900);
+                            }else if(!problem.contains("прерван ради активного чтения")){
                                 startBackupTtsForFailedClip(clip);
+                            }
                             if(idlePrefetchRequested&&!active){idlePrefetchRequested=false;stopSelf();}
                         });
                         return;

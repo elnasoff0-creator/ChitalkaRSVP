@@ -465,7 +465,7 @@ if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,new IntentFilter(AudioPla
         if(u==null||u.isEmpty()){Toast.makeText(this,"Сначала откройте EPUB или FB2",Toast.LENGTH_SHORT).show();return;}
         bookUri=u;
         startActivity(new Intent(this,ReaderActivity.class).putExtra("reading_mode_override",3)
-            .putExtra("book_uri",u).putExtra("tts_mode_local",true)
+            .putExtra("book_uri",u).putExtra("tts_mode_local",getSharedPreferences("reader",0).getBoolean("tts_last_local",true))
             .putExtra("word_index",Math.max(0,index)));
         finish();
     }

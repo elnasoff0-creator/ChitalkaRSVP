@@ -67,7 +67,7 @@ public final class EdgeDictionaryActivity extends NavigationActivity {
         drawer.setColorFilter(ink);drawer.setBackground(touch(neutral));
         toolbar.addView(drawer,new LinearLayout.LayoutParams(dp(44),dp(44)));
         drawer.setOnClickListener(v->UniversalDrawer.show(this));
-        TextView title=label("Словарь Edge TTS",20);
+        TextView title=label("Словарь TTS",20);
         toolbar.addView(title,new LinearLayout.LayoutParams(0,-2,1));
         ImageButton plus=new ImageButton(this);plus.setImageResource(R.drawable.ic_plus);
         plus.setColorFilter(UiColorScheme.onAccent(this));plus.setBackground(touch(accent));

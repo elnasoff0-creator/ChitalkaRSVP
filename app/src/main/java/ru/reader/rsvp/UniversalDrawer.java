@@ -103,7 +103,10 @@ final class UniversalDrawer {
                 tapCount[0]=0;
                 boolean enabled=ChteicoStore.toggleDeveloper(a);
                 Toast.makeText(a,enabled?"Режим разработчика включён":"Режим разработчика выключен",Toast.LENGTH_SHORT).show();
-                close(a,()->{if(a instanceof SettingsActivity)((SettingsActivity)a).draw();});
+                close(a,()->{
+                    if(!enabled&&a instanceof ReaderLogActivity)a.finish();
+                    if(a instanceof SettingsActivity)((SettingsActivity)a).draw();
+                });
             }
         });
         TextView brand=new TextView(a);brand.setText("  ПРОЧиталка");brand.setTextSize(21);
@@ -129,6 +132,11 @@ final class UniversalDrawer {
             item(a,list,fg,DrawerMenuStore.icon(id,a),DrawerMenuStore.name(a,id),()->navigate(a,route));
         }
 
+        if(ChteicoStore.developerUnlocked(a)){
+            separator(a,list,fg,12,8);
+            item(a,list,fg,R.drawable.ic_dev_beaker,"Показать лог-файл",
+                ()->open(a,ReaderLogActivity.class));
+        }
         if(!controlledByFinger)scroll.post(()->{
             if(OPEN.get(a)!=session||session.closing)return;
             shade.animate().alpha(1f).setDuration(SLIDE_MS).start();

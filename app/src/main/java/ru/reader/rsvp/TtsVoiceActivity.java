@@ -52,8 +52,13 @@ public class TtsVoiceActivity extends NavigationActivity {
             for(LocalVoiceCatalog.Entry candidate:found){
                 String brand=candidate.engine.toLowerCase(Locale.ROOT).contains("samsung")?"Samsung":
                     candidate.engine.toLowerCase(Locale.ROOT).contains("google")?"Google":candidate.label;
+                LinearLayout engineRow=new LinearLayout(this);engineRow.setGravity(Gravity.CENTER_VERTICAL);
+                ImageView engineIcon=new ImageView(this);engineIcon.setImageDrawable(TtsEngineIcons.load(this,candidate.engine));
+                engineIcon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                engineRow.addView(engineIcon,new LinearLayout.LayoutParams(dp(32),dp(32)));
                 TextView item=row(brand+"  ·  "+candidate.voice.getName(),14);
-                catalogRows.addView(item);
+                engineRow.addView(item,new LinearLayout.LayoutParams(0,-2,1));
+                catalogRows.addView(engineRow);
                 item.setOnClickListener(view->{
                     getSharedPreferences("reader",0).edit()
                        .putString("tts_engine",candidate.engine)
@@ -94,6 +99,10 @@ public class TtsVoiceActivity extends NavigationActivity {
             verified?"Локальный · точная подсветка слов":"Локальный · подсветка предложения";
         LinearLayout card=new LinearLayout(this);card.setGravity(Gravity.CENTER_VERTICAL);
         TextView item=row((voice.getName().equals(chosen)?"◉ ":"○ ")+voice.getName()+"\n"+capability,14);
+        ImageView voiceEngineIcon=new ImageView(this);
+        voiceEngineIcon.setImageDrawable(TtsEngineIcons.load(this,packageName));
+        voiceEngineIcon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        card.addView(voiceEngineIcon,new LinearLayout.LayoutParams(dp(32),dp(32)));
         card.addView(item,new LinearLayout.LayoutParams(0,-2,1));
         item.setOnClickListener(v->{
             prefs.edit().putString("tts_engine",packageName).putString("tts_voice",voice.getName()).apply();

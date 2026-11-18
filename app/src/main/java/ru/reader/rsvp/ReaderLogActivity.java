@@ -29,6 +29,7 @@ public final class ReaderLogActivity extends NavigationActivity {
         v.setOnClickListener(w->task.run());return v;
     }
     @Override public void onCreate(Bundle b){super.onCreate(b);
+        if(!ChteicoStore.developerUnlocked(this)){finish();return;}
         background=getSharedPreferences("reader",0).getInt("bg",0xfff3e7d5);
         foreground=(Color.red(background)*.299+Color.green(background)*.587+Color.blue(background)*.114)<140
             ?Color.WHITE:0xff30221e;
@@ -55,6 +56,9 @@ public final class ReaderLogActivity extends NavigationActivity {
     }
     private void addAction(LinearLayout parent,String name,Runnable action){
         parent.addView(button(name,action),new LinearLayout.LayoutParams(0,dp(52),1));
+    }
+    @Override protected void onResume(){super.onResume();
+        if(!ChteicoStore.developerUnlocked(this))finish();
     }
     private void refresh(){ReaderDiagnosticLog.snapshot(s->logView.setText(s));}
     private void askClear(){new RoundedDialogs.Builder(this).setTitle("Очистить журнал?")

@@ -178,11 +178,7 @@ public class SettingsActivity extends NavigationActivity {
         header("Цвет обычных кнопок");buttonPalette(false);
         header("Цвет акцентных кнопок · Play, режимы");buttonPalette(true);
         gap(16);
-        header("Диагностика");
-        audioLink(R.drawable.ic_dev_beaker,"Показать лог-файл",
-            "События Edge TTS, WebSocket, HTTP 429, кэша и воспроизведения",
-            "Открыть",()->startActivity(new Intent(this,ReaderLogActivity.class)));
-        gap(18);
+        // Diagnostics are accessible only from the developer drawer.
     }
     /** Compact help link. Only the icon is clickable; the setting itself retains its action. */
     void addHelpIcon(String section){
@@ -691,7 +687,7 @@ public class SettingsActivity extends NavigationActivity {
                 backupTtsSummary(),this::backupTtsEngineDialog);
         }
         audioToggle(R.drawable.ic_tts_autoplay,"Автовоспроизведение при касании","Начинать озвучку сразу после выбора предложения","tts_tap_autoplay",false);
-        audioLink(R.drawable.ic_edge_dictionary,"Словарь MS Edge",
+        audioLink(R.drawable.ic_edge_dictionary,"Словарь TTS",
             "", "",()->startActivity(new android.content.Intent(this,EdgeDictionaryActivity.class)));
         audioLink(R.drawable.ic_downloads,"Папка Book · Edge TTS",
             "Та же папка, что EPUB, FB2, HTML и ранобэ: "+DownloadFolderPicker.summary(this,DownloadFolderPicker.BOOK),
@@ -730,11 +726,31 @@ public class SettingsActivity extends NavigationActivity {
                     }
                 }
                 if(holder[0]!=null){holder[0].shutdown();holder[0]=null;}
-                new SwipeDialogs.Builder(this).setTitle("Резервный TTS-движок")
-                    .setItems(labels.toArray(new String[0]),(dialog,which)->{
-                        prefs.edit().putString("edge_backup_tts_engine",ids.get(which)).apply();
-                        draw();
-                    }).setNegativeButton("Отмена",null).show();
+                android.widget.ScrollView scroller=new android.widget.ScrollView(this);
+                android.widget.LinearLayout choices=new android.widget.LinearLayout(this);
+                choices.setOrientation(1);scroller.addView(choices);
+                final android.app.AlertDialog selection=new android.app.AlertDialog.Builder(this)
+                    .setTitle("Резервный TTS-движок").setView(scroller)
+                    .setNegativeButton("Отмена",null).create();
+                String selected=prefs.getString("edge_backup_tts_engine","");
+                for(int n=0;n<ids.size();n++){
+                    final String packageId=ids.get(n);
+                    android.widget.LinearLayout engineRow=new android.widget.LinearLayout(this);
+                    engineRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                    engineRow.setPadding(dp(16),dp(9),dp(16),dp(9));
+                    android.widget.ImageView icon=new android.widget.ImageView(this);
+                    icon.setImageDrawable(TtsEngineIcons.load(this,packageId));
+                    engineRow.addView(icon,new android.widget.LinearLayout.LayoutParams(dp(32),dp(32)));
+                    android.widget.TextView name=text(labels.get(n)+(selected.equals(packageId)?"  ✓":""),15,false);
+                    name.setPadding(dp(12),0,0,0);
+                    engineRow.addView(name,new android.widget.LinearLayout.LayoutParams(0,dp(52),1));
+                    choices.addView(engineRow);
+                    engineRow.setOnClickListener(view->{
+                        prefs.edit().putString("edge_backup_tts_engine",packageId).apply();
+                        selection.dismiss();draw();
+                    });
+                }
+                selection.show();
             });
         });
     }

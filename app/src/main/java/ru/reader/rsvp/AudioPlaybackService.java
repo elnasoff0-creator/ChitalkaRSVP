@@ -108,14 +108,19 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         localPlayingIndex=-1;
     }
     private void resetLocalSession(){localGeneration++;localPending.clear();localWordFrames.clear();localSampleRates.clear();releaseLocalAudio();}
+    private EdgeSpeechTextTransform.Result localSpeech(int index){
+        return EdgeDictionaryStore.get(this).options().apply(chunks.get(index));
+    }
     private java.io.File localFile(int index){
         String engine=fallbackSession ? fallbackEngineInUse
             : getSharedPreferences("reader",0).getString("tts_engine","");
         String voice=fallbackSession ? "" : getSharedPreferences("reader",0).getString("tts_voice","");
-        return LocalTtsCache.file(this,currentBook,engine,voice,chunks.get(index));
+        return LocalTtsCache.file(this,currentBook,engine,voice,localSpeech(index).spoken);
     }
     private void synthesizeLocal(int index){
         if(tts==null||!ttsReady||index<0||index>=chunks.size()||localPending.contains(index))return;
+        String spoken=localSpeech(index).spoken;
+        if(spoken.trim().isEmpty())return;
         java.io.File f=localFile(index);
         if(f.isFile()&&f.length()>256)return;
         localPending.add(index);
@@ -124,7 +129,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         int generation=localGeneration;
         // Keep synthesis neutral. WPM is applied by MediaPlayer when reading a file.
         tts.setSpeechRate(1f);tts.setPitch(pitch);
-        int status=tts.synthesizeToFile(chunks.get(index),new Bundle(),pending,"local_"+generation+"_"+index);
+        int status=tts.synthesizeToFile(spoken,new Bundle(),pending,"local_"+generation+"_"+index);
         if(status!=TextToSpeech.SUCCESS){localPending.remove(index);if(index==ttsPosition)fallbackLocalSpeech(index);}
     }
     private void prepareLocalAhead(){
@@ -188,6 +193,12 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
             if(requestedLocalChar>=0){
                 int skip=Math.max(0,requestedLocalChar-ttsChunkCharPositions.get(index));
                 if(skip<remaining.length())remaining=remaining.substring(skip);
+            }
+            remaining=EdgeDictionaryStore.get(this).options().apply(remaining).spoken;
+            if(remaining.trim().isEmpty()){
+                requestedLocalChar=-1;ttsPosition++;
+                if(ttsPosition<chunks.size())speakChunk();else{paused=true;notifyState();}
+                return;
             }
             tts.speak(remaining,TextToSpeech.QUEUE_FLUSH,new Bundle(),"fallback_"+localGeneration+"_"+index);
         }
@@ -331,6 +342,11 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
           preparedSwitch=null;
           String overrideEngine=intent.getStringExtra("fallback_engine_override");
           cancelEdgeRecovery();
+          if(overrideEngine!=null&&!getSharedPreferences("reader",0)
+                  .getBoolean("edge_backup_tts_enabled",false)){
+              ReaderDiagnosticLog.event("EDGE","FALLBACK_DISABLED engine=android");
+              break;
+          }
           fallbackSession=overrideEngine!=null;
           fallbackEngineInUse=overrideEngine==null?"":overrideEngine;
           fallbackDefaultAttempted=overrideEngine==null||overrideEngine.isEmpty();
@@ -737,6 +753,9 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         if(paused||tts==null||ttsPosition>=chunks.size()){paused=true;notifyState();return;}
         if(returnToEdgeAtBoundary())return;
         if(fallbackSession)maybeProbeEdgeRecovery();
+        // Fully ignored chunks are skipped without sending empty speech to Android.
+        while(ttsPosition<chunks.size()&&localSpeech(ttsPosition).spoken.trim().isEmpty())ttsPosition++;
+        if(ttsPosition>=chunks.size()){paused=true;notifyState();return;}
         sentenceHistory.observe(getTtsAnchorWord());
         playLocalFile(ttsPosition);saveProgress();
     }
@@ -773,8 +792,15 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
                 if(!id.startsWith("local_"))return;
                 try{String[] p=id.split("_");int g=Integer.parseInt(p[1]),idx=Integer.parseInt(p[2]);
                     if(g!=localGeneration||end<=start)return;
+                    EdgeSpeechTextTransform.Result transformed=localSpeech(idx);
+                    int mappedStart=start,mappedEnd=end;
+                    if(transformed.from!=null&&transformed.to!=null&&
+                            start>=0&&end<=transformed.from.length&&end>start){
+                        mappedStart=transformed.from[start];
+                        mappedEnd=transformed.to[end-1];
+                    }
                     localWordFrames.computeIfAbsent(idx,k->java.util.Collections.synchronizedList(new java.util.ArrayList<>()))
-                        .add(new int[]{start,end,frame});
+                        .add(new int[]{mappedStart,mappedEnd,frame});
                 }catch(Exception ignored){}
             }
             @Override public void onDone(String u){handler.post(()->{
@@ -877,6 +903,11 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         return playWhenPrepared || playAfterSeek || (!paused && (!playerReady || seekPending));
     }
     public boolean isBackupEdgeSession(){return fallbackSession&&ttsMode&&active;}
+    public String activeBackupEnginePackage(){
+        if(!isBackupEdgeSession())return "";
+        if(!fallbackEngineInUse.isEmpty())return fallbackEngineInUse;
+        return android.provider.Settings.Secure.getString(getContentResolver(),"tts_default_synth");
+    }
     public boolean isPaused(){return paused;} public boolean isTtsMode(){return ttsMode;} public float getSpeed(){return speed;} public long getSleepRemainingMillis(){PlaybackSleepCountdown clock=ttsMode?ttsSleepClock:audiobookSleepClock;return clock==null?0:clock.remainingMillis();}public String getTitle(){return title;}public String getTtsBookUri(){return ttsMode?currentBook:"";}public int getSegment(){return segment;} public int getChapterCount(){return playlist.size();} public String getChapterName(int n){return n>=0&&n<chapterNames.size()?chapterNames.get(n):"Глава "+(n+1);} public String getBookId(){return bookId;} public String getCurrentText(){return ttsMode&&ttsPosition>=0&&ttsPosition<chunks.size()?chunks.get(ttsPosition):"";}
     private void saveProgress(){android.content.SharedPreferences.Editor e=getSharedPreferences("reader",0).edit();if(ttsMode){e.putInt("tts_pos:"+currentBook,ttsPosition);saveTtsReadingPosition(e);}else{e.putInt("audio_pos:"+bookId,getPosition()).putInt("audio_segment:"+bookId,segment).putString("audio_current_title",title).putInt("audio_progress:"+bookId,audioProgressPercent()).putFloat("audio_speed",speed);}e.putBoolean("audio_tts",ttsMode).apply();}
     private void notifyState(){updateMediaSession();Intent i=new Intent(ACTION_STATE);i.setPackage(getPackageName());sendBroadcast(i);if(active)postNotification();}
