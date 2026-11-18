@@ -22,6 +22,80 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     private MediaPlayer player;
     private TextToSpeech tts;
     private boolean fallbackSession, fallbackDefaultAttempted;
+    private String fallbackEngineInUse="";
+    private boolean edgeRecoveryConfirmed;
+    private boolean edgeRecoveryInFlight;
+    private int edgeRecoveryGeneration;
+    private long lastEdgeRecoveryAttempt;
+    private EdgeTtsClient edgeRecoveryClient;
+    private Runnable edgeRecoveryTimeout;
+    private static final long EDGE_RECOVERY_INTERVAL_MS=60000L;
+    private static final long EDGE_RECOVERY_TIMEOUT_MS=12000L;
+
+    /** Only the active fallback stream probes Edge; one low-priority trial at a time. */
+    private void maybeProbeEdgeRecovery(){
+        if(!fallbackSession||!ttsMode||paused||edgeRecoveryConfirmed||edgeRecoveryInFlight||
+                !getSharedPreferences("reader",0).getBoolean("edge_backup_tts_enabled",false))return;
+        long now=android.os.SystemClock.elapsedRealtime();
+        if(now-lastEdgeRecoveryAttempt<EDGE_RECOVERY_INTERVAL_MS)return;
+        if(EdgeSpeechQueue.remainingMs()>0)return;
+        lastEdgeRecoveryAttempt=now;
+        edgeRecoveryInFlight=true;
+        final int generation=++edgeRecoveryGeneration;
+        edgeRecoveryTimeout=()->{
+            if(generation!=edgeRecoveryGeneration)return;
+            if(edgeRecoveryClient!=null)edgeRecoveryClient.cancel();
+            edgeRecoveryClient=null;edgeRecoveryInFlight=false;
+            ReaderDiagnosticLog.event("EDGE","fallback_probe_timeout");
+        };
+        handler.postDelayed(edgeRecoveryTimeout,EDGE_RECOVERY_TIMEOUT_MS);
+        android.content.SharedPreferences pref=getSharedPreferences("reader",0);
+        edgeRecoveryClient=EdgeTtsClient.synthesize("Проверка связи.",
+            pref.getString("edge_voice","ru-RU-SvetlanaNeural"),
+            pref.getString("edge_rate","+0%"),EdgeSpeechQueue.BULK,
+            new EdgeTtsClient.Callback(){
+                @Override public void progress(int chunks,long bytes){}
+                @Override public void finished(byte[] mp3,int chunks,String error){
+                    handler.post(()->{
+                        if(generation!=edgeRecoveryGeneration)return;
+                        if(edgeRecoveryTimeout!=null)handler.removeCallbacks(edgeRecoveryTimeout);
+                        edgeRecoveryTimeout=null;edgeRecoveryClient=null;edgeRecoveryInFlight=false;
+                        if(fallbackSession&&active&&ttsMode&&!paused&&error==null&&
+                                mp3!=null&&mp3.length>1500){
+                            edgeRecoveryConfirmed=true;
+                            ReaderDiagnosticLog.event("EDGE","fallback_probe_success");
+                        }
+                    });
+                }
+            });
+    }
+    private void cancelEdgeRecovery(){
+        ++edgeRecoveryGeneration;
+        if(edgeRecoveryTimeout!=null){handler.removeCallbacks(edgeRecoveryTimeout);edgeRecoveryTimeout=null;}
+        if(edgeRecoveryClient!=null){edgeRecoveryClient.cancel();edgeRecoveryClient=null;}
+        edgeRecoveryInFlight=false;edgeRecoveryConfirmed=false;
+    }
+    /** Called strictly between two complete chunks, never during a spoken sentence. */
+    private boolean returnToEdgeAtBoundary(){
+        if(!fallbackSession||!edgeRecoveryConfirmed||paused||!ttsMode||
+                currentBook==null||currentBook.isEmpty()||ttsPosition>=chunks.size())return false;
+        String uri=currentBook;
+        int next=chunkWordPositions.get(Math.min(ttsPosition,chunkWordPositions.size()-1));
+        cancelEdgeRecovery();
+        fallbackSession=false;
+        stopServicePlayback();
+        try{
+            startService(new Intent(this,EdgeStreamingService.class)
+                .setAction(EdgeStreamingService.ACTION_RESUME_FROM_BACKUP)
+                .putExtra(EdgeStreamingService.EXTRA_URI,uri)
+                .putExtra(EdgeStreamingService.EXTRA_ANCHOR,next));
+            return true;
+        }catch(Exception e){
+            ReaderDiagnosticLog.event("EDGE","fallback_restore_failed");
+            // Preserve a consistent stopped state; the next user Play can retry.
+            return true;
+        }
+    }
     private MediaPlayer ttsAudio;
     private int localGeneration=0,localPlayingIndex=-1;
     private final java.util.concurrent.ConcurrentHashMap<Integer,java.util.List<int[]>> localWordFrames=new java.util.concurrent.ConcurrentHashMap<>();
@@ -35,8 +109,9 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     }
     private void resetLocalSession(){localGeneration++;localPending.clear();localWordFrames.clear();localSampleRates.clear();releaseLocalAudio();}
     private java.io.File localFile(int index){
-        String engine=getSharedPreferences("reader",0).getString("tts_engine","");
-        String voice=getSharedPreferences("reader",0).getString("tts_voice","");
+        String engine=fallbackSession ? fallbackEngineInUse
+            : getSharedPreferences("reader",0).getString("tts_engine","");
+        String voice=fallbackSession ? "" : getSharedPreferences("reader",0).getString("tts_voice","");
         return LocalTtsCache.file(this,currentBook,engine,voice,chunks.get(index));
     }
     private void synthesizeLocal(int index){
@@ -255,8 +330,11 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
           }
           preparedSwitch=null;
           String overrideEngine=intent.getStringExtra("fallback_engine_override");
+          cancelEdgeRecovery();
           fallbackSession=overrideEngine!=null;
+          fallbackEngineInUse=overrideEngine==null?"":overrideEngine;
           fallbackDefaultAttempted=overrideEngine==null||overrideEngine.isEmpty();
+          lastEdgeRecoveryAttempt=android.os.SystemClock.elapsedRealtime()-EDGE_RECOVERY_INTERVAL_MS;
           if(overrideEngine!=null){
               if(tts!=null){try{tts.stop();tts.shutdown();}catch(Exception ignored){}}
               ttsReady=false;
@@ -528,6 +606,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     private void pauseForTelephone(){
         if(paused)return;
         pausedForTelephone=true;
+        if(fallbackSession)cancelEdgeRecovery();
         if(ttsMode){sentenceHistory.capturePause(currentSpokenTtsWord());ttsRewindOnNextPlay=true;ttsStartRequested=false;
             if(ttsAudio!=null){try{ttsAudio.pause();}catch(Exception ignored){}}
             else if(tts!=null)tts.stop();
@@ -538,6 +617,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     void pauseForAnotherSource(){if(!paused)pausePlayback();}
     private void pausePlayback(){
         pausedForTelephone=false;
+        if(fallbackSession)cancelEdgeRecovery();
         PlaybackSleepCountdown clock=ttsMode?ttsSleepClock:audiobookSleepClock;
         if(clock!=null)clock.freeze();
         userPausedWhilePreparing=!playerReady;
@@ -555,7 +635,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         saveProgress();audioFocus.release();notifyState();
     }
     private void stopServicePlayback(){
-        preparedSwitch=null;pausedForTelephone=false;
+        cancelEdgeRecovery();preparedSwitch=null;pausedForTelephone=false;
         PlaybackSleepCountdown clock=ttsMode?ttsSleepClock:audiobookSleepClock;
         if(clock!=null)clock.freeze();if(ttsMode){if(tts!=null)tts.stop();resetLocalSession();}else if(player!=null){try{if(player.isPlaying())player.pause();}catch(Exception ignored){}}paused=true;saveProgress();audioFocus.release();releasePlayer();active=false;Intent i=new Intent(ACTION_STATE);i.setPackage(getPackageName());sendBroadcast(i);stopForeground(STOP_FOREGROUND_REMOVE);stopSelf();}
     private int audioProgressPercent(){
@@ -655,12 +735,15 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
             pausePlayback();return;
         }
         if(paused||tts==null||ttsPosition>=chunks.size()){paused=true;notifyState();return;}
+        if(returnToEdgeAtBoundary())return;
+        if(fallbackSession)maybeProbeEdgeRecovery();
         sentenceHistory.observe(getTtsAnchorWord());
         playLocalFile(ttsPosition);saveProgress();
     }
     @Override public void onInit(int status){
         if(status!=TextToSpeech.SUCCESS&&fallbackSession&&!fallbackDefaultAttempted){
             fallbackDefaultAttempted=true;
+            fallbackEngineInUse="";
             // A configured secondary engine can disappear after package removal.
             // Try the system default once; never enter an initialization loop.
             if(tts!=null)try{tts.shutdown();}catch(Exception ignored){}
@@ -856,5 +939,5 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     @Override public android.os.IBinder onBind(Intent i){return null;}
     @Override public void onDestroy(){
         if(ttsSleepClock!=null)ttsSleepClock.freeze();
-        if(audiobookSleepClock!=null)audiobookSleepClock.freeze();active=false;handler.removeCallbacks(tick);try{unregisterReceiver(noisyReceiver);}catch(Exception ignored){}audioFocus.release();if(mediaSession!=null){mediaSession.setActive(false);mediaSession.release();mediaSession=null;}saveProgress();releasePlayer();releaseLocalAudio();if(tts!=null){tts.stop();tts.shutdown();}AudioEqualizer.release();instance=null;super.onDestroy();}
+        if(audiobookSleepClock!=null)audiobookSleepClock.freeze();cancelEdgeRecovery();active=false;handler.removeCallbacks(tick);try{unregisterReceiver(noisyReceiver);}catch(Exception ignored){}audioFocus.release();if(mediaSession!=null){mediaSession.setActive(false);mediaSession.release();mediaSession=null;}saveProgress();releasePlayer();releaseLocalAudio();if(tts!=null){tts.stop();tts.shutdown();}AudioEqualizer.release();instance=null;super.onDestroy();}
 }

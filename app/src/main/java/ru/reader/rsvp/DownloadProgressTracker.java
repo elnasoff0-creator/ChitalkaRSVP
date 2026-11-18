@@ -8,8 +8,12 @@ import java.util.Map;
 /** Bounded, in-process read model. Durable download stores stay authoritative. */
 final class DownloadProgressTracker {
     static final class Seed {
-        final String key; final int progress; final boolean committed;
-        Seed(String key,int progress,boolean committed){this.key=key;this.progress=progress;this.committed=committed;}
+        final String key; final int progress; final boolean committed; final int weight;
+        Seed(String key,int progress,boolean committed){this(key,progress,committed,1);}
+        Seed(String key,int progress,boolean committed,int weight){
+            this.key=key;this.progress=progress;this.committed=committed;
+            this.weight=Math.max(1,Math.min(100000,weight));
+        }
     }
     static final class Summary {
         final String downloadId,activeChapter;
@@ -23,7 +27,7 @@ final class DownloadProgressTracker {
             percent=b.plan && b.total>0 ? (int)Math.min(100,(b.done*100L)/b.total) : -1;
         }
     }
-    private static final class Chapter {int permille; boolean committed; long sequence;}
+    private static final class Chapter {int permille,weight=1; boolean committed; long sequence;}
     private static final class Book {
         final Map<String,Chapter> entries=new LinkedHashMap<>();
         boolean plan; long done,total,revision;int finished;String active="";
@@ -47,11 +51,19 @@ final class DownloadProgressTracker {
             for(Seed row:rows){
                 Chapter ch=b.entries.get(row.key);
                 if(ch!=null&&row.committed&&!ch.committed){
-                    b.done+=1000-ch.permille;ch.permille=1000;ch.committed=true;
+                    b.done+=(1000L-ch.permille)*ch.weight;ch.permille=1000;ch.committed=true;
                     b.finished++;b.revision++;
-                }else if(ch!=null&&ch.committed&&!row.committed&&row.progress<=0){
-                    ch.committed=false;ch.permille=0;ch.sequence=0;
-                    b.done-=1000;b.finished=Math.max(0,b.finished-1);b.revision++;
+                }else if(ch!=null&&!row.committed){
+                    // A dictionary change can revoke completion even when files exist.
+                    int next=clamp(row.progress,0,99)*10;
+                    if(ch.committed){ch.committed=false;b.finished=Math.max(0,b.finished-1);}
+                    if(ch.permille!=next){b.done+=(long)(next-ch.permille)*ch.weight;ch.permille=next;}
+                    ch.sequence=0;b.revision++;
+                }
+                if(ch!=null&&ch.weight!=row.weight){
+                    b.total+=(long)(row.weight-ch.weight)*1000;
+                    b.done+=(long)(row.weight-ch.weight)*ch.permille;
+                    ch.weight=row.weight;b.revision++;
                 }
             }
         }
@@ -63,7 +75,9 @@ final class DownloadProgressTracker {
                 if(ch==null){ch=new Chapter();ch.committed=seed.committed;
                     ch.permille=seed.committed?1000:clamp(seed.progress,0,99)*10;}
                 else if(seed.committed){ch.committed=true;ch.permille=1000;}
-                b.entries.put(seed.key,ch);b.total+=1000;b.done+=ch.permille;
+                else {ch.committed=false;ch.permille=clamp(seed.progress,0,99)*10;ch.sequence=0;}
+                ch.weight=seed.weight;
+                b.entries.put(seed.key,ch);b.total+=1000L*ch.weight;b.done+=(long)ch.permille*ch.weight;
                 if(ch.committed)b.finished++;
             }
             b.plan=true;b.revision++;
@@ -77,12 +91,12 @@ final class DownloadProgressTracker {
         if(ch==null){
             // A worker may notify before the manager opens; keep just the delta.
             ch=new Chapter();b.entries.put(key,ch);
-            if(b.plan)b.total+=1000;
+            if(b.plan)b.total+=1000L*ch.weight;
         }
         if(sequence<=ch.sequence)return new Summary(id,b);
         if(ch.committed&&!committed)return new Summary(id,b); // durable completion wins over old network progress
         int next=committed?1000:clamp(permille,0,999);
-        if(b.plan)b.done+=next-ch.permille;
+        if(b.plan)b.done+=(long)(next-ch.permille)*ch.weight;
         if(committed&&!ch.committed)b.finished++;
         ch.committed=committed;ch.permille=next;ch.sequence=sequence;
         b.active=key;b.revision++;

@@ -41,6 +41,7 @@ public final class EdgeStreamingService extends Service {
     public interface Observer {void onChanged();}
     public static final String ACTION_BEGIN="ru.reader.rsvp.edge.download.BEGIN";
     public static final String ACTION_PREFETCH="ru.reader.rsvp.edge.download.PREFETCH";
+    public static final String ACTION_RESUME_FROM_BACKUP="ru.reader.rsvp.edge.RESUME_BACKUP";
     public static final String EXTRA_URI="book_uri";
     public static final String EXTRA_ANCHOR="anchor_word";
     private final Handler main=new Handler(Looper.getMainLooper());
@@ -194,6 +195,7 @@ public final class EdgeStreamingService extends Service {
     // accidentally surface the same HTTP 429 as a user-visible Toast.
     private volatile boolean lastHttp429;
     private boolean backupTtsActivated;
+    private boolean resumeAfterBackupPending;
     private void startBackupTtsForFailedClip(Clip failed){
         if(backupTtsActivated||!active||failed==null||player==null||!player.playRequested())return;
         android.content.SharedPreferences pref=getSharedPreferences("reader",0);
@@ -322,6 +324,10 @@ public final class EdgeStreamingService extends Service {
             player.setPauseSelection(EdgeStreamingService.this::capturePausedSentence);
             player.setSentenceNavigation(EdgeStreamingService.this::navigateSentence);
             if(!bookUri.isEmpty())player.prepareBook("edge:"+bookUri);
+            if(resumeAfterBackupPending && active){
+                resumeAfterBackupPending=false;
+                player.play();
+            }
             // Service and player can bind in either order. Warm exactly one clip,
             // only when TTS is active and the user has not pressed Play.
             warmCurrent();
@@ -352,7 +358,25 @@ public final class EdgeStreamingService extends Service {
         return super.onUnbind(intent);
     }
     @Override public int onStartCommand(Intent intent,int flags,int id){
-        if(intent!=null && ACTION_BEGIN.equals(intent.getAction())){
+        if(intent!=null && ACTION_RESUME_FROM_BACKUP.equals(intent.getAction())){
+            // Local TTS has finished its current chunk. Return to Edge only at a
+            // sentence boundary, preserving the exact next-word selection.
+            String uri=intent.getStringExtra(EXTRA_URI);
+            if(uri!=null&&!uri.isEmpty()){
+                int next=Math.max(0,intent.getIntExtra(EXTRA_ANCHOR,0));
+                main.removeCallbacks(idleExpiry);
+                active=true;backupTtsActivated=false;
+                // Queue the explicit playback request until the bound Media3 service exists.
+                resumeAfterBackupPending=player==null;
+                openBook(uri,next);
+                if(player!=null)player.prepareBook("edge:"+uri);
+                setAnchor(next,true);
+                if(player!=null)player.play();
+                pump();
+                ReaderDiagnosticLog.event("EDGE","fallback_restored word="+next);
+            }
+        }else if(intent!=null && ACTION_BEGIN.equals(intent.getAction())){
+            resumeAfterBackupPending=false;
             main.removeCallbacks(idleExpiry);
             if(!active){trackReadyLoggedAt=-1L;restoreStartedAt=SystemClock.elapsedRealtime();}
             idlePrefetchRequested=false;

@@ -69,6 +69,45 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
     private Boolean pendingDesiredRunning;
     private String pendingCommandState="";
     private long pendingCommandGeneration;
+    private int commandChecks;
+    // Lightweight, bounded state verification; no chapter/SAF reload while a command settles.
+    private final Runnable verifyCommandState=new Runnable(){
+        @Override public void run(){
+            if(pendingDesiredRunning==null||disk.isShutdown()||!visible)return;
+            final long generation=pendingCommandGeneration;
+            final boolean expected=pendingDesiredRunning;
+            final int attempt=++commandChecks;
+            disk.execute(()->{
+                DownloadsRepository.Item observed=null;
+                try{observed=DownloadsRepository.loadOne(getApplicationContext(),id);}
+                catch(Exception ignored){}
+                final DownloadsRepository.Item item=observed;
+                main.post(()->{
+                    if(!visible||pendingDesiredRunning==null||generation!=pendingCommandGeneration)return;
+                    if(item!=null){
+                        selected=item;
+                        if(item.running==expected||item.ready){
+                            finishPendingCommand();refreshHeader();return;
+                        }
+                    }
+                    if(attempt<9){
+                        long delay=Math.min(2400L,250L*(1L<<Math.min(attempt,3)));
+                        main.postDelayed(verifyCommandState,delay);
+                    }else{
+                        // The request was dispatched but the source did not confirm the new state.
+                        finishPendingCommand();refreshHeader();
+                        notifyUser("Загрузчик не подтвердил переключение. Проверьте состояние загрузки.");
+                        reload();
+                    }
+                });
+            });
+        }
+    };
+    private void finishPendingCommand(){
+        pendingDesiredRunning=null;pendingCommandState="";commandChecks=0;
+        main.removeCallbacks(verifyCommandState);
+    }
+
     private int cachedOverallPercent=-1;
     // Declare before listeners: Java forbids illegal forward references in field initializers.
     private final Runnable reloadDebounced=this::reload;
@@ -79,9 +118,18 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
             pendingCommandGeneration=event.generation;
             pendingCommandState=event.state;
             if("ERROR".equals(event.state)){
-                pendingDesiredRunning=null;
+                finishPendingCommand();
                 if(event.message!=null&&!event.message.isEmpty())notifyUser("Не удалось выполнить команду: "+event.message);
-            }else pendingDesiredRunning=event.desiredRunning;
+                // The optimistic icon must be reconciled with the authoritative store.
+                main.post(()->reload());
+            }else{
+                pendingDesiredRunning=event.desiredRunning;
+                if("QUEUED".equals(event.state)||"PAUSED".equals(event.state)){
+                    // Enqueued/accepted is not the same as an observed running/paused state.
+                    main.removeCallbacks(verifyCommandState);
+                    main.post(verifyCommandState);
+                }
+            }
             if(selected!=null)refreshHeader();
             return;
         }
@@ -203,12 +251,14 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
     @Override protected void onResume(){super.onResume();
         if(paletteSignature!=UiColorScheme.paletteSignature(this)){recreate();return;}
         visible=true;DownloadChangeBus.add(downloadListener);DownloadChangeBus.addProgress(chapterProgressListener);
+        if(pendingDesiredRunning!=null){commandChecks=0;main.post(verifyCommandState);}
         ArrayList<String> missed=DownloadChangeBus.since(appliedRevision);
         if(!firstResume&&(missed==null||missed.contains(id)||selected==null))reload();
         firstResume=false;
     }
     @Override protected void onPause(){visible=false;DownloadChangeBus.remove(downloadListener);DownloadChangeBus.removeProgress(chapterProgressListener);
-        main.removeCallbacks(reloadDebounced);super.onPause();}
+        main.removeCallbacks(reloadDebounced);
+        main.removeCallbacks(verifyCommandState);super.onPause();}
     @Override protected void onDestroy(){visible=false;DownloadChangeBus.remove(downloadListener);DownloadChangeBus.removeProgress(chapterProgressListener);
         main.removeCallbacksAndMessages(null);disk.shutdownNow();super.onDestroy();}
     @Override protected void onSaveInstanceState(Bundle out){out.putString("tab",tab);super.onSaveInstanceState(out);}
@@ -258,13 +308,15 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
                 if(isFinishing()||isDestroyed())return;
                 if(snapshot.item!=null){
                     rowsVerified=true;selected=snapshot.item;rows=snapshot.files;currentInfo=snapshot.info;
-                    if(selected.ready||selected.paused||selected.failed||
-                        (pendingDesiredRunning!=null&&pendingDesiredRunning==selected.running)){
-                        pendingDesiredRunning=null;pendingCommandState="";
+                    if(pendingDesiredRunning!=null &&
+                        (selected.running==pendingDesiredRunning||selected.ready)){
+                        finishPendingCommand();
                     }
                     ArrayList<DownloadProgressTracker.Seed> plan=new ArrayList<>(rows.size());
                     for(FileRow row:rows)if(!"edge:planner".equals(row.key))plan.add(new DownloadProgressTracker.Seed(row.key,row.percent,
-                        row.percent>=100&&(row.status.contains("готов")||row.status.contains("сохран")||row.status.contains("Скачан")||row.status.contains("Заверш")||row.status.contains("complete"))));
+                        row.percent>=100&&(row.status.contains("готов")||row.status.contains("сохран")||row.status.contains("Скачан")||row.status.contains("Заверш")||row.status.contains("complete")),
+                        DownloadsRepository.EDGE.equals(snapshot.item.type)&&row.source instanceof EdgeFullBookStore.Task
+                            ?Math.max(1,((EdgeFullBookStore.Task)row.source).total):1));
                     DownloadProgressTracker.Summary summary=DownloadProgressTracker.plan(id,plan);
                     cachedOverallPercent=summary.percent;
                     refreshHeader();adapter.submit(rows);
@@ -343,14 +395,22 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
                 if(saved>0&&(task==null||!EdgeFullBookStore.RUNNING.equals(task.status))) {
                     if(published.dictionaryRevision(chapter)!=dictionaryRevision){
                         // Unknown or older dictionary revision: verify on demand.
-                        percentage=99;status="Требуется проверка словаря";
+                        // A revision mismatch means UNVERIFIED, not 99% downloaded.
+                        // The task count is the only real verification progress.
+                        boolean verifying=task!=null&&(EdgeFullBookStore.RUNNING.equals(task.status)||
+                            EdgeFullBookStore.SAVING.equals(task.status)||EdgeFullBookStore.WAITING.equals(task.status));
+                        percentage=verifying&&task.total>0?
+                            (int)Math.min(99,100L*task.done/task.total):0;
+                        status="Требуется проверка словаря";
                     }else{
                         percentage=100;status=saved==2?"Единый MP3 готов":"MP3-фрагменты сохранены";
                     }
-                } else if(task!=null&&EdgeFullBookStore.DONE.equals(task.status))percentage=99;
+                } else if(task!=null&&EdgeFullBookStore.DONE.equals(task.status))percentage=0;
                 FileRow row=new FileRow("edge:"+chapter,chapterNames.get(chapter),status,
                     percentage,0,chapter,task);
                 if(task!=null)row.detail=task.error;
+                if(saved>0&&published.dictionaryRevision(chapter)!=dictionaryRevision&&row.detail.isEmpty())
+                    row.detail="MP3 сохранены; актуальность произношения не подтверждена";
                 s.files.add(row);
             }
             EdgeFullBookStore.Task planner=tasks.get(EdgeFullBookStore.PLAN);
@@ -405,11 +465,10 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         }
         int value=cachedOverallPercent>=0?cachedOverallPercent:i.coveragePercent;
         if(i.total>0&&value<=0)value=(int)Math.min(100,100L*i.done/i.total);
-        if(i.ready)value=100;value=Math.max(0,Math.min(100,value));
+        if(i.ready&&cachedOverallPercent<0)value=100;value=Math.max(0,Math.min(100,value));
         progress.setProgress(value);percent.setText(value+"%");
         boolean showPause=pendingDesiredRunning!=null?pendingDesiredRunning:i.running;
-        boolean waitingForCommand="STARTING".equals(pendingCommandState)
-            ||"PAUSING".equals(pendingCommandState);
+        boolean waitingForCommand=pendingDesiredRunning!=null;
         LoadingPlayIcon.show(playPause,waitingForCommand,
             showPause?R.drawable.ic_pause:R.drawable.ic_play);
         String caption="STARTING".equals(pendingCommandState)?"Запуск загрузки":
@@ -553,7 +612,10 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
     private void control(DownloadsRepository.Item i){
         final boolean current=pendingDesiredRunning!=null?pendingDesiredRunning:i.running;
         final boolean start=!current;
+        main.removeCallbacks(verifyCommandState);
+        commandChecks=0;
         pendingDesiredRunning=start;pendingCommandState=start?"STARTING":"PAUSING";
+        // Switch the centre icon synchronously on tap; keep the ring until the downloader confirms.
         refreshHeader();
         Context app=getApplicationContext();
         pendingCommandGeneration=DownloadCommandController.submit(app,id,start,()->{
@@ -935,6 +997,24 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
                     "Файл удалён":"Не удалось удалить файл")).show();return true;});
         menu.show();
     }
+    /** Status codes remain unchanged in the stores; localization is presentation-only. */
+    private static String visibleStatus(String raw){
+        if(raw==null||raw.trim().isEmpty())return "Неизвестно";
+        switch(raw.trim().toLowerCase(java.util.Locale.ROOT)){
+            case "queued":return "В очереди";
+            case "running":return "Скачивается";
+            case "preparing":case "plan":return "Подготовка";
+            case "saving":return "Сохранение";
+            case "paused":case "pause":return "Приостановлено";
+            case "completed":case "complete":case "done":return "Завершено";
+            case "failed":case "error":return "Ошибка";
+            case "cancelled":case "canceled":return "Отменено";
+            case "retrying":return "Повторная попытка";
+            case "waiting":case "waiting_network":return "Ожидание сети";
+            case "dictionary_check":return "Проверка словаря";
+            default:return raw;
+        }
+    }
     private final class FileAdapter extends RecyclerView.Adapter<FileAdapter.Holder>{
         private final ArrayList<FileRow> items=new ArrayList<>();
         private final Map<String,Integer> byKey=new HashMap<>();
@@ -986,8 +1066,8 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
             boolean chapterReady=edgeRow?row.percent==100&&
                 (row.status.contains("сохран")||row.status.contains("готов")||row.status.equals("Скачано")):
                 row.percent==100;
-            h.completed.setVisibility(chapterReady?View.VISIBLE:View.GONE);
-            StringBuilder status=new StringBuilder(row.status);
+            h.completed.setVisibility(chapterReady?View.VISIBLE:View.INVISIBLE);
+            StringBuilder status=new StringBuilder(visibleStatus(row.status));
             if(row.percent>0&&row.percent<100)status.append(" · ").append(row.percent).append('%');
             if(row.bytes>0)status.append(" · ").append(size(row.bytes));
             if(!row.detail.isEmpty()&&!row.detail.equals(row.status))status.append(" · ").append(row.detail);
@@ -1001,14 +1081,14 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
             card.setPadding(dp(12),dp(10),dp(12),dp(10));card.setBackground(rounded(bg,12));
             RecyclerView.LayoutParams outer=new RecyclerView.LayoutParams(-1,-2);outer.bottomMargin=dp(8);card.setLayoutParams(outer);
             LinearLayout head=new LinearLayout(UnifiedDownloadManagerActivity.this);head.setGravity(Gravity.CENTER_VERTICAL);card.addView(head);
-            TextView name=text("",14,true);head.addView(name,new LinearLayout.LayoutParams(0,-2,1));
             ImageView complete=new ImageView(UnifiedDownloadManagerActivity.this);
             complete.setImageResource(R.drawable.ic_download_chapter_complete);
             complete.setImageTintList(android.content.res.ColorStateList.valueOf(UiColorScheme.accent(UnifiedDownloadManagerActivity.this)));
             complete.setContentDescription("Глава загружена");
-            complete.setVisibility(View.GONE);
-            LinearLayout.LayoutParams checkLp=new LinearLayout.LayoutParams(dp(16),dp(16));
-            checkLp.rightMargin=dp(5);head.addView(complete,checkLp);
+            complete.setVisibility(View.INVISIBLE);
+            LinearLayout.LayoutParams checkLp=new LinearLayout.LayoutParams(dp(18),dp(18));
+            checkLp.rightMargin=dp(8);head.addView(complete,checkLp);
+            TextView name=text("",14,true);head.addView(name,new LinearLayout.LayoutParams(0,-2,1));
             ImageView more=bareMenuIcon("Действия файла");
             head.addView(more,new LinearLayout.LayoutParams(dp(40),dp(40)));
             TextView detail=text("",12,false);detail.setTextColor(muted);place(card,detail,3);

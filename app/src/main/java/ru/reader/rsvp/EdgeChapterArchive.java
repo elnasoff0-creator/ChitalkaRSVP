@@ -338,7 +338,7 @@ final class EdgeChapterArchive {
         DocumentFile result=folder.findFile("Главы");
         return result==null&&create?folder.createDirectory("Главы"):result;
     }
-    private static int chapterFor(BookChapterIndex chapters,ArrayList<Integer> starts,int word){
+    static int chapterFor(BookChapterIndex chapters,ArrayList<Integer> starts,int word){
         int charAt=word>=0&&word<starts.size()?starts.get(word):0;
         int id=0;
         if(chapters!=null)for(int i=0;i<chapters.size();i++){
@@ -744,12 +744,29 @@ final class EdgeChapterArchive {
                 int chapter=group.getKey();ArrayList<JSONObject> parts=group.getValue();
                 if(parts.isEmpty())continue;
                 boolean complete=true;StringBuilder sign=new StringBuilder();
+                int missingAudio=0,missingTiming=0;String firstMissing="";
                 for(JSONObject row:parts){
-                    File f=new File(localMp3,row.optString("key")+".mp3");
-                    if(!f.isFile()||f.length()<1500){complete=false;break;}
-                    sign.append(row.optString("key")).append(':').append(f.length()).append(':').append(f.lastModified()).append(';');
+                    String clipKey=row.optString("key");
+                    File f=new File(localMp3,clipKey+".mp3");
+                    File timings=new File(localMp3,clipKey+".mp3.words.json");
+                    if(!f.isFile()||f.length()<1500){
+                        complete=false;missingAudio++;
+                        if(firstMissing.isEmpty())firstMissing=clipKey.substring(0,Math.min(12,clipKey.length()));
+                        continue;
+                    }
+                    if(!timings.isFile()||timings.length()==0){
+                        complete=false;missingTiming++;
+                        if(firstMissing.isEmpty())firstMissing=clipKey.substring(0,Math.min(12,clipKey.length()));
+                        continue;
+                    }
+                    sign.append(clipKey).append(':').append(f.length()).append(':').append(f.lastModified()).append(';');
                 }
-                if(!complete){lastPublishError="Глава "+(chapter+1)+": отсутствуют MP3-фрагменты";continue;}
+                if(!complete){
+                    lastPublishError="Глава "+(chapter+1)+": нет MP3="+missingAudio+
+                        ", нет разметки="+missingTiming+", первый ключ="+firstMissing;
+                    Log.w(TAG,"Публикация отложена: "+lastPublishError);
+                    continue;
+                }
                 String name=toc!=null&&chapter<toc.size()?toc.get(chapter).title:"Глава";
                 String folderName=String.format(Locale.ROOT,"%03d - %s",chapter+1,safe(name,55));
                 DocumentFile dir=folder.findFile(folderName);

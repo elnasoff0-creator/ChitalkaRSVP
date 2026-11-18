@@ -226,13 +226,11 @@ public final class EdgeFullBookService extends Service {
             BookChapterIndex.Chapter only=job.chapter>=0 && job.chapter<book.chapters.size()
                 ?book.chapters.get(job.chapter):null;
             ArrayList<Integer> wordOffsets=prepared.offsets;
-            int chapterStart=only==null?0:SentenceChunks.lowerBound(wordOffsets,only.startChar);
-            int chapterEnd=only==null?wordOffsets.size():SentenceChunks.lowerBound(wordOffsets,only.endChar);
             if(job.chapter>=0&&only==null)throw new Exception("Выбранная глава недоступна");
             int eligible=0;
             for(int k=0;k<count;k++){
                 JSONObject row=index.getJSONObject(k);
-                if(only!=null&&(row.optInt("end",0)<=chapterStart||row.optInt("start",0)>=chapterEnd))continue;
+                if(only!=null&&EdgeChapterArchive.chapterFor(book.chapters,wordOffsets,row.optInt("start",0))!=job.chapter)continue;
                 eligible++;
             }
             // Restoring every existing chapter for each individual job is expensive.
@@ -241,9 +239,8 @@ public final class EdgeFullBookService extends Service {
                 boolean missingCache=false;
                 for(int k=0;k<index.length();k++){
                     JSONObject row=index.getJSONObject(k);
-                    if(only!=null && (row.optInt("end",0)<=chapterStart ||
-                        row.optInt("start",0)>=chapterEnd))continue;
-                    if(!EdgeFullBookStore.ready(new File(job.mp3Folder(),row.getString("key")+".mp3"))){
+                    if(only!=null&&EdgeChapterArchive.chapterFor(book.chapters,wordOffsets,row.optInt("start",0))!=job.chapter)continue;
+                    if(!readyClip(new File(job.mp3Folder(),row.getString("key")+".mp3"))){
                         missingCache=true;break;
                     }
                 }
@@ -253,7 +250,7 @@ public final class EdgeFullBookService extends Service {
             if(job.forceReload){
                 for(int k=0;k<index.length();k++){
                     JSONObject row=index.getJSONObject(k);
-                    if(only!=null&&(row.optInt("end",0)<=chapterStart||row.optInt("start",0)>=chapterEnd))continue;
+                    if(only!=null&&EdgeChapterArchive.chapterFor(book.chapters,wordOffsets,row.optInt("start",0))!=job.chapter)continue;
                     File old=new File(job.mp3Folder(),row.getString("key")+".mp3");
                     if(old.isFile())old.delete();
                     File wordFile=new File(old.getAbsolutePath()+".words.json");
@@ -261,7 +258,7 @@ public final class EdgeFullBookService extends Service {
                 }
                 EdgeFullBookStore.clearForce(job);
             }
-            int completed=readyInRange(job,index,chapterStart,chapterEnd,only!=null);
+            int completed=readyInRange(job,index,book.chapters,wordOffsets,job.chapter);
             EdgeFullBookStore.progress(job,completed,eligible,null);
             for(int i=0;i<count&&!destroyed;){
                 if(!EdgeFullBookStore.running(job))return;
@@ -274,16 +271,24 @@ public final class EdgeFullBookService extends Service {
                     return;
                 }
                 JSONObject o=index.getJSONObject(i);String key=o.getString("key");
-                if(only!=null && (o.optInt("end",0)<=chapterStart || o.optInt("start",0)>=chapterEnd)){
+                if(only!=null&&EdgeChapterArchive.chapterFor(book.chapters,wordOffsets,o.optInt("start",0))!=job.chapter){
                     i++;continue; // never synthesize unselected chapters
                 }
                 File target=new File(job.mp3Folder(),key+".mp3");
-                if(EdgeFullBookStore.ready(target)){i++;continue;}
+                if(readyClip(target)){i++;continue;}
                 if(!EdgeGenerationGuard.claim(target.getAbsolutePath())){
                     Thread.sleep(500);continue;
                 }
                 try{
-                    if(EdgeFullBookStore.ready(target)){i++;continue;}
+                    if(readyClip(target)){i++;continue;}
+                    // Rebuild incomplete local pairs rather than passing a valid MP3
+                    // without its WordBoundary sidecar to the SAF publisher.
+                    if(target.exists()&&!readyClip(target)){
+                        File timings=new File(target.getAbsolutePath()+".words.json");
+                        if(!timings.isFile()||timings.length()==0){
+                            if(!target.delete())throw new Exception("Не удалось заменить MP3 без разметки");
+                        }
+                    }
                     boolean saved=false;
                     String problem="Неизвестная ошибка синтеза";
                     for(int attempt=0;attempt<4&&!destroyed;attempt++){
@@ -313,9 +318,13 @@ public final class EdgeFullBookService extends Service {
                                     throw new Exception("Не удалось заменить повреждённый MP3");
                                 if(!target.exists()&&!tmp.renameTo(target))throw new Exception("Не удалось сохранить MP3");
                                 saved=EdgeFullBookStore.ready(target);
-                                if(saved){EdgeWordTimings.storeAligned(target,o.getString("text"),
-                                    result.transformation.aligned(result.boundaries));
-                                    EdgeAudioManager.invalidate(job.mp3Folder());}
+                                if(saved){
+                                    EdgeWordTimings.storeAligned(target,o.getString("text"),
+                                        result.transformation.aligned(result.boundaries));
+                                    saved=readyClip(target);
+                                    if(saved)EdgeAudioManager.invalidate(job.mp3Folder());
+                                    else problem="Не удалось сохранить разметку WordBoundary";
+                                }
                                 tmp.delete();
                             }catch(Exception e){problem=e.getMessage();}
                         }else problem=result.error==null?"Сервис вернул не MP3":result.error;
@@ -339,7 +348,7 @@ public final class EdgeFullBookService extends Service {
                             // asked us to reduce the request rate.
                             Log.w("EdgeFullBook","HTTP 429; Retry-After="+
                                 EdgeSpeechQueue.remainingMs()+"ms");
-                            EdgeFullBookStore.progress(job,readyInRange(job,index,chapterStart,chapterEnd,only!=null),eligible,
+                            EdgeFullBookStore.progress(job,readyInRange(job,index,book.chapters,wordOffsets,job.chapter),eligible,
                                 "HTTP 429 · повторите после паузы");
                             EdgeFullBookStore.pauseAll(job); // avoid hammering 429 across queued chapters
                             return;
@@ -347,14 +356,14 @@ public final class EdgeFullBookService extends Service {
                         Thread.sleep(500L); // fixed local retry gap; 429 never auto-retries
                     }
                     if(!saved){
-                        EdgeFullBookStore.progress(job,readyInRange(job,index,chapterStart,chapterEnd,only!=null),eligible,
+                        EdgeFullBookStore.progress(job,readyInRange(job,index,book.chapters,wordOffsets,job.chapter),eligible,
                             "Фрагмент "+(i+1)+": "+problem);
                         EdgeFullBookStore.status(job,EdgeFullBookStore.FAILED);
                         return;
                     }
                 }finally{EdgeGenerationGuard.release(target.getAbsolutePath());}
                 i++;
-                completed=readyInRange(job,index,chapterStart,chapterEnd,only!=null);
+                completed=readyInRange(job,index,book.chapters,wordOffsets,job.chapter);
                 EdgeFullBookStore.progress(job,completed,eligible,null);
                 if(job.chapter>=0)DownloadChangeBus.progress(this,"edge:"+job.uri,
                     "edge:"+job.chapter,completed,eligible,false);
@@ -381,16 +390,15 @@ public final class EdgeFullBookService extends Service {
             // all of its source files live in disposable internal cache.
             EdgeChapterLayout.publish(job,index,book.chapters,wordOffsets);
             if(EdgeFullBookStore.running(job)){
-                completed=readyInRange(job,index,chapterStart,chapterEnd,only!=null);
+                completed=readyInRange(job,index,book.chapters,wordOffsets,job.chapter);
                 EdgeFullBookStore.progress(job,completed,eligible,null);
                 // Ignored segments have no MP3 by design; count only actual
                 // eligible queue entries when determining completion.
                 int ready=0;
                 for(int k=0;k<index.length();k++){
                     JSONObject row=index.getJSONObject(k);
-                    if(only!=null&&(row.optInt("end",0)<=chapterStart ||
-                        row.optInt("start",0)>=chapterEnd))continue;
-                    if(EdgeFullBookStore.ready(new File(job.mp3Folder(),row.getString("key")+".mp3")))ready++;
+                    if(only!=null&&EdgeChapterArchive.chapterFor(book.chapters,wordOffsets,row.optInt("start",0))!=job.chapter)continue;
+                    if(readyClip(new File(job.mp3Folder(),row.getString("key")+".mp3")))ready++;
                 }
                 EdgeFullBookStore.status(job,ready==eligible?EdgeFullBookStore.DONE:EdgeFullBookStore.FAILED);
             }
@@ -406,14 +414,19 @@ public final class EdgeFullBookService extends Service {
             Log.w("EdgeFullBook","Cannot prepare book",e);
         }finally{synthesizingUri="";synthesizingChapter=EdgeFullBookStore.PLAN;currentClient=null;}
     }
+    /** A published Edge fragment needs both audio and WordBoundary sidecar. */
+    private static boolean readyClip(File file){
+        File timings=new File(file.getAbsolutePath()+".words.json");
+        return EdgeFullBookStore.ready(file)&&timings.isFile()&&timings.length()>0;
+    }
     private static int readyInRange(EdgeFullBookStore.Job job,JSONArray index,
-                                   int start,int end,boolean filtered){
+                                   BookChapterIndex chapters,ArrayList<Integer> offsets,int chapter){
         int count=0;
         for(int k=0;k<index.length();k++){
             JSONObject row=index.optJSONObject(k);if(row==null)continue;
-            if(filtered&&(row.optInt("end",0)<=start||row.optInt("start",0)>=end))continue;
+            if(chapter>=0&&EdgeChapterArchive.chapterFor(chapters,offsets,row.optInt("start",0))!=chapter)continue;
             String key=row.optString("key","");
-            if(key.matches("[a-f0-9]{64}")&&EdgeFullBookStore.ready(
+            if(key.matches("[a-f0-9]{64}")&&readyClip(
                 new File(job.mp3Folder(),key+".mp3")))count++;
         }
         return count;
