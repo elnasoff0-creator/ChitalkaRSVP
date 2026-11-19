@@ -53,6 +53,11 @@ jobs:
           done
           echo 'All four release signing secrets are configured.'
 
+      - name: Check v1.11.182 sentence segmentation and UI contracts
+        run: |
+          bash qa/test_edge_sentence_blocks_182.sh
+          python3 qa/check_v182_contracts.py
+
       - name: Build unsigned release APK
         run: gradle --no-daemon :app:assembleRelease --stacktrace
 

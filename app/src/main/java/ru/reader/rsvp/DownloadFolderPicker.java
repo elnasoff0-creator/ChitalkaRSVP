@@ -41,9 +41,9 @@ final class DownloadFolderPicker {
         return "download_provider_tree:"+p;
     }
     static String label(String key){
-        if(BOOK.equals(key))return "Book (книги, ранобэ, Edge TTS)";
-        if(MANGA.equals(key))return "Manga (манга)";
-        if(AUDIO.equals(key))return "Audiobook (аудиокниги)";
+        if(BOOK.equals(key))return "Книги";
+        if(MANGA.equals(key))return "Комиксы";
+        if(AUDIO.equals(key))return "Аудиокниги";
         return "Загрузки";
     }
     /** Older distinct settings are read, but new picks always use the category URI. */

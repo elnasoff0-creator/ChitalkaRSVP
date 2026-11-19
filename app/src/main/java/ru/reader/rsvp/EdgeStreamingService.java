@@ -196,7 +196,7 @@ public final class EdgeStreamingService extends Service {
     private volatile boolean lastHttp429;
     private boolean backupTtsActivated;
     private boolean resumeAfterBackupPending;
-    private void startBackupTtsForFailedClip(Clip failed){
+    private void startBackupTtsForFailedClip(Clip failed, boolean deterministicFailure){
         if(backupTtsActivated||!active||failed==null||player==null||!player.playRequested())return;
         android.content.SharedPreferences pref=getSharedPreferences("reader",0);
         if(!pref.getBoolean("edge_backup_tts_enabled",false)||bookUri==null||bookUri.isEmpty())return;
@@ -204,7 +204,7 @@ public final class EdgeStreamingService extends Service {
         if(playingStart>=0&&playingStart!=failed.start)return;
         // On the first stream Media3 may not yet have a current track.
         if(playingStart<0&&(anchorWord<failed.start||anchorWord>=failed.end))return;
-        if(failed.failures<2){
+        if(failed.failures<2&&!deterministicFailure){
             ReaderDiagnosticLog.event("EDGE","fallback_deferred retries="+failed.failures);
             return;
         }
@@ -518,11 +518,14 @@ public final class EdgeStreamingService extends Service {
                 String name=book.title==null?"Книга":book.title;
                 BookChapterIndex parsedChapters=book.chapters;
                 ArrayList<Integer> positions=session.ttsWordPositions;
-                // Reuse the same immutable source text/word index from ReaderActivity;
-                // grouping is structural only and never applies dictionary rules.
-                ArrayList<SentenceChunks.Chunk> newParts=session.edgeGroups();
+                // Persist grouping targets once per book: changing network latency
+                // cannot invalidate previously saved audio. Books with legacy MP3
+                // files keep historical 800/800 groups wherever sentences permit.
                 File bookDir=EdgeBookStorage.bookFolder(this,requested,name);
                 File dir=new File(bookDir,"EdgeTTS");dir.mkdirs();
+                EdgeSpeechLayout layout=EdgeSpeechLayout.forFolder(dir);
+                ArrayList<SentenceChunks.Chunk> newParts=session.edgeGroups(
+                    EdgeDictionaryStore.get(this).options(),layout);
                 // v174: do NOT restore every saved MP3/WordBoundary before bookReady.
                 // Individual missing clips are recovered on demand by lazyRestore().
                 DownloadsRepository.storeEdgeMeta(bookDir,requested,name,positions.size());
@@ -567,7 +570,7 @@ public final class EdgeStreamingService extends Service {
     }
     /** Restore an arbitrary word without calling the manual-seek path.
      * A cached group with WordBoundary can seek locally. Otherwise synthesize
-     * just the remainder of the normal <=800-char group, as ONE request.
+     * full sentences from the selected position, never a cut-off sentence.
      * On Play the same warm buffer is reused instead of a second handshake.
      */
     private void restoreStartPosition(){
@@ -581,12 +584,17 @@ public final class EdgeStreamingService extends Service {
             selectedSeekWord=anchorWord;
             return;
         }
-        int begin=charForWord(anchorWord);
         SentenceChunks.Chunk group=SentenceChunks.forWord(sentenceParts,anchorWord);
-        if(group==null || begin>=group.toChar)return;
-        String remaining=bookText.substring(begin,group.toChar);
-        Clip start=new Clip(anchorWord,group.toWord,remaining,"");
-        selectedOverrides.add(start);
+        if(group==null)return;
+        revision();
+        for(SentenceChunks.Chunk piece:EdgeSpeechSegments.priorityPieces(
+                bookText,sentenceIndex,anchorWord,group.toWord,
+                source->EdgeSpeechSize.fits(speechOptions.apply(source).spoken))){
+            selectedOverrides.add(new Clip(piece.fromWord,piece.toWord,piece.text,""));
+        }
+        // When WordBoundary is unavailable before streaming begins, play the
+        // full selected sentence rather than synthesizing an amputated fragment.
+        selectedSeekWord=anchorWord;
     }
 
     /** One silent, low-priority current-block request. Never synthesize
@@ -890,12 +898,14 @@ public final class EdgeStreamingService extends Service {
             EdgeSentenceSeek.at(relative,EdgeWordTimings.read(base.file,base.text)):-1L;
         boolean exactLive=requested==base.start&&liveFor(base)!=null;
         if(position<0&&!exactLive){
-            // v158: uncached manual selection receives 500-character priority pieces
-            // followed by the original contiguous 800-character groups.
+            // Full sentences only, with a low-latency soft byte/character target.
+            // Nothing starts at the middle of the tapped sentence.
             SentenceChunks.Chunk grouped=SentenceChunks.forWord(sentenceParts,requested);
             if(grouped!=null){
+                revision(); // Compile a consistent dictionary snapshot once.
                 for(SentenceChunks.Chunk piece:EdgeSpeechSegments.priorityPieces(
-                        bookText,offsets,requested,grouped.toWord,grouped.toChar)){
+                        bookText,sentenceIndex,requested,grouped.toWord,
+                        source->EdgeSpeechSize.fits(speechOptions.apply(source).spoken))){
                     Clip clip=new Clip(piece.fromWord,piece.toWord,piece.text,"");
                     selectedOverrides.add(clip);
                 }
@@ -1114,7 +1124,8 @@ public final class EdgeStreamingService extends Service {
             job.attached=true;
             // Bind Media3 to streaming bytes BEFORE starting network synthesis.
             // The first MP3 frame can begin decoding without waiting for turn.end.
-            // A priority clip starts at the tapped word: no delayed seek is needed.
+            // Priority clips start at a real sentence boundary. WordBoundary may
+            // later refine the requested word position for a cached MP3.
             if(selectedSeekWord==clip.start && selectedOverrides.contains(clip))
                 selectedSeekWord=-1;
             player.appendLive(clip.key+":"+clip.start,clip.start,clip.end,job.buffer);
@@ -1185,7 +1196,8 @@ public final class EdgeStreamingService extends Service {
                             persist();changed();
                             // A transient first-packet timeout is not proof Edge is offline.
                             // Retry only the active foreground fragment once, never prefetch.
-                            boolean retryNow=clip.failures==1&&active&&player!=null&&
+                            boolean hardLimitExceeded=problem.contains("Предложение превышает допустимый размер");
+                            boolean retryNow=!hardLimitExceeded&&clip.failures==1&&active&&player!=null&&
                                 player.playRequested()&&!problem.contains("HTTP 429")&&
                                 !problem.contains("прерван ради активного чтения")&&
                                 (anchorWord>=clip.start&&anchorWord<clip.end);
@@ -1199,7 +1211,7 @@ public final class EdgeStreamingService extends Service {
                                     startLive(clip);
                                 },900);
                             }else if(!problem.contains("прерван ради активного чтения")){
-                                startBackupTtsForFailedClip(clip);
+                                startBackupTtsForFailedClip(clip,hardLimitExceeded);
                             }
                             if(idlePrefetchRequested&&!active){idlePrefetchRequested=false;stopSelf();}
                         });

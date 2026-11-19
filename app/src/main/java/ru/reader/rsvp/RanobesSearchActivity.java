@@ -62,6 +62,18 @@ public final class RanobesSearchActivity extends NavigationActivity {
         int request=++token;page=next;list.removeAllViews();message.setText("Поиск Ranobes.net…");
         getSharedPreferences("reader",0).edit().putString("ranobes_last_search",entered).apply();
         String url=RanobesApi.validBookUrl(entered);if(!url.isEmpty()){open(url);return;}
+        // A pasted URL is not a text-search query: the 70-character title limit must never apply to it.
+        if(RanobesApi.looksLikeUrl(entered)){
+            message.setText("Проверяем ссылку Ranobes.net…");
+            net.execute(()->{
+                try{
+                    String bookUrl=new RanobesApi().resolveBookLink(entered);
+                    runOnUiThread(()->{if(!isFinishing()&&token==request)open(bookUrl);});
+                }catch(Exception ex){runOnUiThread(()->{if(!isFinishing()&&token==request)
+                    message.setText("Не удалось открыть ссылку: "+ex.getMessage());});}
+            });
+            return;
+        }
         final int requestedPage=next;
         net.execute(()->{try{
             RanobesApi.SearchPage result=new RanobesApi().searchPage(entered,continuation);

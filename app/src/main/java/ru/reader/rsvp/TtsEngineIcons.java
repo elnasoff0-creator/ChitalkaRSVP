@@ -3,7 +3,7 @@ package ru.reader.rsvp;
 import android.content.Context;
 import android.graphics.drawable.Drawable;
 
-/** Package-provided TTS artwork; no third-party icon assets are bundled. */
+/** Installed Android TTS artwork, and the bundled Edge logo for the web-only service. */
 final class TtsEngineIcons {
     private TtsEngineIcons(){}
     static Drawable load(Context c,String packageId){
@@ -15,7 +15,9 @@ final class TtsEngineIcons {
         catch(Exception ignored){return fallback(c);}
     }
     static Drawable edge(Context c){
-        try{return c.getPackageManager().getApplicationIcon("com.microsoft.emmx");}
+        // Edge Web TTS is not an installed Android engine. Never require an
+        // Edge browser package, permission or external application for its badge.
+        try{return androidx.core.content.ContextCompat.getDrawable(c,R.drawable.ic_edge_official);}
         catch(Exception ignored){return androidx.core.content.ContextCompat.getDrawable(c,R.drawable.ic_edge_tts);}
     }
     static Drawable fallback(Context c){return androidx.core.content.ContextCompat.getDrawable(c,R.drawable.ic_tts_engine);}

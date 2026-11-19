@@ -62,12 +62,54 @@ final class RanobesApi {
         String id="",url="",title="",volume="1";int index,page=1;
         Chapter(String id,String url,String title,String volume,int index){this.id=id;this.url=url;this.title=title;this.volume=volume;this.index=index;}
     }
-    static String validBookUrl(String raw){
-        if(raw==null)return "";String input=raw.trim();
-        if(input.matches("(?i)^(www\\.)?ranobes\\.net/.*"))input="https://"+input;
-        try{HttpUrl url=HttpUrl.parse(input);if(url==null||!"https".equals(url.scheme())||!"ranobes.net".equalsIgnoreCase(url.host()))return "";
-            Matcher m=BOOK_LINK.matcher(url.encodedPath());return m.matches()?DOMAIN+url.encodedPath():"";
+    /** Canonicalize copied Ranobes links (including www/http and share query parameters). */
+    private static String canonicalRanobesUrl(String raw){
+        if(raw==null)return "";
+        String input=raw.trim();
+        if(input.isEmpty()||input.length()>8192)return "";
+        if(input.matches("(?i)^(www\\.)?ranobes\\.net(?:/.*)?$"))input="https://"+input;
+        try{
+            HttpUrl url=HttpUrl.parse(input);
+            if(url==null||!("http".equals(url.scheme())||"https".equals(url.scheme())))return "";
+            if(!"ranobes.net".equalsIgnoreCase(url.host())&&!"www.ranobes.net".equalsIgnoreCase(url.host()))return "";
+            if(url.port()!=("https".equals(url.scheme())?443:80))return "";
+            // Always request the canonical secure host. Query parameters and fragments are not needed for book IDs.
+            return DOMAIN+url.encodedPath();
         }catch(Exception ex){return "";}
+    }
+    static boolean looksLikeUrl(String value){
+        if(value==null)return false;
+        return value.trim().matches("(?is)^(?:https?://|www\\.|ranobes\\.net/).*");
+    }
+    static String validBookUrl(String raw){
+        String canonical=canonicalRanobesUrl(raw);
+        if(canonical.isEmpty())return "";
+        try{
+            HttpUrl url=HttpUrl.parse(canonical);
+            return BOOK_LINK.matcher(url.encodedPath()).matches()?canonical:"";
+        }catch(Exception ex){return "";}
+    }
+    /** Resolve a pasted book URL or a chapter URL to the canonical book page. */
+    String resolveBookLink(String raw)throws IOException{
+        String direct=validBookUrl(raw);
+        if(!direct.isEmpty())return direct;
+        String canonical=canonicalRanobesUrl(raw);
+        if(canonical.isEmpty())throw new IOException("Укажите ссылку на книгу с сайта Ranobes.net");
+        HttpUrl parsed=HttpUrl.parse(canonical);
+        String path=parsed==null?"":parsed.encodedPath();
+        Matcher chapter=CHAPTER_LINK.matcher(path);
+        if(!chapter.matches())throw new IOException("Нужна ссылка на страницу книги или главы Ranobes.net");
+        // The last numeric segment in the chapter directory is its source book ID.
+        Matcher parentId=Pattern.compile("-([0-9]{3,12})/$").matcher(path.substring(0,path.lastIndexOf('/')+1));
+        if(!parentId.find())throw new IOException("Не удалось определить книгу по ссылке на главу");
+        String expectedId=parentId.group(1);
+        Document chapterPage=get(canonical);
+        // Prefer the book link in navigation/breadcrumbs; accept only matching IDs on the trusted host.
+        for(Element anchor:chapterPage.select(".breadcrumbs a[href],.breadcrumb a[href],.story-breadcrumbs a[href],a[href*='/novels/']")){
+            String found=validBookUrl(anchor.absUrl("href"));
+            if(!found.isEmpty()&&expectedId.equals(novelId(found)))return found;
+        }
+        throw new IOException("На странице главы не найдена ссылка на книгу. Вставьте адрес страницы книги из Ranobes.net");
     }
     static String novelId(String bookUrl){String url=validBookUrl(bookUrl);if(url.isEmpty())return "";
         Matcher m=BOOK_LINK.matcher(HttpUrl.parse(url).encodedPath());return m.matches()?m.group(1):"";
@@ -228,7 +270,8 @@ final class RanobesApi {
     SearchPage searchPage(String query,String continuation)throws IOException {
         if(query==null||query.trim().isEmpty())return new SearchPage(new ArrayList<>(),0,"");
         String value=query.trim();
-        if(value.length()>70)throw new IOException("Поисковый запрос слишком длинный (до 70 символов)");
+        if(looksLikeUrl(value))throw new IOException("Ссылку Ranobes нужно открывать как страницу книги, а не искать по названию");
+        if(value.length()>70)throw new IOException("Название для поиска слишком длинное (до 70 символов). Ограничение не относится к ссылкам");
         if(continuation!=null&&!continuation.isEmpty()){
             HttpUrl next=HttpUrl.parse(continuation);
             if(!allowed(next))throw new IOException("Недопустимая ссылка страницы результатов");

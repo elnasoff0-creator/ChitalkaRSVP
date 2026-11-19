@@ -1,7 +1,10 @@
 package ru.reader.rsvp;
 import android.content.SharedPreferences;
 
-/** Sentence-first segmentation is fixed at 800 chars for both synthesis paths. */
+/** Compatibility settings. 800 is only a soft target, not a hard cut-off:
+ * complete grammatical sentences may be longer and are never sliced.
+ * Adaptive Edge grouping is managed by EdgeSpeechLayout per book.
+ */
 public final class EdgeSegmentSettings {
     public static final String KEY="edge_segment_characters";
     public static final int DEFAULT=SentenceChunks.LIMIT;

@@ -75,21 +75,23 @@ public final class EdgeFullBookService extends Service {
             speech.fingerprint()+"|"+contentStamp(job.uri);
         if(lastPrepared!=null&&key.equals(lastPrepared.key)
                 &&now-lastPrepared.createdAt<120000L)return lastPrepared;
-        BookLoader.Book book=BookLoader.load(this,Uri.parse(job.uri));
+        UnifiedBookSession session=UnifiedBookSession.open(this,Uri.parse(job.uri));
+        BookLoader.Book book=session.book;
         String raw=book.text==null?"":book.text;
         if(raw.trim().isEmpty())throw new Exception("В книге нет текста для озвучки");
-        ArrayList<EdgeTextSegments.Part> parts=EdgeTextSegments.all(raw,book.chapters,job.chars);
+        ArrayList<SentenceChunks.Chunk> parts=session.edgeGroups(speech,
+            EdgeSpeechLayout.forFolder(job.mp3Folder()));
         if(parts.isEmpty())throw new Exception("Не удалось разбить текст на фрагменты");
         JSONArray index=new JSONArray();
-        for(EdgeTextSegments.Part part:parts){
+        for(SentenceChunks.Chunk part:parts){
             EdgeSpeechTextTransform.Result converted=speech.apply(part.text);
             if(converted.skipSynthesis())continue;
-            JSONObject row=new JSONObject();row.put("start",part.start).put("end",part.end);
+            JSONObject row=new JSONObject();row.put("start",part.fromWord).put("end",part.toWord);
             row.put("text",part.text).put("key",converted.cacheKey(job.voice,job.rate));
             index.put(row);
         }
         PreparedJob ready=new PreparedJob(key,now,book,index,
-            EdgeTextSegments.positions(raw),speech);
+            new ArrayList<>(session.ttsWordPositions),speech);
         lastPrepared=ready;return ready;
     }
 

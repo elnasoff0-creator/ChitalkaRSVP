@@ -2,105 +2,94 @@ package ru.reader.rsvp;
 
 import java.util.ArrayList;
 
-/** Groups adjacent sentences into meaningful requests of no more than 800 chars.
- * All word and character offsets remain tied to the original book text.
- * Normal first and subsequent groups use the same target. Paragraphs stay intact.
- * This dramatically reduces socket handshakes for dialogue-heavy books.
+/** Immutable source-backed sentence grouping, shared by live and bulk Edge TTS.
+ * Soft targets apply only to combinations of COMPLETE sentences. A single long
+ * sentence remains indivisible; the engine handles hard SSML overflow explicitly.
  */
 final class EdgeSpeechSegments {
-    static final int MAX=800,FIRST_TARGET=800,FIRST_TARGET_PRIORITY=500;
+    static final int MAX=800,FIRST_TARGET=500;
+    interface TextFits {boolean fits(String sourceText);}
     private EdgeSpeechSegments(){}
     static ArrayList<SentenceChunks.Chunk> split(String raw){return split(raw,BookChapterIndex.empty());}
     static ArrayList<SentenceChunks.Chunk> split(String raw,BookChapterIndex chapters){
+        return split(raw,chapters,EdgeSpeechSize::fits);
+    }
+    static ArrayList<SentenceChunks.Chunk> split(String raw,BookChapterIndex chapters,TextFits checker){
+        return split(raw,chapters,checker,EdgeSpeechLayout.current());
+    }
+    static ArrayList<SentenceChunks.Chunk> split(String raw,BookChapterIndex chapters,
+            TextFits checker,EdgeSpeechLayout layout){
         if(raw==null)raw="";
-        ArrayList<SentenceChunks.Chunk> sentences=SentenceChunks.split(raw);
-        ArrayList<SentenceChunks.Chunk> grouped=new ArrayList<>();
+        ArrayList<SentenceChunks.Chunk> sentences=EdgeSentenceBoundary.split(raw);
+        ArrayList<SentenceChunks.Chunk> groups=new ArrayList<>();
         SentenceChunks.Chunk first=null,last=null;
-        for(SentenceChunks.Chunk c:sentences){
-            if(first==null){first=c;last=c;continue;}
-            int length=c.toChar-first.fromChar;
-            int target=grouped.isEmpty()?FIRST_TARGET:MAX;
-            String between=raw.substring(last.toChar,c.fromChar);
-            boolean paragraph=between.contains("\n\n")||between.contains("\r\n\r\n");
-            // Keep chapter-specific offline downloads reusable by live playback.
-            boolean chapterChange=chapters!=null&&chapters.size()>0
-                &&chapters.atChar(first.fromChar)!=chapters.atChar(c.fromChar);
-            if(length>target||paragraph||chapterChange){
-                grouped.add(new SentenceChunks.Chunk(first.fromChar,last.toChar,
-                    first.fromWord,last.toWord,raw.substring(first.fromChar,last.toChar)));
-                first=c;
+        final int laterTarget=Math.min(MAX,layout.normal);
+        final int firstTarget=Math.min(MAX,layout.first);
+        for(SentenceChunks.Chunk next:sentences){
+            if(first==null){first=next;last=next;continue;}
+            final int target=groups.isEmpty()?firstTarget:laterTarget;
+            final String between=raw.substring(last.toChar,next.fromChar);
+            final boolean newParagraph=between.contains("\n\n")||between.contains("\r\n\r\n");
+            final boolean newChapter=chapters!=null&&chapters.size()>0&&
+                chapters.atChar(first.fromChar)!=chapters.atChar(next.fromChar);
+            final String combined=raw.substring(first.fromChar,next.toChar);
+            if(newChapter||newParagraph||combined.length()>target||
+                    (checker!=null&&!checker.fits(combined))){
+                groups.add(join(raw,first,last));
+                first=next;
             }
-            last=c;
+            last=next;
         }
-        if(first!=null)grouped.add(new SentenceChunks.Chunk(first.fromChar,last.toChar,
-            first.fromWord,last.toWord,raw.substring(first.fromChar,last.toChar)));
-        // Avoid standalone requests for very short paragraphs. Merge only if
-        // contiguous in book word order, within MAX and inside the same chapter.
-        // Every merged Chunk retains original fromChar/fromWord and toChar/toWord.
+        if(first!=null)groups.add(join(raw,first,last));
+        // Merge tiny adjacent groups only if the *whole* merged source remains
+        // within its target and post-dictionary byte budget; never split sentences.
         ArrayList<SentenceChunks.Chunk> compact=new ArrayList<>();
-        for(int i=0;i<grouped.size();i++){
-            SentenceChunks.Chunk part=grouped.get(i);
-            if(part.text.length()<180){
-                if(!compact.isEmpty()){
-                    SentenceChunks.Chunk prev=compact.get(compact.size()-1);
-                    if(canMerge(raw,prev,part,chapters)){
-                        compact.set(compact.size()-1,merge(raw,prev,part));
-                        continue;
-                    }
-                }
-                if(i+1<grouped.size()&&canMerge(raw,part,grouped.get(i+1),chapters)){
-                    grouped.set(i+1,merge(raw,part,grouped.get(i+1)));
-                    continue;
+        for(int i=0;i<groups.size();i++){
+            SentenceChunks.Chunk part=groups.get(i);
+            if(part.text.length()<180 && !compact.isEmpty()){
+                SentenceChunks.Chunk prev=compact.get(compact.size()-1);
+                int target=compact.size()==1?firstTarget:laterTarget;
+                if(canMerge(raw,prev,part,chapters,checker,target)){
+                    compact.set(compact.size()-1,join(raw,prev,part));continue;
                 }
             }
             compact.add(part);
         }
         return compact;
     }
-    private static boolean canMerge(String raw,SentenceChunks.Chunk a,SentenceChunks.Chunk b,BookChapterIndex chapters){
-        if(a.toWord!=b.fromWord||a.fromChar>=b.fromChar)return false;
-        if(b.toChar-a.fromChar>MAX)return false;
-        return chapters==null||chapters.size()==0||
-            chapters.atChar(a.fromChar)==chapters.atChar(b.fromChar);
+    private static boolean canMerge(String raw,SentenceChunks.Chunk a,SentenceChunks.Chunk b,
+            BookChapterIndex chapters,TextFits checker,int target){
+        if(a.toWord!=b.fromWord||a.fromChar>=b.fromChar||b.toChar-a.fromChar>target)return false;
+        if(chapters!=null&&chapters.size()>0&&chapters.atChar(a.fromChar)!=chapters.atChar(b.fromChar))return false;
+        return checker==null||checker.fits(raw.substring(a.fromChar,b.toChar));
     }
-    private static SentenceChunks.Chunk merge(String raw,SentenceChunks.Chunk a,SentenceChunks.Chunk b){
-        return new SentenceChunks.Chunk(a.fromChar,b.toChar,a.fromWord,b.toWord,
-                raw.substring(a.fromChar,b.toChar));
+    private static SentenceChunks.Chunk join(String raw,SentenceChunks.Chunk first,SentenceChunks.Chunk last){
+        return new SentenceChunks.Chunk(first.fromChar,last.toChar,first.fromWord,last.toWord,
+            raw.substring(first.fromChar,last.toChar));
     }
-
-    /** An uncached manual jump starts at the selected word. Cover the rest of
-     * its normal group with contiguous priority pieces (first <=500 chars),
-     * then return to normal 800-character groups. Keep absolute book offsets.
+    /** Manual seek: synthesize from the BEGINNING of the sentence containing
+     * the tapped word. The first and subsequent pieces contain whole sentences
+     * and always round DOWN when the next sentence would exceed the soft target.
      */
-    static ArrayList<SentenceChunks.Chunk> priorityPieces(String raw,
-            ArrayList<Integer> positions,int fromWord,int toWord,int groupEndChar){
+    static ArrayList<SentenceChunks.Chunk> priorityPieces(String raw,SentenceIndex index,
+            int selectedWord,int groupEndWord,TextFits checker){
         ArrayList<SentenceChunks.Chunk> result=new ArrayList<>();
-        if(raw==null||positions==null||positions.isEmpty()||fromWord<0||
-                toWord>positions.size()||fromWord>=toWord)return result;
-        int word=fromWord;
-        while(word<toWord){
-            int beginChar=positions.get(word);
-            int limit=beginChar+FIRST_TARGET_PRIORITY;
-            int next=word;
-            while(next<toWord){
-                int wordStart=positions.get(next);
-                int wordEnd=wordStart;
-                while(wordEnd<raw.length()&&!Character.isWhitespace(raw.charAt(wordEnd)))wordEnd++;
-                if(wordEnd>limit&&next>word)break;
-                // A single pathological unbroken word may exceed 500 chars;
-                // preserve that word rather than corrupting word offsets.
-                next++;
-                if(wordEnd>limit)break;
+        if(raw==null||index==null||selectedWord<0||selectedWord>=groupEndWord)return result;
+        final int target=EdgeAdaptiveBlocks.priorityTarget();
+        SentenceChunks.Chunk first=null,last=null;
+        int word=selectedWord;
+        while(word<groupEndWord){
+            SentenceChunks.Chunk next=index.atWordRange(word);
+            if(next==null||next.toWord<=word||next.toWord>groupEndWord)
+                throw new IllegalStateException("Нарушена граница предложения Edge TTS");
+            if(first==null){first=next;last=next;word=next.toWord;continue;}
+            String proposed=raw.substring(first.fromChar,next.toChar);
+            if(proposed.length()>target||(checker!=null&&!checker.fits(proposed))){
+                result.add(join(raw,first,last));first=next;
             }
-            int endChar=next==toWord?groupEndChar:positions.get(next);
-            endChar=Math.min(raw.length(),endChar);
-            while(endChar>beginChar&&Character.isWhitespace(raw.charAt(endChar-1)))endChar--;
-            if(endChar<=beginChar)throw new IllegalStateException("Empty priority piece");
-            result.add(new SentenceChunks.Chunk(beginChar,endChar,word,next,
-                raw.substring(beginChar,endChar)));
-            word=next;
+            last=next;word=next.toWord;
         }
+        if(first!=null)result.add(join(raw,first,last));
         return result;
     }
-
 }

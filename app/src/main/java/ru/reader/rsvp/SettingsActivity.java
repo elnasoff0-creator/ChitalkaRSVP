@@ -146,9 +146,9 @@ public class SettingsActivity extends NavigationActivity {
         if(currentTab==2){drawAudioSettings();return;}
         if(currentTab==3){drawOnlineSettings();return;}
         if(currentTab==4){drawChteicoSettings();return;}
-        header("Редактирование меню");
+        headerWithHelp("Редактирование меню");
         settingSwitch("Редактирование долгим нажатием",MenuEditPrefs.LONG_PRESS,false);
-        addHelpIcon("Редактирование меню");gap(4);
+        gap(4);
         preview=new TextView(this);preview.setText("Предпросмотр текста");preview.setGravity(Gravity.CENTER);preview.setLineSpacing(dp(5),1.18f);preview.setPadding(dp(19),dp(21),dp(19),dp(21));LinearLayout.LayoutParams previewLp=new LinearLayout.LayoutParams(-1,dp(90));previewLp.topMargin=dp(6);list.addView(preview,previewLp);applyPreview();
         header("Шрифт");
         list.addView(action(ReaderFontLibrary.choice(this,prefs)+"   ▾",this::fontDialog));
@@ -178,7 +178,29 @@ public class SettingsActivity extends NavigationActivity {
         header("Цвет обычных кнопок");buttonPalette(false);
         header("Цвет акцентных кнопок · Play, режимы");buttonPalette(true);
         gap(16);
+        // All SAF destinations and maintenance actions live at the very bottom
+        // of General; selected persisted tree URIs are not changed.
+        drawDownloadFoldersSection();
         // Diagnostics are accessible only from the developer drawer.
+    }
+    /** The help affordance belongs to the header row; never occupy a free-standing line. */
+    private void headerWithHelp(String section){
+        LinearLayout bar=new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        TextView heading=text(section,18,true);
+        heading.setPadding(0,dp(14),dp(8),dp(9));
+        bar.addView(heading,new LinearLayout.LayoutParams(0,-2,1));
+        ImageView help=new ImageView(this);
+        help.setImageResource(R.drawable.ic_info_help);
+        help.setColorFilter(contrast(bg));
+        help.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        help.setPadding(dp(10),dp(10),dp(10),dp(10));
+        help.setContentDescription("Справка: "+section);
+        bar.addView(help,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        help.setOnClickListener(v->startActivity(new Intent(this,ActivityInfo.class)
+                .putExtra("help_section",section)));
+        list.addView(bar,new LinearLayout.LayoutParams(-1,-2));
     }
     /** Compact help link. Only the icon is clickable; the setting itself retains its action. */
     void addHelpIcon(String section){
@@ -687,9 +709,6 @@ public class SettingsActivity extends NavigationActivity {
         audioToggle(R.drawable.ic_tts_autoplay,"Автовоспроизведение при касании","Начинать озвучку сразу после выбора предложения","tts_tap_autoplay",false);
         audioLink(R.drawable.ic_edge_dictionary,"Словарь TTS",
             "", "",()->startActivity(new android.content.Intent(this,EdgeDictionaryActivity.class)));
-        audioLink(R.drawable.ic_downloads,"Папка Book · Edge TTS",
-            "Та же папка, что EPUB, FB2, HTML и ранобэ: "+DownloadFolderPicker.summary(this,DownloadFolderPicker.BOOK),
-            EdgeFolderPicker.available(this)?"Изменить":"Выбрать",()->EdgeFolderPicker.show(this));
         audioDivider();
         header("Аудиокниги MP3 / M4A");
         audioLink(R.drawable.ic_equalizer,"Эквалайзер","Настройка звучания аудиокниг",equalizerLabel(),this::equalizerDialog);
@@ -931,24 +950,26 @@ public class SettingsActivity extends NavigationActivity {
         new SwipeDialogs.Builder(this).setMessage("Системные настройки синтеза речи недоступны на этом устройстве.")
                 .setPositiveButton("OK",null).show();
     }
-    void drawOnlineSettings(){
-        header("Папки загрузки · Android SAF");
-        TextView explanation=text("Выберите каждую существующую папку отдельно через Android 16. "+
-            "Book — книги и Edge TTS; Manga — манга; Audiobook — аудиокниги.",13,false);
-        explanation.setPadding(dp(5),dp(4),dp(5),dp(9));list.addView(explanation);
-        list.addView(action("Book · "+DownloadFolderPicker.summary(this,DownloadFolderPicker.BOOK),R.drawable.ic_folder_audio,
+    private void drawDownloadFoldersSection(){
+        gap(12);
+        View separator=new View(this);
+        separator.setBackgroundColor(contrast(bg)==Color.WHITE?0x55ffffff:0x55866d5c);
+        list.addView(separator,new LinearLayout.LayoutParams(-1,dp(1)));
+        gap(5);
+        header("Папки загрузок");
+        list.addView(action("Книги · "+DownloadFolderPicker.summary(this,DownloadFolderPicker.BOOK),R.drawable.ic_folder_audio,
             ()->DownloadFolderPicker.choose(this,DownloadFolderPicker.BOOK_REQUEST,DownloadFolderPicker.BOOK)));
-        list.addView(action("Manga · "+DownloadFolderPicker.summary(this,DownloadFolderPicker.MANGA),R.drawable.ic_folder_audio,
+        list.addView(action("Комиксы · "+DownloadFolderPicker.summary(this,DownloadFolderPicker.MANGA),R.drawable.ic_folder_audio,
             ()->DownloadFolderPicker.choose(this,DownloadFolderPicker.MANGA_REQUEST,DownloadFolderPicker.MANGA)));
-        list.addView(action("Audiobook · "+DownloadFolderPicker.summary(this,DownloadFolderPicker.AUDIO),R.drawable.ic_folder_audio,
+        list.addView(action("Аудиокниги · "+DownloadFolderPicker.summary(this,DownloadFolderPicker.AUDIO),R.drawable.ic_folder_audio,
             ()->DownloadFolderPicker.choose(this,DownloadFolderPicker.AUDIO_REQUEST,DownloadFolderPicker.AUDIO)));
         for(String key:new String[]{DownloadFolderPicker.BOOK,DownloadFolderPicker.MANGA,DownloadFolderPicker.AUDIO}){
             String error=DownloadFolderPicker.lastIssue(this,key);
             if(!error.isEmpty())list.addView(text("Ошибка "+DownloadFolderPicker.label(key)+": "+error,12,false));
         }
-        list.addView(action("Повторить сохранение готовых файлов в SAF",R.drawable.ic_folder_audio,()->{
+        list.addView(action("Повторить сохранение готовых файлов",R.drawable.ic_folder_audio,()->{
             new SwipeDialogs.Builder(this).setTitle("Повторное сохранение")
-                .setMessage("Перепроверить готовые MP3, CBZ и HTML-книги и сохранить их в текущие папки Book, Manga, Audiobook? Исходники не удаляются. Большая библиотека потребует времени и свободного места.")
+                .setMessage("Перепроверить готовые MP3, CBZ и HTML-книги и сохранить их в выбранные папки книг, комиксов и аудиокниг? Исходники не удаляются. Большая библиотека потребует времени и свободного места.")
                 .setNegativeButton("Отмена",null)
                 .setPositiveButton("Сохранить",(dialog,which)->{
                     android.widget.Toast.makeText(this,"Проверяем готовые файлы…",android.widget.Toast.LENGTH_SHORT).show();
@@ -963,7 +984,7 @@ public class SettingsActivity extends NavigationActivity {
                     },"saf-recovery-v165").start();
                 }).show();
         }));
-        list.addView(action("Проверить и очистить дубликаты загрузок",R.drawable.ic_folder_audio,()->{
+        list.addView(action("Проверить и очистить дубликаты",R.drawable.ic_folder_audio,()->{
             android.widget.Toast.makeText(this,"Проверяем аудиофайлы…",android.widget.Toast.LENGTH_SHORT).show();
             new Thread(()->{
                 AudioSafDuplicates.Report scan=AudioSafDuplicates.inspect(getApplicationContext(),false);
@@ -986,6 +1007,8 @@ public class SettingsActivity extends NavigationActivity {
             },"audio-saf-duplicate-scan").start();
         }));
         gap(12);
+    }
+    void drawOnlineSettings(){
         header("Версия и обновления");
         TextView installed=text("Установлена: v"+installedVersion()+" (сборка "+installedCode()+")",14,false);
         installed.setPadding(dp(4),0,0,dp(9));list.addView(installed);

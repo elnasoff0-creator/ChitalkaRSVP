@@ -118,6 +118,8 @@ final class EdgeSpeechEngine {
             marks=new ArrayList<>(words);count=frames;
             elapsed=SystemClock.elapsedRealtime()-started;
         }
+        if(started>0)EdgeAdaptiveBlocks.observe(priority,problem==null,
+            firstAudio>0?firstAudio-started:-1,elapsed);
         ReaderDiagnosticLog.event("EDGE", "turn_complete result="+(problem==null?"ok":
             (problem.contains("429")?"http429":"failed"))+" queue_ms="+
             (started==0?-1:started-queuedAt)+" first_mp3_ms="+
@@ -141,8 +143,11 @@ final class EdgeSpeechEngine {
             ReaderDiagnosticLog.event("EDGE","request start priority="+priority+" queue_ms="+(started-queuedAt));
         }
         if(text.trim().isEmpty()){finish("Пустой фрагмент");return;}
-        if(text.getBytes(StandardCharsets.UTF_8).length>MAX_INPUT_UTF8){
-            finish("Текст превышает 4096 UTF-8 байт");return;
+        if(!EdgeSpeechSize.fits(text)){
+            // Never truncate a grammatical sentence or send a partial SSML turn.
+            ReaderDiagnosticLog.event("EDGE","oversized_sentence_or_block escaped_bytes="+
+                EdgeSpeechSize.speechBytes(text));
+            finish("Предложение превышает допустимый размер Edge TTS (4096 байт SSML)");return;
         }
         synchronized(this){
             watchdog=TIMER.scheduleAtFixedRate(()->{
@@ -199,6 +204,9 @@ final class EdgeSpeechEngine {
         String ssml="<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='ru-RU'>"
             +"<voice name='"+escaped(voice)+"'><prosody pitch='+0Hz' rate='"+rate
             +"' volume='+0%'>"+escaped(text)+"</prosody></voice></speak>";
+        if(ssml.getBytes(StandardCharsets.UTF_8).length>MAX_INPUT_UTF8){
+            finish("Предложение превышает допустимый размер SSML запроса Edge TTS");return;
+        }
         resource.requestId=id();
         if(!resource.send("X-RequestId:"+resource.requestId+"\r\nContent-Type:application/ssml+xml\r\n"
                 +"X-Timestamp:"+timestamp()+"Z\r\nPath:ssml\r\n\r\n"+ssml))

@@ -7,7 +7,7 @@ import java.util.regex.Pattern;
 
 /** Shared sentence-first segmentation for Android and Edge TTS. Source offsets stay stable. */
 final class SentenceChunks {
-    static final int LIMIT = 800;
+    static final int LIMIT = 800; // preferred grouping cap, NOT a sentence-splitting limit
     static final class Chunk {
         final int fromChar, toChar, fromWord, toWord;
         final String text;
@@ -26,37 +26,12 @@ final class SentenceChunks {
         int at=Collections.binarySearch(offsets,value);
         return at<0?-at-1:at;
     }
+    /** Each returned chunk is one entire grammatical sentence, even when it
+     * exceeds the preferred transport budget or a single word is extremely long.
+     * Edge and installed Android TTS use identical immutable source boundaries.
+     */
     static ArrayList<Chunk> split(String raw) {
-        if(raw==null)raw="";
-        ArrayList<Chunk> out=new ArrayList<>();
-        ArrayList<Integer> offsets=wordPositions(raw);
-        Matcher breaks=Pattern.compile("(?<=[.!?…])\\s+|\\n{2,}").matcher(raw);
-        int sentenceBegin=0;
-        while(sentenceBegin<raw.length()) {
-            boolean found=breaks.find(sentenceBegin);
-            int sentenceEnd=found?breaks.start():raw.length();
-            int cursor=sentenceBegin;
-            while(cursor<sentenceEnd) {
-                while(cursor<sentenceEnd&&Character.isWhitespace(raw.charAt(cursor)))cursor++;
-                if(cursor>=sentenceEnd)break;
-                int end=Math.min(sentenceEnd,cursor+LIMIT);
-                if(end<sentenceEnd && !Character.isWhitespace(raw.charAt(end-1)) && !Character.isWhitespace(raw.charAt(end))) {
-                    int boundary=end;
-                    while(boundary>cursor && !Character.isWhitespace(raw.charAt(boundary-1)))boundary--;
-                    if(boundary>cursor)end=boundary; // avoid cutting an ordinary word
-                    // A pathological word longer than LIMIT must be split to obey the hard cap.
-                }
-                while(end>cursor&&Character.isWhitespace(raw.charAt(end-1)))end--;
-                if(end<=cursor){end=Math.min(sentenceEnd,cursor+LIMIT);}
-                int firstWord=lowerBound(offsets,cursor);
-                int lastWord=lowerBound(offsets,end);
-                if(firstWord<lastWord)out.add(new Chunk(cursor,end,firstWord,lastWord,raw.substring(cursor,end)));
-                cursor=end;
-            }
-            if(!found)break;
-            sentenceBegin=breaks.end();
-        }
-        return out;
+        return EdgeSentenceBoundary.split(raw);
     }
     static Chunk forWord(ArrayList<Chunk> parts,int word) {
         if(parts.isEmpty())return null;

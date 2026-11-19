@@ -18,8 +18,22 @@ final class UnifiedBookSession {
     final SentenceIndex sentenceIndex;
     private static volatile UnifiedBookSession active;
     private volatile java.util.ArrayList<SentenceChunks.Chunk> edgeGroups;
+    private String edgeGroupsRevision="";
     synchronized java.util.ArrayList<SentenceChunks.Chunk> edgeGroups(){
-        if(edgeGroups==null)edgeGroups=EdgeSpeechSegments.split(book.text,book.chapters);
+        return edgeGroups(null,EdgeSpeechLayout.current());
+    }
+    synchronized java.util.ArrayList<SentenceChunks.Chunk> edgeGroups(EdgeSpeechTextTransform.Options options){
+        return edgeGroups(options,EdgeSpeechLayout.current());
+    }
+    synchronized java.util.ArrayList<SentenceChunks.Chunk> edgeGroups(
+            EdgeSpeechTextTransform.Options options,EdgeSpeechLayout layout){
+        final String revision=(options==null?"raw":options.fingerprint())+
+            "|"+layout.first+"|"+layout.normal;
+        if(edgeGroups==null||!revision.equals(edgeGroupsRevision)){
+            edgeGroups=EdgeSpeechSegments.split(book.text,book.chapters,
+                text->EdgeSpeechSize.fits(options==null?text:options.apply(text).spoken),layout);
+            edgeGroupsRevision=revision;
+        }
         return edgeGroups;
     }
     private UnifiedBookSession(String u,String rev,BookLoader.Book b,ReadingWordMap w){

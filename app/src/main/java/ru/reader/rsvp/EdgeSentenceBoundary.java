@@ -36,6 +36,15 @@ final class EdgeSentenceBoundary {
         int start=0,n=text.length();
         for(int i=0;i<n;i++){
             char ch=text.charAt(i);
+            final boolean lfParagraph=ch=='\n'&&i+1<n&&text.charAt(i+1)=='\n';
+            final boolean crlfParagraph=ch=='\r'&&i+3<n&&text.charAt(i+1)=='\n'
+                &&text.charAt(i+2)=='\r'&&text.charAt(i+3)=='\n';
+            if(lfParagraph||crlfParagraph){
+                add(result,text,words,start,i);
+                int after=i+(crlfParagraph?4:2);
+                while(after<n&&Character.isWhitespace(text.charAt(after)))after++;
+                start=after;i=after-1;continue;
+            }
             if(!mark(ch))continue;
             if(ch=='.'&&i>0&&i+1<n&&Character.isDigit(text.charAt(i-1))
                     &&Character.isDigit(text.charAt(i+1)))continue;

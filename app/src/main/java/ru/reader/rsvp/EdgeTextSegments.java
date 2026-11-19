@@ -2,7 +2,7 @@ package ru.reader.rsvp;
 
 import java.util.ArrayList;
 
-/** Compatibility adapter: both TTS engines use SentenceChunks with a 800-char cap. */
+/** Legacy adapter; Edge segments always preserve complete sentence boundaries. */
 final class EdgeTextSegments {
     static final class Part {
         final int start,end;

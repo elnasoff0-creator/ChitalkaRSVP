@@ -5,8 +5,8 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Immutable real sentence boundaries in source words and chars. 800-character
- * speech clips are transport units and must never become sentence boundaries. */
+/** Immutable natural sentence boundaries shared by local and Edge TTS.
+ * Transport targets are soft and must never turn into mid-sentence boundaries. */
 final class SentenceIndex {
     private final ArrayList<SentenceChunks.Chunk> sentences;
     private final ArrayList<Integer> wordOffsets;
@@ -21,34 +21,7 @@ final class SentenceIndex {
     }
     static SentenceIndex fromText(String text){
         if(text==null)text="";
-        ArrayList<Integer> offsets=SentenceChunks.wordPositions(text);
-        ArrayList<SentenceChunks.Chunk> result=new ArrayList<>();
-        Matcher breaks=Pattern.compile("(?<=[.!?…])\\s+|\\n{2,}").matcher(text);
-        int start=0;
-        while(breaks.find()){
-            int end=breaks.start();
-            if(isAbbreviation(text,start,end))continue;
-            addSentence(result,offsets,text,start,end);
-            start=breaks.end();
-        }
-        addSentence(result,offsets,text,start,text.length());
-        return new SentenceIndex(result,offsets);
-    }
-    private static boolean isAbbreviation(String raw,int start,int end){
-        if(end<=start)return false;
-        String tail=raw.substring(Math.max(start,end-15),end).toLowerCase(java.util.Locale.ROOT).trim();
-        // A common abbreviation must not create an artificial sentence.
-        return tail.equals("т.")||tail.endsWith(" т.")||tail.endsWith("т. д.")||tail.endsWith("т. п.")
-            ||tail.endsWith("т. е.")||tail.endsWith("рис.")||tail.endsWith("стр.")
-            ||tail.endsWith("ул.")||tail.endsWith("им.");
-    }
-    private static void addSentence(ArrayList<SentenceChunks.Chunk> result,
-            ArrayList<Integer> offsets,String text,int start,int end){
-        while(start<end&&Character.isWhitespace(text.charAt(start)))start++;
-        while(end>start&&Character.isWhitespace(text.charAt(end-1)))end--;
-        int first=SentenceChunks.lowerBound(offsets,start);
-        int last=SentenceChunks.lowerBound(offsets,end);
-        if(first<last)result.add(new SentenceChunks.Chunk(start,end,first,last,text.substring(start,end)));
+        return new SentenceIndex(EdgeSentenceBoundary.split(text),SentenceChunks.wordPositions(text));
     }
     int size(){return sentences.size();}
     int atWord(int word){
