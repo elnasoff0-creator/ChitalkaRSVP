@@ -58,6 +58,8 @@ public class ReaderActivity extends NavigationActivity {
     private TextView wordView,progressView,speedView;
     private ImageView playIcon,selectWordButton,modeIcon;
     private ImageButton toolbarModeAction,toolbarEngineAction,toolbarVoiceAction,toolbarThemeAction;
+    private FrameLayout toolbarEngineContainer;
+    private ImageView toolbarEngineBadge;
     private boolean rsvpScrollWords=false;
     private boolean resumeEdgeAfterFolderPick=false;
     private boolean ttsLocal=true,ttsBoundPlayer=false,ttsBoundStream=false,ttsPendingPlay=false;
@@ -391,14 +393,22 @@ public class ReaderActivity extends NavigationActivity {
         LinearLayout.LayoutParams bookmarkLp=new LinearLayout.LayoutParams(dp(44),dp(44));bookmarkLp.leftMargin=dp(5);
         // Bookmarks moved to overflow menu.
         toolbarEngineAction=icon(ttsLocal?R.drawable.ic_android_tts:R.drawable.ic_edge_tts,v->chooseTtsEngine());
-        if(ttsLocal){
-            toolbarEngineAction.setImageDrawable(TtsEngineIcons.load(this,prefs.getString("tts_engine","")));
-            toolbarEngineAction.clearColorFilter();
-        }
         toolbarEngineAction.setContentDescription("Метод озвучивания");
+        toolbarEngineAction.setBackground(shape(accent(),12));
+        toolbarEngineAction.setColorFilter(contrast(accent()));
+        toolbarEngineContainer=new FrameLayout(this);
         LinearLayout.LayoutParams engineLp=new LinearLayout.LayoutParams(dp(44),dp(44));engineLp.leftMargin=dp(5);
-        toolbar.addView(toolbarEngineAction,engineLp);
-        toolbarEngineAction.setBackground(shape(accent(),12));toolbarEngineAction.setColorFilter(contrast(accent()));
+        toolbar.addView(toolbarEngineContainer,engineLp);
+        toolbarEngineContainer.addView(toolbarEngineAction,new FrameLayout.LayoutParams(-1,-1));
+        toolbarEngineBadge=new ImageView(this);
+        toolbarEngineBadge.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        toolbarEngineBadge.setBackground(shape(buttonBg(),5));
+        toolbarEngineBadge.setPadding(dp(1),dp(1),dp(1),dp(1));
+        FrameLayout.LayoutParams badgeLp=new FrameLayout.LayoutParams(dp(18),dp(18),Gravity.RIGHT|Gravity.BOTTOM);
+        badgeLp.rightMargin=dp(1);badgeLp.bottomMargin=dp(1);
+        toolbarEngineContainer.addView(toolbarEngineBadge,badgeLp);
+        toolbarEngineBadge.setClickable(false);
+        toolbarEngineBadge.setVisibility(View.GONE);
         toolbarVoiceAction=icon(R.drawable.ic_tts_engine,v->chooseTtsVoice());
         toolbarVoiceAction.setContentDescription("Голос озвучивания");
         LinearLayout.LayoutParams voiceLp=new LinearLayout.LayoutParams(dp(44),dp(44));voiceLp.leftMargin=dp(5);
@@ -1173,12 +1183,9 @@ public class ReaderActivity extends NavigationActivity {
             toolbarModeAction.setBackground(shape(accent(),12));toolbarModeAction.setColorFilter(contrast(accent()));}
         if(speedView!=null)speedView.setText(String.valueOf(mode==TTS?TtsWpm.get(this):wpm));
         if(selectWordButton!=null){selectWordButton.setVisibility(mode==NORMAL?View.VISIBLE:View.GONE);updateSelectWordButton();}
-        if(toolbarEngineAction!=null){toolbarEngineAction.setVisibility(mode==TTS?View.VISIBLE:View.GONE);
-            toolbarEngineAction.setBackground(shape(accent(),12));toolbarEngineAction.setColorFilter(contrast(accent()));}
-        if(toolbarEngineAction!=null&&ttsLocal&&mode==TTS){
-            toolbarEngineAction.setImageDrawable(TtsEngineIcons.load(this,prefs.getString("tts_engine","")));
-            toolbarEngineAction.clearColorFilter();
-        }
+        if(toolbarEngineContainer!=null)toolbarEngineContainer.setVisibility(mode==TTS?View.VISIBLE:View.GONE);
+        if(toolbarEngineAction!=null){toolbarEngineAction.setBackground(shape(accent(),12));
+            toolbarEngineAction.setColorFilter(contrast(accent()));}
         refreshActiveTtsIcon();
         if(toolbarVoiceAction!=null)toolbarVoiceAction.setVisibility(mode==TTS?View.VISIBLE:View.GONE);
         if(toolbarSleepAction!=null)toolbarSleepAction.setVisibility(mode==TTS?View.VISIBLE:View.GONE);
@@ -2194,7 +2201,7 @@ public class ReaderActivity extends NavigationActivity {
     /** Keep the overlay icon in sync with the engine actually speaking this book. */
     private String lastRenderedTtsEngineIconKey="";
     private void refreshActiveTtsIcon(){
-        if(toolbarEngineAction==null || mode!=TTS)return;
+        if(toolbarEngineAction==null || toolbarEngineBadge==null || mode!=TTS)return;
         AudioPlaybackService backup=AudioPlaybackService.instance;
         boolean backupActive=!ttsLocal && backupTtsForThisBook();
         String packageName=backupActive && backup!=null ? backup.activeBackupEnginePackage() :
@@ -2203,17 +2210,16 @@ public class ReaderActivity extends NavigationActivity {
         String iconKey=backupActive?"backup:"+packageName:(ttsLocal?"local:"+packageName:"edge");
         if(iconKey.equals(lastRenderedTtsEngineIconKey))return;
         lastRenderedTtsEngineIconKey=iconKey;
-        if(backupActive || ttsLocal){
-            toolbarEngineAction.setImageDrawable(TtsEngineIcons.load(this,packageName));
-            toolbarEngineAction.clearColorFilter();
-            toolbarEngineAction.setContentDescription(backupActive?
-                "Резервная озвучка: "+TtsEngineIcons.label(this,packageName):
-                "Метод озвучивания: "+TtsEngineIcons.label(this,packageName));
+        toolbarEngineAction.setImageResource(ttsLocal?R.drawable.ic_android_tts:R.drawable.ic_edge_tts);
+        toolbarEngineAction.setColorFilter(contrast(accent()));
+        if(ttsLocal || backupActive){
+            toolbarEngineBadge.setImageDrawable(TtsEngineIcons.load(this,packageName));
+            toolbarEngineAction.setContentDescription((backupActive?"Резервная озвучка: ":"Способ озвучивания: ")+TtsEngineIcons.label(this,packageName));
         }else{
-            toolbarEngineAction.setImageResource(R.drawable.ic_edge_tts);
-            toolbarEngineAction.setColorFilter(contrast(accent()));
-            toolbarEngineAction.setContentDescription("Метод озвучивания: Microsoft Edge TTS");
+            toolbarEngineBadge.setImageDrawable(TtsEngineIcons.edge(this));
+            toolbarEngineAction.setContentDescription("Способ озвучивания: Microsoft Edge TTS");
         }
+        toolbarEngineBadge.setVisibility(View.VISIBLE);
     }
     private void updatePlayButtonIfChanged(){
         refreshActiveTtsIcon();
@@ -2225,37 +2231,36 @@ public class ReaderActivity extends NavigationActivity {
     private void chooseTtsEngine(){
         if(mode!=TTS)return;
         UiNavigationSheet.showTopCustom(this,"Способ озвучивания",(choices,dialog)->{
-        int[] icons={R.drawable.ic_android_tts,R.drawable.ic_edge_tts};
-        String[] titles={TtsEngineIcons.label(this,prefs.getString("tts_engine",""))+" — локальный","Microsoft Edge TTS — онлайн"};
-        String[] details={"Работает без интернета с установленным системным движком",
-            "Нейросетевые голоса, потоковое MP3 и кэширование"};
-        for(int i=0;i<2;i++){
-            final boolean localChoice=i==0;
-            LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(dp(18),dp(13),dp(18),dp(13));
-            ImageView picture=new ImageView(this);
-            if(localChoice)picture.setImageDrawable(TtsEngineIcons.load(this,prefs.getString("tts_engine","")));
-            else picture.setImageResource(icons[i]);
-            row.addView(picture,new LinearLayout.LayoutParams(dp(28),dp(28)));
-            LinearLayout labels=column();labels.setPadding(dp(13),0,dp(10),0);
-            row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
-            TextView primary=text(titles[i],16);primary.setSingleLine(false);labels.addView(primary);
-            TextView hint=text(details[i],12);hint.setSingleLine(false);hint.setMaxLines(4);hint.setAlpha(.72f);labels.addView(hint);
-            if(ttsLocal==localChoice)row.addView(text("✓",20));
-            row.setOnClickListener(v->{dialog.dismiss();
-                if(localChoice==ttsLocal)return;
-                int position=index;releaseTts();ttsLocal=localChoice;
-                lastRenderedTtsEngineIconKey="";
-                prefs.edit().putBoolean("tts_last_local",localChoice)
-                    .putInt("tts_word:"+docUri,position).apply();
-                if(toolbarEngineAction!=null){
-                    if(localChoice){toolbarEngineAction.setImageDrawable(TtsEngineIcons.load(this,prefs.getString("tts_engine","")));toolbarEngineAction.clearColorFilter();}
-                    else {toolbarEngineAction.setImageResource(R.drawable.ic_edge_tts);toolbarEngineAction.setColorFilter(contrast(accent()));}
-                }
-                startTtsSession();
-            });
-            row.setMinimumHeight(dp(86));choices.addView(row,new LinearLayout.LayoutParams(-1,-2));
-        }
+            int[] icons={R.drawable.ic_android_tts,R.drawable.ic_edge_tts};
+            String[] titles={"Системный оффлайн движок","Microsoft Edge TTS"};
+            for(int i=0;i<2;i++){
+                final boolean localChoice=i==0;
+                LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
+                row.setPadding(dp(14),dp(10),dp(14),dp(10));
+                row.setBackground(UiColorScheme.selectionOutline(this,ttsLocal==localChoice,UiColorScheme.neutral(this),14));
+                ImageView picture=new ImageView(this);picture.setImageResource(icons[i]);
+                picture.setColorFilter(contrast(buttonBg()));
+                row.addView(picture,new LinearLayout.LayoutParams(dp(28),dp(28)));
+                TextView name=text(titles[i],16);name.setPadding(dp(12),0,dp(6),0);
+                row.addView(name,new LinearLayout.LayoutParams(0,-2,1));
+                ImageView engine=new ImageView(this);
+                engine.setImageDrawable(localChoice?TtsEngineIcons.load(this,prefs.getString("tts_engine","")):TtsEngineIcons.edge(this));
+                engine.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                row.addView(engine,new LinearLayout.LayoutParams(dp(27),dp(27)));
+                ImageView chosen=TtsSelectionMark.view(this,ttsLocal==localChoice);
+                LinearLayout.LayoutParams markLp=new LinearLayout.LayoutParams(dp(24),dp(24));markLp.leftMargin=dp(9);
+                row.addView(chosen,markLp);
+                row.setOnClickListener(v->{dialog.dismiss();
+                    if(localChoice==ttsLocal)return;
+                    int position=index;releaseTts();ttsLocal=localChoice;
+                    lastRenderedTtsEngineIconKey="";
+                    prefs.edit().putBoolean("tts_last_local",localChoice)
+                        .putInt("tts_word:"+docUri,position).apply();
+                    refreshActiveTtsIcon();startTtsSession();
+                });
+                LinearLayout.LayoutParams rowLp=new LinearLayout.LayoutParams(-1,dp(70));rowLp.bottomMargin=dp(8);
+                choices.addView(row,rowLp);
+            }
         });
     }
     private void chooseTtsVoice(){

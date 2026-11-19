@@ -14,6 +14,10 @@ final class TtsEngineIcons {
         try{return c.getPackageManager().getApplicationIcon(packageId);}
         catch(Exception ignored){return fallback(c);}
     }
+    static Drawable edge(Context c){
+        try{return c.getPackageManager().getApplicationIcon("com.microsoft.emmx");}
+        catch(Exception ignored){return androidx.core.content.ContextCompat.getDrawable(c,R.drawable.ic_edge_tts);}
+    }
     static Drawable fallback(Context c){return androidx.core.content.ContextCompat.getDrawable(c,R.drawable.ic_tts_engine);}
     static String label(Context c,String packageId){
         if(packageId==null||packageId.isEmpty())return "Системный TTS Android";

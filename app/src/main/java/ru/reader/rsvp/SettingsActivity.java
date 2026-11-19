@@ -682,9 +682,7 @@ public class SettingsActivity extends NavigationActivity {
             "При недоступности Edge TTS автоматически продолжать через установленный TTS-движок",
             "edge_backup_tts_enabled",false);
         if(prefs.getBoolean("edge_backup_tts_enabled",false)){
-            audioLink(R.drawable.ic_tts_engine,"Резервный TTS-движок",
-                "Системный либо установленный движок для автоматического переключения",
-                backupTtsSummary(),this::backupTtsEngineDialog);
+            backupTtsSettingRow();
         }
         audioToggle(R.drawable.ic_tts_autoplay,"Автовоспроизведение при касании","Начинать озвучку сразу после выбора предложения","tts_tap_autoplay",false);
         audioLink(R.drawable.ic_edge_dictionary,"Словарь TTS",
@@ -700,15 +698,30 @@ public class SettingsActivity extends NavigationActivity {
         audioLink(R.drawable.ic_rewind_1m,"Перемотка минутами","Интервал шагов плеера",AudioPlaybackPrefs.seekMinutes(this)+" мин",()->seekStepDialog(true));
         gap(18);
     }
-    private String backupTtsSummary(){
-        String value=prefs.getString("edge_backup_tts_engine","");
-        if(value.isEmpty())return "Системный Android TTS";
-        android.content.pm.PackageManager manager=getPackageManager();
-        try{return manager.getApplicationLabel(manager.getApplicationInfo(value,0)).toString();}
-        catch(Exception ignored){return value;}
+    private void backupTtsSettingRow(){
+        String chosen=prefs.getString("edge_backup_tts_engine","");
+        LinearLayout accessory=new LinearLayout(this);accessory.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView engine=new ImageView(this);
+        engine.setImageDrawable(chosen.isEmpty()?
+            androidx.core.content.ContextCompat.getDrawable(this,R.drawable.ic_android_tts):
+            TtsEngineIcons.load(this,chosen));
+        engine.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        accessory.addView(engine,new LinearLayout.LayoutParams(dp(31),dp(31)));
+        TextView arrow=settingValue("›");arrow.setTextSize(22);arrow.setPadding(dp(5),0,0,0);
+        accessory.addView(arrow);
+        LinearLayout row=audioCard(R.drawable.ic_tts_engine,"Резервный TTS",null,accessory,this::backupTtsEngineDialog);
+        addInlineHelp(row,"Резервный TTS","Движок для автоматического переключения при недоступности Edge TTS");
+    }
+    private String shortTtsLabel(String packageId,String systemLabel){
+        if(packageId==null||packageId.isEmpty())return "Системный Android TTS";
+        if("com.google.android.tts".equals(packageId))return "Google";
+        if("ru.kost.ruvoice".equals(packageId))return "RuVoice TTS";
+        String name=systemLabel==null?"":systemLabel.trim();
+        if(name.isEmpty())return packageId;
+        if(name.toLowerCase(java.util.Locale.ROOT).contains("google"))return "Google";
+        return name;
     }
     private void backupTtsEngineDialog(){
-        // Android's installed engine list is available from a temporary TTS instance.
         final android.speech.tts.TextToSpeech[] holder=new android.speech.tts.TextToSpeech[1];
         holder[0]=new android.speech.tts.TextToSpeech(this,status->{
             runOnUiThread(()->{
@@ -720,37 +733,60 @@ public class SettingsActivity extends NavigationActivity {
                 labels.add("Системный Android TTS");ids.add("");
                 if(holder[0]!=null&&status==android.speech.tts.TextToSpeech.SUCCESS){
                     for(android.speech.tts.TextToSpeech.EngineInfo engine:holder[0].getEngines()){
-                        if(engine!=null&&!ids.contains(engine.name)){
-                            labels.add(engine.label+" ("+engine.name+")");ids.add(engine.name);
+                        if(engine!=null&&engine.name!=null&&!ids.contains(engine.name)){
+                            labels.add(shortTtsLabel(engine.name,engine.label));ids.add(engine.name);
                         }
                     }
                 }
                 if(holder[0]!=null){holder[0].shutdown();holder[0]=null;}
-                android.widget.ScrollView scroller=new android.widget.ScrollView(this);
-                android.widget.LinearLayout choices=new android.widget.LinearLayout(this);
-                choices.setOrientation(1);scroller.addView(choices);
-                final android.app.AlertDialog selection=new android.app.AlertDialog.Builder(this)
-                    .setTitle("Резервный TTS-движок").setView(scroller)
-                    .setNegativeButton("Отмена",null).create();
                 String selected=prefs.getString("edge_backup_tts_engine","");
-                for(int n=0;n<ids.size();n++){
-                    final String packageId=ids.get(n);
-                    android.widget.LinearLayout engineRow=new android.widget.LinearLayout(this);
-                    engineRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-                    engineRow.setPadding(dp(16),dp(9),dp(16),dp(9));
-                    android.widget.ImageView icon=new android.widget.ImageView(this);
-                    icon.setImageDrawable(TtsEngineIcons.load(this,packageId));
-                    engineRow.addView(icon,new android.widget.LinearLayout.LayoutParams(dp(32),dp(32)));
-                    android.widget.TextView name=text(labels.get(n)+(selected.equals(packageId)?"  ✓":""),15,false);
-                    name.setPadding(dp(12),0,0,0);
-                    engineRow.addView(name,new android.widget.LinearLayout.LayoutParams(0,dp(52),1));
-                    choices.addView(engineRow);
-                    engineRow.setOnClickListener(view->{
-                        prefs.edit().putString("edge_backup_tts_engine",packageId).apply();
-                        selection.dismiss();draw();
-                    });
-                }
-                selection.show();
+                UiNavigationSheet.showTopCustom(this,"Резервный TTS",(choices,dialog)->{
+                    ScrollView scroll=new ScrollView(this);
+                    LinearLayout items=new LinearLayout(this);items.setOrientation(LinearLayout.VERTICAL);
+                    scroll.addView(items);
+                    LinearLayout.LayoutParams scrollLp=new LinearLayout.LayoutParams(-1,-2);
+                    scrollLp.height=Math.min(dp(410),(int)(getResources().getDisplayMetrics().heightPixels*.58f));
+                    choices.addView(scroll,scrollLp);
+                    for(int n=0;n<ids.size();n++){
+                        final String packageId=ids.get(n);
+                        boolean isDefault=n==0;
+                        if(n==1){View separator=new View(this);
+                            separator.setBackgroundColor(contrast(bg)==Color.WHITE?0x55ffffff:0x55866d5c);
+                            LinearLayout.LayoutParams sepLp=new LinearLayout.LayoutParams(-1,dp(1));sepLp.setMargins(dp(8),dp(8),dp(8),dp(8));
+                            items.addView(separator,sepLp);
+                        }
+                        LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
+                        row.setPadding(dp(12),dp(10),dp(12),dp(10));
+                        row.setBackground(outlined(cardColor(),14));
+                        LinearLayout.LayoutParams rowLp=new LinearLayout.LayoutParams(-1,-2);
+                        rowLp.bottomMargin=dp(6);items.addView(row,rowLp);
+                        ImageView icon=new ImageView(this);
+                        if(isDefault){icon.setImageResource(R.drawable.ic_android_tts);icon.setColorFilter(contrast(bg));}
+                        else icon.setImageDrawable(TtsEngineIcons.load(this,packageId));
+                        icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                        row.addView(icon,new LinearLayout.LayoutParams(dp(36),dp(36)));
+                        LinearLayout words=new LinearLayout(this);words.setOrientation(LinearLayout.VERTICAL);
+                        words.setPadding(dp(11),0,dp(6),0);
+                        TextView title=text(labels.get(n),15,true);title.setMaxLines(2);
+                        words.addView(title);
+                        if(!isDefault){TextView packageName=text(packageId,11,false);
+                            packageName.setAlpha(.74f);packageName.setSingleLine(true);
+                            packageName.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+                            words.addView(packageName);
+                        }
+                        row.addView(words,new LinearLayout.LayoutParams(0,-2,1));
+                        ImageView selectedMark=TtsSelectionMark.view(this,selected.equals(packageId));
+                        row.addView(selectedMark,new LinearLayout.LayoutParams(dp(24),dp(24)));
+                        row.setMinimumHeight(dp(62));
+                        row.setOnClickListener(view->{prefs.edit().putString("edge_backup_tts_engine",packageId).apply();
+                            dialog.dismiss();draw();});
+                    }
+                    TextView cancel=text("ОТМЕНА",14,true);cancel.setTextColor(contrast(bg));
+                    cancel.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);
+                    cancel.setPadding(dp(12),dp(12),dp(12),dp(12));
+                    choices.addView(cancel,new LinearLayout.LayoutParams(-1,dp(52)));
+                    cancel.setOnClickListener(v->dialog.dismiss());
+                });
             });
         });
     }
