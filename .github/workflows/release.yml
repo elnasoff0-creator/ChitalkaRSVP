@@ -53,7 +53,7 @@ jobs:
           done
           echo 'All four release signing secrets are configured.'
 
-      - name: Verify Edge speech segments and v1.11.183 transitions/UI
+      - name: Verify Edge speech, selection, quotes and pet v1.11.184
         run: |
           bash qa/check_java_syntax.sh
           bash qa/test_edge_sentence_blocks_182.sh
@@ -67,7 +67,9 @@ jobs:
           bash qa/test_edge_429_silent.sh
           bash qa/test_edge_reuse_pool.sh
           python3 qa/test_edge_idle_expiry_compilation.py
-          python3 qa/check_v183_contracts.py
+          bash qa/test_pet_quotes_184.sh
+          python3 qa/test_quotes_sqlite_184.py
+          python3 qa/check_v184_contracts.py
 
       - name: Build unsigned release APK
         run: gradle --no-daemon :app:assembleRelease --stacktrace

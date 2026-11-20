@@ -51,6 +51,7 @@
         </receiver>
         <activity android:name=".ComicReaderActivity" android:exported="false" />
         <activity android:name=".BookmarksActivity" android:exported="false" />
+        <activity android:name=".QuotesActivity" android:exported="false" />
         <activity android:name=".ReaderActivity" android:exported="false" />
         <activity android:name=".ActivityInfo" android:exported="false" />
         <activity android:name=".TtsVoiceActivity" android:exported="false" />

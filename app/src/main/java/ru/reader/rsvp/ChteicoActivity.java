@@ -39,6 +39,9 @@ public final class ChteicoActivity extends NavigationActivity {
     private SharedPreferences p;
     private boolean firstResume=true;
     private TextView speechBubble;
+    private SpeechQuoteScroll speechScroll;
+    private FrameLayout petSpeechFrame;
+    private boolean lastPetReplyWasQuote;
     private SpeechBubbleLayout speechContainer;
     private TapWaves emotionTapWaves;
     private Runnable pendingSpeechHide;
@@ -159,8 +162,34 @@ public final class ChteicoActivity extends NavigationActivity {
             canvas.drawPath(path,stroke);
         }
     }
+    /** Wrap-content speech, capped for long quotes but fully scrollable. */
+    private final class SpeechQuoteScroll extends ScrollView {
+        boolean quoteMode;
+        SpeechQuoteScroll(){super(ChteicoActivity.this);}
+        void setQuoteMode(boolean quoted){quoteMode=quoted;requestLayout();}
+        @Override protected void onMeasure(int widthSpec,int heightSpec){
+            if(quoteMode)heightSpec=View.MeasureSpec.makeMeasureSpec(dp(160),View.MeasureSpec.AT_MOST);
+            super.onMeasure(widthSpec,heightSpec);
+        }
+    }
     private String nextPetReply(){
+        lastPetReplyWasQuote=false;
         SharedPreferences petPrefs=ChteicoStore.prefs(this);
+        // A single fair coin flip determines the category, irrespective of quote count.
+        // Saving a quote never triggers a speech event; quotes are drawn on pet taps only.
+        try(ReaderQuotesStore store=new ReaderQuotesStore(this)){
+            if(PetQuoteChoice.chooseQuote(phraseRandom,store.hasPetQuotes())){
+                ReaderQuotesStore.Quote quote=store.randomForPet(phraseRandom,
+                    petPrefs.getLong("bubble_last_quote_id",-1L));
+                if(quote!=null){
+                    petPrefs.edit().putLong("bubble_last_quote_id",quote.id).apply();
+                    lastPetReplyWasQuote=true;
+                    return quote.text;
+                }
+            }
+        }catch(Exception error){
+            ReaderDiagnosticLog.event("QUOTES","pet_quote_read_failed type="+error.getClass().getSimpleName());
+        }
         long lastActive=petPrefs.getLong("last_active",0);
         int inactiveDays=Math.max(1,Math.min(36500,petPrefs.getInt("inactive_days",3)));
         boolean inactive=lastActive>0 && System.currentTimeMillis()-lastActive>=inactiveDays*86400000L;
@@ -174,7 +203,8 @@ public final class ChteicoActivity extends NavigationActivity {
         petPrefs.edit().putString("bubble_seen",reply.seen).putInt("bubble_last_id",reply.id).apply();
         return reply.text;
     }
-    private void showSpeech(String message,long durationMs){
+    private void showSpeech(String message,long durationMs){showSpeech(message,durationMs,false);}
+    private void showSpeech(String message,long durationMs,boolean quote){
         if(message==null||speechBubble==null||speechContainer==null)return;
         if(pendingSpeechHide!=null)ui.removeCallbacks(pendingSpeechHide);
         boolean face=ChteicoEmotions.isFace(message);
@@ -183,7 +213,17 @@ public final class ChteicoActivity extends NavigationActivity {
             if(emotionTapWaves!=null)emotionTapWaves.burst();
             if(pet!=null)pet.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
         }
-        speechBubble.setMaxLines(face?1:4);
+        speechBubble.setMaxLines(quote?Integer.MAX_VALUE:(face?1:4));
+        if(speechScroll!=null){
+            speechScroll.setQuoteMode(quote);
+            speechScroll.scrollTo(0,0);
+            speechScroll.setVerticalScrollBarEnabled(quote);
+        }
+        if(petSpeechFrame!=null&&petSpeechFrame.getLayoutParams()!=null){
+            android.view.ViewGroup.LayoutParams frameLp=petSpeechFrame.getLayoutParams();
+            int desired=dp(quote?425:260);
+            if(frameLp.height!=desired){frameLp.height=desired;petSpeechFrame.setLayoutParams(frameLp);}
+        }
         speechBubble.setText(message);
         if(speechBubble.getLayoutParams() instanceof FrameLayout.LayoutParams){
             FrameLayout.LayoutParams textLp=(FrameLayout.LayoutParams)speechBubble.getLayoutParams();
@@ -192,7 +232,7 @@ public final class ChteicoActivity extends NavigationActivity {
         }
         if(speechContainer.getLayoutParams() instanceof FrameLayout.LayoutParams){
             FrameLayout.LayoutParams lp=(FrameLayout.LayoutParams)speechContainer.getLayoutParams();
-            lp.width=face?-2:dp(235);
+            lp.width=face?-2:(quote?dp(275):dp(235));
             speechContainer.setLayoutParams(lp);
         }
         speechContainer.setVisibility(View.VISIBLE);
@@ -200,7 +240,13 @@ public final class ChteicoActivity extends NavigationActivity {
         speechContainer.animate().cancel();speechContainer.animate().alpha(1f).setDuration(180).start();
         final SpeechBubbleLayout current=speechContainer;
         pendingSpeechHide=()->{
-            current.animate().alpha(0f).setDuration(180).withEndAction(()->current.setVisibility(View.INVISIBLE)).start();
+            current.animate().alpha(0f).setDuration(180).withEndAction(()->{
+                current.setVisibility(View.INVISIBLE);
+                if(petSpeechFrame!=null&&petSpeechFrame.getLayoutParams()!=null){
+                    android.view.ViewGroup.LayoutParams frameLp=petSpeechFrame.getLayoutParams();
+                    if(frameLp.height!=dp(260)){frameLp.height=dp(260);petSpeechFrame.setLayoutParams(frameLp);}
+                }
+            }).start();
             pendingSpeechHide=null;
         };
         ui.postDelayed(pendingSpeechHide,durationMs);
@@ -384,7 +430,7 @@ public final class ChteicoActivity extends NavigationActivity {
         nameRow.addView(gameButton,gameButtonLp);
         // The selection handler is attached below, once the pet frame exists.
         hero.addView(nameRow);gap(hero,8);
-        FrameLayout petFrame=new FrameLayout(this);
+        FrameLayout petFrame=new FrameLayout(this);petSpeechFrame=petFrame;
         // Keep the original 248x247dp pet; reclaim unused speech space above it.
         hero.addView(petFrame,new LinearLayout.LayoutParams(-1,dp(260)));
         gameButton.setOnClickListener(v->showGameChoices(petFrame));
@@ -406,7 +452,9 @@ public final class ChteicoActivity extends NavigationActivity {
                 pet.refresh();
                 if(hatched)ui.postDelayed(this::show,520);
             }else{
-                showSpeech(nextPetReply(),4200);
+                String reply=nextPetReply();
+                showSpeech(reply,lastPetReplyWasQuote?Math.min(30000L,Math.max(8500L,
+                    reply==null?8500L:reply.length()*95L)):4200L,lastPetReplyWasQuote);
             }
         };
         petTapTarget.setHapticFeedbackEnabled(true);
@@ -423,7 +471,10 @@ public final class ChteicoActivity extends NavigationActivity {
         if(stage!=ChteicoStore.EGG){
             speechContainer=new SpeechBubbleLayout();
             speechBubble=text("",15,false);speechBubble.setGravity(Gravity.CENTER);speechBubble.setMaxLines(4);
-            speechContainer.addView(speechBubble,new FrameLayout.LayoutParams(-2,-2,Gravity.CENTER));
+            speechScroll=new SpeechQuoteScroll();speechScroll.setFillViewport(false);
+            speechScroll.setVerticalScrollBarEnabled(false);
+            speechScroll.addView(speechBubble,new ScrollView.LayoutParams(-1,-2));
+            speechContainer.addView(speechScroll,new FrameLayout.LayoutParams(-1,-2,Gravity.CENTER));
             FrameLayout.LayoutParams bubbleLayout=new FrameLayout.LayoutParams(dp(235),-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL);
             bubbleLayout.topMargin=0;
             petFrame.addView(speechContainer,bubbleLayout);

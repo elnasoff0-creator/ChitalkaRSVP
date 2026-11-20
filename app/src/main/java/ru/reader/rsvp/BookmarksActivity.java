@@ -130,13 +130,13 @@ public final class BookmarksActivity extends NavigationActivity {
             try(ReaderAnnotationsStore store=new ReaderAnnotationsStore(this)){
                 if(old.color==0)store.delete(old.id,old.book);
                 else store.save(new ReaderAnnotationsStore.Annotation(old.id,old.book,old.fromWord,old.toWord,
-                    old.excerpt,old.context,old.color,""));
+                    old.fromChar,old.toChar,old.excerpt,old.context,old.color,""));
             }catch(Exception ex){Toast.makeText(this,"Ошибка удаления заметки",Toast.LENGTH_LONG).show();return;}
             undo=()->{try(ReaderAnnotationsStore store=new ReaderAnnotationsStore(this)){
                 // Restore both when the highlight remains and when the whole row was deleted.
                 long id=old.color==0?0:old.id;
                 store.save(new ReaderAnnotationsStore.Annotation(id,old.book,old.fromWord,old.toWord,
-                    old.excerpt,old.context,old.color,old.note));
+                    old.fromChar,old.toChar,old.excerpt,old.context,old.color,old.note));
                 refresh();
             }catch(Exception ignored){Toast.makeText(this,"Не удалось восстановить заметку",Toast.LENGTH_LONG).show();}};
         }else{

@@ -140,9 +140,12 @@ public class ReaderActivity extends NavigationActivity {
     private boolean selectionDragging,selectionMenuAfterScroll;
     private PopupWindow selectionPopup;
     private int selectionFrom=-1,selectionTo=-1; // inclusive word indexes
+    private int selectedCharFrom=-1,selectedCharTo=-1; // exact UTF-16 range, for Android selection
+    private TextView nativeSelectedView;
+    private boolean nativeActionModeActive,nativeSelectionForwarding;
+    private static final int NATIVE_COLOR=0x18401,NATIVE_NOTE=0x18402,NATIVE_DICT=0x18403;
+    private static final int NATIVE_BOOKMARK=0x18404,NATIVE_QUOTE=0x18405,NATIVE_EXTEND=0x18406;
     private long focusedNoteId;
-    private boolean selectionLongPressed;
-    private Runnable pendingLongPress;
 
     private BookChunkIndex chunks;
     private String body="",title="",author="",docUri="";
@@ -179,9 +182,6 @@ public class ReaderActivity extends NavigationActivity {
     }
     private void scheduleTtsUi(){queueTtsUi(0L);}
     private void cancelTtsUi(){handler.removeCallbacks(ttsUiTick);ttsTickQueued=false;ttsTickDueAt=0L;}
-    private float touchDownX,touchDownY;
-    private long touchDownTime;
-    private boolean touchMoved=false;
     private int swipeStartIndex=0,lastHighlightedChunk=-1;
     private float swipeStartY;
     private int scrollWordAccumulator=0;
@@ -455,8 +455,9 @@ public class ReaderActivity extends NavigationActivity {
         ImageButton overflowMenu=icon(R.drawable.ic_more_vertical,v->{
             ReaderSheets.overflow(this,mode==TTS,which->{if(which==0)showNotes();
                     else if(which==1)showBookmarks();
-                    else if(mode==TTS&&which==2)chooseTtsVoice();
-                    else if(which==(mode==TTS?3:2)){
+                    else if(which==2)showQuotes();
+                    else if(mode==TTS&&which==3)chooseTtsVoice();
+                    else if(which==(mode==TTS?4:3)){
                         if(!docUri.isEmpty()){
                             DownloadsRepository.showEdge(this,docUri);
                             startActivity(new Intent(this,UnifiedDownloadManagerActivity.class)
@@ -466,8 +467,8 @@ public class ReaderActivity extends NavigationActivity {
                                 .putExtra(UnifiedDownloadManagerActivity.EXTRA_TYPE,DownloadsRepository.EDGE));
                         }
                     }
-                    else if(which==(mode==TTS?4:3))openEdgeDictionary();
-                    else if(which==(mode==TTS?5:4))showBookSearch();});
+                    else if(which==(mode==TTS?5:4))openEdgeDictionary();
+                    else if(which==(mode==TTS?6:5))showBookSearch();});
         });
         // Toolbar overflow follows the same configured ordinary button surface as the
         // other Reader toolbar controls. List-item ellipses remain frameless.
@@ -553,7 +554,7 @@ public class ReaderActivity extends NavigationActivity {
         textList.addOnScrollListener(new RecyclerView.OnScrollListener(){
             @Override public void onScrollStateChanged(RecyclerView rv,int state){
                 if(state==RecyclerView.SCROLL_STATE_DRAGGING){
-                    if(selectionFrom>=0&&!selectionDragging){selectionMenuAfterScroll=true;dismissSelectionMenu();}
+                    if(selectionFrom>=0&&!selectionDragging&&!nativeActionModeActive){selectionMenuAfterScroll=true;dismissSelectionMenu();}
                     chteicoTouch();userScrolling=true;manualViewportMovement=true;followSuspended=true;tocPreviewGeneration++;
                     if(mode==TTS)updateFloatingCaption();
                     if(mode==RSVP){stop();scrollWordAccumulator=0;}
@@ -563,15 +564,15 @@ public class ReaderActivity extends NavigationActivity {
                     if(manualViewportMovement){manualViewportMovement=false;rememberVisibleViewport();}
                     if(mode==RSVP){scrollWordAccumulator=0;setRsvpContextVisible(!playing);}
                     saveLight(true);
-                    if(selectionMenuAfterScroll&&!selectionDragging&&selectionFrom>=0){
+                    if(selectionMenuAfterScroll&&!selectionDragging&&!nativeActionModeActive&&selectionFrom>=0){
                         selectionMenuAfterScroll=false;
-                        rv.post(()->{if(!selectionDragging&&selectionFrom>=0)showSelectionMenu();});
+                        rv.post(()->{if(!selectionDragging&&!nativeActionModeActive&&selectionFrom>=0)showSelectionMenu();});
                     }
                 }
             }
             @Override public void onScrolled(RecyclerView rv,int dx,int dy){
                 if(selectionHandles!=null)selectionHandles.invalidate();
-                if(dy!=0&&selectionPopup!=null&&!selectionDragging){
+                if(dy!=0&&selectionPopup!=null&&!selectionDragging&&!nativeActionModeActive){
                     selectionMenuAfterScroll=true;dismissSelectionMenu();
                 }
                 if(userScrolling&&dy!=0)chteicoTouch();
@@ -647,9 +648,6 @@ public class ReaderActivity extends NavigationActivity {
             else if(index<=0)layoutManager.scrollToPositionWithOffset(0,0);
             else ensureWordVisible(true);});
     }
-    private void cancelPendingLongPress(){
-        if(pendingLongPress!=null){handler.removeCallbacks(pendingLongPress);pendingLongPress=null;}
-    }
     private int wordAt(ChunkAdapter.Holder holder,float x,float y){
         int row=holder.getBindingAdapterPosition()-1;
         if(row<0||chunks==null||row>=chunks.size()||holder.value==null)return -1;
@@ -661,6 +659,7 @@ public class ReaderActivity extends NavigationActivity {
     private void beginTextSelection(int word){
         if(words.length==0)return;
         selectionFrom=selectionTo=map.clamp(word);focusedNoteId=0;
+        selectedCharFrom=selectedCharTo=-1;
         updateVisibleAnnotations();
         if(selectionHandles!=null)selectionHandles.invalidate();
         selectionMenuAfterScroll=false;showSelectionMenu();
@@ -670,6 +669,13 @@ public class ReaderActivity extends NavigationActivity {
     }
     private void clearSelection(){
         dismissSelectionMenu();selectionFrom=selectionTo=-1;focusedNoteId=0;
+        selectedCharFrom=selectedCharTo=-1;
+        if(nativeSelectedView!=null){
+            CharSequence text=nativeSelectedView.getText();
+            if(text instanceof Spannable)Selection.removeSelection((Spannable)text);
+            nativeSelectedView=null;
+        }
+        nativeActionModeActive=false;
         selectionMenuAfterScroll=false;selectionDragging=false;
         updateVisibleAnnotations();if(selectionHandles!=null)selectionHandles.invalidate();
     }
@@ -688,7 +694,8 @@ public class ReaderActivity extends NavigationActivity {
         java.util.ArrayList<Integer> bookmarkStarts=new java.util.ArrayList<>();
         for(ReaderAnnotationsStore.Annotation annotation:annotations){
             if(annotation.fromWord>=annotation.toWord||annotation.fromWord>=map.size())continue;
-            int a=map.starts[map.clamp(annotation.fromWord)],b=map.ends[map.clamp(annotation.toWord-1)];
+            int a=annotation.fromChar>=0?annotation.fromChar:map.starts[map.clamp(annotation.fromWord)];
+            int b=annotation.toChar>a?annotation.toChar:map.ends[map.clamp(annotation.toWord-1)];
             if(a>=last||b<=first)continue;
             int start=Math.max(a,first)-first,end=Math.min(b,last)-first;
             if(annotation.color!=0){int color=(annotation.color&0x00ffffff)|(((opacity*255)/100)<<24);
@@ -711,8 +718,8 @@ public class ReaderActivity extends NavigationActivity {
             for(int i=0;i<marks.length;i++)marks[i]=bookmarkStarts.get(i);
             ((ReaderMarginMarksTextView)holder.value).setIndicators(notes,marks,UiColorScheme.accent(this));
         }
-        if(selectionFrom>=0&&selectionTo>=selectionFrom&&selectionTo<map.size()){
-            int a=map.starts[selectionFrom],b=map.ends[selectionTo];
+        if(selectionFrom>=0&&selectionTo>=selectionFrom&&selectionTo<map.size()&&!nativeActionModeActive){
+            int a=selectedStartChar(),b=selectedEndChar();
             if(a<last&&b>first)holder.span(new BackgroundColorSpan(0x667a8cbb),
                 Math.max(a,first)-first,Math.min(b,last)-first);
         }
@@ -736,7 +743,7 @@ public class ReaderActivity extends NavigationActivity {
         return new float[]{x,y};
     }
     private float[][] selectionPositions(){
-        if(selectionFrom<0||selectionTo<selectionFrom)return null;
+        if(nativeActionModeActive||selectionFrom<0||selectionTo<selectionFrom)return null;
         return new float[][]{positionForWord(selectionFrom,true),positionForWord(selectionTo,false)};
     }
     /** Moves the dragged endpoint across RecyclerView chunks; swap start/end roles at crossings. */
@@ -764,6 +771,7 @@ public class ReaderActivity extends NavigationActivity {
             if(word<selectionFrom){selectionTo=selectionFrom;selectionFrom=word;start=true;}
             else selectionTo=word;
         }
+        selectedCharFrom=selectedCharTo=-1;
         dismissSelectionMenu();updateVisibleAnnotations();
         if(selectionHandles!=null)selectionHandles.invalidate();
         return start;
@@ -788,10 +796,11 @@ public class ReaderActivity extends NavigationActivity {
         actions.setPadding(dp(3),dp(3),dp(3),dp(3));
         actions.setBackground(shape(panelColor(),13));actions.setElevation(dp(9));
         final int[] icons={R.drawable.ic_reader_selection_color,R.drawable.ic_reader_selection_copy,
-            R.drawable.ic_reader_selection_note,R.drawable.ic_reader_selection_dictionary,R.drawable.ic_bookmark};
-        final String[] names={"Цвет","Копировать","Заметка","Словарь","Закладка"};
+            R.drawable.ic_reader_selection_note,R.drawable.ic_reader_selection_dictionary,R.drawable.ic_bookmark,
+            R.drawable.ic_reader_quote};
+        final String[] names={"Цвет","Копировать","Заметка","Словарь","Закладка","Цитата"};
         final Runnable[] callbacks={this::pickSelectionColor,this::copySelectedText,this::editSelectedNote,
-            this::dictionarySelected,this::bookmarkSelection};
+            this::dictionarySelected,this::bookmarkSelection,this::saveSelectionQuote};
         for(int i=0;i<icons.length;i++){
             final Runnable action=callbacks[i];LinearLayout tile=new LinearLayout(this);
             tile.setOrientation(LinearLayout.HORIZONTAL);tile.setGravity(Gravity.CENTER);
@@ -804,7 +813,7 @@ public class ReaderActivity extends NavigationActivity {
             if(i>0)lp.leftMargin=dp(3);actions.addView(tile,lp);
             tile.setOnClickListener(v->{dismissSelectionMenu();action.run();});
         }
-        int width=Math.min(getResources().getDisplayMetrics().widthPixels-dp(16),dp(276)),height=dp(55);
+        int width=Math.min(getResources().getDisplayMetrics().widthPixels-dp(16),dp(320)),height=dp(55);
         HorizontalScrollView actionScroll=new HorizontalScrollView(this);
         actionScroll.setHorizontalScrollBarEnabled(false);
         actionScroll.addView(actions,new HorizontalScrollView.LayoutParams(-2,-1));
@@ -821,9 +830,18 @@ public class ReaderActivity extends NavigationActivity {
         if(y<dp(20))y=(int)(screen[1]+begin[1]+dp(32));
         selectionPopup.showAtLocation(sceneRoot,Gravity.NO_GRAVITY,x,y);
     }
+    private int selectedStartChar(){
+        if(selectionFrom<0||selectionFrom>=map.size())return -1;
+        return selectedCharFrom>=0?Math.min(body.length(),selectedCharFrom):map.starts[selectionFrom];
+    }
+    private int selectedEndChar(){
+        if(selectionTo<selectionFrom||selectionTo>=map.size())return -1;
+        return selectedCharTo>=0?Math.min(body.length(),selectedCharTo):map.ends[selectionTo];
+    }
     private String selectedText(){
-        if(selectionFrom<0||selectionTo<selectionFrom||selectionTo>=map.size())return "";
-        return body.substring(map.starts[selectionFrom],map.ends[selectionTo]);
+        int start=selectedStartChar(),end=selectedEndChar();
+        if(start<0||end<=start||end>body.length())return "";
+        return body.substring(start,end);
     }
     private String selectedContext(){
         if(selectionFrom<0||selectionFrom>=map.size())return "";
@@ -837,8 +855,11 @@ public class ReaderActivity extends NavigationActivity {
     private ReaderAnnotationsStore.Annotation annotationForRange(){
         if(focusedNoteId>0)for(ReaderAnnotationsStore.Annotation item:annotations)
             if(item.id==focusedNoteId)return item;
-        for(ReaderAnnotationsStore.Annotation item:annotations)
-            if(item.fromWord==selectionFrom&&item.toWord==selectionTo+1)return item;
+        for(ReaderAnnotationsStore.Annotation item:annotations){
+            if(item.fromWord!=selectionFrom||item.toWord!=selectionTo+1)continue;
+            if(item.fromChar<0||item.toChar<=item.fromChar)return item; // legacy word-only mark
+            if(item.fromChar==selectedStartChar()&&item.toChar==selectedEndChar())return item;
+        }
         return null;
     }
     private void openAnnotationById(long id){
@@ -861,7 +882,7 @@ public class ReaderActivity extends NavigationActivity {
             .setPositiveButton("Сохранить",(d,w)->{
                 ReaderAnnotationsStore.Annotation revised=new ReaderAnnotationsStore.Annotation(
                     annotation.id,annotation.book,annotation.fromWord,annotation.toWord,
-                    annotation.excerpt,annotation.context,annotation.color,editor.getText().toString());
+                    annotation.fromChar,annotation.toChar,annotation.excerpt,annotation.context,annotation.color,editor.getText().toString());
                 try{
                     if(annotationStore==null)annotationStore=new ReaderAnnotationsStore(this);
                     annotationStore.save(revised);annotations=annotationStore.load(bookAnnotationId());
@@ -885,7 +906,8 @@ public class ReaderActivity extends NavigationActivity {
         if(selectionFrom<0)return;
         ReaderAnnotationsStore.Annotation existing=annotationForRange();
         ReaderAnnotationsStore.Annotation item=new ReaderAnnotationsStore.Annotation(existing==null?0:existing.id,
-            bookAnnotationId(),selectionFrom,selectionTo+1,selectedText(),selectedContext(),color,note);
+            bookAnnotationId(),selectionFrom,selectionTo+1,selectedStartChar(),selectedEndChar(),
+            selectedText(),selectedContext(),color,note);
         try{
             if(annotationStore==null)annotationStore=new ReaderAnnotationsStore(this);
             annotationStore.save(item);annotations=annotationStore.load(bookAnnotationId());
@@ -1022,6 +1044,95 @@ public class ReaderActivity extends NavigationActivity {
         if(y+dp(150)>screenHeight-dp(16))y=(int)(location[1]+localY)-dp(153);
         window.showAtLocation(sceneRoot,Gravity.NO_GRAVITY,x,Math.max(dp(25),y));
     }
+    /** The Android TextView owns the touch handles and native ActionMode inside one chunk.
+     * Cross-chunk selection is entered explicitly and uses the existing multi-chunk controller. */
+    private void captureNativeRange(ChunkAdapter.Holder holder){
+        int row=holder.getBindingAdapterPosition()-1;
+        if(row<0||chunks==null||row>=chunks.size()||holder.value==null)return;
+        CharSequence text=holder.value.getText();
+        int a=Selection.getSelectionStart(text),b=Selection.getSelectionEnd(text);
+        if(a<0||b<0||a==b)return;
+        int first=chunks.get(row).startChar;
+        selectedCharFrom=Math.max(0,Math.min(body.length(),first+Math.min(a,b)));
+        selectedCharTo=Math.max(0,Math.min(body.length(),first+Math.max(a,b)));
+        selectionFrom=map.atCharacter(selectedCharFrom);
+        selectionTo=map.atCharacter(Math.max(selectedCharFrom,selectedCharTo-1));
+        focusedNoteId=0;
+    }
+    private ActionMode.Callback nativeTextActions(ChunkAdapter.Holder holder){
+        return new ActionMode.Callback(){
+            @Override public boolean onCreateActionMode(ActionMode mode,Menu menu){
+                nativeSelectedView=holder.value;nativeActionModeActive=true;
+                captureNativeRange(holder);
+                menu.add(0,NATIVE_COLOR,30,"Цвет").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+                menu.add(0,NATIVE_NOTE,31,"Заметка").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+                menu.add(0,NATIVE_DICT,32,"Словарь TTS").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+                menu.add(0,NATIVE_BOOKMARK,33,"Закладка").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+                menu.add(0,NATIVE_QUOTE,34,"Цитата").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
+                menu.add(0,NATIVE_EXTEND,35,"Выделить между блоками").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+                return true;
+            }
+            @Override public boolean onPrepareActionMode(ActionMode mode,Menu menu){return false;}
+            @Override public boolean onActionItemClicked(ActionMode mode,MenuItem item){
+                int command=item.getItemId();
+                if(command!=NATIVE_COLOR&&command!=NATIVE_NOTE&&command!=NATIVE_DICT&&
+                    command!=NATIVE_BOOKMARK&&command!=NATIVE_QUOTE&&command!=NATIVE_EXTEND)return false;
+                captureNativeRange(holder);
+                if(selectedStartChar()<0||selectedEndChar()<=selectedStartChar())return false;
+                nativeSelectionForwarding=true;
+                mode.finish();
+                nativeSelectionForwarding=false;
+                if(command==NATIVE_COLOR)pickSelectionColor();
+                else if(command==NATIVE_NOTE)editSelectedNote();
+                else if(command==NATIVE_DICT)dictionarySelected();
+                else if(command==NATIVE_BOOKMARK)bookmarkSelection();
+                else if(command==NATIVE_QUOTE)saveSelectionQuote();
+                else if(command==NATIVE_EXTEND){
+                    // Keep exact endpoints until user starts moving a cross-chunk handle.
+                    updateVisibleAnnotations();
+                    if(selectionHandles!=null)selectionHandles.invalidate();
+                    if(sceneRoot!=null)sceneRoot.post(()->showSelectionMenu());
+                }
+                return true;
+            }
+            @Override public void onDestroyActionMode(ActionMode mode){
+                nativeActionModeActive=false;nativeSelectedView=null;
+                if(!nativeSelectionForwarding)clearSelection();
+            }
+        };
+    }
+    private boolean handleTextTap(ChunkAdapter.Holder holder,float tapX,float tapY){
+        if(nativeActionModeActive)return false;
+        if(selectionFrom>=0){clearSelection();return true;}
+        if(tapX<=dp(26)){
+            java.util.ArrayList<ReaderAnnotationsStore.Annotation> onLine=notesAtLine(holder,tapY);
+            java.util.ArrayList<ReaderBookmarks.Item> marks=bookmarksAtLine(holder,tapY);
+            if(!onLine.isEmpty()&&!marks.isEmpty()){
+                new SwipeDialogs.Builder(this).setTitle("Отметки в строке")
+                    .setItems(new String[]{"Заметки ("+onLine.size()+")","Закладка"},(dialog,which)->{
+                        if(which==0)showNoteChoices(onLine,holder.value,tapY);
+                        else showBookmarkChoices(marks);
+                    }).setNegativeButton("Отмена",null).show();
+                return true;
+            }
+            if(!onLine.isEmpty()){showNoteChoices(onLine,holder.value,tapY);return true;}
+            if(!marks.isEmpty()){showBookmarkChoices(marks);return true;}
+        }
+        boolean selectingWord=(mode==CURSOR)||(mode==NORMAL&&selecting)||(mode==RSVP&&!playing)||(mode==TTS);
+        int tapped=wordAt(holder,tapX,tapY);if(tapped<0)return true;
+        if(mode==NORMAL&&!selecting){
+            java.util.ArrayList<ReaderAnnotationsStore.Annotation> onWord=new java.util.ArrayList<>();
+            for(ReaderAnnotationsStore.Annotation note:annotations)
+                if(!note.note.isEmpty()&&note.contains(tapped))onWord.add(note);
+            if(!onWord.isEmpty()){showNoteChoices(onWord,holder.value,tapY);return true;}
+        }
+        if(!selectingWord)return true;
+        int old=index;selectedWordActive=true;
+        abandonViewportPreview();
+        if(mode==TTS)selectTtsWord(tapped);else index=tapped;
+        refreshHighlight(old);updateProgress();saveLight(true);
+        return true;
+    }
     private class ChunkAdapter extends RecyclerView.Adapter<ChunkAdapter.Holder> {
         class Holder extends RecyclerView.ViewHolder {
             final TextView value;
@@ -1085,67 +1196,20 @@ public class ReaderActivity extends NavigationActivity {
             item.setPadding(dp(24),dp(7),dp(25),dp(7));
             item.setLayoutParams(new RecyclerView.LayoutParams(-1,-2));
             Holder holder=new Holder(item);
-            // Consume DOWN in selection mode so Android delivers UP for word tapping;
-            // the parent RecyclerView can still intercept a scrolling drag.
-            item.setClickable(true);
+            // Use the platform TextView selection handles and ActionMode. Returning false
+            // lets TextView and RecyclerView handle long presses and scrolling natively.
+            item.setTextIsSelectable(true);
+            item.setCustomSelectionActionModeCallback(nativeTextActions(holder));
+            GestureDetector detector=new GestureDetector(ReaderActivity.this,
+                new GestureDetector.SimpleOnGestureListener(){
+                    @Override public boolean onDown(MotionEvent event){return true;}
+                    @Override public boolean onSingleTapUp(MotionEvent event){
+                        return handleTextTap(holder,event.getX(),event.getY());
+                    }
+                });
             item.setOnTouchListener((view,event)->{
-                int action=event.getActionMasked();
-                if(action==MotionEvent.ACTION_DOWN){
-                    touchDownX=event.getX();touchDownY=event.getY();touchDownTime=event.getEventTime();
-                    touchMoved=false;selectionLongPressed=false;
-                    cancelPendingLongPress();
-                    final float x=event.getX(),y=event.getY();
-                    if(x>dp(26)){
-                        pendingLongPress=()->{
-                            if(touchMoved||textList==null||textList.getScrollState()!=RecyclerView.SCROLL_STATE_IDLE)return;
-                            int word=wordAt(holder,x,y);
-                            if(word>=0){selectionLongPressed=true;item.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
-                                beginTextSelection(word);}
-                        };
-                        handler.postDelayed(pendingLongPress,ViewConfiguration.getLongPressTimeout());
-                    }
-                    return true;
-                }
-                if(action==MotionEvent.ACTION_MOVE){
-                    int slop=ViewConfiguration.get(ReaderActivity.this).getScaledTouchSlop();
-                    if(Math.abs(event.getX()-touchDownX)>slop||Math.abs(event.getY()-touchDownY)>slop){
-                        touchMoved=true;cancelPendingLongPress();
-                    }
-                    return true;
-                }
-                if(action==MotionEvent.ACTION_CANCEL){cancelPendingLongPress();touchMoved=true;return true;}
-                if(action!=MotionEvent.ACTION_UP)return true;
-                cancelPendingLongPress();
-                if(selectionLongPressed||touchMoved||event.getEventTime()-touchDownTime>=ViewConfiguration.getLongPressTimeout())return true;
-                if(selectionFrom>=0){clearSelection();return true;}
-                if(event.getX()<=dp(26)){
-                    java.util.ArrayList<ReaderAnnotationsStore.Annotation> onLine=notesAtLine(holder,event.getY());
-                    java.util.ArrayList<ReaderBookmarks.Item> marks=bookmarksAtLine(holder,event.getY());
-                    if(!onLine.isEmpty()&&!marks.isEmpty()){
-                        new SwipeDialogs.Builder(ReaderActivity.this).setTitle("Отметки в строке")
-                            .setItems(new String[]{"Заметки ("+onLine.size()+")","Закладка"},(dialog,which)->{
-                                if(which==0)showNoteChoices(onLine,item,event.getY());
-                                else showBookmarkChoices(marks);
-                            }).setNegativeButton("Отмена",null).show();
-                        return true;
-                    }
-                    if(!onLine.isEmpty()){showNoteChoices(onLine,item,event.getY());return true;}
-                    if(!marks.isEmpty()){showBookmarkChoices(marks);return true;}
-                }
-                boolean selectingWord=(mode==CURSOR)||(mode==NORMAL&&selecting)||(mode==RSVP&&!playing)||(mode==TTS);
-                int tapped=wordAt(holder,event.getX(),event.getY());if(tapped<0)return true;
-                if(mode==NORMAL&&!selecting){
-                    java.util.ArrayList<ReaderAnnotationsStore.Annotation> onWord=new java.util.ArrayList<>();
-                    for(ReaderAnnotationsStore.Annotation note:annotations)
-                        if(!note.note.isEmpty()&&note.contains(tapped))onWord.add(note);
-                    if(!onWord.isEmpty()){showNoteChoices(onWord,item,event.getY());return true;}
-                }
-                if(!selectingWord)return true;
-                int old=index;selectedWordActive=true;
-                abandonViewportPreview();
-                if(mode==TTS)selectTtsWord(tapped);else index=tapped;
-                refreshHighlight(old);updateProgress();saveLight(true);
-                return true;
+                detector.onTouchEvent(event);
+                return false;
             });
             return holder;
         }
@@ -1860,6 +1924,22 @@ public class ReaderActivity extends NavigationActivity {
         Toast.makeText(this,"Закладка добавлена",Toast.LENGTH_SHORT).show();clearSelection();
     }
     private void showBookmarks(){openMarks(false);}
+    private void showQuotes(){
+        if(docUri.isEmpty())return;
+        startActivityForResult(new Intent(this,QuotesActivity.class)
+            .putExtra("book_uri",docUri).putExtra("book_title",title),12210);
+    }
+    private void saveSelectionQuote(){
+        if(selectionFrom<0||docUri.isEmpty())return;
+        int from=selectedStartChar(),to=selectedEndChar();
+        if(from<0||to<=from||to>body.length())return;
+        try(ReaderQuotesStore store=new ReaderQuotesStore(this)){
+            store.add(bookAnnotationId(),title,chapterTitleForWord(selectionFrom),from,to,
+                selectionFrom,selectionTo+1,body.substring(from,to));
+            Toast.makeText(this,"Цитата сохранена",Toast.LENGTH_SHORT).show();
+            clearSelection();
+        }catch(Exception failure){Toast.makeText(this,"Не удалось сохранить цитату: "+failure.getMessage(),Toast.LENGTH_LONG).show();}
+    }
     private void showNotes(){openMarks(true);}
     private void openMarks(boolean notes){
         if(docUri.isEmpty())return;
@@ -1917,6 +1997,15 @@ public class ReaderActivity extends NavigationActivity {
             // A jump from Notes/Bookmarks is browsing, exactly like TOC navigation.
             // Do not seek Edge TTS, reset the audio queue or change playback index.
             browseToWord(at);
+            if(data.hasExtra("quote_from_char")&&data.hasExtra("quote_to_char")){
+                int a=data.getIntExtra("quote_from_char",-1),b=data.getIntExtra("quote_to_char",-1);
+                if(a>=0&&b>a&&b<=body.length()){
+                    selectionFrom=map.atCharacter(a);selectionTo=map.atCharacter(b-1);
+                    selectedCharFrom=a;selectedCharTo=b;
+                    updateVisibleAnnotations();
+                    if(selectionHandles!=null)selectionHandles.invalidate();
+                }
+            }
             long noteId=data.getLongExtra("annotation_id",0L);
             if(noteId>0&&sceneRoot!=null)sceneRoot.post(()->openAnnotationById(noteId));
             return;
@@ -1956,6 +2045,7 @@ public class ReaderActivity extends NavigationActivity {
                 stop();title=loadedTitle;author=loadedAuthor==null?"":loadedAuthor;body=loadedText;
                 map=prepared;words=prepared.words;chunks=indexed;
                 annotations=preparedAnnotations;selectionFrom=-1;selectionTo=-1;
+                selectedCharFrom=selectedCharTo=-1;nativeActionModeActive=false;nativeSelectedView=null;
                 actualChapters=parsedChapters==null?BookChapterIndex.empty():parsedChapters;
                 chapters=parsedChapters!=null&&parsedChapters.size()>0?parsedChapters:BookChapterIndex.empty();
                 ttsParts=session.speechSegments;ttsSentenceIndex=session.sentenceIndex;docUri=uri.toString();
@@ -2421,7 +2511,7 @@ public class ReaderActivity extends NavigationActivity {
         chteicoCompleteIfReachedEnd();save();stop();super.onPause();
     }
     @Override protected void onDestroy(){
-        cancelPendingLongPress();dismissSelectionMenu();
+        dismissSelectionMenu();
         if(annotationStore!=null){annotationStore.close();annotationStore=null;}
         timingReader.shutdownNow();if(mode==TTS)releaseTts();stop();applySystemBars(false);super.onDestroy();}
     @Override public void onBackPressed(){BackNavigation.back(this);}
