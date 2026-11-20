@@ -53,7 +53,7 @@ jobs:
           done
           echo 'All four release signing secrets are configured.'
 
-      - name: Verify reader selection, navigation, speech and pet v1.11.185
+      - name: Verify custom selection, WordBoundary, downloads and pet v1.11.186
         run: |
           bash qa/check_java_syntax.sh
           bash qa/test_edge_sentence_blocks_182.sh
@@ -69,12 +69,13 @@ jobs:
           python3 qa/test_edge_idle_expiry_compilation.py
           bash qa/test_pet_quotes_184.sh
           python3 qa/test_quotes_sqlite_184.py
-          python3 qa/check_v184_contracts.py
           bash qa/test_reader_selection_navigation_185.sh
-          python3 qa/check_v185_contracts.py
-          mkdir -p /tmp/reader-qa-185
-          javac -d /tmp/reader-qa-185 qa/ReaderActivityMethodCheck.java
-          java -cp /tmp/reader-qa-185 ReaderActivityMethodCheck
+          bash qa/test_word_boundary_refresh_186.sh
+          bash qa/test_reader_touch_policy_186.sh
+          python3 qa/check_v186_contracts.py
+          mkdir -p /tmp/reader-qa-186
+          javac -d /tmp/reader-qa-186 qa/ReaderActivityMethodCheck.java
+          java -cp /tmp/reader-qa-186 ReaderActivityMethodCheck
 
       - name: Build unsigned release APK
         run: gradle --no-daemon :app:assembleRelease --stacktrace

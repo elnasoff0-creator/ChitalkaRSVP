@@ -40,8 +40,8 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
     private final ExecutorService worker=Executors.newSingleThreadExecutor();
     private String uri="",title="";
     private int pendingFolderChapter=-2;
-    private TextView summary,pauseButton,totalPercent,totalDetail;
-    private ProgressBar totalProgress;
+    private TextView summary,pauseButton,allButton,totalPercent,totalDetail;
+    private AnimatedDownloadProgressBar totalProgress;
     private RecyclerView entries;
     private final ChapterAdapter chapterAdapter=new ChapterAdapter();
     private boolean visible,loading;
@@ -92,7 +92,7 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
         TextView overallTitle=text("Общий прогресс книги",14,true);
         overall.addView(overallTitle,new LinearLayout.LayoutParams(0,-2,1));
         totalPercent=text("0%",14,true);overall.addView(totalPercent);
-        totalProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
+        totalProgress=new AnimatedDownloadProgressBar(this);
         totalProgress.setMax(100);UiColorScheme.tintProgress(totalProgress,this);LinearLayout.LayoutParams op=new LinearLayout.LayoutParams(-1,dp(8));
         op.topMargin=dp(6);root.addView(totalProgress,op);
         totalDetail=text("Ожидаем подготовку глав",12,false);totalDetail.setTextColor(MUTED);
@@ -100,7 +100,7 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
         root.addView(totalDetail,od);
         LinearLayout controls=new LinearLayout(this);LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,-2);
         cp.topMargin=dp(12);root.addView(controls,cp);
-        TextView all=button("Подготовить все",()->command(-1));controls.addView(all,new LinearLayout.LayoutParams(0,dp(47),1));
+        allButton=button("Подготовить все",()->command(-1));controls.addView(allButton,new LinearLayout.LayoutParams(0,dp(47),1));
         pauseButton=button("Пауза",this::toggle);pauseButton.setSingleLine(true);
         LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(0,dp(47),1);
         pp.leftMargin=dp(8);controls.addView(pauseButton,pp);
@@ -139,6 +139,10 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
             displayed.get(i).state=force?"Перезагрузка":"В очереди";
             chapterAdapter.notifyItemChanged(i);
         }
+        // Show active download state instantly; reload reconciles with the service.
+        if(allButton!=null&&chapter==-1)DownloadButtonFeedback.apply(allButton,PANEL,ACCENT,true,13);
+        if(pauseButton!=null)DownloadButtonFeedback.apply(pauseButton,PANEL,ACCENT,true,13);
+        if(totalProgress!=null)totalProgress.setWorking(true);
         android.content.SharedPreferences pref=getSharedPreferences("reader",0);
         Intent intent=new Intent(this,EdgeFullBookService.class).setAction(EdgeFullBookService.ADD)
             .putExtra(EdgeFullBookService.EXTRA_URI,uri).putExtra(EdgeFullBookService.EXTRA_TITLE,title)
@@ -155,6 +159,10 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
         boolean running=EdgeFullBookService.isServiceAlive()&&
             (EdgeFullBookStore.RUNNING.equals(job.status)||EdgeFullBookStore.QUEUED.equals(job.status)
             ||EdgeFullBookStore.WAITING.equals(job.status)||EdgeFullBookStore.SAVING.equals(job.status));
+        if(pauseButton!=null){pauseButton.setText(running?"Продолжить":"Пауза");
+            DownloadButtonFeedback.apply(pauseButton,PANEL,ACCENT,!running,13);}
+        if(allButton!=null)DownloadButtonFeedback.apply(allButton,PANEL,ACCENT,!running,13);
+        totalProgress.setWorking(!running);
         launch(new Intent(this,EdgeFullBookService.class)
             .setAction(running?EdgeFullBookService.PAUSE:EdgeFullBookService.RESUME)
             .putExtra(EdgeFullBookService.EXTRA_URI,uri));
@@ -162,7 +170,12 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
     private void launch(Intent request){try{
         if(Build.VERSION.SDK_INT>=26)startForegroundService(request);else startService(request);
         main.postDelayed(this::reload,700);
-    }catch(Exception e){summary.setText("Не удалось запустить подготовку: "+e.getMessage());}}
+    }catch(Exception e){
+        totalProgress.setWorking(false);
+        if(allButton!=null)DownloadButtonFeedback.apply(allButton,PANEL,ACCENT,false,13);
+        if(pauseButton!=null)DownloadButtonFeedback.apply(pauseButton,PANEL,ACCENT,false,13);
+        summary.setText("Не удалось запустить подготовку: "+e.getMessage());
+    }}
     private void reload(){
         if(!visible||loading||offsets.isEmpty())return;
         loading=true;
@@ -250,11 +263,16 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
                         (EdgeFullBookStore.RUNNING.equals(job.status)||
                         EdgeFullBookStore.QUEUED.equals(job.status)||EdgeFullBookStore.WAITING.equals(job.status)||
                         EdgeFullBookStore.SAVING.equals(job.status));
-                    if(pauseButton!=null)pauseButton.setText(running?"Пауза":"Продолжить");
+                    if(pauseButton!=null){
+                        pauseButton.setText(running?"Пауза":"Продолжить");
+                        DownloadButtonFeedback.apply(pauseButton,PANEL,ACCENT,running,13);
+                    }
+                    if(allButton!=null)DownloadButtonFeedback.apply(allButton,PANEL,ACCENT,running&&!allPublished,13);
+                    totalProgress.setWorking(running&&!allPublished);
                     summary.setText(allPublished?"Завершено · Все главы сохранены":
                         "Сохранено глав: "+finalPublished+" из "+result.size()+
                         " · MP3 в кэше: "+total.files+" · "+String.format(Locale.ROOT,"%.1f МБ",total.bytes/1048576.0));
-                    totalProgress.setProgress(bookPercent);totalPercent.setText(bookPercent+"%");
+                    totalProgress.setProgress(bookPercent,true);totalPercent.setText(bookPercent+"%");
                     totalDetail.setText(allPublished?"Завершено · Готово глав: "+finalPublished+" из "+result.size():
                         "Готово: "+finalPublished+" из "+result.size()+" · В очереди/работе: "+
                         finalPending+(currentStage.isEmpty()?"":" · "+currentStage));
@@ -318,7 +336,7 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
             completed.setContentDescription("Глава загружена");
             LinearLayout.LayoutParams completeLp=new LinearLayout.LayoutParams(dp(16),dp(16));
             completeLp.leftMargin=dp(6);headline.addView(completed,completeLp);
-            ProgressBar progress=new ProgressBar(EdgeChapterDownloadsActivity.this,null,android.R.attr.progressBarStyleHorizontal);
+            AnimatedDownloadProgressBar progress=new AnimatedDownloadProgressBar(EdgeChapterDownloadsActivity.this);
             progress.setMax(100);UiColorScheme.tintProgress(progress,EdgeChapterDownloadsActivity.this);
             LinearLayout.LayoutParams bar=new LinearLayout.LayoutParams(-1,dp(6));bar.topMargin=dp(7);card.addView(progress,bar);
             TextView details=text("",12,false);LinearLayout.LayoutParams ml=new LinearLayout.LayoutParams(-1,-2);
@@ -351,15 +369,17 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
             int pct=item.saved>0&&!updating?100:item.stats.percent();
             if(item.jobTotal>0&&updating)pct=Math.max(pct,Math.min(98,item.jobDone*100/item.jobTotal));
             if(item.saved==0)pct=Math.min(pct,99);
-            h.percent.setText(updating&&item.saved>0?"↻":pct+"%");h.bar.setProgress(updating&&item.saved>0?0:pct);
+            h.percent.setText(updating&&item.saved>0?"↻":pct+"%");
+            h.bar.setProgress(updating&&item.saved>0?0:pct,true);
+            h.bar.setWorking(updating);
             h.details.setText(details(item));h.details.setTextColor(stateColor(item));h.percent.setTextColor(stateColor(item));
             h.completed.setVisibility(item.saved>0&&!updating?View.VISIBLE:View.GONE);
             h.finalize.setVisibility(item.saved==0&&item.stats.files>0?View.VISIBLE:View.GONE);
         }
     }
     private static final class ChapterHolder extends RecyclerView.ViewHolder {
-        final TextView name,percent,details,finalize;final ProgressBar bar;final ImageView completed;
-        ChapterHolder(View root,TextView name,TextView percent,TextView details,ProgressBar bar,ImageView completed,TextView finalize){
+        final TextView name,percent,details,finalize;final AnimatedDownloadProgressBar bar;final ImageView completed;
+        ChapterHolder(View root,TextView name,TextView percent,TextView details,AnimatedDownloadProgressBar bar,ImageView completed,TextView finalize){
             super(root);this.name=name;this.percent=percent;this.details=details;this.bar=bar;this.completed=completed;this.finalize=finalize;
         }
     }
@@ -454,7 +474,7 @@ public final class EdgeChapterDownloadsActivity extends NavigationActivity {
     @Override protected void onResume(){super.onResume();
         if(paletteSignature!=UiColorScheme.paletteSignature(this)){recreate();return;}
         visible=true;DownloadChangeBus.add(changeListener);main.post(changesReload);}
-    @Override protected void onPause(){visible=false;DownloadChangeBus.remove(changeListener);
+    @Override protected void onPause(){visible=false;totalProgress.setWorking(false);DownloadChangeBus.remove(changeListener);
         main.removeCallbacks(changesReload);super.onPause();}
     @Override protected void onDestroy(){visible=false;DownloadChangeBus.remove(changeListener);
         main.removeCallbacksAndMessages(null);worker.shutdownNow();super.onDestroy();}

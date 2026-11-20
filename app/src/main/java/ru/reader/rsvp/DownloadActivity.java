@@ -1123,14 +1123,15 @@ public final class DownloadActivity extends NavigationActivity {
             if(h.progressBar!=null){
                 if(DownloadsRepository.EDGE.equals(item.type)||
                    (DownloadsRepository.MANGA.equals(item.type)&&item.unknownTotal)){
-                    h.progressBar.setMax(100);h.progressBar.setProgress(item.coveragePercent);
+                    h.progressBar.setMax(100);h.progressBar.setProgress(item.coveragePercent,true);
                     h.progressBar.setIndeterminate(false);
                 }else{
                     h.progressBar.setMax(Math.max(1,item.total));
-                    h.progressBar.setProgress(Math.min(item.done,item.total));
+                    h.progressBar.setProgress(Math.min(item.done,item.total),true);
                     h.progressBar.setIndeterminate(item.total==0&&item.running);
                 }
             }
+            if(h.progressBar!=null)h.progressBar.setWorking(item.running&&!item.ready);
             if(h.swipeActions!=null&&h.swipeCard!=null){
                 boolean opened=item.id.equals(revealedSwipeId);
                 h.swipeActions.setVisibility(opened?View.VISIBLE:View.INVISIBLE);
@@ -1231,7 +1232,7 @@ public final class DownloadActivity extends NavigationActivity {
                 iconLp.leftMargin=dp(7);statusLine.addView(complete,iconLp);
             }
             if(!item.ready){
-                ProgressBar progress=new ProgressBar(DownloadActivity.this,null,android.R.attr.progressBarStyleHorizontal);
+                AnimatedDownloadProgressBar progress=new AnimatedDownloadProgressBar(DownloadActivity.this);
                 if(DownloadsRepository.EDGE.equals(item.type)){
                     progress.setMax(100);progress.setProgress(item.coveragePercent);
                     progress.setIndeterminate(false);
@@ -1244,7 +1245,7 @@ public final class DownloadActivity extends NavigationActivity {
                     if(item.total==0)progress.setIndeterminate(item.running);
                 }
                 UiColorScheme.tintProgress(progress,DownloadActivity.this);
-                h.progressBar=progress;
+                h.progressBar=progress;progress.setWorking(item.running&&!item.ready);
                 LinearLayout.LayoutParams pl=new LinearLayout.LayoutParams(-1,dp(7));pl.topMargin=dp(9);detail.addView(progress,pl);
             }
             // Every row exposes its actions through one compact overflow menu.
@@ -1268,7 +1269,7 @@ public final class DownloadActivity extends NavigationActivity {
         final class Holder extends RecyclerView.ViewHolder{
             String boundId="",boundStatic="";
             DownloadsRepository.Item boundItem;
-            TextView currentStatus;ProgressBar progressBar;
+            TextView currentStatus;AnimatedDownloadProgressBar progressBar;
             LinearLayout swipeCard,swipeActions;
             Holder(View v){super(v);}
         }

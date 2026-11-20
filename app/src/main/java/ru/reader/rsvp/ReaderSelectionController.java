@@ -3,11 +3,12 @@ package ru.reader.rsvp;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewParent;
 
-/** Drag handles tied to immutable word indexes. Coordinates are re-read after every scroll frame. */
+/** Reader-owned, accent-tinted teardrop selection handles. Screen positions are book-wide UTF-16 carets. */
 final class ReaderSelectionController extends View {
     interface Host {
         float[][] handlePositions();
@@ -21,6 +22,7 @@ final class ReaderSelectionController extends View {
     }
     private final Host host;
     private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Path teardrop=new Path();
     private int active=-1,pointerId=-1;
     private float lastX,lastY;
     private boolean pendingFrame;
@@ -29,14 +31,21 @@ final class ReaderSelectionController extends View {
         touchRadius=32f*context.getResources().getDisplayMetrics().density;
         setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
     }
-    @Override protected void onDraw(Canvas canvas){super.onDraw(canvas);
+    @Override protected void onDraw(Canvas canvas){
+        super.onDraw(canvas);
         float[][] positions=host.handlePositions();if(positions==null)return;
         float d=getResources().getDisplayMetrics().density;
-        paint.setColor(host.handleColor());paint.setStrokeWidth(2.5f*d);paint.setStyle(Paint.Style.STROKE);
-        for(int i=0;i<2;i++){float[] p=positions[i];if(p==null)continue;
-            canvas.drawLine(p[0],p[1]-7*d,p[0],p[1]+3*d,paint);
-            paint.setStyle(Paint.Style.FILL);canvas.drawCircle(p[0],p[1]+9*d,6*d,paint);
-            paint.setStyle(Paint.Style.STROKE);
+        paint.setColor(host.handleColor());paint.setStyle(Paint.Style.FILL);
+        for(int i=0;i<2;i++){
+            float[] p=positions[i];if(p==null)continue;
+            float x=p[0],y=p[1],side=i==0?-1f:1f;
+            // Same teardrop silhouette as a modern Android selection grip:
+            // the sharp upper corner stays attached to the exact caret.
+            teardrop.reset();teardrop.moveTo(x,y);
+            teardrop.lineTo(x+side*11*d,y);
+            teardrop.cubicTo(x+side*22*d,y,x+side*23*d,y+12*d,x+side*14*d,y+18*d);
+            teardrop.cubicTo(x+side*6*d,y+22*d,x+side*1*d,y+16*d,x,y+8*d);
+            teardrop.close();canvas.drawPath(teardrop,paint);
         }
     }
     private final Runnable scrollFrame=new Runnable(){@Override public void run(){
@@ -60,7 +69,9 @@ final class ReaderSelectionController extends View {
             active=-1;pointerId=-1;float[][] positions=host.handlePositions();if(positions==null)return false;
             float best=touchRadius*touchRadius;
             for(int i=0;i<2;i++)if(positions[i]!=null){
-                float dx=event.getX()-positions[i][0],dy=event.getY()-(positions[i][1]+9*getResources().getDisplayMetrics().density);
+                float d=getResources().getDisplayMetrics().density;
+                float gripX=positions[i][0]+(i==0?-11f:11f)*d;
+                float dx=event.getX()-gripX,dy=event.getY()-(positions[i][1]+10*d);
                 float squared=dx*dx+dy*dy;
                 if(squared<=best){best=squared;active=i;}
             }

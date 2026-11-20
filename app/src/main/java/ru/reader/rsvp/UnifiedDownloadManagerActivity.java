@@ -54,7 +54,7 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
     private TextView bookTitle,metadata,percent,selectionLabel;
     private ImageView artwork,playPause,allIcon;
     private boolean allPreparationPending;
-    private ProgressBar progress;
+    private AnimatedDownloadProgressBar progress;
     private LinearLayout tabContainer,tabContent,infoList,selectionBar;
     private RecyclerView filesView;
     private ScrollView infoScroll;
@@ -139,7 +139,7 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         DownloadProgressTracker.Summary summary=DownloadProgressTracker.summary(id);
         if(summary!=null&&summary.hasPlan&&summary.percent>=0){
             cachedOverallPercent=summary.percent;
-            progress.setProgress(summary.percent);percent.setText(summary.percent+"%");
+            progress.setProgress(summary.percent,true);percent.setText(summary.percent+"%");
         }
         main.removeCallbacks(reloadDebounced);
     };
@@ -212,7 +212,7 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         percent=text("0%",15,true);progressLine.addView(percent);
         allIcon=actionIcon(R.drawable.ic_autoload,"Скачать всё",()->{if(selected!=null)downloadAll(selected);});
         LinearLayout.LayoutParams full=new LinearLayout.LayoutParams(dp(44),dp(44));full.leftMargin=dp(10);progressLine.addView(allIcon,full);
-        progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setMax(100);
+        progress=new AnimatedDownloadProgressBar(this);progress.setMax(100);
         UiColorScheme.tintProgress(progress,this);
         LinearLayout.LayoutParams bar=new LinearLayout.LayoutParams(-1,dp(7));bar.topMargin=dp(8);root.addView(progress,bar);
         tabContainer=new LinearLayout(this);tabContainer.setOrientation(LinearLayout.VERTICAL);place(root,tabContainer,15);
@@ -251,12 +251,13 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
     @Override protected void onResume(){super.onResume();
         if(paletteSignature!=UiColorScheme.paletteSignature(this)){recreate();return;}
         visible=true;DownloadChangeBus.add(downloadListener);DownloadChangeBus.addProgress(chapterProgressListener);
+        if(selected!=null)refreshHeader();
         if(pendingDesiredRunning!=null){commandChecks=0;main.post(verifyCommandState);}
         ArrayList<String> missed=DownloadChangeBus.since(appliedRevision);
         if(!firstResume&&(missed==null||missed.contains(id)||selected==null))reload();
         firstResume=false;
     }
-    @Override protected void onPause(){visible=false;DownloadChangeBus.remove(downloadListener);DownloadChangeBus.removeProgress(chapterProgressListener);
+    @Override protected void onPause(){visible=false;progress.setWorking(false);DownloadChangeBus.remove(downloadListener);DownloadChangeBus.removeProgress(chapterProgressListener);
         main.removeCallbacks(reloadDebounced);
         main.removeCallbacks(verifyCommandState);super.onPause();}
     @Override protected void onDestroy(){visible=false;DownloadChangeBus.remove(downloadListener);DownloadChangeBus.removeProgress(chapterProgressListener);
@@ -466,9 +467,12 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         int value=cachedOverallPercent>=0?cachedOverallPercent:i.coveragePercent;
         if(i.total>0&&value<=0)value=(int)Math.min(100,100L*i.done/i.total);
         if(i.ready&&cachedOverallPercent<0)value=100;value=Math.max(0,Math.min(100,value));
-        progress.setProgress(value);percent.setText(value+"%");
+        progress.setProgress(value,true);percent.setText(value+"%");
         boolean showPause=pendingDesiredRunning!=null?pendingDesiredRunning:i.running;
         boolean waitingForCommand=pendingDesiredRunning!=null;
+        progress.setIndeterminate(showPause && i.total==0 && cachedOverallPercent<0 && value==0);
+        progress.setWorking(showPause&&!i.ready);
+        DownloadButtonFeedback.apply(playPause,ReaderButtonColors.neutral(this,panel),accent,showPause,12);
         LoadingPlayIcon.show(playPause,waitingForCommand,
             showPause?R.drawable.ic_pause:R.drawable.ic_play);
         String caption="STARTING".equals(pendingCommandState)?"Запуск загрузки":
@@ -477,6 +481,8 @@ public final class UnifiedDownloadManagerActivity extends NavigationActivity {
         playPause.setContentDescription(caption);playPause.setTooltipText(caption);
         playPause.setEnabled(!i.ready);playPause.setAlpha(i.ready?.35f:1f);
         boolean remaining=!i.ready||i.total==0||i.done<i.total;
+        DownloadButtonFeedback.apply(allIcon,ReaderButtonColors.neutral(this,panel),accent,
+            allPreparationPending||(showPause&&remaining),12);
         LoadingPlayIcon.show(allIcon,allPreparationPending,R.drawable.ic_autoload);
         allIcon.setEnabled(remaining&&!allPreparationPending);
         allIcon.setAlpha(remaining?1f:.35f);
