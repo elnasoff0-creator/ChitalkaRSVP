@@ -53,9 +53,11 @@ jobs:
           done
           echo 'All four release signing secrets are configured.'
 
-      - name: Verify first-word replay, WordBoundary and selection v1.11.187
+      - name: Verify first audio, TTS switch and regressions v1.11.188
         run: |
           bash qa/check_java_syntax.sh
+          bash qa/test_edge_startup_188.sh
+          python3 qa/check_v188_contracts.py
           bash qa/test_edge_sentence_blocks_182.sh
           bash qa/test_edge_sentence_seek.sh
           python3 qa/check_v182_contracts.py

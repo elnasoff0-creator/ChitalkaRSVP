@@ -81,7 +81,9 @@ public class ReaderActivity extends NavigationActivity {
     private boolean localStateReceiverRegistered=false;
     private final BroadcastReceiver localStateReceiver=new BroadcastReceiver(){
         @Override public void onReceive(Context context,Intent intent){
-            if(mode==TTS&&ttsLocal)scheduleTtsUi();
+            // A backup session can stop while Edge remains the preferred mode.
+            // This must update the actual-engine badge, even when ttsLocal is false.
+            if(mode==TTS)scheduleTtsUi();
         }
     };
     private long navigationEpoch=0L;
@@ -2179,11 +2181,12 @@ public class ReaderActivity extends NavigationActivity {
         ttsLocal=androidTts;prefs.edit().putBoolean("tts_last_local",androidTts).apply();
         setMode(TTS);
     }
-    private void startTtsSession(){
+    private void startTtsSession(){startTtsSession(false,false);}
+    private void startTtsSession(boolean resumePlayback,boolean forceEdge){
         if(mode!=TTS||docUri.isEmpty()||words.length==0)return;
         cancelTtsUi();
-        ttsPendingPlay=false;
-        ReaderTtsController.begin(this,ttsLocal,docUri,index);
+        ttsPendingPlay=!ttsLocal&&resumePlayback;
+        ReaderTtsController.begin(this,ttsLocal,docUri,index,resumePlayback,forceEdge);
         if(!ttsLocal){
             edgePlayerBindStartedAt=SystemClock.elapsedRealtime();
             ttsBoundPlayer=bindService(new Intent(this,EdgePlaybackService.class),ttsPlayerConnection,BIND_AUTO_CREATE);
@@ -2233,7 +2236,16 @@ public class ReaderActivity extends NavigationActivity {
             &&("edge:"+docUri).equals(ttsPlayer.currentBookId());
     }
     private void toggleTtsPlayback(){
-        if(!ttsLocal&&!EdgeFolderPicker.available(this)&&!ttsCurrentlyPlaying()){
+        final boolean launchingEdge=!ttsLocal&&!backupTtsForThisBook()&&!ttsCurrentlyPlaying();
+        if(launchingEdge)EdgeStartupTrace.begin("play_button");
+        long permissionStart=SystemClock.elapsedRealtime();
+        boolean permissionReady=ttsLocal||DownloadFolderPicker.granted(this,DownloadFolderPicker.BOOK);
+        if(launchingEdge){
+            EdgeStartupTrace.stage("SAF_PERMISSION","duration_ms="+
+                (SystemClock.elapsedRealtime()-permissionStart)+" granted="+permissionReady);
+        }
+        if(!ttsLocal&&!permissionReady&&!ttsCurrentlyPlaying()){
+            EdgeStartupTrace.cancelled("missing_saf_permission");
             resumeEdgeAfterFolderPick=true;
             new SwipeDialogs.Builder(this).setTitle("Папка аудиофайлов Edge TTS")
                 .setMessage("Перед первой озвучкой выберите папку для сохранения MP3 по книгам и главам. Без выбора сохранение в Android/data не начинается.")
@@ -2439,6 +2451,8 @@ public class ReaderActivity extends NavigationActivity {
         lastRenderedTtsEngineIconKey=iconKey;
         toolbarEngineAction.setImageResource(ttsLocal?R.drawable.ic_android_tts:R.drawable.ic_edge_tts);
         toolbarEngineAction.setColorFilter(contrast(accent()));
+        ReaderDiagnosticLog.event("TTS_SWITCH","TTS_BADGE_UPDATED engine="+
+            (backupActive?"backup":ttsLocal?"local":"edge"));
         if(ttsLocal || backupActive){
             toolbarEngineBadge.setImageDrawable(TtsEngineIcons.load(this,packageName));
             toolbarEngineAction.setContentDescription((backupActive?"Резервная озвучка: ":"Способ озвучивания: ")+TtsEngineIcons.label(this,packageName));
@@ -2478,12 +2492,32 @@ public class ReaderActivity extends NavigationActivity {
                 LinearLayout.LayoutParams markLp=new LinearLayout.LayoutParams(dp(24),dp(24));markLp.leftMargin=dp(9);
                 row.addView(chosen,markLp);
                 row.setOnClickListener(v->{dialog.dismiss();
-                    if(localChoice==ttsLocal)return;
-                    int position=index;releaseTts();ttsLocal=localChoice;
+                    final boolean backupActive=backupTtsForThisBook();
+                    // Re-selecting Edge MUST work if a fallback voice is still active.
+                    if(!TtsSwitchPolicy.shouldSwitch(ttsLocal,localChoice,backupActive))return;
+                    final boolean shouldResume=ttsCurrentlyPlaying();
+                    final int position=index;
+                    ReaderDiagnosticLog.event("TTS_SWITCH","TTS_FORCE_SELECTION engine="+
+                        (localChoice?"local":"edge")+" backup="+backupActive+
+                        " resume="+shouldResume+" word="+position);
+                    if(!localChoice){
+                        ReaderTtsController.stopLocal(this);
+                        if(shouldResume)EdgeStartupTrace.begin("force_edge");
+                    }else if(ttsPlayer!=null)ttsPlayer.pause();
+                    releaseTts();ttsLocal=localChoice;
+                    if(!localChoice&&ttsSentenceIndex.size()>0){
+                        // Force-switch always restarts at the complete sentence.
+                        // A later service bind must not reset the anchor to word #2.
+                        int first=ttsSentenceIndex.beginning(index);
+                        if(first!=index){int old=index;index=first;refreshHighlight(old);}
+                        pendingTtsWord=first;
+                        SentenceChunks.Chunk sentence=ttsSentenceIndex.atWordRange(first);
+                        speechPosition.seek(first,sentence==null?first+1:sentence.toWord);
+                    }
                     lastRenderedTtsEngineIconKey="";
                     prefs.edit().putBoolean("tts_last_local",localChoice)
-                        .putInt("tts_word:"+docUri,position).apply();
-                    refreshActiveTtsIcon();startTtsSession();
+                        .putInt("tts_word:"+docUri,index).apply();
+                    refreshActiveTtsIcon();startTtsSession(shouldResume,!localChoice);
                 });
                 LinearLayout.LayoutParams rowLp=new LinearLayout.LayoutParams(-1,dp(70));rowLp.bottomMargin=dp(8);
                 choices.addView(row,rowLp);

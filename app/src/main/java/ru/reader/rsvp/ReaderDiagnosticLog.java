@@ -70,6 +70,8 @@ final class ReaderDiagnosticLog {
         String s=value.replace('\r',' ').replace('\n',' ');
         // Even accidental URLs or authorization values are removed from log output.
         s=s.replaceAll("(?i)https?://\\S+|wss?://\\S+","[URL]");
+        s=s.replaceAll("(?i)(?:content|file)://\\S+","[LOCAL_URI]");
+        s=s.replaceAll("(?i)/(?:storage|sdcard|data)/\\S+","[LOCAL_PATH]");
         s=s.replaceAll("(?i)authorization\\s*[:=]\\s*Bearer\\s+\\S+","[REDACTED]");
         s=s.replaceAll("(?i)(authorization|cookie|sec-ms-gec|subscription-key|connectionid)\\s*[:=]\\s*\\S+","[REDACTED]");
         return s.length()>max?s.substring(0,max):s;

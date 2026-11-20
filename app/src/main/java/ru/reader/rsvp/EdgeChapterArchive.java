@@ -674,9 +674,14 @@ final class EdgeChapterArchive {
      * no repeated SHA-256 reads for a fragment already present in the local cache.
      * Called only on the chapter publisher executor, never on the main thread.
      */
+    private static final java.util.function.BooleanSupplier ALWAYS_RESTORE=()->true;
     static synchronized boolean restoreClip(Context ctx,String uri,String title,File target,
             int chapterNumber,String key){
-        if(key==null||!key.matches("[a-fA-F0-9]{64}"))return false;
+        return restoreClip(ctx,uri,title,target,chapterNumber,key,ALWAYS_RESTORE);
+    }
+    static synchronized boolean restoreClip(Context ctx,String uri,String title,File target,
+            int chapterNumber,String key,java.util.function.BooleanSupplier mayPublish){
+        if(key==null||!key.matches("[a-fA-F0-9]{64}")||!mayPublish.getAsBoolean())return false;
         File audio=new File(target,key+".mp3");
         File words=new File(target,key+".mp3.words.json");
         if(audio.isFile()&&audio.length()>1500&&words.isFile()&&words.length()>0)return true;
@@ -686,7 +691,9 @@ final class EdgeChapterArchive {
             if(chapter==null)return false;
             JSONObject index=chapter.index;
             if(index.optInt("version")==1){
-                // Old merged chapters remain readable via bounded chapter extraction.
+                // Legacy whole-chapter restoration cannot be canceled safely.
+                // Never let it race the foreground network synthesis.
+                if(mayPublish!=null && mayPublish!=ALWAYS_RESTORE)return false;
                 restoreChapter(ctx,uri,title,target,chapterNumber);
                 return audio.isFile()&&audio.length()>1500;
             }
@@ -706,8 +713,13 @@ final class EdgeChapterArchive {
                 }
                 if(part.length()!=source.length()||
                     !row.optString("sha256").equals(digest(part))){part.delete();return false;}
-                if(audio.exists()&&!audio.delete()){part.delete();return false;}
-                if(!part.renameTo(audio))throw new Exception("Не удалось сохранить MP3 фрагмент");
+                if(!mayPublish.getAsBoolean()){part.delete();return false;}
+                // Never overwrite an MP3 that finished synthesis while SAF was reading.
+                if(audio.isFile()&&audio.length()>1500){part.delete();}
+                else {
+                    if(audio.exists()&&!audio.delete()){part.delete();return false;}
+                    if(!part.renameTo(audio))throw new Exception("Не удалось сохранить MP3 фрагмент");
+                }
             }
             if(!words.isFile()||words.length()==0){
                 File temp=new File(target,key+".words.lazy.part");
@@ -718,8 +730,12 @@ final class EdgeChapterArchive {
                     while((n=in.read(buffer))!=-1)out.write(buffer,0,n);
                 }
                 if(temp.length()==0){temp.delete();return false;}
-                if(words.exists()&&!words.delete()){temp.delete();return false;}
-                if(!temp.renameTo(words))throw new Exception("Не удалось сохранить WordBoundary");
+                if(!mayPublish.getAsBoolean()){temp.delete();return false;}
+                if(words.isFile()&&words.length()>0){temp.delete();}
+                else {
+                    if(words.exists()&&!words.delete()){temp.delete();return false;}
+                    if(!temp.renameTo(words))throw new Exception("Не удалось сохранить WordBoundary");
+                }
             }
             return audio.isFile()&&audio.length()>1500&&words.isFile();
         }catch(Exception problem){Log.w(TAG,"Lazy restore failed, chapter="+chapterNumber,problem);}

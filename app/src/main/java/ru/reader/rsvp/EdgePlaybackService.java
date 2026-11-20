@@ -238,6 +238,7 @@ public final class EdgePlaybackService extends Service {
                         autoTransitionAtMs=0;autoTransitionIndex=-1;
                     }
                     EdgeTtsDiagnostics.firstSound(currentKey());
+                    EdgeStartupTrace.firstAudio("media3_is_playing");
                     long now=android.os.SystemClock.elapsedRealtime();
                     if(requestedPlayAtMs>0){
                         ReaderDiagnosticLog.event("PLAYER","play_to_is_playing_callback_ms="+(now-requestedPlayAtMs));

@@ -27,6 +27,13 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     private boolean edgeRecoveryInFlight;
     private int edgeRecoveryGeneration;
     private long lastEdgeRecoveryAttempt;
+    private long fallbackInitStartedAt;
+    private boolean fallbackFirstAudioLogged;
+    private void fallbackAudioStarted(){
+        if(!fallbackSession||fallbackFirstAudioLogged)return;
+        fallbackFirstAudioLogged=true;
+        ReaderDiagnosticLog.event("TTS_SWITCH","TTS_FALLBACK_AUDIO_STARTED");
+    }
     private EdgeTtsClient edgeRecoveryClient;
     private Runnable edgeRecoveryTimeout;
     private static final long EDGE_RECOVERY_INTERVAL_MS=60000L;
@@ -98,6 +105,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
     }
     private MediaPlayer ttsAudio;
     private int localGeneration=0,localPlayingIndex=-1;
+    private int ttsBookLoadGeneration;
     private final java.util.concurrent.ConcurrentHashMap<Integer,java.util.List<int[]>> localWordFrames=new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.concurrent.ConcurrentHashMap<Integer,Integer> localSampleRates=new java.util.concurrent.ConcurrentHashMap<>();
     private long pendingLocalSeek=0;
@@ -151,6 +159,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
                     if(mp!=ttsAudio||localGeneration!=generation||paused)return;
                     try{
                         mp.start();
+                        fallbackAudioStarted();
                         mp.setPlaybackParams(mp.getPlaybackParams().setSpeed(Math.min(5f,TtsWpm.rate(this))));
                     }catch(Exception e){fallbackLocalSpeech(index);}
                     notifyState();
@@ -348,10 +357,13 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
               break;
           }
           fallbackSession=overrideEngine!=null;
+          fallbackFirstAudioLogged=false;
           fallbackEngineInUse=overrideEngine==null?"":overrideEngine;
           fallbackDefaultAttempted=overrideEngine==null||overrideEngine.isEmpty();
           lastEdgeRecoveryAttempt=android.os.SystemClock.elapsedRealtime()-EDGE_RECOVERY_INTERVAL_MS;
           if(overrideEngine!=null){
+              fallbackInitStartedAt=android.os.SystemClock.elapsedRealtime();
+              ReaderDiagnosticLog.event("TTS_SWITCH","FALLBACK_INIT_STARTED");
               if(tts!=null){try{tts.stop();tts.shutdown();}catch(Exception ignored){}}
               ttsReady=false;
               tts=overrideEngine.isEmpty()?new TextToSpeech(this,this):
@@ -362,15 +374,20 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
           interruptedByExternalAudio=false;if(active)saveProgress(); if(tts!=null)tts.stop();resetLocalSession(); title="Загрузка книги…";currentBook=intent.getStringExtra("bookUri");ChteicoStore.openAudio(this,currentBook);final String source=currentBook;
           ttsMode=true;active=true;paused=true;ttsStartRequested=false;ttsRewindOnNextPlay=false;releasePlayer();
           getSharedPreferences("reader",0).edit().putString("last_media_kind","text").apply();
+          final int bookLoadGeneration=++ttsBookLoadGeneration;
           new Thread(()->{try{UnifiedBookSession session=UnifiedBookSession.open(this,Uri.parse(source));
-          BookLoader.Book book=session.book;handler.post(()->{if(!ttsMode||!source.equals(currentBook))return;
+          BookLoader.Book book=session.book;handler.post(()->{
+              if(!active||!ttsMode||bookLoadGeneration!=ttsBookLoadGeneration||
+                      !source.equals(currentBook))return;
               mediaAuthor=book.author==null?"":book.author;
               requestCover(source,true,"");
               title=book.title==null||book.title.trim().isEmpty()?"Книга":book.title.trim();
               makeChunks(session);int requestedWord=intent.getIntExtra("word_index",-1); int fallback=getSharedPreferences("reader",0).getInt("tts_pos:"+source,0); ttsPosition=requestedWord>=0?chunkForWord(requestedWord):Math.max(0,Math.min(chunks.size()-1,fallback));ttsStartRequested=ttsStartRequested||intent.getBooleanExtra("auto_on_selection",false);
               paused=true;
               if(ttsStartRequested)startTts();
-              notifyState();});}catch(Exception ignored){handler.post(()->{paused=true;notifyState();});}}).start();break;}
+              notifyState();});}catch(Exception ignored){handler.post(()->{
+                  if(active&&bookLoadGeneration==ttsBookLoadGeneration){paused=true;notifyState();}
+              });}}).start();break;}
         case PLAY: {
           if(preparedSwitch!=null){
               String requested=intent.getStringExtra("bookId");
@@ -389,7 +406,10 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
           resume();break;
         }
         case PAUSE: pausePlayback();break;
-        case STOP: stopServicePlayback();break;
+        case STOP:
+            ReaderDiagnosticLog.event("TTS_SWITCH","TTS_BACKUP_STOPPED backup="+fallbackSession+
+                " was_active="+active);
+            stopServicePlayback();break;
         case NEXT: jump(1);break;case PREV:jump(-1);break;
         case SEEK:seekTo(intent.getIntExtra("position",0));break;
         case "tts_select_word": {
@@ -651,9 +671,12 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         saveProgress();audioFocus.release();notifyState();
     }
     private void stopServicePlayback(){
+        ++ttsBookLoadGeneration;
+        ttsStartRequested=false;
+        fallbackInitStartedAt=0;
         cancelEdgeRecovery();preparedSwitch=null;pausedForTelephone=false;
         PlaybackSleepCountdown clock=ttsMode?ttsSleepClock:audiobookSleepClock;
-        if(clock!=null)clock.freeze();if(ttsMode){if(tts!=null)tts.stop();resetLocalSession();}else if(player!=null){try{if(player.isPlaying())player.pause();}catch(Exception ignored){}}paused=true;saveProgress();audioFocus.release();releasePlayer();active=false;Intent i=new Intent(ACTION_STATE);i.setPackage(getPackageName());sendBroadcast(i);stopForeground(STOP_FOREGROUND_REMOVE);stopSelf();}
+        if(clock!=null)clock.freeze();if(ttsMode){if(tts!=null)tts.stop();resetLocalSession();}else if(player!=null){try{if(player.isPlaying())player.pause();}catch(Exception ignored){}}paused=true;saveProgress();audioFocus.release();releasePlayer();active=false;fallbackSession=false;Intent i=new Intent(ACTION_STATE);i.setPackage(getPackageName());sendBroadcast(i);stopForeground(STOP_FOREGROUND_REMOVE);stopSelf();}
     private int audioProgressPercent(){
         if(ttsMode||playlist.isEmpty()||bookId==null||bookId.isEmpty())return 0;
         long total=getTotalDuration();
@@ -760,6 +783,12 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         playLocalFile(ttsPosition);saveProgress();
     }
     @Override public void onInit(int status){
+        if(fallbackSession && fallbackInitStartedAt>0){
+            ReaderDiagnosticLog.event("TTS_SWITCH","FALLBACK_INIT_MS="+
+                (android.os.SystemClock.elapsedRealtime()-fallbackInitStartedAt)+
+                " success="+(status==TextToSpeech.SUCCESS));
+            fallbackInitStartedAt=0;
+        }
         if(status!=TextToSpeech.SUCCESS&&fallbackSession&&!fallbackDefaultAttempted){
             fallbackDefaultAttempted=true;
             fallbackEngineInUse="";
@@ -781,7 +810,9 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
         }
         tts.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
         tts.setOnUtteranceProgressListener(new UtteranceProgressListener(){
-            @Override public void onStart(String u){}
+            @Override public void onStart(String u){
+                if(u!=null&&u.startsWith("fallback_"))handler.post(()->fallbackAudioStarted());
+            }
             @Override public void onBeginSynthesis(String id,int sampleRate,int audioFormat,int channelCount){
                 if(!id.startsWith("local_"))return;
                 try{String[] p=id.split("_");int g=Integer.parseInt(p[1]),idx=Integer.parseInt(p[2]);

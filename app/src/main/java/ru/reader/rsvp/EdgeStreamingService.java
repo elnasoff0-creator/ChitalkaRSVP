@@ -40,6 +40,7 @@ import java.util.concurrent.Executors;
 public final class EdgeStreamingService extends Service {
     public interface Observer {void onChanged();}
     public static final String ACTION_BEGIN="ru.reader.rsvp.edge.download.BEGIN";
+    public static final String EXTRA_FORCE_EDGE="force_edge_user_choice";
     public static final String ACTION_PREFETCH="ru.reader.rsvp.edge.download.PREFETCH";
     public static final String ACTION_RESUME_FROM_BACKUP="ru.reader.rsvp.edge.RESUME_BACKUP";
     public static final String EXTRA_URI="book_uri";
@@ -96,7 +97,6 @@ public final class EdgeStreamingService extends Service {
     private long restoreStartedAt=0L;
     private long trackReadyLoggedAt=-1L;
     private static final long IDLE_REUSE_MS=120000L;
-    private static final long SAF_RESTORE_WAIT_MS=9000L;
     private String lastTransitionWaitKey="";
     private long lastTransitionWaitAtMs;
     private long lastTransitionStallLoggedAtMs;
@@ -148,6 +148,8 @@ public final class EdgeStreamingService extends Service {
         }
         ReaderDiagnosticLog.event("READER_STARTUP","clip_prepare_ms="+
             (SystemClock.elapsedRealtime()-started)+" start="+clip.start);
+        EdgeStartupTrace.stage("CLIP_PREPARED","duration_ms="+
+            (SystemClock.elapsedRealtime()-started)+" cached="+clip.ready());
     }
     private EdgeSpeechTextTransform.Result speechFor(Clip clip){
         prepareClip(clip);
@@ -162,6 +164,7 @@ public final class EdgeStreamingService extends Service {
         ReaderDiagnosticLog.event("READER_STARTUP","first_track_ready source="+source+
             " start="+clip.start+" since_restore_ms="+
             (restoreStartedAt<=0?0:trackReadyLoggedAt-restoreStartedAt));
+        EdgeStartupTrace.stage("TRACK_READY","source="+source);
     }
     /** Playing clip and a bounded, cache-first window of nearby candidates. */
     private final LinkedHashMap<String,LiveJob> liveJobs=new LinkedHashMap<>();
@@ -227,6 +230,8 @@ public final class EdgeStreamingService extends Service {
         final int word=Math.max(0,failed.start);
         String fallbackEngine=pref.getString("edge_backup_tts_engine","");
         ReaderDiagnosticLog.event("EDGE","FALLBACK_ACTIVATED start="+word);
+        ReaderDiagnosticLog.event("TTS_SWITCH","TTS_FALLBACK_ACTIVATED after_edge_failure=true");
+        EdgeStartupTrace.cancelled("edge_failure_fallback");
         // Pause Edge before handing off the same sentence to Android TTS.
         player.pause();
         try{
@@ -245,6 +250,9 @@ public final class EdgeStreamingService extends Service {
     // Only requested clips are ever recovered from SAF. One attempt per key/revision.
     private final java.util.HashSet<String> lazyAttempted=new java.util.HashSet<>();
     private final java.util.HashSet<String> lazyPending=new java.util.HashSet<>();
+    private final java.util.HashSet<String> lazyForeground=new java.util.HashSet<>();
+    private final java.util.HashMap<String,java.util.concurrent.atomic.AtomicBoolean>
+        lazyCommitPermits=new java.util.HashMap<>();
     private File directory;
     private boolean bookReady,active,destroyed,playerBound,idlePrefetchRequested;
     private int anchorWord;
@@ -510,6 +518,20 @@ public final class EdgeStreamingService extends Service {
             if(uri!=null&&!uri.isEmpty())openBook(uri,intent.getIntExtra(EXTRA_ANCHOR,0));
             active=true;
             backupTtsActivated=false;
+            if(intent.getBooleanExtra(EXTRA_FORCE_EDGE,false)){
+                // Ignore late callbacks from the previous failed Edge attempt.
+                cancelLiveExcept(null);liveJobs.clear();
+                error="";lastHttp429=false;
+                int selected=Math.max(0,intent.getIntExtra(EXTRA_ANCHOR,anchorWord));
+                Clip current=bookReady?clipAt(selected):null;
+                if(current!=null){current.failures=0;current.retryAt=0;
+                    current.awaitingUserRetry=false;}
+                // A reselected Edge mode must not replay the dead Media3 track.
+                // setAnchor clears the previous queue and selects a full sentence.
+                setAnchor(selected,true);
+                ReaderDiagnosticLog.event("TTS_SWITCH","TTS_EDGE_ACTIVATED forced=true cooldown_ms="+
+                    EdgeSpeechQueue.remainingMs());
+            }else ReaderDiagnosticLog.event("TTS_SWITCH","TTS_EDGE_ACTIVATED forced=false");
             if(uri!=null&&!uri.isEmpty())DownloadsRepository.showEdge(this,uri);
             pump();
         }else if(intent!=null && ACTION_PREFETCH.equals(intent.getAction()) && !active){
@@ -613,6 +635,7 @@ public final class EdgeStreamingService extends Service {
         if(uri.equals(bookUri)){
             pendingBookUri="";
             ReaderDiagnosticLog.event("READER_STARTUP","edge_book_reuse ready="+bookReady);
+            EdgeStartupTrace.stage("BOOK_REUSED","ready="+bookReady);
             // Do not overwrite an explicit selection with a stale activity bind.
             if(deferredSelectedWord<0 && selectedSeekWord<0 &&
                     (player==null||player.currentStartWord()<0))anchorWord=Math.max(0,initialWord);
@@ -625,7 +648,10 @@ public final class EdgeStreamingService extends Service {
         invalidateSpeech();trackReadyLoggedAt=-1L;restoreStartedAt=SystemClock.elapsedRealtime();
         cachedSavedPercent=0;lastCoverageCheck=0;
         archive.clear();byStart.clear();pendingStarts.clear();priorityStart=-1;
-        lazyAttempted.clear();lazyPending.clear();
+        lazyAttempted.clear();lazyPending.clear();lazyForeground.clear();
+        for(java.util.concurrent.atomic.AtomicBoolean token:lazyCommitPermits.values())
+            token.set(false);
+        lazyCommitPermits.clear();
         lastTransitionWaitKey="";lastTransitionWaitAtMs=0L;
         lastTransitionStallLoggedAtMs=0L;
         selectedOverrides.clear();selectedSeekWord=-1;deferredSelectedWord=-1;
@@ -637,7 +663,12 @@ public final class EdgeStreamingService extends Service {
         final String requested=uri;
         io.execute(()->{
             try{
+                long indexingStart=SystemClock.elapsedRealtime();
+                boolean reusedBook=UnifiedBookSession.current(requested)!=null;
                 UnifiedBookSession session=UnifiedBookSession.open(this,Uri.parse(requested));
+                long sessionOpenMs=SystemClock.elapsedRealtime()-indexingStart;
+                EdgeStartupTrace.stage("BOOK_OPENED","duration_ms="+sessionOpenMs+
+                    " reused="+reusedBook);
                 BookLoader.Book book=session.book;
                 String raw=book.text==null?"":book.text;
                 String name=book.title==null?"Книга":book.title;
@@ -649,8 +680,11 @@ public final class EdgeStreamingService extends Service {
                 File bookDir=EdgeBookStorage.bookFolder(this,requested,name);
                 File dir=new File(bookDir,"EdgeTTS");dir.mkdirs();
                 EdgeSpeechLayout layout=EdgeSpeechLayout.forFolder(dir);
+                long groupingStart=SystemClock.elapsedRealtime();
                 ArrayList<SentenceChunks.Chunk> newParts=session.edgeGroups(
                     EdgeDictionaryStore.get(this).options(),layout);
+                EdgeStartupTrace.stage("GROUP_INDEXED","duration_ms="+
+                    (SystemClock.elapsedRealtime()-groupingStart)+" groups="+newParts.size());
                 // v174: do NOT restore every saved MP3/WordBoundary before bookReady.
                 // Individual missing clips are recovered on demand by lazyRestore().
                 DownloadsRepository.storeEdgeMeta(bookDir,requested,name,positions.size());
@@ -658,6 +692,7 @@ public final class EdgeStreamingService extends Service {
                     if(destroyed||!requested.equals(bookUri))return;
                     bookText=raw;title=name;chapters=parsedChapters;offsets.addAll(positions);sentenceParts.addAll(newParts);sentenceIndex=session.sentenceIndex;sentenceHistory.bind(sentenceIndex);directory=dir;
                     bookReady=!offsets.isEmpty();restore();
+                    EdgeStartupTrace.stage("BOOK_READY","words="+offsets.size());
                     // Recovery is pure disk I/O. It must never delay the first frame.
                     io.execute(()->{
                       for(File pending:EdgeStreamCache.recover(dir)){
@@ -1136,6 +1171,7 @@ public final class EdgeStreamingService extends Service {
                 player.appendLive(current.key+":"+current.start,current.start,current.end,waiting.buffer);
             }
             if(current.ready()){
+                EdgeStartupTrace.stage("CACHE_READY","cached=true");
                 firstTrackReady(current,"cache");
                 // Position is armed *before* appendReady can call Media3.play().
                 if(selectedSeekWord>=0){
@@ -1208,9 +1244,29 @@ public final class EdgeStreamingService extends Service {
         prepareClip(clip);
         if(clip.ready()||clip.key==null||clip.key.isEmpty())return false;
         String identity=bookUri+"|"+clip.key;
-        if(lazyPending.contains(identity))return true;
+        final boolean foreground=active&&player!=null&&player.playRequested()&&
+            clip==clipAt(anchorWord);
+        if(lazyPending.contains(identity)){
+            if(!EdgeFirstAudioPolicy.bypassPendingRestore(
+                    foreground,lazyForeground.contains(identity)))return true;
+            // A paused warmup might already be waiting 9 seconds for SAF.
+            // User Play cancels that restore immediately instead of inheriting it.
+            java.util.concurrent.atomic.AtomicBoolean old=lazyCommitPermits.remove(identity);
+            if(old!=null)old.set(false);
+            lazyPending.remove(identity);lazyForeground.remove(identity);
+            ReaderDiagnosticLog.event("EDGE_STARTUP","SAF_RESTORE_BYPASS pending_warmup=true");
+            EdgeStartupTrace.stage("SAF_RESTORE_BYPASS","previous_warmup=true");
+            return false;
+        }
         if(!lazyAttempted.add(identity))return false;
         if(EdgeFolderPicker.selected(this)==null)return false;
+        final long waitMs=EdgeFirstAudioPolicy.restoreWaitMs(foreground);
+        final java.util.concurrent.atomic.AtomicBoolean commitAllowed=
+            new java.util.concurrent.atomic.AtomicBoolean(true);
+        final long restoreCallAt=SystemClock.elapsedRealtime();
+        ReaderDiagnosticLog.event("EDGE_STARTUP","SAF_RESTORE_START foreground="+foreground+
+            " grace_ms="+waitMs);
+        if(foreground)EdgeStartupTrace.stage("SAF_RESTORE_CHECK","grace_ms="+waitMs);
         int chapterNumber=0;
         int character=charForWord(clip.start);
         if(chapters!=null)for(int i=0;i<chapters.size();i++){
@@ -1220,21 +1276,35 @@ public final class EdgeStreamingService extends Service {
         final String requested=bookUri,requestedKey=clip.key,requestedTitle=title;
         final File folder=directory;
         lazyPending.add(identity);
+        if(foreground)lazyForeground.add(identity);
+        lazyCommitPermits.put(identity,commitAllowed);
         final Runnable restoreDeadline=()->{
             if(destroyed||!requested.equals(bookUri)||directory!=folder)return;
             if(!lazyPending.remove(identity))return;
+            lazyForeground.remove(identity);
+            // A timed-out worker is forbidden from publishing over a new live MP3.
+            commitAllowed.set(false);
+            lazyCommitPermits.remove(identity);
+            ReaderDiagnosticLog.event("EDGE_STARTUP","SAF_RESTORE_TIMEOUT elapsed_ms="+
+                (SystemClock.elapsedRealtime()-restoreCallAt)+" foreground="+foreground);
             ReaderDiagnosticLog.event("PLAYER","TRANSITION_STALLED saf_restore_timeout start="+clip.start);
             // The attempted key remains recorded; a second SAF read is not
             // started while the first provider call is still pending.
             if(active)pump();else if(idlePrefetchRequested)warmCurrent();
         };
-        main.postDelayed(restoreDeadline,SAF_RESTORE_WAIT_MS);
+        main.postDelayed(restoreDeadline,waitMs);
         clipRestore.execute(()->{
-            boolean restored=EdgeChapterArchive.restoreClip(this,requested,requestedTitle,folder,
-                chapter,requestedKey);
+            boolean restored=commitAllowed.get()&&EdgeChapterArchive.restoreClip(
+                this,requested,requestedTitle,folder,chapter,requestedKey,
+                commitAllowed::get);
             main.post(()->{
                 main.removeCallbacks(restoreDeadline);
-                lazyPending.remove(identity);
+                boolean stillPending=lazyPending.remove(identity);
+                lazyForeground.remove(identity);
+                lazyCommitPermits.remove(identity);
+                if(!stillPending||!commitAllowed.get())return;
+                ReaderDiagnosticLog.event("EDGE_STARTUP","SAF_RESTORE_RESULT hit="+restored+
+                    " elapsed_ms="+(SystemClock.elapsedRealtime()-restoreCallAt));
                 if(destroyed||!requested.equals(bookUri)||directory!=folder||
                     !requestedKey.equals(clip.key))return;
                 if(restored){
@@ -1307,6 +1377,7 @@ public final class EdgeStreamingService extends Service {
         if(lazyRestore(clip))return;
         ReaderDiagnosticLog.event("CACHE","cache_miss schedule start="+clip.start+" end="+clip.end+
             " warmup="+warmup+" ahead="+ahead);
+        if(!warmup&&!ahead)EdgeStartupTrace.stage("NETWORK_REQUEST","chars="+clip.text.length());
         lastHttp429=false; // a new explicit synthesis may report other real errors
         final LiveJob job=new LiveJob(clip,directory,bookUri);
         job.speech=speechFor(clip);
@@ -1337,9 +1408,13 @@ public final class EdgeStreamingService extends Service {
             foreground?EdgeSpeechQueue.PLAY:EdgeSpeechQueue.PREFETCH,
             new EdgeTtsClient.Callback(){
                 @Override public void progress(int count,long bytes){}
-                @Override public void connected(){EdgeTtsDiagnostics.connected(diagnosticKey);}
+                @Override public void connected(){
+                    EdgeTtsDiagnostics.connected(diagnosticKey);
+                    if(foreground)EdgeStartupTrace.stage("WS_CONNECTED","");
+                }
                 @Override public void audio(byte[] packet,int start,int length){
                     EdgeTtsDiagnostics.firstMp3(diagnosticKey,length);
+                    if(foreground)EdgeStartupTrace.stage("FIRST_MP3_PACKET","bytes="+length);
                     if(job.buffer!=null)try{job.buffer.append(packet,start,length);}
                     catch(java.io.IOException e){Log.w("EdgeSpeech","Live buffer rejected MP3",e);}
                     if(!job.firstAudioNotified){
@@ -1364,6 +1439,9 @@ public final class EdgeStreamingService extends Service {
                     EdgeTtsDiagnostics.finished(diagnosticKey,problem,
                         job.timings==null?0:job.timings.size());
                     if(problem!=null){
+                        if(foreground)EdgeStartupTrace.stage("NETWORK_ERROR","category="+
+                            (problem.contains("HTTP 429")?"http429":
+                                problem.contains("Предложение превышает")?"ssml_limit":"transport"));
                         if(problem.contains("HTTP 429"))lastHttp429=true;
                         if(job.buffer!=null)job.buffer.fail(new java.io.IOException(problem));
                         main.post(()->{

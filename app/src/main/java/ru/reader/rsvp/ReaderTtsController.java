@@ -10,19 +10,31 @@ import android.content.Intent;
 final class ReaderTtsController {
     private ReaderTtsController(){}
     static void begin(Context context,boolean local,String uri,int word){
+        begin(context,local,uri,word,false,false);
+    }
+    static void begin(Context context,boolean local,String uri,int word,
+            boolean autoPlay,boolean forceEdge){
         if(local){
-            context.startService(new Intent(context,AudioPlaybackService.class).setAction(AudioPlaybackService.TTS)
-                .putExtra("bookUri",uri).putExtra("word_index",word));
+            context.startService(new Intent(context,AudioPlaybackService.class)
+                .setAction(AudioPlaybackService.TTS)
+                .putExtra("bookUri",uri).putExtra("word_index",word)
+                .putExtra("auto_on_selection",autoPlay));
         }else{
             context.startService(new Intent(context,EdgeStreamingService.class)
                 .setAction(EdgeStreamingService.ACTION_BEGIN)
                 .putExtra(EdgeStreamingService.EXTRA_URI,uri)
-                .putExtra(EdgeStreamingService.EXTRA_ANCHOR,word));
+                .putExtra(EdgeStreamingService.EXTRA_ANCHOR,word)
+                .putExtra(EdgeStreamingService.EXTRA_FORCE_EDGE,forceEdge));
         }
     }
     static void stopLocal(Context context){
-        if(AudioPlaybackService.instance!=null&&AudioPlaybackService.instance.isTtsMode())
-            context.startService(new Intent(context,AudioPlaybackService.class).setAction(AudioPlaybackService.STOP));
+        AudioPlaybackService old=AudioPlaybackService.instance;
+        if(old!=null&&old.isTtsMode()){
+            ReaderDiagnosticLog.event("TTS_SWITCH","TTS_BACKUP_STOP_REQUESTED backup="+
+                old.isBackupEdgeSession());
+            context.startService(new Intent(context,AudioPlaybackService.class)
+                .setAction(AudioPlaybackService.STOP));
+        }
     }
     static void localPauseOrResume(Context context){
         AudioPlaybackService s=AudioPlaybackService.instance;

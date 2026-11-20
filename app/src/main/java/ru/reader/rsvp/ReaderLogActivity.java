@@ -41,7 +41,7 @@ public final class ReaderLogActivity extends NavigationActivity {
         title.addView(back,new LinearLayout.LayoutParams(dp(42),dp(54)));
         TextView heading=label("Лог-файл ПРОЧиталки",20);heading.setTypeface(null,Typeface.BOLD);
         title.addView(heading,new LinearLayout.LayoutParams(0,-2,1));base.addView(title);
-        info=label("Данные сохраняются только на устройстве. Текст книги и ключи не записываются.",12);
+        info=label("Журнал EDGE_STARTUP показывает время до первого звука, TTS_SWITCH — смену движков и бейджа. Текст книг и ключи не записываются.",12);
         info.setPadding(dp(5),dp(5),dp(5),dp(8));base.addView(info);
         LinearLayout actions=new LinearLayout(this);
         addAction(actions,"Обновить",this::refresh);
