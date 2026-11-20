@@ -36,7 +36,6 @@ public class ReaderActivity extends NavigationActivity {
     private java.util.ArrayList<SentenceChunks.Chunk> ttsParts=new java.util.ArrayList<>();
     private SentenceIndex ttsSentenceIndex=SentenceIndex.fromText("");
     private int pendingTtsWord=-1;
-    private long pendingTtsSelectedAt=0L;
     private String cachedTimingKey="",lastTtsError="";
     private java.util.List<EdgeWordTimings.Word> cachedTimingWords=java.util.Collections.emptyList();
     private String timingLoadingKey="",lastMissingTimingKey="";
@@ -86,6 +85,10 @@ public class ReaderActivity extends NavigationActivity {
         }
     };
     private long navigationEpoch=0L;
+    // Any explicit navigation/selection invalidates posted auto-follow scrolls.
+    private long viewportNavigationEpoch=0L;
+    private final ReaderSpeechPositionGuard speechPosition=new ReaderSpeechPositionGuard();
+    private long observedStreamSelectionSerial=-1L;
     private long tocPreviewGeneration=0L; // invalidate delayed preview alignment on new user action
     private long lastIgnoredEpoch=-1L;
 
@@ -122,6 +125,7 @@ public class ReaderActivity extends NavigationActivity {
             if(pendingTtsWord>=0)ttsStreamer.setAnchor(pendingTtsWord,true);
             else ttsStreamer.setAnchor(index,false);
             ttsStreamer.setActive(true);
+            observedStreamSelectionSerial=ttsStreamer.selectionSerial();
             if(ttsPendingPlay&&ttsPlayer!=null){
                 ttsPendingPlay=false;ttsStreamer.activatePreparedBook();
                 ttsPlayer.play();ttsStreamer.ensurePlaySelection();
@@ -142,6 +146,9 @@ public class ReaderActivity extends NavigationActivity {
     private int selectionFrom=-1,selectionTo=-1; // inclusive word indexes
     private int selectedCharFrom=-1,selectedCharTo=-1; // exact UTF-16 range, for Android selection
     private TextView nativeSelectedView;
+    private ActionMode activeNativeActionMode;
+    // Handoff survives an asynchronous platform onDestroyActionMode callback.
+    private ActionMode completedNativeActionMode;
     private boolean nativeActionModeActive,nativeSelectionForwarding;
     private static final int NATIVE_COLOR=0x18401,NATIVE_NOTE=0x18402,NATIVE_DICT=0x18403;
     private static final int NATIVE_BOOKMARK=0x18404,NATIVE_QUOTE=0x18405,NATIVE_EXTEND=0x18406;
@@ -337,7 +344,10 @@ public class ReaderActivity extends NavigationActivity {
 
     private int accentAtDraw=Integer.MIN_VALUE;
     private void draw(){
+        if(activeNativeActionMode!=null)activeNativeActionMode.finish();
         dismissSelectionMenu();selectionHandles=null;selectionFrom=-1;selectionTo=-1;
+        selectedCharFrom=selectedCharTo=-1;nativeSelectedView=null;
+        nativeActionModeActive=false;completedNativeActionMode=null;
         selectionDragging=false;selectionMenuAfterScroll=false;
         accentAtDraw=UiColorScheme.accent(this);
         lastAppliedFont=ReaderFontLibrary.choice(this,prefs);
@@ -554,6 +564,7 @@ public class ReaderActivity extends NavigationActivity {
         textList.addOnScrollListener(new RecyclerView.OnScrollListener(){
             @Override public void onScrollStateChanged(RecyclerView rv,int state){
                 if(state==RecyclerView.SCROLL_STATE_DRAGGING){
+                    viewportNavigationEpoch++;
                     if(selectionFrom>=0&&!selectionDragging&&!nativeActionModeActive){selectionMenuAfterScroll=true;dismissSelectionMenu();}
                     chteicoTouch();userScrolling=true;manualViewportMovement=true;followSuspended=true;tocPreviewGeneration++;
                     if(mode==TTS)updateFloatingCaption();
@@ -658,11 +669,26 @@ public class ReaderActivity extends NavigationActivity {
     }
     private void beginTextSelection(int word){
         if(words.length==0)return;
-        selectionFrom=selectionTo=map.clamp(word);focusedNoteId=0;
-        selectedCharFrom=selectedCharTo=-1;
+        if(activeNativeActionMode!=null)activeNativeActionMode.finish();
+        int at=map.clamp(word);
+        applySelectionChars(map.starts[at],map.ends[at]);focusedNoteId=0;
+        if(textList!=null)textList.stopScroll();viewportNavigationEpoch++;
         updateVisibleAnnotations();
         if(selectionHandles!=null)selectionHandles.invalidate();
         selectionMenuAfterScroll=false;showSelectionMenu();
+    }
+    /** The book-wide character interval is the only authoritative selection range.
+     * Word indexes exist solely as an adapter for legacy bookmarks and annotations. */
+    private void applySelectionChars(int start,int end){
+        if(start>0&&start<body.length()&&Character.isLowSurrogate(body.charAt(start))
+                &&Character.isHighSurrogate(body.charAt(start-1)))start--;
+        if(end>0&&end<body.length()&&Character.isLowSurrogate(body.charAt(end))
+                &&Character.isHighSurrogate(body.charAt(end-1)))end++;
+        ReaderSelectionRange range=ReaderSelectionRange.of(start,end,body.length());
+        if(!range.valid())return;
+        selectedCharFrom=range.start;selectedCharTo=range.end;
+        selectionFrom=map.atCharacter(range.start);
+        selectionTo=map.atCharacter(range.end-1);
     }
     private void dismissSelectionMenu(){
         if(selectionPopup!=null){try{selectionPopup.dismiss();}catch(Exception ignored){}selectionPopup=null;}
@@ -675,7 +701,8 @@ public class ReaderActivity extends NavigationActivity {
             if(text instanceof Spannable)Selection.removeSelection((Spannable)text);
             nativeSelectedView=null;
         }
-        nativeActionModeActive=false;
+        nativeActionModeActive=false;activeNativeActionMode=null;
+        completedNativeActionMode=null;
         selectionMenuAfterScroll=false;selectionDragging=false;
         updateVisibleAnnotations();if(selectionHandles!=null)selectionHandles.invalidate();
     }
@@ -724,19 +751,24 @@ public class ReaderActivity extends NavigationActivity {
                 Math.max(a,first)-first,Math.min(b,last)-first);
         }
     }
-    private float[] positionForWord(int word,boolean beginning){
-        if(chunks==null||textList==null||sceneRoot==null||word<0||word>=map.size())return null;
-        int row=chunks.chunkForWord(word);
+    /** Translate an absolute UTF-16 offset to the on-screen caret of a visible row.
+     * The end caret belongs to the preceding chunk if it lies on a row boundary. */
+    private float[] positionForCharacter(int absolute,boolean beginning){
+        if(chunks==null||textList==null||sceneRoot==null||map.size()==0)return null;
+        int lookup=beginning?absolute:Math.max(0,absolute-1);
+        int row=chunks.chunkForCharacter(lookup);
         RecyclerView.ViewHolder raw=textList.findViewHolderForAdapterPosition(row+1);
         if(!(raw instanceof ChunkAdapter.Holder))return null;
         TextView view=((ChunkAdapter.Holder)raw).value;
-        if(view==null||view.getLayout()==null)return null;
-        int offset=(beginning?map.starts[word]:map.ends[word])-chunks.get(row).startChar;
-        android.text.Layout layout=view.getLayout();offset=Math.min(Math.max(0,offset),view.length());
+        if(view==null||view.getLayout()==null||view.length()==0)return null;
+        int offset=Math.max(0,Math.min(view.length(),absolute-chunks.get(row).startChar));
+        android.text.Layout layout=view.getLayout();
         int line=layout.getLineForOffset(Math.max(0,Math.min(view.length()-1,beginning?offset:offset-1)));
-        int[] where=new int[2],rootWhere=new int[2];view.getLocationOnScreen(where);sceneRoot.getLocationOnScreen(rootWhere);
+        int[] where=new int[2],rootWhere=new int[2];
+        view.getLocationOnScreen(where);sceneRoot.getLocationOnScreen(rootWhere);
         float x=where[0]-rootWhere[0]+view.getTotalPaddingLeft()+layout.getPrimaryHorizontal(offset);
-        float y=where[1]-rootWhere[1]+view.getTotalPaddingTop()+(beginning?layout.getLineTop(line):layout.getLineBottom(line));
+        float y=where[1]-rootWhere[1]+view.getTotalPaddingTop()
+            +(beginning?layout.getLineTop(line):layout.getLineBottom(line));
         int[] listOnScreen=new int[2];textList.getLocationOnScreen(listOnScreen);
         int absoluteY=(int)(y+rootWhere[1]);
         if(absoluteY<listOnScreen[1]+dp(1)||absoluteY>listOnScreen[1]+textList.getHeight()-dp(1))return null;
@@ -744,7 +776,18 @@ public class ReaderActivity extends NavigationActivity {
     }
     private float[][] selectionPositions(){
         if(nativeActionModeActive||selectionFrom<0||selectionTo<selectionFrom)return null;
-        return new float[][]{positionForWord(selectionFrom,true),positionForWord(selectionTo,false)};
+        int a=selectedStartChar(),b=selectedEndChar();
+        return new float[][]{positionForCharacter(a,true),positionForCharacter(b,false)};
+    }
+    /** Hit test a caret, not a word: punctuation and partial words stay selectable. */
+    private int characterAt(ChunkAdapter.Holder holder,float x,float y){
+        int row=holder.getBindingAdapterPosition()-1;
+        if(row<0||chunks==null||row>=chunks.size()||holder.value==null)return -1;
+        android.text.Layout layout=holder.value.getLayout();if(layout==null)return -1;
+        int line=layout.getLineForVertical(Math.max(0,(int)y-holder.value.getTotalPaddingTop()));
+        int offset=layout.getOffsetForHorizontal(line,Math.max(0,x-holder.value.getTotalPaddingLeft()));
+        return Math.max(chunks.get(row).startChar,
+            Math.min(chunks.get(row).endChar,chunks.get(row).startChar+offset));
     }
     /** Moves the dragged endpoint across RecyclerView chunks; swap start/end roles at crossings. */
     private boolean moveSelectionHandle(boolean start,float sceneX,float sceneY){
@@ -761,17 +804,14 @@ public class ReaderActivity extends NavigationActivity {
         ChunkAdapter.Holder holder=(ChunkAdapter.Holder)raw;
         TextView line=holder.value;if(line==null)return start;
         int[] absolute=new int[2];line.getLocationOnScreen(absolute);
-        int word=wordAt(holder,sceneX+rootPosition[0]-absolute[0],
+        int at=characterAt(holder,sceneX+rootPosition[0]-absolute[0],
             clampedY+listPosition[1]-absolute[1]);
-        if(word<0)return start;
-        if(start){
-            if(word>selectionTo){selectionFrom=selectionTo;selectionTo=word;start=false;}
-            else selectionFrom=word;
-        }else{
-            if(word<selectionFrom){selectionTo=selectionFrom;selectionFrom=word;start=true;}
-            else selectionTo=word;
-        }
-        selectedCharFrom=selectedCharTo=-1;
+        if(at<0)return start;
+        ReaderSelectionRange current=ReaderSelectionRange.of(selectedStartChar(),selectedEndChar(),body.length());
+        ReaderSelectionRange.Move moved=current.drag(start,at,body.length());
+        if(!moved.range.valid())return start;
+        applySelectionChars(moved.range.start,moved.range.end);
+        start=moved.movingStart;
         dismissSelectionMenu();updateVisibleAnnotations();
         if(selectionHandles!=null)selectionHandles.invalidate();
         return start;
@@ -791,7 +831,7 @@ public class ReaderActivity extends NavigationActivity {
         return true;
     }
     private void showSelectionMenu(){
-        dismissSelectionMenu();if(selectionFrom<0||sceneRoot==null)return;
+        dismissSelectionMenu();if(nativeActionModeActive||selectionFrom<0||sceneRoot==null)return;
         LinearLayout actions=new LinearLayout(this);actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setPadding(dp(3),dp(3),dp(3),dp(3));
         actions.setBackground(shape(panelColor(),13));actions.setElevation(dp(9));
@@ -1053,16 +1093,15 @@ public class ReaderActivity extends NavigationActivity {
         int a=Selection.getSelectionStart(text),b=Selection.getSelectionEnd(text);
         if(a<0||b<0||a==b)return;
         int first=chunks.get(row).startChar;
-        selectedCharFrom=Math.max(0,Math.min(body.length(),first+Math.min(a,b)));
-        selectedCharTo=Math.max(0,Math.min(body.length(),first+Math.max(a,b)));
-        selectionFrom=map.atCharacter(selectedCharFrom);
-        selectionTo=map.atCharacter(Math.max(selectedCharFrom,selectedCharTo-1));
+        applySelectionChars(first+Math.min(a,b),first+Math.max(a,b));
         focusedNoteId=0;
     }
     private ActionMode.Callback nativeTextActions(ChunkAdapter.Holder holder){
         return new ActionMode.Callback(){
             @Override public boolean onCreateActionMode(ActionMode mode,Menu menu){
-                nativeSelectedView=holder.value;nativeActionModeActive=true;
+                nativeSelectedView=holder.value;activeNativeActionMode=mode;
+                completedNativeActionMode=null;nativeActionModeActive=true;
+                if(textList!=null)textList.stopScroll();viewportNavigationEpoch++;
                 captureNativeRange(holder);
                 menu.add(0,NATIVE_COLOR,30,"Цвет").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
                 menu.add(0,NATIVE_NOTE,31,"Заметка").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
@@ -1072,14 +1111,17 @@ public class ReaderActivity extends NavigationActivity {
                 menu.add(0,NATIVE_EXTEND,35,"Выделить между блоками").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
                 return true;
             }
-            @Override public boolean onPrepareActionMode(ActionMode mode,Menu menu){return false;}
+            @Override public boolean onPrepareActionMode(ActionMode mode,Menu menu){
+                if(mode==activeNativeActionMode)captureNativeRange(holder);
+                return false;
+            }
             @Override public boolean onActionItemClicked(ActionMode mode,MenuItem item){
                 int command=item.getItemId();
                 if(command!=NATIVE_COLOR&&command!=NATIVE_NOTE&&command!=NATIVE_DICT&&
                     command!=NATIVE_BOOKMARK&&command!=NATIVE_QUOTE&&command!=NATIVE_EXTEND)return false;
                 captureNativeRange(holder);
                 if(selectedStartChar()<0||selectedEndChar()<=selectedStartChar())return false;
-                nativeSelectionForwarding=true;
+                nativeSelectionForwarding=true;completedNativeActionMode=mode;
                 mode.finish();
                 nativeSelectionForwarding=false;
                 if(command==NATIVE_COLOR)pickSelectionColor();
@@ -1096,8 +1138,17 @@ public class ReaderActivity extends NavigationActivity {
                 return true;
             }
             @Override public void onDestroyActionMode(ActionMode mode){
-                nativeActionModeActive=false;nativeSelectedView=null;
-                if(!nativeSelectionForwarding)clearSelection();
+                // A delayed callback from a recycled row must never clear a newer selection.
+                if(activeNativeActionMode!=mode)return;
+                TextView view=nativeSelectedView;
+                nativeActionModeActive=false;nativeSelectedView=null;activeNativeActionMode=null;
+                if(view!=null){
+                    CharSequence selected=view.getText();
+                    if(selected instanceof Spannable)Selection.removeSelection((Spannable)selected);
+                }
+                boolean handedOff=completedNativeActionMode==mode||nativeSelectionForwarding;
+                completedNativeActionMode=null;
+                if(!handedOff)clearSelection();
             }
         };
     }
@@ -1137,11 +1188,15 @@ public class ReaderActivity extends NavigationActivity {
         class Holder extends RecyclerView.ViewHolder {
             final TextView value;
             Spannable content;
+            int boundChunk=-1;
             final ArrayList<Object> applied=new ArrayList<>();
             Holder(TextView t){super(t);value=t;}
             Holder(FrameLayout frame){super(frame);value=null;}
             void highlight(int chunkId){
                 if(content==null||value==null)return;
+                // Freeze layout-affecting spans while Android positions the
+                // selection handles. A highlight refresh must not reflow text.
+                if(nativeActionModeActive)return;
                 for(Object span:applied)content.removeSpan(span);applied.clear();
                 if(words.length==0)return;
                 BookChunkIndex.Chunk c=chunks.get(chunkId);
@@ -1200,16 +1255,41 @@ public class ReaderActivity extends NavigationActivity {
             // lets TextView and RecyclerView handle long presses and scrolling natively.
             item.setTextIsSelectable(true);
             item.setCustomSelectionActionModeCallback(nativeTextActions(holder));
-            GestureDetector detector=new GestureDetector(ReaderActivity.this,
-                new GestureDetector.SimpleOnGestureListener(){
-                    @Override public boolean onDown(MotionEvent event){return true;}
-                    @Override public boolean onSingleTapUp(MotionEvent event){
-                        return handleTextTap(holder,event.getX(),event.getY());
+            // Do not navigate on ACTION_UP before Android's selection controller
+            // processes the event. A long press, handle drag or RecyclerView fling
+            // can never be mistaken for a tap on another sentence.
+            final float touchSlop=ViewConfiguration.get(ReaderActivity.this).getScaledTouchSlop();
+            item.setOnTouchListener(new View.OnTouchListener(){
+                float downX,downY;long downAt;int pointer=-1;boolean clickCandidate;
+                @Override public boolean onTouch(View view,MotionEvent event){
+                    int action=event.getActionMasked();
+                    if(action==MotionEvent.ACTION_DOWN){
+                        pointer=event.getPointerId(0);downX=event.getX();downY=event.getY();
+                        downAt=event.getEventTime();clickCandidate=!nativeActionModeActive;
+                    }else if(action==MotionEvent.ACTION_MOVE){
+                        int at=event.findPointerIndex(pointer);
+                        if(at<0||Math.abs(event.getX(at)-downX)>touchSlop
+                                ||Math.abs(event.getY(at)-downY)>touchSlop)clickCandidate=false;
+                    }else if(action==MotionEvent.ACTION_UP){
+                        boolean tap=clickCandidate&&event.getPointerCount()==1
+                            &&event.getEventTime()-downAt<ViewConfiguration.getLongPressTimeout();
+                        float x=event.getX(),y=event.getY();
+                        int boundRow=holder.getBindingAdapterPosition();
+                        clickCandidate=false;pointer=-1;
+                        if(tap && boundRow>0){
+                            // Run after TextView has processed UP, so a newly created
+                            // native selection always takes precedence over navigation.
+                            view.post(()->{
+                                if(holder.getBindingAdapterPosition()!=boundRow||nativeActionModeActive
+                                        ||nativeSelectedView!=null||selectionDragging)return;
+                                handleTextTap(holder,x,y);
+                            });
+                        }
+                    }else if(action==MotionEvent.ACTION_POINTER_DOWN||action==MotionEvent.ACTION_CANCEL){
+                        clickCandidate=false;pointer=-1;
                     }
-                });
-            item.setOnTouchListener((view,event)->{
-                detector.onTouchEvent(event);
-                return false;
+                    return false; // TextView owns the Android selection handles.
+                }
             });
             return holder;
         }
@@ -1223,8 +1303,16 @@ public class ReaderActivity extends NavigationActivity {
             int chunkIndex=position-1;
             BookChunkIndex.Chunk c=chunks.get(chunkIndex);
             String slice=body.substring(c.startChar,c.endChar);
-            holder.value.setText(slice,TextView.BufferType.SPANNABLE);
-            holder.content=(Spannable)holder.value.getText();holder.applied.clear();holder.highlight(chunkIndex);
+            if(holder.boundChunk!=chunkIndex || holder.content==null
+                    || !TextUtils.equals(holder.value.getText().toString(),slice)){
+                if(holder.value==nativeSelectedView&&activeNativeActionMode!=null){
+                    activeNativeActionMode.finish();
+                }
+                holder.value.setText(slice,TextView.BufferType.SPANNABLE);
+                holder.content=(Spannable)holder.value.getText();holder.applied.clear();
+                holder.boundChunk=chunkIndex;
+            }
+            holder.highlight(chunkIndex);
         }
         @Override public int getItemCount(){return chunks==null?0:chunks.size()+1;}
         void updateVisible(int chunkId){
@@ -1499,7 +1587,14 @@ public class ReaderActivity extends NavigationActivity {
     /** Center the active line; far-away chapters jump close then settle gently. */
     private void ensureWordVisible(boolean explicitReturn){
         if(mode==RSVP&&playing)return;
+        // Selection always owns the viewport, even if an unrelated Play command
+        // asked to resume follow. Never scroll a dragged Android handle away.
+        if(nativeActionModeActive||selectionDragging||selectionFrom>=0)return;
         if(!explicitReturn&&followSuspended)return;
+        // Follow the reading position, not every individual TTS word. Constant
+        // recentering on 180-ms ticks caused backwards-looking scroll jumps.
+        if(!explicitReturn&&mode==TTS&&isActiveSentenceVisible())return;
+        if(!explicitReturn&&mode==CURSOR&&isActiveWordVisible())return;
         if(textList==null||textList.getVisibility()!=View.VISIBLE||layoutManager==null||chunks==null||words.length==0)return;
         int chunk=chunks.chunkForWord(map.clamp(index));
         RecyclerView.ViewHolder item=textList.findViewHolderForAdapterPosition(chunk+1);
@@ -1508,8 +1603,11 @@ public class ReaderActivity extends NavigationActivity {
                 && chunk<=layoutManager.findLastVisibleItemPosition()-1)return;
             restoringScroll=true;
             layoutManager.scrollToPositionWithOffset(chunk+1,Math.max(dp(65),textList.getHeight()/2));
+            final long generation=viewportNavigationEpoch;
             textList.post(()->{
-                if(!followSuspended&&textList!=null&&textList.getVisibility()==View.VISIBLE)
+                if(generation==viewportNavigationEpoch&&!followSuspended&&
+                        !nativeActionModeActive&&selectionFrom<0&&textList!=null
+                        &&textList.getVisibility()==View.VISIBLE)
                     centerActiveVisibleLine(false);
                 restoringScroll=false;
             });
@@ -1538,9 +1636,12 @@ public class ReaderActivity extends NavigationActivity {
             int relativeLineCenter=v.getTotalPaddingTop()
                 +(layout.getLineTop(line)+layout.getLineBottom(line))/2;
             layoutManager.scrollToPositionWithOffset(chunk+1,viewportCenter-relativeLineCenter);
+            final long generation=viewportNavigationEpoch;
             textList.post(()->{
                 restoringScroll=false;
-                if(!followSuspended)centerActiveVisibleLine(true);
+                if(generation==viewportNavigationEpoch&&!followSuspended
+                        &&!nativeActionModeActive&&selectionFrom<0)
+                    centerActiveVisibleLine(true);
             });
         }else{
             textList.smoothScrollBy(0,delta);
@@ -1625,7 +1726,7 @@ public class ReaderActivity extends NavigationActivity {
         });
     }
     private void abandonViewportPreview(){
-        tocPreviewGeneration++;
+        tocPreviewGeneration++;viewportNavigationEpoch++;
         viewportWord=-1;followSuspended=false;userScrolling=false;manualViewportMovement=false;
         if(prefs!=null&&!docUri.isEmpty())prefs.edit().remove("viewport:"+docUri).apply();
     }
@@ -1759,6 +1860,8 @@ public class ReaderActivity extends NavigationActivity {
         if(mode==RSVP&&playing)stop();
         int target=map.clamp(word),chunk=chunks.chunkForWord(target);
         final long generation=++tocPreviewGeneration;
+        viewportNavigationEpoch++;
+        if(textList!=null)textList.stopScroll();
         viewportWord=target;followSuspended=true;userScrolling=false;restoringScroll=true;updateChapterTitle();
         if(prefs!=null&&!docUri.isEmpty())prefs.edit().putInt("viewport:"+docUri,target).apply();
         ReaderDiagnosticLog.event("NAVIGATION","TOC_VIEW_ONLY target="+target+
@@ -1847,7 +1950,7 @@ public class ReaderActivity extends NavigationActivity {
         if(previousMode==TTS){saveLight(true);releaseTts();}
         else if(next==TTS)saveLight(true);
         index=map.clamp(UnifiedReadingProgress.read(prefs,docUri,index));
-        pendingTtsWord=-1;
+        pendingTtsWord=-1;speechPosition.reset();
         mode=next;selecting=false;selectedWordActive=false;normalChromeVisible=false;toolbarExpanded=true;
         ReaderToolbarController.reset(toolbarStack);
         updateModeUI();refreshHighlight(old);
@@ -2000,8 +2103,7 @@ public class ReaderActivity extends NavigationActivity {
             if(data.hasExtra("quote_from_char")&&data.hasExtra("quote_to_char")){
                 int a=data.getIntExtra("quote_from_char",-1),b=data.getIntExtra("quote_to_char",-1);
                 if(a>=0&&b>a&&b<=body.length()){
-                    selectionFrom=map.atCharacter(a);selectionTo=map.atCharacter(b-1);
-                    selectedCharFrom=a;selectedCharTo=b;
+                    applySelectionChars(a,b);
                     updateVisibleAnnotations();
                     if(selectionHandles!=null)selectionHandles.invalidate();
                 }
@@ -2042,10 +2144,14 @@ public class ReaderActivity extends NavigationActivity {
             final java.util.List<ReaderAnnotationsStore.Annotation> preparedAnnotations=bookAnnotations;
             runOnUiThread(()->{
                 long uiBegin=SystemClock.elapsedRealtime();
+                if(activeNativeActionMode!=null)activeNativeActionMode.finish();
                 stop();title=loadedTitle;author=loadedAuthor==null?"":loadedAuthor;body=loadedText;
                 map=prepared;words=prepared.words;chunks=indexed;
                 annotations=preparedAnnotations;selectionFrom=-1;selectionTo=-1;
                 selectedCharFrom=selectedCharTo=-1;nativeActionModeActive=false;nativeSelectedView=null;
+                activeNativeActionMode=null;completedNativeActionMode=null;
+                speechPosition.reset();observedStreamSelectionSerial=-1L;
+                viewportNavigationEpoch++;
                 actualChapters=parsedChapters==null?BookChapterIndex.empty():parsedChapters;
                 chapters=parsedChapters!=null&&parsedChapters.size()>0?parsedChapters:BookChapterIndex.empty();
                 ttsParts=session.speechSegments;ttsSentenceIndex=session.sentenceIndex;docUri=uri.toString();
@@ -2102,6 +2208,7 @@ public class ReaderActivity extends NavigationActivity {
     }
     private void releaseTts(){
         cancelTtsUi();ttsPendingPlay=false;pendingTtsWord=-1;
+        speechPosition.reset();observedStreamSelectionSerial=-1L;
         cachedTimingKey="";timingLoadingKey="";
         cachedTimingSidecarLength=-1L;cachedTimingSidecarModified=-1L;
         cachedTimingWords=java.util.Collections.emptyList();lastTtsError="";
@@ -2165,8 +2272,11 @@ public class ReaderActivity extends NavigationActivity {
         index=map.clamp(at);
         index=ttsSentenceIndex.beginning(index);
         pendingTtsWord=index;
-        pendingTtsSelectedAt=SystemClock.uptimeMillis();
+        SentenceChunks.Chunk intendedSentence=ttsSentenceIndex.atWordRange(index);
+        speechPosition.seek(index,intendedSentence==null?index+1:intendedSentence.toWord);
         navigationEpoch++;
+        // A previous smooth-scroll must not steal the screen after a new tap.
+        if(textList!=null)textList.stopScroll();
         ReaderDiagnosticLog.event("NAVIGATION","USER_SELECT chapter="+chapterForWord(index)+" word="+index+" epoch="+navigationEpoch);
         prefs.edit().putInt("tts_word:"+docUri,index).apply();
         boolean autoplay=prefs.getBoolean("tts_tap_autoplay",false);
@@ -2176,14 +2286,43 @@ public class ReaderActivity extends NavigationActivity {
             boolean audible=ttsPlayer!=null&&ttsPlayer.isPlaying();
             if(ttsPlayer!=null)ttsPlayer.pause();
             ttsStreamer.setAnchor(index,true);
+            observedStreamSelectionSerial=ttsStreamer.selectionSerial();
             if(autoplay||audible){if(ttsPlayer!=null){ttsPlayer.play();ttsStreamer.ensurePlaySelection();}else ttsPendingPlay=true;}
+        }
+    }
+    /** A headset/notification sentence navigation is an explicit selection too.
+     * It must update the visible focus before WordBoundary arrives, but not
+     * mutate a manually browsed TOC viewport. */
+    private void syncExternalTtsSelection(){
+        if(ttsLocal||ttsStreamer==null||words.length==0)return;
+        long serial=ttsStreamer.selectionSerial();
+        if(observedStreamSelectionSerial<0){observedStreamSelectionSerial=serial;return;}
+        if(observedStreamSelectionSerial==serial)return;
+        observedStreamSelectionSerial=serial;
+        int requested=ttsStreamer.lastSelectedWord();
+        if(requested<0||requested>=words.length)return;
+        int target=ttsSentenceIndex.beginning(map.clamp(requested));
+        SentenceChunks.Chunk part=ttsSentenceIndex.atWordRange(target);
+        pendingTtsWord=target;
+        speechPosition.seek(target,part==null?target+1:part.toWord);
+        navigationEpoch++;
+        int old=index;index=target;
+        if(old!=target){
+            ReaderDiagnosticLog.event("NAVIGATION","EXTERNAL_SELECTION word="+target+" epoch="+navigationEpoch);
+            refreshHighlight(old);updateProgress();
+            if(!followSuspended&&!nativeActionModeActive&&selectionFrom<0)
+                ensureWordVisible(true);
         }
     }
     private void refreshTtsPosition(){
         if(mode!=TTS||words.length==0)return;
+        syncExternalTtsSelection();
         int actual=-1;
-        if(ttsLocal){AudioPlaybackService s=AudioPlaybackService.instance;
-            if(s!=null&&s.isTtsMode())actual=map.atCharacter(s.currentTtsWordRange()[0]);
+        boolean backupActive=backupTtsForThisBook();
+        if(ttsLocal||backupActive){
+            AudioPlaybackService s=AudioPlaybackService.instance;
+            if(s!=null&&s.isTtsMode()&&docUri.equals(s.getTtsBookUri()))
+                actual=map.atCharacter(s.currentTtsWordRange()[0]);
         }else if(ttsStreamer!=null){
             EdgeStreamingService.Clip clip=ttsStreamer.currentClip();
             String problem=ttsStreamer.error();
@@ -2233,34 +2372,35 @@ public class ReaderActivity extends NavigationActivity {
                 }else ticks=ttsStreamer.liveWords(clip);
                 int at=EdgeWordTimings.at(ticks,ttsPlayer.positionMs());
                 if(at>=0)actual=map.atCharacter(ttsStreamer.charForWord(clip.start)+ticks.get(at).from);
-                else if(ticks.isEmpty()&&ttsPlayer.isPlaying())actual=clip.start;
+                else if(ticks.isEmpty()&&ttsPlayer.isPlaying())
+                    actual=speechPosition.withoutTimings(ttsPlayer.currentKey(),clip.start);
             }
         }
         boolean active=ttsCurrentlyPlaying();
-        if(pendingTtsWord>=0){
-            SentenceChunks.Chunk target=ttsSentenceIndex.atWordRange(pendingTtsWord);
-            if(target!=null&&actual>=target.fromWord&&actual<target.toWord)pendingTtsWord=-1;
-            else{
-                EdgeStreamingService.Clip activeClip=ttsStreamer==null?null:ttsStreamer.currentClip();
-                if(activeClip!=null&&ttsPlayer!=null&&ttsPlayer.isPlaying()
-                    &&(activeClip.key+":"+activeClip.start).equals(ttsPlayer.currentKey())
-                    &&activeClip.start>=0&&activeClip.end>activeClip.start
-                    &&target!=null&&actual>=activeClip.start&&actual<activeClip.end
-                    &&((activeClip.start>=target.fromWord&&activeClip.start<target.toWord)
-                        ||SystemClock.uptimeMillis()-pendingTtsSelectedAt>8000L)){
-                    // Playback has advanced to a verified active clip. The former
-                    // tap guard is no longer allowed to hold back WordBoundary.
-                    ReaderDiagnosticLog.event("NAVIGATION","PENDING_SELECTION_RELEASED word="+actual);
-                    pendingTtsWord=-1;
-                }else{
-                if(actual>=0&&lastIgnoredEpoch!=navigationEpoch){
-                    lastIgnoredEpoch=navigationEpoch;
-                    ReaderDiagnosticLog.event("NAVIGATION","NAVIGATION_IGNORED_STALE epoch="+navigationEpoch+
-                        " actual="+actual+" selected="+pendingTtsWord);
-                }
-                actual=-1; // stale callback from the previous streamed sentence
-                }
-            }
+        // Only confirmed audio may move the displayed reading cursor. A manual
+        // sentence jump remains authoritative until its Media3 track actually starts;
+        // an 8-second timer must never turn the old audio into the new position.
+        String audibleKey="";
+        int audibleStart=-1;
+        long audibleMs=0L;
+        if((ttsLocal||backupActive)&&actual>=0){
+            audibleKey=(backupActive?"backup:":"android:")+docUri;
+            audibleStart=actual;
+        }else if(!ttsLocal&&ttsPlayer!=null){
+            audibleKey=ttsPlayer.currentKey();
+            audibleStart=ttsPlayer.currentStartWord();
+            audibleMs=ttsPlayer.positionMs();
+        }
+        int checked=speechPosition.accept(audibleKey,audibleStart,audibleMs,actual,active);
+        if(checked<0&&actual>=0&&pendingTtsWord>=0&&lastIgnoredEpoch!=navigationEpoch){
+            lastIgnoredEpoch=navigationEpoch;
+            ReaderDiagnosticLog.event("NAVIGATION","NAVIGATION_IGNORED_STALE epoch="+navigationEpoch+
+                " actual="+actual+" selected="+pendingTtsWord);
+        }
+        actual=checked;
+        if(pendingTtsWord>=0&&!speechPosition.pending()){
+            ReaderDiagnosticLog.event("NAVIGATION","PENDING_SELECTION_CONFIRMED word="+actual);
+            pendingTtsWord=-1;
         }
         // Edge and local TTS are credited only for listening across chapter boundaries.
         if(mode==TTS&&active&&actual>=0&&actual<words.length){
@@ -2284,7 +2424,8 @@ public class ReaderActivity extends NavigationActivity {
             int old=index;index=actual;refreshHighlight(old);updateProgress();
             saveLight(false);
             // A manual drag owns the viewport until overlay, mode return, or Play.
-            if(!followSuspended)ensureWordVisible(false);
+            if(!followSuspended&&!nativeActionModeActive&&!selectionDragging&&selectionFrom<0)
+                ensureWordVisible(false);
         }
         if(followSuspended&&mode==TTS)updateFloatingCaption();
         updatePlayButtonIfChanged();

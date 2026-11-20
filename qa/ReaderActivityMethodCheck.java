@@ -14,7 +14,8 @@ public final class ReaderActivityMethodCheck {
         "getResources", "getSharedPreferences", "getWidth", "postInvalidateDelayed",
         "runOnUiThread", "setClickable", "setContentView", "setFocusable",
         "setImportantForAccessibility", "startActivity", "startActivityForResult",
-        "startService", "super", "unbindService");
+        "startService", "super", "unbindService", "getSystemService",
+        "notifyDataSetChanged");
     private static final Set<String> REQUIRED = Set.of(
         "removeCountdownRing", "showCountdownRing", "setRsvpContextVisible",
         "stepRsvpByScroll", "updateSelectWordButton", "updateProgress",

@@ -6,14 +6,14 @@ import re
 root=Path(__file__).resolve().parents[1]
 src=root/'app/src/main/java/ru/reader/rsvp'
 read=lambda name:(src/name).read_text(encoding='utf-8')
-assert "versionCode 18400; versionName '1.11.184-beta'" in (root/'app/build.gradle').read_text()
+assert "versionCode 18500; versionName '1.11.185-beta'" in (root/'app/build.gradle').read_text()
 reader=read('ReaderActivity.java')
 menu=read('ReaderSheets.java')
 manifest=(root/'app/src/main/AndroidManifest.xml').read_text()
 assert 'setTextIsSelectable(true)' in reader
 assert 'setCustomSelectionActionModeCallback(nativeTextActions(holder))' in reader
-assert 'new GestureDetector(' in reader
-assert 'getLongPressTimeout()' not in reader
+assert 'item.setOnTouchListener(new View.OnTouchListener()' in reader
+assert 'handler.postDelayed(longPress' not in reader
 assert 'NATIVE_QUOTE' in reader and 'NATIVE_EXTEND' in reader
 assert 'this::saveSelectionQuote' in reader
 assert 'new Intent(this,QuotesActivity.class)' in reader
@@ -46,5 +46,5 @@ assert not re.search(r'Процитировать питомцем',quote_ui)
 assert 'return hasEnabledQuotes && random.nextBoolean();' in read('PetQuoteChoice.java')
 for xml in (root/'app/src/main').rglob('*.xml'): ET.parse(xml)
 md=list(root.glob('*.md'))
-assert len(md)==4 and all('1.11.184' in file.name for file in md),md
+assert len(md)==4 and all('1.11.185' in file.name for file in md),md
 print('PASS: v184 native selection, quote archive, pet 50/50, Android XML, CLEAN docs')

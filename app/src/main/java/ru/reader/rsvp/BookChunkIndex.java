@@ -72,6 +72,19 @@ public final class BookChunkIndex {
         }
         chunks=result.toArray(new Chunk[0]);
     }
+    /** Book-wide character lookup independent of nearest-word rounding in whitespace. */
+    public int chunkForCharacter(int position){
+        if(chunks.length==0)return 0;
+        int lo=0,hi=chunks.length-1;
+        while(lo<=hi){
+            int mid=(lo+hi)>>>1;
+            Chunk block=chunks[mid];
+            if(position<block.startChar)hi=mid-1;
+            else if(position>=block.endChar)lo=mid+1;
+            else return mid;
+        }
+        return Math.max(0,Math.min(chunks.length-1,lo));
+    }
     public int size(){return chunks.length;}
     public Chunk get(int chunk){return chunks[Math.max(0,Math.min(chunks.length-1,chunk))];}
     public int chunkForWord(int word){return wordToChunk.length==0?0:wordToChunk[Math.max(0,Math.min(wordToChunk.length-1,word))];}

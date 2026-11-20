@@ -188,6 +188,12 @@ public final class EdgeStreamingService extends Service {
     private final LinkedHashSet<Integer> pendingStarts=new LinkedHashSet<>();
     private int priorityStart=-1;
     private int selectedSeekWord=-1;
+    // Explicit UI/MediaSession sentence selections are distinct from progress
+    // callbacks. ReaderActivity can follow them without accepting older tracks.
+    private long selectionSerial=0L;
+    private int lastSelectedWord=-1;
+    public long selectionSerial(){return selectionSerial;}
+    public int lastSelectedWord(){return lastSelectedWord;}
     // A tap may arrive before the asynchronous chapter index finishes loading.
     private int deferredSelectedWord=-1;
     private final ArrayList<Clip> selectedOverrides=new ArrayList<>();
@@ -325,8 +331,9 @@ public final class EdgeStreamingService extends Service {
             return;
         }
         if(anchorWord<start)return; // A manual selection superseded the event.
-        if(!key.equals(player.currentKey()) &&
-                (player.currentStartWord()!=start||player.currentEndWord()!=end))return;
+        // A late completion from an older playlist/voice may have identical word
+        // bounds. Only the exact current media key is authorised to advance.
+        if(!key.equals(player.currentKey()))return;
         Clip finished=clipAt(start);
         if(finished!=null&&finished.end==end)finished.played=true;
         ReaderDiagnosticLog.event("PLAYER","CLIP_FINISHED start="+start+" end="+end+
@@ -974,6 +981,7 @@ public final class EdgeStreamingService extends Service {
     }
     public boolean hasPendingBook(){return !pendingBookUri.isEmpty();}
     public void setAnchor(int word,boolean selected){
+        if(selected){selectionSerial++;lastSelectedWord=Math.max(0,word);}
         if(!pendingBookUri.isEmpty()){
             pendingBookWord=Math.max(0,word);return;
         }
