@@ -9,6 +9,11 @@ import java.util.Arrays;
  */
 final class EdgeLiveBuffer {
     private static final int MAX_SIZE = 12 * 1024 * 1024;
+    private static final long DEFAULT_STALL_TIMEOUT_MS = 45000L;
+    private final long stallTimeoutMs;
+    EdgeLiveBuffer(){this(DEFAULT_STALL_TIMEOUT_MS);}
+    /** Package-private shorter timeout supports deterministic regression tests. */
+    EdgeLiveBuffer(long timeoutMs){stallTimeoutMs=Math.max(50L,timeoutMs);}
     private byte[] data = new byte[32 * 1024];
     private int size;
     private boolean ended;
@@ -40,9 +45,18 @@ final class EdgeLiveBuffer {
         if(length==0)return 0;
         if(position<0 || position>Integer.MAX_VALUE)throw new IOException("Bad MP3 position");
         int at=(int)position;
+        final long waitStarted=System.nanoTime();
         while(at>=size && !ended && failure==null){
-            try{wait();}catch(InterruptedException e){Thread.currentThread().interrupt();
-                throw new IOException("Edge audio reader interrupted",e);}
+            long elapsedMs=java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime()-waitStarted);
+            long remainingMs=stallTimeoutMs-elapsedMs;
+            if(remainingMs<=0){
+                fail(new IOException("Edge audio stream stalled without new MP3 data"));
+                break;
+            }
+            try{wait(Math.min(1000L,remainingMs));}catch(InterruptedException e){
+                Thread.currentThread().interrupt();
+                throw new IOException("Edge audio reader interrupted",e);
+            }
         }
         if(failure!=null)throw failure;
         if(at>=size)return -1;

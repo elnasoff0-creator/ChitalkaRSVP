@@ -54,6 +54,8 @@ public final class EdgePlaybackService extends Service {
         void onTrackChanged(int startWord, int endWord, String key, boolean completedPrevious);
         void onPlaybackStateChanged();
         default void onTrackFinished(int startWord,int endWord,String key) {}
+        default void onTrackPlaybackError(int startWord,int endWord,String key,
+                boolean cachedFile,String errorCode) {}
     }
     public static final String ACTION_TOGGLE = "ru.reader.rsvp.edge.TOGGLE";
     public static final String ACTION_STOP = "ru.reader.rsvp.edge.STOP";
@@ -182,6 +184,8 @@ public final class EdgePlaybackService extends Service {
                     Track track=tracks.get(index);
                     ReaderDiagnosticLog.event("PLAYER","track start="+track.start+" end="+track.end+
                         " auto_transition="+completed);
+                    ReaderDiagnosticLog.event("PLAYER","NEXT_CLIP_STARTED start="+track.start+
+                        " cached="+(track.live==null));
                     if(sleepChapterEndWord>=0 && track.start>=sleepChapterEndWord){
                         sleepChapterEndWord=-1;getSharedPreferences("reader",0).edit().remove(PlaybackSleepCountdown.TTS_CHAPTER_KEY).apply();
                         pause();return;
@@ -246,11 +250,21 @@ public final class EdgePlaybackService extends Service {
             }
             @Override public void onAudioSessionIdChanged(int audioSessionId) { AudioEqualizer.attach(EdgePlaybackService.this,audioSessionId); }
             @Override public void onPlayerError(androidx.media3.common.PlaybackException error) {
-                ReaderDiagnosticLog.event("PLAYER","decode_error="+error.getErrorCodeName());
-                requestedPlay = false;
-                playbackError = "Android не смог воспроизвести аудиофайл: "
-                        + error.getErrorCodeName();
-                player.pause();
+                final int index=trackIndex();
+                final Track failed=index>=0&&index<tracks.size()?tracks.get(index):null;
+                ReaderDiagnosticLog.event("PLAYER","decode_error="+error.getErrorCodeName()+
+                    " start="+(failed==null?-1:failed.start));
+                playbackError="Android не смог воспроизвести аудиофайл: "+error.getErrorCodeName();
+                // A recoverable Media3 I/O error is not a user Pause. Leave the
+                // requested-Play state intact while the streaming coordinator
+                // replaces the bad source or reports an explicit terminal error.
+                if(requestedPlay && failed!=null){
+                    for(Listener listener:new ArrayList<>(listeners))
+                        listener.onTrackPlaybackError(failed.start,failed.end,failed.key,
+                            failed.live==null,error.getErrorCodeName());
+                }else if(failed==null){
+                    requestedPlay=false;
+                }
                 notifyState();
             }
         });
@@ -333,6 +347,27 @@ public final class EdgePlaybackService extends Service {
     public void setAutoContinue(boolean enabled) { autoContinue=enabled; }
     public boolean isPlaying() { return player!=null && player.isPlaying(); }
     public boolean hasFiles() { return !tracks.isEmpty(); }
+    public boolean hasTrack(String key){
+        if(key==null)return false;
+        for(Track track:tracks)if(key.equals(track.key))return true;
+        return false;
+    }
+    /** Recover a prepared next item after Media3 entered ENDED before it was appended. */
+    public boolean resumeEndedAt(int expectedStart){
+        if(!requestedPlay||player==null||player.getPlaybackState()!=Player.STATE_ENDED)return false;
+        int at=trackIndex();
+        if(at<0||at>=tracks.size()||expectedStart<=tracks.get(at).start)return false;
+        for(int i=0;i<tracks.size();i++){
+            if(tracks.get(i).start!=expectedStart || i<=at)continue;
+            ReaderDiagnosticLog.event("PLAYER","TRANSITION_RECOVERED from_ended start="+expectedStart);
+            player.seekTo(i,0);
+            player.prepare();
+            player.play();
+            updateSession();notifyState();
+            return true;
+        }
+        return false;
+    }
     public boolean isAtEnd() {return player!=null&&player.getPlaybackState()==Player.STATE_ENDED&&player.getMediaItemCount()>0;}
     public boolean playRequested() { return requestedPlay; }
     public boolean shouldStopAfterWord(int nextWord){

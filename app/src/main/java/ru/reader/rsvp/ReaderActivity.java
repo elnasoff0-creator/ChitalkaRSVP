@@ -402,8 +402,9 @@ public class ReaderActivity extends NavigationActivity {
         toolbarEngineContainer.addView(toolbarEngineAction,new FrameLayout.LayoutParams(-1,-1));
         toolbarEngineBadge=new ImageView(this);
         toolbarEngineBadge.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        toolbarEngineBadge.setBackground(shape(buttonBg(),5));
-        toolbarEngineBadge.setPadding(dp(1),dp(1),dp(1),dp(1));
+        // Draw only the source icon's own pixels. No extra white/tinted plate.
+        toolbarEngineBadge.setBackground(null);
+        toolbarEngineBadge.setPadding(0,0,0,0);
         FrameLayout.LayoutParams badgeLp=new FrameLayout.LayoutParams(dp(18),dp(18),Gravity.RIGHT|Gravity.BOTTOM);
         badgeLp.rightMargin=dp(1);badgeLp.bottomMargin=dp(1);
         toolbarEngineContainer.addView(toolbarEngineBadge,badgeLp);
@@ -455,17 +456,18 @@ public class ReaderActivity extends NavigationActivity {
             ReaderSheets.overflow(this,mode==TTS,which->{if(which==0)showNotes();
                     else if(which==1)showBookmarks();
                     else if(mode==TTS&&which==2)chooseTtsVoice();
+                    else if(which==(mode==TTS?3:2)){
+                        if(!docUri.isEmpty()){
+                            DownloadsRepository.showEdge(this,docUri);
+                            startActivity(new Intent(this,UnifiedDownloadManagerActivity.class)
+                                .putExtra(UnifiedDownloadManagerActivity.EXTRA_ID,"edge:"+docUri)
+                                .putExtra(UnifiedDownloadManagerActivity.EXTRA_TITLE,title)
+                                .putExtra(UnifiedDownloadManagerActivity.EXTRA_COVER,docUri)
+                                .putExtra(UnifiedDownloadManagerActivity.EXTRA_TYPE,DownloadsRepository.EDGE));
+                        }
+                    }
                     else if(which==(mode==TTS?4:3))openEdgeDictionary();
-                    else if(which==(mode==TTS?5:4))showBookSearch();
-                    else if(which==(mode==TTS?6:5))EdgeFolderPicker.show(this);
-                    else if(!docUri.isEmpty()){
-                        DownloadsRepository.showEdge(this,docUri);
-                        startActivity(new Intent(this,UnifiedDownloadManagerActivity.class)
-                            .putExtra(UnifiedDownloadManagerActivity.EXTRA_ID,"edge:"+docUri)
-                            .putExtra(UnifiedDownloadManagerActivity.EXTRA_TITLE,title)
-                            .putExtra(UnifiedDownloadManagerActivity.EXTRA_COVER,docUri)
-                            .putExtra(UnifiedDownloadManagerActivity.EXTRA_TYPE,DownloadsRepository.EDGE));
-                    }});
+                    else if(which==(mode==TTS?5:4))showBookSearch();});
         });
         // Toolbar overflow follows the same configured ordinary button surface as the
         // other Reader toolbar controls. List-item ellipses remain frameless.

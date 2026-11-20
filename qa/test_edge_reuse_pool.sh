@@ -160,9 +160,9 @@ public class Test429 {
   });
   if(!done.await(2,TimeUnit.SECONDS)||error[0]==null||!error[0].contains("429"))
    throw new AssertionError("Rate limit not reported");
-  if(EdgeSpeechQueue.remainingMs()<59000)throw new AssertionError("429 cooldown too short");
+  if(EdgeSpeechQueue.remainingMs()<=0||EdgeSpeechQueue.remainingMs()>500)throw new AssertionError("429 cooldown must be bounded to 500 ms");
   Thread.sleep(250);if(OkHttpClient.calls!=1)throw new AssertionError("Unwanted automatic retry on 429");
-  System.out.println("PASS: HTTP429, no automatic retry, >=60s local cooldown");
+  System.out.println("PASS: HTTP429, no automatic retry, 500ms local cooldown");
  }
 }
 JAVA
@@ -201,6 +201,8 @@ javac -encoding UTF-8 -d "$TMP/classes" $(find "$TMP/src" -name '*.java') \
  "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeSpeechQueue.java" \
  "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeWebSocketPool.java" \
  "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeSpeechEngine.java" \
+ "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeAdaptiveBlocks.java" \
+ "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeSpeechSize.java" \
  "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeServerClock.java" \
  "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeToken.java" \
  "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeWsFrames.java" \

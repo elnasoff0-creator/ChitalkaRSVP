@@ -11,12 +11,14 @@ queue=(root/'EdgeSpeechQueue.java').read_text()
 assert 'prefetchWindow(current)' in service, 'bounded candidate prefetch missing'
 assert 'nearEndOfCurrentAudio' not in service, 'old speculative lookahead threshold remains'
 assert 'onTrackFinished(int start,int end,String key)' in service
-assert 'anchorWord=end;' in service[service.index('onTrackFinished('):service.index('onPlaybackStateChanged()')]
+assert 'anchorWord=end;' in service[service.index('private void advanceAfterTrack('):service.index('private void recoverEndedTransition()')]
+assert 'advanceAfterTrack(start,end,key,"media3")' in service
+assert 'recoverEndedTransition();' in service
 assert 'onTrackFinished(completed.start,completed.end,completed.key)' in player
 assert 'state == Player.STATE_ENDED' in player
 assert 'else if (insertion==oldCount && player.getPlaybackState()==Player.STATE_ENDED && requestedPlay)' in player
 assert 'EdgeWebSocketPool.recycle(resource)' in engine and 'EdgeWebSocketPool.discard(resource,true)' in engine
 assert 'setInteractivePlayback' in queue and 'MAX_PREFETCH=2' in queue
-assert 'FIRST_TARGET=800' in (root/'EdgeSpeechSegments.java').read_text()
-print('PASS: candidate prefetch, end-of-track continuation, reusable sockets, 800-char groups')
+assert 'FIRST_TARGET=500' in (root/'EdgeSpeechSegments.java').read_text()
+print('PASS: candidate prefetch, end-of-track continuation, reusable sockets, adaptive whole-sentence groups')
 PY

@@ -174,50 +174,39 @@ public class SettingsActivity extends NavigationActivity {
         header("Цвет текста");palette(textColors,false);
         header("Цвет фоновых подложек");
         list.addView(action("Изменить цвет подложек",()->panelColorDialog()));
-        header("Цвет выделения");drawUiColorScheme();
-        header("Цвет обычных кнопок");buttonPalette(false);
-        header("Цвет акцентных кнопок · Play, режимы");buttonPalette(true);
+        headerWithHelp("Цвет выделения");drawUiColorScheme();
+        headerWithHelp("Цвет обычных кнопок");buttonPalette(false);
+        headerWithHelp("Цвет акцентных кнопок · Play, режимы","Цвет акцентных кнопок");buttonPalette(true);
         gap(16);
         // All SAF destinations and maintenance actions live at the very bottom
         // of General; selected persisted tree URIs are not changed.
         drawDownloadFoldersSection();
         // Diagnostics are accessible only from the developer drawer.
     }
-    /** The help affordance belongs to the header row; never occupy a free-standing line. */
-    private void headerWithHelp(String section){
-        LinearLayout bar=new LinearLayout(this);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setGravity(Gravity.CENTER_VERTICAL);
-        TextView heading=text(section,18,true);
+    /** A consistent 48dp help target in the same row as its section heading. */
+    private void headerWithHelp(String title){headerWithHelp(title,title);}
+    private void headerWithHelp(String title,String section){
+        LinearLayout row=new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        TextView heading=text(title,18,true);
         heading.setPadding(0,dp(14),dp(8),dp(9));
-        bar.addView(heading,new LinearLayout.LayoutParams(0,-2,1));
+        row.addView(heading,new LinearLayout.LayoutParams(0,-2,1));
         ImageView help=new ImageView(this);
         help.setImageResource(R.drawable.ic_info_help);
         help.setColorFilter(contrast(bg));
         help.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        help.setPadding(dp(10),dp(10),dp(10),dp(10));
+        help.setPadding(dp(12),dp(12),dp(12),dp(12));
         help.setContentDescription("Справка: "+section);
-        bar.addView(help,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        row.addView(help,new LinearLayout.LayoutParams(dp(48),dp(48)));
         help.setOnClickListener(v->startActivity(new Intent(this,ActivityInfo.class)
-                .putExtra("help_section",section)));
-        list.addView(bar,new LinearLayout.LayoutParams(-1,-2));
-    }
-    /** Compact help link. Only the icon is clickable; the setting itself retains its action. */
-    void addHelpIcon(String section){
-        ImageView help=new ImageView(this);
-        help.setImageResource(R.drawable.ic_info_help);
-        help.setColorFilter(contrast(bg));
-        help.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        help.setPadding(dp(10),dp(10),dp(10),dp(10));
-        help.setContentDescription("Справка: "+section);
-        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(dp(40),dp(40));
-        lp.topMargin=0;lp.bottomMargin=0;lp.gravity=Gravity.END;
-        list.addView(help,lp);
-        help.setOnClickListener(v->startActivity(new Intent(this,ActivityInfo.class).putExtra("help_section",section)));
+            .putExtra("help_section",section)));
+        list.addView(row,new LinearLayout.LayoutParams(-1,-2));
     }
     void drawChteicoSettings(){
         final android.content.SharedPreferences game=ChteicoStore.prefs(this);
-        gap(12);
+        headerWithHelp("Чтейцо","Чтейцо — описание");
+        gap(4);
         android.widget.Switch enabled=new android.widget.Switch(this);
         enabled.setText("Включить Чтейцо");enabled.setTextColor(contrast(bg));enabled.setTextSize(16);
         enabled.setPadding(dp(4),dp(12),dp(4),dp(12));
@@ -231,7 +220,7 @@ public class SettingsActivity extends NavigationActivity {
         homePet.setChecked(getSharedPreferences("reader",0).getBoolean("mini_pet_on_home",true));
         list.addView(homePet);
         homePet.setOnCheckedChangeListener((button,on)->getSharedPreferences("reader",0).edit().putBoolean("mini_pet_on_home",on).apply());
-        addHelpIcon("Чтейцо — описание");
+
         gap(12);
         if(ChteicoStore.developerUnlocked(this)){
             LinearLayout devBox=col();devBox.setBackground(outlined(cardColor(),16));devBox.setPadding(dp(14),dp(14),dp(14),dp(14));
@@ -446,26 +435,26 @@ public class SettingsActivity extends NavigationActivity {
     }
     /** One palette and opacity for the sentence background in both reader TTS screens. */
     void drawHighlightSettings(){
-        header("Подсветка текста (Highlight)");
+        headerWithHelp("Подсветка текста (Highlight)","Подсветка текста");
         colorSection("Цвет подсветки предложения","sentence_highlight_color",0xffedca43,false);
         percentSlider("Прозрачность фона предложения","sentence_highlight_opacity",0,100,50,5);
-        addHelpIcon("Подсветка текста");
+
     }
     /** Text notes and user color marks do not share the temporary TTS word highlight. */
     void drawAnnotationSettings(){
-        header("Выделения и заметки в книге");
+        headerWithHelp("Выделения и заметки в книге","Выделения и заметки");
         colorSection("Цвет 1 · жёлтый","annotation_color_0",0xffe8d46b,false);
         colorSection("Цвет 2 · зелёный","annotation_color_1",0xff8ccba4,false);
         colorSection("Цвет 3 · голубой","annotation_color_2",0xff8ab4ec,false);
         colorSection("Цвет 4 · розовый","annotation_color_3",0xffe3a6c8,false);
         percentSlider("Непрозрачность пользовательских выделений","annotation_opacity",15,95,38,5);
-        addHelpIcon("Выделения и заметки");
+
     }
     void addStartDelaySetting(int mode){
         final String suffix=mode==RSVP?"rsvp":"cursor";
         final String enabledKey="reading_start_delay_"+suffix+"_enabled";
         final String secondsKey="reading_start_delay_"+suffix+"_seconds";
-        header("Задержка перед стартом");
+        headerWithHelp("Задержка перед стартом","Задержка старта");
         android.widget.Switch toggle=new android.widget.Switch(this);
         toggle.setText("Задержка перед Play");toggle.setTextSize(16);
         toggle.setTextColor(contrast(bg));toggle.setPadding(dp(6),dp(5),dp(6),dp(5));
@@ -484,7 +473,7 @@ public class SettingsActivity extends NavigationActivity {
             public void onStartTrackingTouch(SeekBar bar){}
             public void onStopTrackingTouch(SeekBar bar){}
         });
-        addHelpIcon("Задержка старта");
+
         toggle.setOnCheckedChangeListener((b,checked)->{
             prefs.edit().putBoolean(enabledKey,checked).apply();seek.setEnabled(checked);
         });
@@ -494,35 +483,35 @@ public class SettingsActivity extends NavigationActivity {
         return mode==NORMAL?R.drawable.ic_book:mode==RSVP?R.drawable.ic_mode_speedreading:mode==CURSOR?R.drawable.ic_mode_cursor:R.drawable.ic_microphone;
     }
     void drawNormalModeSettings(){
-        header("Выбор слова в обычном режиме");
-        addHelpIcon("Выбор слова");
+        headerWithHelp("Выбор слова в обычном режиме","Выбор слова");
+
         colorSection("Цвет слова","normal_select_text",0xff915439,true);
         percentSlider("Увеличение выбранного слова","normal_select_scale",100,180,110,1);
         gap(18);
     }
     void drawCursorSettings(){
-        header("Выделение режима «Курсор»");
+        headerWithHelp("Выделение режима «Курсор»","Режим Курсор");
         colorSection("Цвет фона","cursor_background",0xff96583f,true);
         colorSection("Цвет текста","cursor_text",NO_COLOR,true);
         percentSlider("Размер выделенного слова","cursor_scale",100,180,100,1);
-        addHelpIcon("Режим Курсор");
+
         gap(18);
     }
     void drawSpeedReadingSettings(){
-        gap(8);header("Размер порции");
+        gap(8);headerWithHelp("Размер порции","Скоростное чтение — порции");
         int currentPortion=ReadingWordMap.portion(prefs.getInt("rsvp_portion",1));
         TextView portionLabel=text("Слов за один показ: "+currentPortion+" из 4",15,false);list.addView(portionLabel);
         SeekBar portionSlider=new SeekBar(this);portionSlider.setMax(3);portionSlider.setProgress(currentPortion-1);list.addView(portionSlider);
         portionSlider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
             public void onProgressChanged(SeekBar b,int v,boolean user){portionLabel.setText("Слов за один показ: "+(v+1)+" из 4");if(user)put("rsvp_portion",v+1);}            public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
         });
-        addHelpIcon("Скоростное чтение — порции");
+
         gap(8);list.addView(action("Дополнительные паузы",this::pauses));gap(12);
-        header("Точка фокусировки");
+        headerWithHelp("Точка фокусировки","Скоростное чтение — фокус");
         addFocusSwitch("Выделять опорную букву слова", "rsvp_focus_point",true);
-        addHelpIcon("Скоростное чтение — фокус");
+
         colorSection("Цвет точки фокусировки","rsvp_focus_color",0xffed3030,true);
-        gap(12);header("Линии фокусировки");
+        gap(12);headerWithHelp("Линии фокусировки","Скоростное чтение — фокус");
         addFocusSwitch("Показывать две линии и вертикальные засечки", "rsvp_focus_lines",true);
         colorSection("Цвет линий","rsvp_line_color",0xff915439,true);
         final int initial=Math.max(0,Math.min(100,prefs.getInt("rsvp_line_position",50)));
@@ -532,7 +521,7 @@ public class SettingsActivity extends NavigationActivity {
             public void onProgressChanged(SeekBar b,int v,boolean user){positionLabel.setText("Горизонтальная позиция: "+v+"%");if(user)put("rsvp_line_position",v);}            public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
         });
         addFocusSwitch("Выбирать слово прокруткой вместо касания", "rsvp_scroll_words",false);
-        addHelpIcon("Скоростное чтение — фокус");
+
         gap(18);
     }
     void addFocusSwitch(String caption,String key,boolean defaultValue){
@@ -633,9 +622,10 @@ public class SettingsActivity extends NavigationActivity {
         if(explanation==null||explanation.trim().isEmpty())return;
         ImageView info=new ImageView(this);
         info.setImageResource(R.drawable.ic_info_help);info.setColorFilter(contrast(bg));
-        info.setPadding(dp(10),dp(10),dp(10),dp(10));
+        info.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        info.setPadding(dp(12),dp(12),dp(12),dp(12));
         info.setContentDescription("Справка: "+title);
-        row.addView(info,new LinearLayout.LayoutParams(dp(40),dp(40)));
+        row.addView(info,new LinearLayout.LayoutParams(dp(48),dp(48)));
         info.setOnClickListener(v->startActivity(new Intent(this,ActivityInfo.class)
             .putExtra("help_section",title).putExtra("help_body",explanation)));
     }
@@ -1032,7 +1022,7 @@ public class SettingsActivity extends NavigationActivity {
                     if(index==4){uiCustomColorDialog();return;}
                     prefs.edit().putString(UiColorScheme.KEY_MODE,keys[index]).apply();draw();
                 }).setNegativeButton("Отмена",null).show();
-        });list.addView(picker);addHelpIcon("Цвет выделения");
+        });list.addView(picker);
         int accent=UiColorScheme.accent(this),selection=UiColorScheme.selected(this);
         LinearLayout sample=col();sample.setPadding(dp(12),dp(11),dp(12),dp(11));
         sample.setBackground(rounded(UiColorScheme.neutral(this),12));
@@ -1076,7 +1066,7 @@ public class SettingsActivity extends NavigationActivity {
         final String setting=primary?"button_accent_color":"button_color";
         final int selected=primary?accentButtonColor:buttonColor;
         String description=primary?"Play / Pause, выбор режима и другие основные действия.":"Назад, закладки, настройки, нейтральные команды.";
-        addHelpIcon(primary?"Цвет акцентных кнопок":"Цвет обычных кнопок");
+
         for(int rowStart=0;rowStart<accentColors.length;rowStart+=4){
             LinearLayout row=new LinearLayout(this);
             for(int k=rowStart;k<Math.min(accentColors.length,rowStart+4);k++){

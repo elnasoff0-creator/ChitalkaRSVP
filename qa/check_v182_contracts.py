@@ -6,7 +6,9 @@ import xml.etree.ElementTree as ET
 root=Path(__file__).resolve().parents[1]
 r=root/'app/src/main/java/ru/reader/rsvp'
 read=lambda f:(r/f).read_text(encoding='utf-8')
-assert "versionCode 18200; versionName '1.11.182-beta'" in (root/'app/build.gradle').read_text()
+gradle=(root/'app/build.gradle').read_text()
+version=re.search(r"versionCode\s+(\d+);\s*versionName\s+'([^']+)'",gradle)
+assert version and int(version.group(1))>=18200, "requires v182 or newer"
 settings=read('SettingsActivity.java')
 assert 'drawDownloadFoldersSection();' in settings
 assert settings.index('drawDownloadFoldersSection();')<settings.index('private void headerWithHelp(')
@@ -47,5 +49,5 @@ assert 'startBackupTtsForFailedClip(clip,hardLimitExceeded)' in read('EdgeStream
 assert 'ssml.getBytes(StandardCharsets.UTF_8).length' in read('EdgeSpeechEngine.java')
 for f in (root/'app/src/main').rglob('*.xml'): ET.parse(f)
 md=[p.name for p in root.glob('*.md')]
-assert all('1.11.182' in name for name in md),md
+assert all(version.group(2) in name for name in md),md
 print('PASS: v182 version, UI, SAF, Edge image, Ranobes URL, sentence-safe wiring and XML')

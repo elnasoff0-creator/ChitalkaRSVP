@@ -96,6 +96,10 @@ public final class EdgeStreamingService extends Service {
     private long restoreStartedAt=0L;
     private long trackReadyLoggedAt=-1L;
     private static final long IDLE_REUSE_MS=120000L;
+    private static final long SAF_RESTORE_WAIT_MS=9000L;
+    private String lastTransitionWaitKey="";
+    private long lastTransitionWaitAtMs;
+    private long lastTransitionStallLoggedAtMs;
     private void invalidateSpeech(){
         speechOptions=null;speechRevision="";preparedSpeech.clear();
     }
@@ -241,7 +245,10 @@ public final class EdgeStreamingService extends Service {
     };
     private final Runnable refreshReady=new Runnable(){@Override public void run(){
         if(destroyed)return;
-        if(bookReady&&directory!=null&&active)pump(); // ready offline files only
+        if(bookReady&&directory!=null&&active){
+            recoverEndedTransition();
+            pump();
+        }
         if(active&&bookReady&&player!=null&&player.isPlaying()&&offsets.size()>0)
             UnifiedReadingProgress.save(EdgeStreamingService.this,bookUri,
                 currentSpeechWord(),offsets.size(),currentSharedChapter(currentSpeechWord()),true);
@@ -287,27 +294,14 @@ public final class EdgeStreamingService extends Service {
                 persist();pump();
             });
         }
-        /** A playlist with no queued next file reaches STATE_ENDED. Continue
-         * from the completed clip's exclusive end word, never replay it. */
+        /** A playlist without an attached next item reaches STATE_ENDED.
+         * An idempotent coordinator handles both callback and lost-callback recovery. */
         @Override public void onTrackFinished(int start,int end,String key){
-            main.post(()->{
-                if(!bookReady||player==null||!player.playRequested()||
-                        !key.equals(player.currentKey()))return;
-                Clip ended=clipAt(start);
-                if(ended==null||ended.end!=end)return;
-                ended.played=true;
-                EdgeTtsDiagnostics.trackEnded(key);
-                selectedOverrides.removeIf(c->end>=c.end);
-                selectedSeekWord=-1;
-                anchorWord=end;
-                persist();
-                if(end>=offsets.size()||player.shouldStopAfterWord(end)){
-                    player.pause();changed();return;
-                }
-                // The engine's network arbiter holds the next handshake until
-                // the previous WebSocket has closed, even after a user cancel.
-                pump();
-            });
+            main.post(()->advanceAfterTrack(start,end,key,"media3"));
+        }
+        @Override public void onTrackPlaybackError(int start,int end,String key,
+                boolean cachedFile,String errorCode){
+            main.post(()->recoverFailedTrack(start,end,key,cachedFile,errorCode));
         }
         @Override public void onPlaybackStateChanged(){main.post(()->{
             interactiveListening=active && player!=null && player.playRequested();
@@ -320,6 +314,117 @@ public final class EdgeStreamingService extends Service {
             }
         });}
     };
+    /** Move the cursor only once, after the matching audible track has ended.
+     * Duplicate notifications and user seeks must not skip entire sentences. */
+    private void advanceAfterTrack(int start,int end,String key,String source){
+        if(destroyed||!active||!bookReady||player==null||!player.playRequested()||
+                start<0||end<=start)return;
+        if(anchorWord>=end){
+            // The first callback has already advanced the cursor; re-pump only.
+            if(player.isAtEnd())pump();
+            return;
+        }
+        if(anchorWord<start)return; // A manual selection superseded the event.
+        if(!key.equals(player.currentKey()) &&
+                (player.currentStartWord()!=start||player.currentEndWord()!=end))return;
+        Clip finished=clipAt(start);
+        if(finished!=null&&finished.end==end)finished.played=true;
+        ReaderDiagnosticLog.event("PLAYER","CLIP_FINISHED start="+start+" end="+end+
+            " source="+source);
+        EdgeTtsDiagnostics.trackEnded(key);
+        selectedOverrides.removeIf(c->end>=c.end);
+        selectedSeekWord=-1;
+        anchorWord=end;
+        lastTransitionWaitKey="";
+        persist();
+        if(end>=offsets.size()||player.shouldStopAfterWord(end)){
+            player.pause();changed();return;
+        }
+        ReaderDiagnosticLog.event("PLAYER","NEXT_CLIP_SELECTED word="+end);
+        pump();
+    }
+    /** Media3 can finish before the next cached/live source is attached. The
+     * normal callback is immediate; this low-frequency safety net only covers
+     * an actual ENDED state with Play still requested. */
+    private void recoverEndedTransition(){
+        if(!active||!bookReady||player==null||!player.playRequested()||!player.isAtEnd())return;
+        int start=player.currentStartWord(),end=player.currentEndWord();
+        if(start<0||end<=start)return;
+        long now=SystemClock.elapsedRealtime();
+        if(now-lastTransitionStallLoggedAtMs>=8000L){
+            lastTransitionStallLoggedAtMs=now;
+            ReaderDiagnosticLog.event("PLAYER","TRANSITION_STALLED at_end="+end);
+        }
+        if(anchorWord<end)advanceAfterTrack(start,end,player.currentKey(),"watchdog");
+        else if(anchorWord==end)pump();
+    }
+    /** Recover one corrupt cached file, or wait for the active WebSocket's own
+     * completion callback to retry a failed streaming source. */
+    private void recoverFailedTrack(int start,int end,String key,boolean cachedFile,String errorCode){
+        if(destroyed||!active||!bookReady||player==null||!player.playRequested())return;
+        Clip clip=clipAt(start);
+        if(clip==null||clip.end!=end||anchorWord<start||anchorWord>=end)return;
+        ReaderDiagnosticLog.event("PLAYER","TRANSITION_STALLED playback_error="+errorCode+
+            " start="+start+" cached="+cachedFile);
+        if(!cachedFile){
+            // A decoder or loader failure can happen independently from the
+            // WebSocket callback. EdgeSpeechEngine.cancel() does not call
+            // Callback.finished(), so explicitly release the job here.
+            LiveJob live=liveFor(clip);
+            if(live!=null){
+                liveJobs.remove(live.fileId,live);
+                if(live.buffer!=null)live.buffer.fail(new java.io.IOException("Edge playback source failed"));
+                if(live.request!=null)live.request.cancel();
+            }
+            player.evictFailedLive(key);
+            clip.failures++;
+            if(clip.failures>1){
+                clip.awaitingUserRetry=true;
+                error="Edge TTS: ошибка декодирования или ожидания MP3";
+                startBackupTtsForFailedClip(clip,true);
+                if(!backupTtsActivated)player.pause();
+                changed();
+            }else{
+                clip.awaitingUserRetry=false;
+                clip.retryAt=SystemClock.elapsedRealtime()+750L;
+                main.postDelayed(()->{
+                    if(destroyed||!active||player==null||!player.playRequested()||
+                        anchorWord<start||anchorWord>=end)return;
+                    ReaderDiagnosticLog.event("PLAYER","TRANSITION_RECOVERED retry_stream="+start);
+                    pump();
+                },800L);
+            }
+            return;
+        }
+        if(clip.failures>=1){
+            clip.awaitingUserRetry=true;
+            error="Edge TTS: повреждённый MP3 не удалось восстановить";
+            startBackupTtsForFailedClip(clip,true);
+            if(!backupTtsActivated)player.pause();
+            changed();return;
+        }
+        clip.failures++;
+        if(!player.evictCachedTrack(key))return;
+        final File failedFile=clip.file;
+        clip.file=null;clip.bytes=0;
+        // Block a disk probe from re-attaching this corrupt MP3 while the
+        // background executor is still deleting/quarantining it.
+        clip.awaitingUserRetry=true;
+        clip.lastDiskProbe=Long.MAX_VALUE;
+        io.execute(()->{
+            if(failedFile!=null){
+                failedFile.delete();
+                EdgeWordTimings.sidecar(failedFile).delete();
+            }
+            main.post(()->{
+                if(destroyed||!bookReady||anchorWord<start||anchorWord>=end)return;
+                clip.lastDiskProbe=SystemClock.elapsedRealtime();
+                clip.awaitingUserRetry=false;
+                ReaderDiagnosticLog.event("PLAYER","TRANSITION_RECOVERED resynthesize="+start);
+                pump();
+            });
+        });
+    }
     private final ServiceConnection playbackConnection=new ServiceConnection(){
         @Override public void onServiceConnected(ComponentName n,IBinder b){
             player=((EdgePlaybackService.LocalBinder)b).getService();
@@ -504,6 +609,8 @@ public final class EdgeStreamingService extends Service {
         cachedSavedPercent=0;lastCoverageCheck=0;
         archive.clear();byStart.clear();pendingStarts.clear();priorityStart=-1;
         lazyAttempted.clear();lazyPending.clear();
+        lastTransitionWaitKey="";lastTransitionWaitAtMs=0L;
+        lastTransitionStallLoggedAtMs=0L;
         selectedOverrides.clear();selectedSeekWord=-1;deferredSelectedWord=-1;
         prefetchForStart=-1;prefetchIssued=0;
         offsets.clear();sentenceParts.clear();sentenceIndex=SentenceIndex.fromText("");sentenceHistory.bind(sentenceIndex);bookText="";chapters=BookChapterIndex.empty();directory=null;error="";
@@ -976,6 +1083,15 @@ public final class EdgeStreamingService extends Service {
         if(!bookReady||directory==null||destroyed||!active)return;
         Clip current=skipIgnored(clipAt(anchorWord));
         if(current==null)return;
+        if(player!=null && player.playRequested() && player.isAtEnd() &&
+                !current.ready() && liveFor(current)==null){
+            String waitingKey=current.key+":"+current.start;
+            if(!waitingKey.equals(lastTransitionWaitKey)){
+                lastTransitionWaitKey=waitingKey;
+                lastTransitionWaitAtMs=SystemClock.elapsedRealtime();
+                ReaderDiagnosticLog.event("PLAYER","NEXT_CLIP_WAITING start="+current.start);
+            }
+        }
         if(lazyRestore(current)){changed();return;}
         Clip ahead=clipAt(current.end);
         // A skipped next segment must never be added as a cached track.
@@ -995,7 +1111,7 @@ public final class EdgeStreamingService extends Service {
                 if(selectedSeekWord>=0){
                     int relative=charForWord(selectedSeekWord)-charForWord(current.start);
                     long ms=EdgeSentenceSeek.at(relative,EdgeWordTimings.read(current.file,current.text));
-                    if(ms<0)ms=0; // overrides start at the requested sentence
+                    if(ms<0)ms=0;
                     Log.i("EdgeSentenceSeek","word="+selectedSeekWord+
                         " clip="+current.start+" startMs="+ms+
                         (selectedOverrides.contains(current)?" exact-fragment":" WordBoundary"));
@@ -1003,9 +1119,32 @@ public final class EdgeStreamingService extends Service {
                     selectedSeekWord=-1;
                 }
                 addTrack(current);
-                if(ahead!=null && ahead.ready())addTrack(ahead); // disk only, no network
             }
-            // Never enqueue a later cached fragment when the selected one is absent.
+            // Attach the following cached/live source as soon as first bytes
+            // exist, even if the currently playing MP3 is still a live source.
+            // Never skip an unprepared current clip to append a later one.
+            if(player.hasTrack(current.key+":"+current.start) && ahead!=null){
+                if(ahead.ready()){
+                    addTrack(ahead);
+                }else{
+                    LiveJob preloaded=liveFor(ahead);
+                    if(preloaded!=null&&preloaded.buffer!=null&&!preloaded.attached&&
+                            preloaded.buffer.available()>0){
+                        preloaded.attached=true;
+                        player.appendLive(ahead.key+":"+ahead.start,ahead.start,
+                            ahead.end,preloaded.buffer);
+                    }
+                }
+            }
+            if(player.playRequested())player.resumeEndedAt(current.start);
+            if(player.hasTrack(current.key+":"+current.start)){
+                if(!lastTransitionWaitKey.isEmpty() &&
+                        lastTransitionWaitKey.equals(current.key+":"+current.start)){
+                    ReaderDiagnosticLog.event("PLAYER","NEXT_CLIP_READY start="+current.start+
+                        " waited_ms="+(SystemClock.elapsedRealtime()-lastTransitionWaitAtMs));
+                    lastTransitionWaitKey="";
+                }
+            }
         }
         if(player==null||!player.playRequested()){changed();return;}
         if(EdgeSpeechQueue.remainingMs()>0){changed();return;}
@@ -1039,19 +1178,33 @@ public final class EdgeStreamingService extends Service {
         final String requested=bookUri,requestedKey=clip.key,requestedTitle=title;
         final File folder=directory;
         lazyPending.add(identity);
+        final Runnable restoreDeadline=()->{
+            if(destroyed||!requested.equals(bookUri)||directory!=folder)return;
+            if(!lazyPending.remove(identity))return;
+            ReaderDiagnosticLog.event("PLAYER","TRANSITION_STALLED saf_restore_timeout start="+clip.start);
+            // The attempted key remains recorded; a second SAF read is not
+            // started while the first provider call is still pending.
+            if(active)pump();else if(idlePrefetchRequested)warmCurrent();
+        };
+        main.postDelayed(restoreDeadline,SAF_RESTORE_WAIT_MS);
         clipRestore.execute(()->{
             boolean restored=EdgeChapterArchive.restoreClip(this,requested,requestedTitle,folder,
                 chapter,requestedKey);
             main.post(()->{
+                main.removeCallbacks(restoreDeadline);
                 lazyPending.remove(identity);
-                if(destroyed||!requested.equals(bookUri)||directory!=folder)return;
+                if(destroyed||!requested.equals(bookUri)||directory!=folder||
+                    !requestedKey.equals(clip.key))return;
                 if(restored){
                     File file=new File(folder,requestedKey+".mp3");
-                    clip.file=file;clip.bytes=file.length();
-                    for(Clip candidate:archive)if(requestedKey.equals(candidate.key)){
-                        candidate.file=file;candidate.bytes=file.length();
+                    if(EdgeAudioManager.ready(file)){
+                        clip.file=file;clip.bytes=file.length();
+                        for(Clip candidate:archive)if(requestedKey.equals(candidate.key)){
+                            candidate.file=file;candidate.bytes=file.length();
+                        }
+                        firstTrackReady(clip,"saf-lazy");
+                        ReaderDiagnosticLog.event("PLAYER","TRANSITION_RECOVERED saf_restored start="+clip.start);
                     }
-                    firstTrackReady(clip,"saf-lazy");
                 }
                 if(active)pump();
                 else if(idlePrefetchRequested)warmCurrent();
@@ -1169,7 +1322,7 @@ public final class EdgeStreamingService extends Service {
                         if(problem.contains("HTTP 429"))lastHttp429=true;
                         if(job.buffer!=null)job.buffer.fail(new java.io.IOException(problem));
                         main.post(()->{
-                            liveJobs.remove(job.fileId,job);
+                            if(!liveJobs.remove(job.fileId,job))return;
                             if(player!=null && job.buffer!=null)
                                 player.evictFailedLive(diagnosticKey);
                             if(!job.bookId.equals(bookUri)||!clip.key.equals(job.speech.cacheKey(voice(),rate())))return;
@@ -1227,7 +1380,7 @@ public final class EdgeStreamingService extends Service {
                         catch(Exception e){failed=e.getMessage();}
                         final File ready=saved;final String cacheError=failed;
                         main.post(()->{
-                            liveJobs.remove(job.fileId,job);
+                            if(!liveJobs.remove(job.fileId,job))return;
                             // Never attach a late completion of a canceled, previous
                             // dictionary generation to a newly prepared clip.
                             if(!job.bookId.equals(bookUri) ||
