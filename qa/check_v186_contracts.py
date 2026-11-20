@@ -7,7 +7,8 @@ root=Path(__file__).resolve().parents[1]
 src=root/'app/src/main/java/ru/reader/rsvp'
 read=lambda filename:(src/filename).read_text(encoding='utf-8')
 reader=read('ReaderActivity.java')
-assert "versionCode 18600; versionName '1.11.186-beta'" in (root/'app/build.gradle').read_text()
+version=re.search(r"versionCode\s+(\d+);\s*versionName\s+'([^']+)'",(root/'app/build.gradle').read_text())
+assert version and int(version.group(1))>=18600
 assert 'setTextIsSelectable(false)' in reader
 assert 'setCustomSelectionActionModeCallback' not in reader
 assert 'nativeTextActions(' not in reader
@@ -68,5 +69,5 @@ assert 'return hasEnabledQuotes && random.nextBoolean();' in pet
 for xml in (root/'app/src/main').rglob('*.xml'):
     ET.parse(xml)
 md=list(root.glob('*.md'))
-assert len(md)==4 and all('1.11.186' in f.name for f in md),md
+assert len(md)==4 and all(version.group(2) in f.name for f in md),md
 print('PASS: v186 custom selection, themed teardrop handles, 1.5dp dictionary icons, smooth WordBoundary, live downloads, quotes and CLEAN docs')

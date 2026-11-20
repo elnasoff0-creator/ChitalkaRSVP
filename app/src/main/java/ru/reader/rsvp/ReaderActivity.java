@@ -2258,8 +2258,13 @@ public class ReaderActivity extends NavigationActivity {
     private void selectTtsWord(int at){
         // A tap selects the sentence; the book's UI block is never reloaded.
         abandonViewportPreview();
+        final int previousWord=index;
         index=map.clamp(at);
         index=ttsSentenceIndex.beginning(index);
+        // Paint the first word NOW. WordBoundary's first callback may arrive
+        // after a short word has already played, especially for cached MP3s.
+        refreshHighlight(previousWord);
+        updateProgress();
         pendingTtsWord=index;
         SentenceChunks.Chunk intendedSentence=ttsSentenceIndex.atWordRange(index);
         speechPosition.seek(index,intendedSentence==null?index+1:intendedSentence.toWord);

@@ -61,7 +61,11 @@ final class EdgeWordTimings {
     private static String normalized(String text){
         String value=Normalizer.normalize(text,Normalizer.Form.NFKC)
                 .toLowerCase(Locale.ROOT).trim();
-        return value.replaceAll("^[\\p{P}\\p{S}]+|[\\p{P}\\p{S}]+$","");
+        // Edge can normalize ё to е in emitted WordBoundary tokens. Match
+        // spelling equivalents without guessing missing offsets or changing
+        // the saved audio/source-text checksum.
+        return value.replace('ё','е').replace("\u00ad","").replace("\u200b","")
+                .replaceAll("^[\\p{P}\\p{S}]+|[\\p{P}\\p{S}]+$","");
     }
     static List<Word> align(String text,List<Boundary> boundaries){
         if(text==null||boundaries==null||boundaries.isEmpty())return Collections.emptyList();

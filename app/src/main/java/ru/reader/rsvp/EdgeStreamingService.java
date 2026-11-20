@@ -188,6 +188,11 @@ public final class EdgeStreamingService extends Service {
     private final LinkedHashSet<Integer> pendingStarts=new LinkedHashSet<>();
     private int priorityStart=-1;
     private int selectedSeekWord=-1;
+    // A selected sentence may start *inside* a cached multi-sentence MP3.
+    // Preserve its word anchor across Media3's asynchronous track callback,
+    // which otherwise resets anchorWord to the older clip's first word.
+    private int replayStartWord=-1;
+    private String replayTrackKey="";
     // Explicit UI/MediaSession sentence selections are distinct from progress
     // callbacks. ReaderActivity can follow them without accepting older tracks.
     private long selectionSerial=0L;
@@ -294,9 +299,14 @@ public final class EdgeStreamingService extends Service {
                         start!=clipAt(selectedSeekWord).start)return;
                 if(completedPrevious)for(Clip c:archive)if(c.end==start)c.played=true;
                 selectedOverrides.removeIf(c->start>=c.end);
-                anchorWord=start;
-                UnifiedReadingProgress.save(EdgeStreamingService.this,bookUri,start,offsets.size(),
-                    currentSharedChapter(start),true);
+                if(key.equals(replayTrackKey) && replayStartWord>=start && replayStartWord<end){
+                    anchorWord=replayStartWord; // The clip's earlier sentences are not the selection.
+                }else{
+                    replayStartWord=-1;replayTrackKey="";
+                    anchorWord=start;
+                }
+                UnifiedReadingProgress.save(EdgeStreamingService.this,bookUri,anchorWord,offsets.size(),
+                    currentSharedChapter(anchorWord),true);
                 persist();pump();
             });
         }
@@ -340,7 +350,7 @@ public final class EdgeStreamingService extends Service {
             " source="+source);
         EdgeTtsDiagnostics.trackEnded(key);
         selectedOverrides.removeIf(c->end>=c.end);
-        selectedSeekWord=-1;
+        selectedSeekWord=-1;replayStartWord=-1;replayTrackKey="";
         anchorWord=end;
         lastTransitionWaitKey="";
         persist();
@@ -587,7 +597,7 @@ public final class EdgeStreamingService extends Service {
         if(voice!=null)edit.putString("edge_voice",voice);
         if(rate!=null)edit.putString("edge_rate",rate);
         edit.apply();cancelLiveExcept(null);liveJobs.clear();
-        selectedOverrides.clear();selectedSeekWord=-1;
+        selectedOverrides.clear();selectedSeekWord=-1;replayStartWord=-1;replayTrackKey="";
         if(player!=null)player.clearQueue();
         // Keep the lightweight index. Only requested fragments acquire new voice keys.
         invalidateSpeech();
@@ -619,6 +629,7 @@ public final class EdgeStreamingService extends Service {
         lastTransitionWaitKey="";lastTransitionWaitAtMs=0L;
         lastTransitionStallLoggedAtMs=0L;
         selectedOverrides.clear();selectedSeekWord=-1;deferredSelectedWord=-1;
+        replayStartWord=-1;replayTrackKey="";
         prefetchForStart=-1;prefetchIssued=0;
         offsets.clear();sentenceParts.clear();sentenceIndex=SentenceIndex.fromText("");sentenceHistory.bind(sentenceIndex);bookText="";chapters=BookChapterIndex.empty();directory=null;error="";
         if(player!=null)player.prepareBook("edge:"+uri);
@@ -688,12 +699,13 @@ public final class EdgeStreamingService extends Service {
      * On Play the same warm buffer is reused instead of a second handshake.
      */
     private void restoreStartPosition(){
+        if(sentenceIndex.size()>0)anchorWord=sentenceIndex.beginning(anchorWord);
         selectedOverrides.clear();
         selectedSeekWord=-1;
         Clip base=baseClipAt(anchorWord);
         if(base==null || anchorWord<=base.start)return;
         int relative=charForWord(anchorWord)-charForWord(base.start);
-        if(base.ready() && EdgeSentenceSeek.at(relative,
+        if(base.ready() && EdgeSentenceSeek.at(relative,base.text,
                 EdgeWordTimings.read(base.file,base.text))>=0){
             selectedSeekWord=anchorWord;
             return;
@@ -945,6 +957,11 @@ public final class EdgeStreamingService extends Service {
                 int sourceChar=charForWord(current)+timing.get(mark).from;
                 current=wordForChar(sourceChar);
             }
+            // During the short MP3 pre-roll the extractor can still report a
+            // preceding word in the same saved group. Never report that word
+            // as the start of an explicitly replayed sentence.
+            if(player.currentKey().equals(replayTrackKey)&&replayStartWord>=0)
+                current=Math.max(current,replayStartWord);
         }
         if(sentenceIndex.size()>0)sentenceHistory.observe(current);
         return current;
@@ -981,6 +998,10 @@ public final class EdgeStreamingService extends Service {
     }
     public boolean hasPendingBook(){return !pendingBookUri.isEmpty();}
     public void setAnchor(int word,boolean selected){
+        // An explicit replay always starts at the first word of its sentence.
+        // The original tap can land anywhere inside the sentence.
+        if(selected && bookReady && sentenceIndex.size()>0)
+            word=sentenceIndex.beginning(Math.max(0,word));
         if(selected){selectionSerial++;lastSelectedWord=Math.max(0,word);}
         if(!pendingBookUri.isEmpty()){
             pendingBookWord=Math.max(0,word);return;
@@ -1006,11 +1027,12 @@ public final class EdgeStreamingService extends Service {
             if(resumeSelectedPlay)player.play();
         }
         selectedOverrides.clear();
+        replayStartWord=-1;replayTrackKey="";
         selectedSeekWord=requested;
         Clip target=base;
         int relative=charForWord(requested)-charForWord(base.start);
         long position=base.ready()?
-            EdgeSentenceSeek.at(relative,EdgeWordTimings.read(base.file,base.text)):-1L;
+            EdgeSentenceSeek.at(relative,base.text,EdgeWordTimings.read(base.file,base.text)):-1L;
         boolean exactLive=requested==base.start&&liveFor(base)!=null;
         if(position<0&&!exactLive){
             // Full sentences only, with a low-latency soft byte/character target.
@@ -1118,12 +1140,24 @@ public final class EdgeStreamingService extends Service {
                 // Position is armed *before* appendReady can call Media3.play().
                 if(selectedSeekWord>=0){
                     int relative=charForWord(selectedSeekWord)-charForWord(current.start);
-                    long ms=EdgeSentenceSeek.at(relative,EdgeWordTimings.read(current.file,current.text));
-                    if(ms<0)ms=0;
+                    long ms=EdgeSentenceSeek.at(relative,current.text,EdgeWordTimings.read(current.file,current.text));
+                    // No matching boundary in a multi-sentence cached group:
+                    // never replay that group's beginning or its second word.
+                    // setAnchor() should already have selected an exact-sentence
+                    // override. Refuse an unsafe seek if metadata changed meanwhile.
+                    if(ms<0 && current.start!=selectedSeekWord){
+                        ReaderDiagnosticLog.event("NAVIGATION","SEEK_REFUSED missing_first_word start="+
+                            current.start+" requested="+selectedSeekWord);
+                        error="Не удалось найти точное начало предложения для повтора";
+                        changed();return;
+                    }
+                    if(ms<0)ms=0; // An isolated sentence must start at 0.
                     Log.i("EdgeSentenceSeek","word="+selectedSeekWord+
                         " clip="+current.start+" startMs="+ms+
                         (selectedOverrides.contains(current)?" exact-fragment":" WordBoundary"));
-                    player.armSelectedPosition(current.key+":"+current.start,ms);
+                    replayStartWord=selectedSeekWord;
+                    replayTrackKey=current.key+":"+current.start;
+                    player.armSelectedPosition(replayTrackKey,ms);
                     selectedSeekWord=-1;
                 }
                 addTrack(current);
@@ -1287,8 +1321,11 @@ public final class EdgeStreamingService extends Service {
             // The first MP3 frame can begin decoding without waiting for turn.end.
             // Priority clips start at a real sentence boundary. WordBoundary may
             // later refine the requested word position for a cached MP3.
-            if(selectedSeekWord==clip.start && selectedOverrides.contains(clip))
+            if(selectedSeekWord==clip.start && selectedOverrides.contains(clip)){
+                replayStartWord=selectedSeekWord;
+                replayTrackKey=clip.key+":"+clip.start;
                 selectedSeekWord=-1;
+            }
             player.appendLive(clip.key+":"+clip.start,clip.start,clip.end,job.buffer);
         }
         liveJobs.put(job.fileId,job);

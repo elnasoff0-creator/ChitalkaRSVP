@@ -53,10 +53,11 @@ jobs:
           done
           echo 'All four release signing secrets are configured.'
 
-      - name: Verify custom selection, WordBoundary, downloads and pet v1.11.186
+      - name: Verify first-word replay, WordBoundary and selection v1.11.187
         run: |
           bash qa/check_java_syntax.sh
           bash qa/test_edge_sentence_blocks_182.sh
+          bash qa/test_edge_sentence_seek.sh
           python3 qa/check_v182_contracts.py
           bash qa/test_edge_live_buffer.sh
           bash qa/test_edge_transitions_183.sh
