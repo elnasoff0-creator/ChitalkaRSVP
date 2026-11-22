@@ -79,6 +79,10 @@ final class EdgeDictionaryRuleDialog {
         contextualEnabled.setChecked(previous!=null&&context!=null&&!context.isEmpty());
         layout.addView(contextualEnabled);
         final EditText contextual=field(layout,"Контекст: часть предложения (не для Regex)",context);
+        CheckBox enabled=new CheckBox(activity);enabled.setText("Правило включено");
+        enabled.setTextColor(foreground);enabled.setButtonTintList(ColorStateList.valueOf(accent));
+        enabled.setChecked(previous==null||previous.enabled);layout.addView(enabled);
+        EditText note=field(layout,"Комментарий (необязательно)",previous==null?"":previous.note);
         TextView vowelsTitle=new TextView(activity);vowelsTitle.setText("Ударение: коснитесь нужной гласной");
         vowelsTitle.setTextColor(foreground);vowelsTitle.setTextSize(13);vowelsTitle.setPadding(0,dp(9),0,dp(4));layout.addView(vowelsTitle);
         LinearLayout vowels=new LinearLayout(activity);vowels.setGravity(Gravity.CENTER_VERTICAL);layout.addView(vowels);
@@ -123,7 +127,8 @@ final class EdgeDictionaryRuleDialog {
             String ctx=kind==EdgeDictionaryStore.IGNORE||regex.isChecked()||!contextualEnabled.isChecked()?
                 "":contextual.getText().toString();
             if(regex.isChecked())EdgeSpeechTextTransform.validateReplacement(EdgeSpeechTextTransform.compileUserRegex(pattern),to);
-            store.upsert(previous==null?0:previous.id,kind,pattern,ctx,to,regex.isChecked());
+            store.upsert(previous==null?0:previous.id,kind,pattern,ctx,to,regex.isChecked(),
+                enabled.isChecked(),note.getText().toString());
             if(onSaved!=null)onSaved.run();dialog.dismiss();
         }catch(Exception e){Toast.makeText(activity,"Не сохранено: "+e.getMessage(),Toast.LENGTH_LONG).show();}});
     }

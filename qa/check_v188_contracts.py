@@ -15,7 +15,8 @@ play=get('EdgePlaybackService.java')
 log=get('ReaderDiagnosticLog.java')
 trace=get('EdgeStartupTrace.java')
 version=(root/'app/build.gradle').read_text()
-assert re.search(r"versionCode\s+(18[89]00);\s*versionName\s+'1\.11\.18[89]-beta'",version)
+match=re.search(r"versionCode\s+(\d+);\s*versionName\s+'1\.11\.(\d+)-beta'",version)
+assert match and int(match.group(2))>=188 and int(match.group(1))==int(match.group(2))*100
 assert 'DownloadFolderPicker.granted(this,DownloadFolderPicker.BOOK)' in reader
 assert '!EdgeFolderPicker.available(this)' not in reader
 assert 'TtsSwitchPolicy.shouldSwitch(ttsLocal,localChoice,backupActive)' in reader

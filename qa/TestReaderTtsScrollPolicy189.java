@@ -15,6 +15,17 @@ public final class TestReaderTtsScrollPolicy189 {
         yes(ReaderTtsScrollPolicy.shift(41,top,bottom,false,5)<0,"above reader");
         yes(ReaderTtsScrollPolicy.shift(410,top,bottom,true,5)!=0,"explicit return centres");
         eq(ReaderTtsScrollPolicy.shift(400,top,top+15,false,5),0,"tiny viewport");
+        // Regression: after the first 12px, the word is inside the activation
+        // dead-zone; animation still has 100+ px to travel to the 61% anchor.
+        int at=525,anchor=top+Math.round((bottom-top)*.61f),frames=0;
+        int pending=ReaderTtsScrollPolicy.shift(at,top,bottom,false,5);
+        yes(pending>0,"follow triggers below 69% edge");
+        int fixedAnchor=ReaderTtsScrollPolicy.anchorPercent(at,top,bottom,false);
+        while(frames++<100 && (pending=ReaderTtsScrollPolicy.movingShift(at,top,bottom,5,fixedAnchor))!=0){
+            at-=ReaderTtsScrollPolicy.frameStep(pending,1,22);
+        }
+        yes(frames>5,"must not stop after first frame");
+        yes(Math.abs(at-anchor)<=5,"must reach its anchor rather than just threshold");
         int previous=200;
         for(int i=0;i<100&&previous>0;i++){
             int step=ReaderTtsScrollPolicy.frameStep(previous,1,22);

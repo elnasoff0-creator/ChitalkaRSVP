@@ -10,4 +10,4 @@ javac -encoding UTF-8 -d "$tmp" \
   "$root/qa/TestPetSpeechBubble189.java"
 java -cp "$tmp" ru.reader.rsvp.TestReaderTtsScrollPolicy189
 java -cp "$tmp" ru.reader.rsvp.TestPetSpeechBubble189
-python3 "$root/qa/check_v189_contracts.py"
+python3 "$root/qa/check_v190_contracts.py"

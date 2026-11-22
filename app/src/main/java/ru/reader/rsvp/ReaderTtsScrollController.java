@@ -26,7 +26,7 @@ final class ReaderTtsScrollController {
     private final LinearLayoutManager layout;
     private final Host host;
     private final int insetTop,insetBottom,tolerancePx,minStep,maxStep;
-    private int targetWord=-1,frameCount=0,stallFrames=0;
+    private int targetWord=-1,frameCount=0,stallFrames=0,anchorPercent=61;
     private long targetEpoch=-1L,lastSkipLogAt=0L,animationStartedAt=0L;
     private boolean frameQueued=false,animating=false,explicit=false,disposed=false;
     private final Runnable frame=new Runnable(){@Override public void run(){
@@ -45,7 +45,13 @@ final class ReaderTtsScrollController {
         int top=insetTop,bottom=height-insetBottom;
         int remaining;
         if(loc.hasPosition){
-            remaining=ReaderTtsScrollPolicy.shift(loc.centerY,top,bottom,explicit,tolerancePx);
+            // A started movement must converge to its locked anchor, even if
+            // the word has re-entered the activation zone after one frame.
+            remaining=animating
+                ?ReaderTtsScrollPolicy.movingShift(loc.centerY,top,bottom,tolerancePx,anchorPercent)
+                :ReaderTtsScrollPolicy.shift(loc.centerY,top,bottom,explicit,tolerancePx);
+            if(remaining!=0&&!animating)anchorPercent=ReaderTtsScrollPolicy.anchorPercent(
+                loc.centerY,top,bottom,explicit);
         }else{
             int first=layout.findFirstVisibleItemPosition();
             int last=layout.findLastVisibleItemPosition();
@@ -63,7 +69,8 @@ final class ReaderTtsScrollController {
                 ReaderDiagnosticLog.event("TTS_SCROLL","FOLLOW_JUMP_EXPLICIT word="+
                     targetWord+" adapter="+loc.adapterPosition+" epoch="+targetEpoch);
                 host.jumpToAdapterPosition(loc.adapterPosition,top);
-                explicit=false;stallFrames=0;queueFrame();return;
+                // An explicit long jump is followed by the SAME smooth centering.
+                explicit=true;stallFrames=0;queueFrame();return;
             }
             // Ordinary TTS moves through neighbouring rows incrementally,
             // never using an abrupt scrollToPositionWithOffset jump.
@@ -74,7 +81,7 @@ final class ReaderTtsScrollController {
         if(!animating){
             animating=true;animationStartedAt=SystemClock.elapsedRealtime();
             ReaderDiagnosticLog.event("TTS_SCROLL","FOLLOW_START word="+targetWord+
-                " epoch="+targetEpoch+" delta_px="+remaining);
+                " epoch="+targetEpoch+" delta_px="+remaining+" anchor_percent="+anchorPercent);
         }
         int step=ReaderTtsScrollPolicy.frameStep(remaining,minStep,maxStep);
         int before=list.computeVerticalScrollOffset();
@@ -101,15 +108,24 @@ final class ReaderTtsScrollController {
         }
         boolean newTarget=targetWord!=word||targetEpoch!=epoch||explicitReturn;
         if(newTarget){
-            targetWord=word;targetEpoch=epoch;explicit=explicitReturn;
+            // A routine WordBoundary update must not demote an in-flight
+            // explicit return before its animation has reached the target.
+            boolean keepExplicit=explicit&&animating&&targetEpoch==epoch;
+            targetWord=word;targetEpoch=epoch;explicit=explicitReturn||keepExplicit;
             if(explicitReturn)ReaderDiagnosticLog.event("TTS_SCROLL",
                 "RETURN_TO_SPEECH word="+word+" epoch="+epoch);
             WordLocation loc=host.locateWord(word);
             if(loc!=null){
-                int shift=loc.hasPosition?ReaderTtsScrollPolicy.shift(loc.centerY,insetTop,
-                    list.getHeight()-insetBottom,explicitReturn,tolerancePx):Integer.MAX_VALUE;
+                int shift=loc.hasPosition?(animating
+                    ?ReaderTtsScrollPolicy.movingShift(loc.centerY,insetTop,
+                        list.getHeight()-insetBottom,tolerancePx,anchorPercent)
+                    :ReaderTtsScrollPolicy.shift(loc.centerY,insetTop,
+                        list.getHeight()-insetBottom,explicit,tolerancePx)):Integer.MAX_VALUE;
                 if(shift!=0)ReaderDiagnosticLog.event("TTS_SCROLL","FOLLOW_TARGET word="+word+
-                    " epoch="+epoch+" delta_px="+(shift==Integer.MAX_VALUE?"unlaid":shift));
+                    " epoch="+epoch+" target_y="+(insetTop+Math.round((list.getHeight()-insetBottom-insetTop)*
+                    (animating?anchorPercent:ReaderTtsScrollPolicy.anchorPercent(loc.centerY,insetTop,
+                        list.getHeight()-insetBottom,explicit)) / 100f))+
+                    " remaining_px="+(shift==Integer.MAX_VALUE?"unlaid":shift));
             }
         }
         queueFrame();
@@ -129,6 +145,7 @@ final class ReaderTtsScrollController {
     private void finish(){
         if(animating)ReaderDiagnosticLog.event("TTS_SCROLL","FOLLOW_FINISHED word="+
             targetWord+" epoch="+targetEpoch+" frames="+frameCount+
+            " anchor_percent="+anchorPercent+" remaining_px=0 reason=TARGET_REACHED"+
             " elapsed_ms="+(SystemClock.elapsedRealtime()-animationStartedAt));
         animating=false;frameCount=0;targetWord=-1;explicit=false;
     }
