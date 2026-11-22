@@ -15,7 +15,7 @@ play=get('EdgePlaybackService.java')
 log=get('ReaderDiagnosticLog.java')
 trace=get('EdgeStartupTrace.java')
 version=(root/'app/build.gradle').read_text()
-assert "versionCode 18800; versionName '1.11.188-beta'" in version
+assert re.search(r"versionCode\s+(18[89]00);\s*versionName\s+'1\.11\.18[89]-beta'",version)
 assert 'DownloadFolderPicker.granted(this,DownloadFolderPicker.BOOK)' in reader
 assert '!EdgeFolderPicker.available(this)' not in reader
 assert 'TtsSwitchPolicy.shouldSwitch(ttsLocal,localChoice,backupActive)' in reader
@@ -50,5 +50,6 @@ assert 'ReaderDiagnosticLog.prepareExport(' in get('ReaderLogActivity.java')
 for f in (root/'app/src/main').rglob('*.xml'):
     ET.parse(f)
 md=list(root.glob('*.md'))
-assert len(md)==4 and all('1.11.188' in p.name for p in md),md
+current_version=re.search(r"versionName\s+'([^']+)'",version).group(1)
+assert len(md)==4 and all(current_version in p.name for p in md),md
 print('PASS: v188 forced switch, first-audio trace, bounded SAF and CLEAN documentation')

@@ -54,6 +54,7 @@ public class ReaderActivity extends NavigationActivity {
     private RecyclerView textList;
     private LinearLayoutManager layoutManager;
     private ChunkAdapter chunkAdapter;
+    private ReaderTtsScrollController ttsScrollController;
     private TextView wordView,progressView,speedView;
     private ImageView playIcon,selectWordButton,modeIcon;
     private ImageButton toolbarModeAction,toolbarEngineAction,toolbarVoiceAction,toolbarThemeAction;
@@ -358,6 +359,7 @@ public class ReaderActivity extends NavigationActivity {
 
     private int accentAtDraw=Integer.MIN_VALUE;
     private void draw(){
+        if(ttsScrollController!=null){ttsScrollController.dispose();ttsScrollController=null;}
         dismissSelectionMenu();selectionHandles=null;selectionFrom=-1;selectionTo=-1;
         selectedCharFrom=selectedCharTo=-1;
         selectionDragging=false;selectionMenuAfterScroll=false;
@@ -555,6 +557,24 @@ public class ReaderActivity extends NavigationActivity {
         textList.setBackgroundColor(Color.TRANSPARENT);
         chunkAdapter=new ChunkAdapter();textList.setAdapter(chunkAdapter);
         readingFrame.addView(textList,new LinearLayout.LayoutParams(-1,0,1));
+        ttsScrollController=new ReaderTtsScrollController(textList,layoutManager,
+            new ReaderTtsScrollController.Host(){
+                @Override public ReaderTtsScrollController.WordLocation locateWord(int word){
+                    return ttsWordLocation(word);
+                }
+                @Override public long navigationEpoch(){return viewportNavigationEpoch;}
+                @Override public boolean mayFollow(boolean explicitReturn){
+                    return mode==TTS&&textList!=null&&textList.getVisibility()==View.VISIBLE
+                        &&layoutManager!=null&&chunks!=null&&words.length>0
+                        &&!followSuspended&&!userScrolling&&!selectionDragging&&selectionFrom<0
+                        &&(explicitReturn||ttsCurrentlyPlaying());
+                }
+                @Override public void jumpToAdapterPosition(int position,int offsetPx){
+                    if(layoutManager!=null&&textList!=null&&position>=0
+                        &&position<layoutManager.getItemCount())
+                        layoutManager.scrollToPositionWithOffset(position,Math.max(dp(80),offsetPx));
+                }
+            },dp(88),dp(96),dp(5),dp(1),dp(22));
         // Reader-only top caption, not a SYSTEM_ALERT_WINDOW. It does not
         // intercept gestures outside its own clickable surface.
         ttsFloatingCaption=new TextView(this);
@@ -577,6 +597,9 @@ public class ReaderActivity extends NavigationActivity {
             @Override public void onScrollStateChanged(RecyclerView rv,int state){
                 if(state==RecyclerView.SCROLL_STATE_DRAGGING){
                     viewportNavigationEpoch++;
+                    if(ttsScrollController!=null)ttsScrollController.cancel("MANUAL_SCROLL");
+                    if(mode==TTS)ReaderDiagnosticLog.event("TTS_SCROLL",
+                        "MANUAL_SCROLL epoch="+viewportNavigationEpoch);
                     if(selectionFrom>=0&&!selectionDragging){selectionMenuAfterScroll=true;dismissSelectionMenu();}
                     chteicoTouch();userScrolling=true;manualViewportMovement=true;followSuspended=true;tocPreviewGeneration++;
                     if(mode==TTS)updateFloatingCaption();
@@ -655,6 +678,7 @@ public class ReaderActivity extends NavigationActivity {
             public boolean autoScrollForHandle(boolean start,float x,float y){return autoScrollSelection(start,x,y);}
             public void startedHandleDrag(){
                 selectionDragging=true;selectionMenuAfterScroll=false;dismissSelectionMenu();
+                if(ttsScrollController!=null)ttsScrollController.cancel("SELECTION_HANDLE_DRAG");
                 if(textList!=null)textList.stopScroll();
             }
             public void finishedHandleDrag(boolean canceled){
@@ -684,6 +708,7 @@ public class ReaderActivity extends NavigationActivity {
         int at=map.clamp(word);
         applySelectionChars(map.starts[at],map.ends[at]);focusedNoteId=0;
         if(textList!=null)textList.stopScroll();viewportNavigationEpoch++;
+        if(ttsScrollController!=null)ttsScrollController.cancel("SELECTION");
         updateVisibleAnnotations();
         if(selectionHandles!=null)selectionHandles.invalidate();
         selectionMenuAfterScroll=false;showSelectionMenu();
@@ -1563,19 +1588,34 @@ public class ReaderActivity extends NavigationActivity {
         int chapterIndex=chapterForWord(word);
         return chapterIndex>=0?"Глава "+(chapterIndex+1):"";
     }
+    /** Get the line centre in RecyclerView coordinates, not in the nested TextView.
+     * Both the floating caption and TTS follow must use the same geometry.
+     */
+    private ReaderTtsScrollController.WordLocation ttsWordLocation(int word){
+        if(textList==null||layoutManager==null||chunks==null||words.length==0)return null;
+        int clamped=map.clamp(word);
+        int chunk=chunks.chunkForWord(clamped);
+        int position=chunk+1;
+        RecyclerView.ViewHolder holder=textList.findViewHolderForAdapterPosition(position);
+        if(!(holder instanceof ChunkAdapter.Holder))
+            return new ReaderTtsScrollController.WordLocation(position,0,false);
+        TextView value=((ChunkAdapter.Holder)holder).value;
+        if(value==null||value.getLayout()==null||value.getWidth()==0)
+            return new ReaderTtsScrollController.WordLocation(position,0,false);
+        android.text.Layout lines=value.getLayout();
+        int charOffset=Math.max(0,Math.min(Math.max(0,value.length()-1),
+            map.starts[clamped]-chunks.get(chunk).startChar));
+        int line=lines.getLineForOffset(charOffset);
+        android.graphics.Rect bounds=new android.graphics.Rect(0,0,value.getWidth(),value.getHeight());
+        textList.offsetDescendantRectToMyCoords(value,bounds);
+        int center=bounds.top+value.getTotalPaddingTop()
+            +(lines.getLineTop(line)+lines.getLineBottom(line))/2-value.getScrollY();
+        return new ReaderTtsScrollController.WordLocation(position,center,true);
+    }
     private boolean isActiveWordVisible(){
-        if(textList==null||layoutManager==null||chunks==null||words.length==0)return false;
-        int c=chunks.chunkForWord(map.clamp(index));
-        RecyclerView.ViewHolder item=textList.findViewHolderForAdapterPosition(c+1);
-        if(!(item instanceof ChunkAdapter.Holder))return false;
-        TextView v=((ChunkAdapter.Holder)item).value;
-        android.text.Layout l=v.getLayout();if(l==null)return false;
-        int offset=Math.max(0,Math.min(v.length(),map.starts[map.clamp(index)]-chunks.get(c).startChar));
-        int line=l.getLineForOffset(offset);
-        int top=item.itemView.getTop()+v.getTotalPaddingTop()+l.getLineTop(line);
-        int bottom=item.itemView.getTop()+v.getTotalPaddingTop()+l.getLineBottom(line);
-        // Toolbar and transport controls are floating overlays over the RecyclerView.
-        return bottom>dp(85)&&top<textList.getHeight()-dp(90);
+        ReaderTtsScrollController.WordLocation location=ttsWordLocation(index);
+        if(location==null||!location.hasPosition||textList==null)return false;
+        return location.centerY>dp(85)&&location.centerY<textList.getHeight()-dp(90);
     }
     /** Center the active line; far-away chapters jump close then settle gently. */
     private void ensureWordVisible(boolean explicitReturn){
@@ -1584,9 +1624,12 @@ public class ReaderActivity extends NavigationActivity {
         // asked to resume follow. Never scroll a dragged Android handle away.
         if(selectionDragging||selectionFrom>=0)return;
         if(!explicitReturn&&followSuspended)return;
-        // Follow the reading position, not every individual TTS word. Constant
-        // recentering on 180-ms ticks caused backwards-looking scroll jumps.
-        if(!explicitReturn&&mode==TTS&&isActiveSentenceVisible())return;
+        // TTS has one word-based, frame-coordinated scroller. The legacy
+        // centreActiveVisibleLine path remains for the CURSOR mode only.
+        if(mode==TTS){
+            if(ttsScrollController!=null)ttsScrollController.follow(index,explicitReturn);
+            return;
+        }
         if(!explicitReturn&&mode==CURSOR&&isActiveWordVisible())return;
         if(textList==null||textList.getVisibility()!=View.VISIBLE||layoutManager==null||chunks==null||words.length==0)return;
         int chunk=chunks.chunkForWord(map.clamp(index));
@@ -1641,42 +1684,10 @@ public class ReaderActivity extends NavigationActivity {
             textList.postDelayed(()->restoringScroll=false,300);
         }
     }
-    /** Any *visible portion* of the highlighted sentence keeps the overlay hidden.
-     * Geometry is measured against the readable center between toolbar and controls,
-     * not the full-screen RecyclerView that extends beneath floating buttons.
-     */
-    private boolean isActiveSentenceVisible(){
-        if(textList==null||layoutManager==null||chunks==null||words.length==0)return false;
-        SentenceChunks.Chunk sentence=ttsSentenceIndex.atWordRange(map.clamp(index));
-        if(sentence==null)return isActiveWordVisible();
-        int topLimit=dp(88),bottomLimit=textList.getHeight()-dp(96);
-        if(bottomLimit<=topLimit)return isActiveWordVisible();
-        int first=layoutManager.findFirstVisibleItemPosition();
-        int last=layoutManager.findLastVisibleItemPosition();
-        for(int adapterPos=Math.max(1,first);adapterPos<=last;adapterPos++){
-            RecyclerView.ViewHolder holder=textList.findViewHolderForAdapterPosition(adapterPos);
-            if(!(holder instanceof ChunkAdapter.Holder))continue;
-            TextView v=((ChunkAdapter.Holder)holder).value;
-            if(v==null||v.getLayout()==null)continue;
-            BookChunkIndex.Chunk block=chunks.get(adapterPos-1);
-            int start=Math.max(sentence.fromChar,block.startChar);
-            int end=Math.min(sentence.toChar,block.endChar);
-            if(end<=start)continue;
-            android.text.Layout lines=v.getLayout();
-            int fromOffset=Math.max(0,Math.min(v.length(),start-block.startChar));
-            int toOffset=Math.max(fromOffset,Math.min(v.length()-1,end-block.startChar-1));
-            int firstLine=lines.getLineForOffset(fromOffset);
-            int lastLine=lines.getLineForOffset(toOffset);
-            int top=holder.itemView.getTop()+v.getTotalPaddingTop()+lines.getLineTop(firstLine);
-            int bottom=holder.itemView.getTop()+v.getTotalPaddingTop()+lines.getLineBottom(lastLine);
-            if(bottom>topLimit&&top<bottomLimit)return true;
-        }
-        return false;
-    }
     private void updateFloatingCaption(){
         if(ttsFloatingCaption==null)return;
         String previousCaption=lastCaptionText;
-        if(mode!=TTS||!followSuspended||!ttsCurrentlyPlaying()||words.length==0||isActiveSentenceVisible()){
+        if(mode!=TTS||!followSuspended||!ttsCurrentlyPlaying()||words.length==0||isActiveWordVisible()){
             ttsFloatingCaption.setVisibility(View.GONE);return;
         }
         SentenceChunks.Chunk part=ttsSentenceIndex.atWordRange(map.clamp(index));
@@ -1726,7 +1737,17 @@ public class ReaderActivity extends NavigationActivity {
     private void returnToActiveWord(){
         abandonViewportPreview(); // Explicit Play or caption tap returns to the live cursor.
         if(ttsFloatingCaption!=null)ttsFloatingCaption.setVisibility(View.GONE);
-        if(textList!=null)textList.post(()->ensureWordVisible(true));
+        final long epoch=viewportNavigationEpoch;
+        if(textList!=null){
+            // Explicit return also ends any RecyclerView fling; a fling is not
+            // allowed to race the new word-follow animation.
+            textList.stopScroll();
+            if(ttsScrollController!=null)ttsScrollController.cancel("EXPLICIT_RETURN");
+            textList.post(()->{
+                if(epoch==viewportNavigationEpoch&&!followSuspended&&selectionFrom<0)
+                    ensureWordVisible(true);
+            });
+        }
     }
     private void openEdgeDictionary(){
         Intent intent=new Intent(this,EdgeDictionaryActivity.class);
@@ -1854,6 +1875,7 @@ public class ReaderActivity extends NavigationActivity {
         int target=map.clamp(word),chunk=chunks.chunkForWord(target);
         final long generation=++tocPreviewGeneration;
         viewportNavigationEpoch++;
+        if(ttsScrollController!=null)ttsScrollController.cancel("TOC_BROWSE");
         if(textList!=null)textList.stopScroll();
         viewportWord=target;followSuspended=true;userScrolling=false;restoringScroll=true;updateChapterTitle();
         if(prefs!=null&&!docUri.isEmpty())prefs.edit().putInt("viewport:"+docUri,target).apply();
@@ -1936,6 +1958,7 @@ public class ReaderActivity extends NavigationActivity {
     }
 
     private void setMode(int next){if(next<0||next>TTS||next==mode)return;
+        if(ttsScrollController!=null)ttsScrollController.cancel("MODE_CHANGE");
         final long modeSelectedAt=SystemClock.elapsedRealtime();
         if(next==TTS)ReaderDiagnosticLog.event("READER_STARTUP","tts_mode_selected engine="+(ttsLocal?"local":"edge"));
         chteicoTouch();stop();int old=index,previousMode=mode;
@@ -2433,6 +2456,8 @@ public class ReaderActivity extends NavigationActivity {
             if(!followSuspended&&!selectionDragging&&selectionFrom<0)
                 ensureWordVisible(false);
         }
+        if(mode==TTS&&!ttsCurrentlyPlaying()&&ttsScrollController!=null)
+            ttsScrollController.cancel("PLAYBACK_STOPPED");
         if(followSuspended&&mode==TTS)updateFloatingCaption();
         updatePlayButtonIfChanged();
         updateSleepTimerBadge();
@@ -2637,7 +2662,8 @@ public class ReaderActivity extends NavigationActivity {
         });
     }
     @Override protected void onResume(){super.onResume();
-        if(readerWasPaused&&words.length>0&&!followSuspended) returnToActiveWord();
+        // Resuming the Activity must never force a new TTS centering jump.
+        if(readerWasPaused&&words.length>0&&!followSuspended&&mode!=TTS) returnToActiveWord();
         readerWasPaused=false;
         if(!localStateReceiverRegistered){
             IntentFilter stateFilter=new IntentFilter(AudioPlaybackService.ACTION_STATE);
@@ -2672,6 +2698,7 @@ public class ReaderActivity extends NavigationActivity {
 
     }}
     @Override protected void onPause(){
+        if(ttsScrollController!=null)ttsScrollController.cancel("ACTIVITY_PAUSED");
         readerWasPaused=true;
         cancelTtsUi();
         if(localStateReceiverRegistered){try{this.unregisterReceiver(localStateReceiver);}catch(Exception ignored){}
@@ -2680,6 +2707,7 @@ public class ReaderActivity extends NavigationActivity {
         chteicoCompleteIfReachedEnd();save();stop();super.onPause();
     }
     @Override protected void onDestroy(){
+        if(ttsScrollController!=null){ttsScrollController.dispose();ttsScrollController=null;}
         dismissSelectionMenu();
         if(annotationStore!=null){annotationStore.close();annotationStore=null;}
         timingReader.shutdownNow();if(mode==TTS)releaseTts();stop();applySystemBars(false);super.onDestroy();}
