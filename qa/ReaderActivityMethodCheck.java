@@ -11,6 +11,7 @@ import java.util.*;
 public final class ReaderActivityMethodCheck {
     private static final Set<String> INHERITED = Set.of(
         "bindService", "findViewById", "getContentResolver", "getHeight", "getIntent",
+        "isFinishing", // android.app.Activity: inherited through NavigationActivity
         "getResources", "getSharedPreferences", "getWidth", "postInvalidateDelayed",
         "runOnUiThread", "setClickable", "setContentView", "setFocusable",
         "setImportantForAccessibility", "startActivity", "startActivityForResult",
