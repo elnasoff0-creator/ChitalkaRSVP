@@ -67,6 +67,7 @@ public class ReaderActivity extends NavigationActivity {
     private EdgeStreamingService ttsStreamer;
     // A manual scroll suspends follow until one of the three explicit return actions.
     private boolean followSuspended=false,readerWasPaused=false;
+    private int lineSpacingPercent=100;
     private TextView ttsFloatingCaption;
     private boolean lastRenderedTtsPlayState=false;
     private boolean playStateRendered=false;
@@ -290,10 +291,10 @@ public class ReaderActivity extends NavigationActivity {
         }
         if(!getIntent().getBooleanExtra("reset",false)&&getIntent().hasExtra("word_index"))
             index=Math.max(0,getIntent().getIntExtra("word_index",index));
-        if(!getIntent().getBooleanExtra("reset",false)&&!getIntent().hasExtra("word_index"))
-            viewportWord=prefs.getInt("viewport:"+docUri,-1);
-        else prefs.edit().remove("viewport:"+docUri).apply();
-        if(viewportWord>=0)followSuspended=true;
+        // A manually browsed viewport is only meaningful while this Activity is alive.
+        // After reopening the book, the canonical saved reading/TTS word wins.
+        viewportWord=-1;followSuspended=false;
+        if(!docUri.isEmpty())prefs.edit().remove("viewport:"+docUri).apply();
         long drawStarted=SystemClock.elapsedRealtime();
         if(docUri.isEmpty())draw();
         else{
@@ -310,6 +311,7 @@ public class ReaderActivity extends NavigationActivity {
     }
     private void readPreferences(){
         wpm=prefs.getInt("wpm",350);portion=ReadingWordMap.portion(prefs.getInt("rsvp_portion",1));
+        lineSpacingPercent=Math.max(80,Math.min(200,prefs.getInt("reading_line_spacing_percent",100)));
         size=prefs.getInt("size",36);bg=prefs.getInt("bg",0xfff3e7d5);fg=prefs.getInt("fg",0xff30221e);font=prefs.getInt("font",1);
         mode=prefs.getInt("reading_mode",prefs.getBoolean("rsvp",true)?RSVP:NORMAL);mode=Math.max(0,Math.min(3,mode));
         rsvpScrollWords=prefs.getBoolean("rsvp_scroll_words",false);
@@ -359,6 +361,9 @@ public class ReaderActivity extends NavigationActivity {
 
     private int accentAtDraw=Integer.MIN_VALUE;
     private void draw(){
+        // Invalidate pending layout/scroll callbacks from the previous RecyclerView.
+        viewportNavigationEpoch++;
+        restoringScroll=false;
         if(ttsScrollController!=null){ttsScrollController.dispose();ttsScrollController=null;}
         dismissSelectionMenu();selectionHandles=null;selectionFrom=-1;selectionTo=-1;
         selectedCharFrom=selectedCharTo=-1;
@@ -567,7 +572,13 @@ public class ReaderActivity extends NavigationActivity {
                     return mode==TTS&&textList!=null&&textList.getVisibility()==View.VISIBLE
                         &&layoutManager!=null&&chunks!=null&&words.length>0
                         &&!followSuspended&&!userScrolling&&!selectionDragging&&selectionFrom<0
+                        &&(!restoringScroll||explicitReturn)
                         &&(explicitReturn||ttsCurrentlyPlaying());
+                }
+                @Override public boolean jumpToWordLine(int word,int targetY){
+                    final long epoch=viewportNavigationEpoch;
+                    positionReaderAtWord(word,epoch,0,false,true);
+                    return true;
                 }
                 @Override public void jumpToAdapterPosition(int position,int offsetPx){
                     if(layoutManager!=null&&textList!=null&&position>=0
@@ -690,10 +701,18 @@ public class ReaderActivity extends NavigationActivity {
         sceneRoot.addView(selectionHandles,new FrameLayout.LayoutParams(-1,-1));
         speedPanel=null;
         updateModeUI();updatePlayButton();
-        // Jump to the indexed chunk, not to the pixel position of an enormous TextView.
-        textList.post(()->{if(viewportWord>=0)browseToWord(viewportWord);
-            else if(index<=0)layoutManager.scrollToPositionWithOffset(0,0);
-            else ensureWordVisible(true);});
+        // Initial restore is not a TTS animation: never show the cover while a
+        // distant saved sentence is being restored, and never require Play.
+        final long initialEpoch=viewportNavigationEpoch;
+        if(viewportWord>=0)textList.post(()->browseToWord(viewportWord));
+        else if(index<=0)textList.post(()->layoutManager.scrollToPositionWithOffset(0,0));
+        else {
+            textList.setAlpha(0f);
+            restoringScroll=true;
+            ReaderDiagnosticLog.event("READER_STARTUP","RESTORE_POSITION index="+index+" viewport=-1");
+            ReaderDiagnosticLog.event("READER_STARTUP","RESTORE_SOURCE saved_reading_cursor");
+            textList.post(()->positionReaderAtWord(index,initialEpoch,0,true,false));
+        }
     }
     private int wordAt(ChunkAdapter.Holder holder,float x,float y){
         int row=holder.getBindingAdapterPosition()-1;
@@ -1249,7 +1268,7 @@ public class ReaderActivity extends NavigationActivity {
                 return new Holder(headerSlot);}
             ReaderMarginMarksTextView item=new ReaderMarginMarksTextView(ReaderActivity.this);
             item.setTextSize(Math.max(12,(int)(size*.60f)));item.setTextColor(fg);item.setTypeface(type());
-            item.setLineSpacing(dp(Math.max(8,size/3)),1.12f);
+            item.setLineSpacing(dp(Math.max(8,size/3)),1.12f*lineSpacingPercent/100f);
             // Reserve a constant left gutter for annotations; total horizontal padding
             // stays 49 dp as before, preserving line wrapping regardless of marks.
             item.setPadding(dp(24),dp(7),dp(25),dp(7));
@@ -1617,6 +1636,52 @@ public class ReaderActivity extends NavigationActivity {
         if(location==null||!location.hasPosition||textList==null)return false;
         return location.centerY>dp(85)&&location.centerY<textList.getHeight()-dp(90);
     }
+    /** Position directly at the real line within a chunk, not at the chunk's top.
+     * Called by initial restore and distant explicit return, never by WordBoundary.
+     * Re-tries until the row has a measured TextLayout, and ignores stale tasks.
+     */
+    private void positionReaderAtWord(int word,long epoch,int attempt,boolean reveal,boolean smoothFinish){
+        if(epoch!=viewportNavigationEpoch)return; // Do not reveal the newer RecyclerView.
+        if(textList==null||layoutManager==null||chunks==null||words.length==0||isFinishing()){
+            if(reveal&&textList!=null){textList.setAlpha(1f);restoringScroll=false;}
+            return;
+        }
+        if(textList.getHeight()<dp(120)){
+            if(attempt<28){textList.postOnAnimation(()->positionReaderAtWord(word,epoch,attempt+1,reveal,smoothFinish));}
+            else {textList.setAlpha(1f);restoringScroll=false;ReaderDiagnosticLog.event("READER_STARTUP","RESTORE_FAILED reason=NO_VIEWPORT");}
+            return;
+        }
+        int clamped=map.clamp(word),chunk=chunks.chunkForWord(clamped),row=chunk+1;
+        int anchor=dp(88)+Math.max(1,textList.getHeight()-dp(184))/2;
+        RecyclerView.ViewHolder found=textList.findViewHolderForAdapterPosition(row);
+        if(!(found instanceof ChunkAdapter.Holder)||((ChunkAdapter.Holder)found).value.getLayout()==null){
+            layoutManager.scrollToPositionWithOffset(row,anchor);
+            if(attempt==0||attempt==6||attempt==16)
+                ReaderDiagnosticLog.event("READER_STARTUP","RESTORE_RETRY reason=ROW_NOT_MEASURED attempt="+attempt);
+            if(attempt<28)textList.postOnAnimation(()->positionReaderAtWord(word,epoch,attempt+1,reveal,smoothFinish));
+            else {textList.setAlpha(1f);restoringScroll=false;ReaderDiagnosticLog.event("READER_STARTUP","RESTORE_FAILED reason=NO_ROW");}
+            return;
+        }
+        TextView value=((ChunkAdapter.Holder)found).value;
+        android.text.Layout lines=value.getLayout();
+        int charOffset=Math.max(0,Math.min(Math.max(0,value.length()-1),map.starts[clamped]-chunks.get(chunk).startChar));
+        int line=lines.getLineForOffset(charOffset);
+        int innerCenter=value.getTotalPaddingTop()+(lines.getLineTop(line)+lines.getLineBottom(line))/2;
+        int actual=((ChunkAdapter.Holder)found).itemView.getTop()+innerCenter;
+        int remaining=actual-anchor;
+        if(Math.abs(remaining)>dp(7)&&attempt<28){
+            // Exact adapter offset includes the line's distance from the start of its chunk.
+            layoutManager.scrollToPositionWithOffset(row,anchor-innerCenter);
+            textList.postOnAnimation(()->positionReaderAtWord(word,epoch,attempt+1,reveal,smoothFinish));
+            return;
+        }
+        textList.setAlpha(1f);restoringScroll=false;
+        ReaderDiagnosticLog.event("READER_STARTUP","RESTORE_APPLIED word="+clamped+
+            " row="+row+" remaining_px="+remaining+" attempts="+attempt);
+        if(reveal)ReaderDiagnosticLog.event("READER_STARTUP","RESTORE_COMPLETED word="+clamped);
+        if(smoothFinish&&Math.abs(remaining)>dp(2)&&Math.abs(remaining)<dp(120))
+            textList.smoothScrollBy(0,remaining);
+    }
     /** Center the active line; far-away chapters jump close then settle gently. */
     private void ensureWordVisible(boolean explicitReturn){
         if(mode==RSVP&&playing)return;
@@ -1744,8 +1809,15 @@ public class ReaderActivity extends NavigationActivity {
             textList.stopScroll();
             if(ttsScrollController!=null)ttsScrollController.cancel("EXPLICIT_RETURN");
             textList.post(()->{
-                if(epoch==viewportNavigationEpoch&&!followSuspended&&selectionFrom<0)
-                    ensureWordVisible(true);
+                if(epoch==viewportNavigationEpoch&&!followSuspended&&selectionFrom<0){
+                    ReaderTtsScrollController.WordLocation loc=ttsWordLocation(index);
+                    if(mode==TTS&&(loc==null||!loc.hasPosition||
+                        ReaderTtsScrollPolicy.needsFastReturn(loc.centerY-textList.getHeight()/2,textList.getHeight()))){
+                        ReaderDiagnosticLog.event("TTS_SCROLL","RETURN_FAST_POSITION word="+index+
+                            " epoch="+epoch);
+                        positionReaderAtWord(index,epoch,0,false,true);
+                    }else ensureWordVisible(true);
+                }
             });
         }
     }
@@ -2173,14 +2245,13 @@ public class ReaderActivity extends NavigationActivity {
                 prefs.edit().putString("book_title:"+docUri,title)
                     .putString("book_author:"+docUri,author)
                     .putInt("book_words:"+docUri,words.length).apply();
-                if(reset)index=0;
+                if(reset){index=0;viewportWord=-1;followSuspended=false;}
                 else if(!getIntent().hasExtra("word_index"))
                     index=map.clamp(UnifiedReadingProgress.read(prefs,docUri,index));
                 else index=map.clamp(index);
-                if(!reset&&!getIntent().hasExtra("word_index")){
-                    viewportWord=prefs.getInt("viewport:"+docUri,-1);
-                    if(viewportWord<0)followSuspended=false;
-                }
+                // Reloading a previously read book must not restore a stale cover viewport.
+                // In-session TOC browsing is kept in memory until explicitly exited.
+                if(root==null||viewportWord<0){viewportWord=-1;followSuspended=false;}
                 chteicoInitialIndex=index;chteicoLastWordIndex=index;chteicoReadingSeconds=0;chteicoTouch();
                 ChteicoStore.openBook(this,docUri,mode);
                 draw();saveLight(true);
@@ -2674,7 +2745,7 @@ public class ReaderActivity extends NavigationActivity {
         if(mode==TTS)scheduleTtsUi();
         chteicoResumed=true;chteicoTouch();handler.removeCallbacks(chteicoReadTick);handler.postDelayed(chteicoReadTick,10000);
         if(prefs!=null){
-        int oldBg=bg,oldFg=fg,oldSize=size,oldFont=font,oldMode=mode,oldPortion=portion;
+        int oldBg=bg,oldFg=fg,oldSize=size,oldFont=font,oldMode=mode,oldPortion=portion,oldLineSpacing=lineSpacingPercent;
         int oldCursorBg=cursorBackground,oldCursorText=cursorText,oldCursorScale=cursorScale;
         int oldNormalText=normalSelectText,oldNormalScale=normalSelectScale,oldButton=buttonColor,oldAccent=accentButtonColor;
         int oldHighlightColor=sentenceHighlightColor,oldHighlightOpacity=sentenceHighlightOpacity;
@@ -2689,7 +2760,7 @@ public class ReaderActivity extends NavigationActivity {
         if(root!=null&&words.length>0&&wantedMode!=oldMode){
             mode=oldMode;setMode(wantedMode);
         }
-        if(root!=null&&words.length>0&&(!lastAppliedFont.equals(ReaderFontLibrary.choice(this,prefs))||oldBg!=bg||oldFg!=fg||oldSize!=size||oldFont!=font||oldMode!=mode||oldPortion!=portion
+        if(root!=null&&words.length>0&&(!lastAppliedFont.equals(ReaderFontLibrary.choice(this,prefs))||oldBg!=bg||oldFg!=fg||oldSize!=size||oldLineSpacing!=lineSpacingPercent||oldFont!=font||oldMode!=mode||oldPortion!=portion
             ||oldCursorBg!=cursorBackground||oldCursorText!=cursorText||oldCursorScale!=cursorScale||oldNormalText!=normalSelectText
             ||oldNormalScale!=normalSelectScale||oldButton!=buttonColor||oldAccent!=accentButtonColor||accentAtDraw!=UiColorScheme.accent(this)
             ||oldHighlightColor!=sentenceHighlightColor||oldHighlightOpacity!=sentenceHighlightOpacity||oldFocus!=focusColor||oldLineColor!=lineColor

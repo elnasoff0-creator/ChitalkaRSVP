@@ -149,17 +149,6 @@ public class SettingsActivity extends NavigationActivity {
         headerWithHelp("Редактирование меню");
         settingSwitch("Редактирование долгим нажатием",MenuEditPrefs.LONG_PRESS,false);
         gap(4);
-        preview=new TextView(this);preview.setText("Предпросмотр текста");preview.setGravity(Gravity.CENTER);preview.setLineSpacing(dp(5),1.18f);preview.setPadding(dp(19),dp(21),dp(19),dp(21));LinearLayout.LayoutParams previewLp=new LinearLayout.LayoutParams(-1,dp(90));previewLp.topMargin=dp(6);list.addView(preview,previewLp);applyPreview();
-        header("Шрифт");
-        list.addView(action(ReaderFontLibrary.choice(this,prefs)+"   ▾",this::fontDialog));
-        gap(9);
-        list.addView(action("＋ Добавить шрифт TTF / OTF",this::pickFont));
-        gap(9);header("Размер шрифта");
-        LinearLayout sizing=new LinearLayout(this);sizing.setGravity(Gravity.CENTER_VERTICAL);
-        Button minus=new Button(this);minus.setText("−");minus.setAllCaps(false);minus.setBackground(rounded(UiColorScheme.neutral(this),14));minus.setTextColor(activeColor());minus.setOnClickListener(v->changeSize(-2));sizing.addView(minus,new LinearLayout.LayoutParams(dp(70),dp(54)));
-        sizeValue=text(String.valueOf(size),20,true);sizeValue.setGravity(Gravity.CENTER);sizing.addView(sizeValue,new LinearLayout.LayoutParams(0,dp(54),1));
-        Button plus=new Button(this);plus.setText("+");plus.setAllCaps(false);plus.setBackground(rounded(UiColorScheme.neutral(this),14));plus.setTextColor(activeColor());plus.setOnClickListener(v->changeSize(2));sizing.addView(plus,new LinearLayout.LayoutParams(dp(70),dp(54)));
-        list.addView(sizing);
         header("Тема чтения");
         LinearLayout themes=new LinearLayout(this);themes.setOrientation(LinearLayout.HORIZONTAL);
         theme(themes,"Дневная",0xffffffff,0xff202020);theme(themes,"Ночная",0xff1e2025,0xffe8e5db);theme(themes,"Мягкая",0xffdfe9d9,0xff223a29);theme(themes,"Сепия",0xfff3e7d5,0xff30221e);list.addView(themes);
@@ -182,6 +171,46 @@ public class SettingsActivity extends NavigationActivity {
         // of General; selected persisted tree URIs are not changed.
         drawDownloadFoldersSection();
         // Diagnostics are accessible only from the developer drawer.
+    }
+    /** Shared typography controls now belong exclusively to the Reading tab. */
+    private void drawTypographySettings(){
+        preview=new TextView(this);preview.setText("Предпросмотр текста");preview.setGravity(Gravity.CENTER);preview.setLineSpacing(dp(5),1.18f);preview.setPadding(dp(19),dp(21),dp(19),dp(21));LinearLayout.LayoutParams previewLp=new LinearLayout.LayoutParams(-1,dp(90));previewLp.topMargin=dp(6);list.addView(preview,previewLp);applyPreview();
+        header("Шрифт");
+        list.addView(action(ReaderFontLibrary.choice(this,prefs)+"   ▾",this::fontDialog));
+        gap(9);
+        list.addView(action("＋ Добавить шрифт TTF / OTF",this::pickFont));
+        gap(9);header("Размер шрифта");
+        LinearLayout sizing=new LinearLayout(this);sizing.setGravity(Gravity.CENTER_VERTICAL);
+        Button minus=new Button(this);minus.setText("−");minus.setAllCaps(false);minus.setBackground(rounded(UiColorScheme.neutral(this),14));minus.setTextColor(activeColor());minus.setOnClickListener(v->changeSize(-2));sizing.addView(minus,new LinearLayout.LayoutParams(dp(70),dp(54)));
+        sizeValue=text(String.valueOf(size),20,true);sizeValue.setGravity(Gravity.CENTER);sizing.addView(sizeValue,new LinearLayout.LayoutParams(0,dp(54),1));
+        Button plus=new Button(this);plus.setText("+");plus.setAllCaps(false);plus.setBackground(rounded(UiColorScheme.neutral(this),14));plus.setTextColor(activeColor());plus.setOnClickListener(v->changeSize(2));sizing.addView(plus,new LinearLayout.LayoutParams(dp(70),dp(54)));
+        list.addView(sizing);
+        header("Межстрочный интервал");
+        final int percent=Math.max(80,Math.min(200,prefs.getInt("reading_line_spacing_percent",100)));
+        TextView lineLabel=text(lineSpacingLabel(percent),15,false);
+        lineLabel.setPadding(dp(4),dp(6),0,dp(2));list.addView(lineLabel);
+        SeekBar spacing=new SeekBar(this);
+        spacing.setMax(24);spacing.setProgress((percent-80)/5);
+        list.addView(spacing);
+        spacing.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            @Override public void onProgressChanged(SeekBar bar,int step,boolean user){
+                int value=80+Math.max(0,Math.min(24,step))*5;
+                lineLabel.setText(lineSpacingLabel(value));
+                if(user){prefs.edit().putInt("reading_line_spacing_percent",value).apply();applyPreview();}
+            }
+            @Override public void onStartTrackingTouch(SeekBar bar){}
+            @Override public void onStopTrackingTouch(SeekBar bar){}
+        });
+    }
+    private static String lineSpacingLabel(int percent){
+        return String.format(java.util.Locale.forLanguageTag("ru-RU"),"Межстрочный интервал: %.2f×",percent/100f);
+    }
+    private void readingSectionDivider(){
+        gap(15);
+        View separator=new View(this);
+        separator.setBackgroundColor(contrast(bg)==Color.WHITE?0x55ffffff:0x55866d5c);
+        list.addView(separator,new LinearLayout.LayoutParams(-1,dp(1)));
+        gap(8);
     }
     /** A consistent 48dp help target in the same row as its section heading. */
     private void headerWithHelp(String title){headerWithHelp(title,title);}
@@ -394,7 +423,9 @@ public class SettingsActivity extends NavigationActivity {
         spinner.setBackground(rounded(cardColor(),12));
     }
     void drawRsvpSettings(){
-        header("Режим чтения");
+        drawTypographySettings();
+        readingSectionDivider();
+        header("Режимы чтения");
         int current=Math.max(0,Math.min(3,prefs.getInt("reading_mode",prefs.getBoolean("rsvp",true)?1:0)));
         LinearLayout selector=new LinearLayout(this);selector.setGravity(Gravity.CENTER_VERTICAL);
         ImageView modeImage=new ImageView(this);
@@ -1088,7 +1119,7 @@ public class SettingsActivity extends NavigationActivity {
         if(primary)accentButtonColor=color;else buttonColor=color;
         put(primary?"button_accent_color":"button_color",color);
     }
-    void applyPreview(){if(preview==null)return;preview.setTextColor(fg);preview.setTextSize(Math.max(16,(int)(size*.60f)));preview.setTypeface(face());preview.setBackground(rounded(ReadingThemeCycle.isDark(bg)?0xff31343a:0xfffff9f1,20));}
+    void applyPreview(){if(preview==null)return;preview.setTextColor(fg);preview.setTextSize(Math.max(16,(int)(size*.60f)));preview.setTypeface(face());preview.setBackground(rounded(ReadingThemeCycle.isDark(bg)?0xff31343a:0xfffff9f1,20));preview.setLineSpacing(dp(5),1.18f*Math.max(.8f,Math.min(2f,prefs.getInt("reading_line_spacing_percent",100)/100f)));}
     void changeSize(int delta){size=Math.max(16,Math.min(76,size+delta));put("size",size);sizeValue.setText(String.valueOf(size));applyPreview();}
     void pauses(){
         LinearLayout panel=col();panel.setPadding(dp(14),dp(8),dp(14),0);

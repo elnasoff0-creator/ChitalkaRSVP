@@ -13,6 +13,7 @@ final class ReaderTtsScrollController {
         long navigationEpoch();
         boolean mayFollow(boolean explicitReturn);
         void jumpToAdapterPosition(int position,int offsetPx);
+        default boolean jumpToWordLine(int word,int anchorY){return false;}
     }
     static final class WordLocation {
         final int adapterPosition;
@@ -52,6 +53,9 @@ final class ReaderTtsScrollController {
                 :ReaderTtsScrollPolicy.shift(loc.centerY,top,bottom,explicit,tolerancePx);
             if(remaining!=0&&!animating)anchorPercent=ReaderTtsScrollPolicy.anchorPercent(
                 loc.centerY,top,bottom,explicit);
+            if(explicit&&!animating&&ReaderTtsScrollPolicy.needsFastReturn(remaining,height)){
+                if(fastReturn(top,bottom))return;
+            }
         }else{
             int first=layout.findFirstVisibleItemPosition();
             int last=layout.findLastVisibleItemPosition();
@@ -66,6 +70,7 @@ final class ReaderTtsScrollController {
                 return;
             }
             if(explicit&&Math.abs(loc.adapterPosition-(direction>0?last:first))>2){
+                if(fastReturn(top,bottom))return;
                 ReaderDiagnosticLog.event("TTS_SCROLL","FOLLOW_JUMP_EXPLICIT word="+
                     targetWord+" adapter="+loc.adapterPosition+" epoch="+targetEpoch);
                 host.jumpToAdapterPosition(loc.adapterPosition,top);
@@ -94,6 +99,14 @@ final class ReaderTtsScrollController {
         queueFrame();
     }};
 
+    private boolean fastReturn(int top,int bottom){
+        int anchor=top+Math.max(0,bottom-top)/2;
+        if(!host.jumpToWordLine(targetWord,anchor))return false;
+        ReaderDiagnosticLog.event("TTS_SCROLL","RETURN_FAST_POSITION word="+targetWord+
+            " target_y="+anchor+" epoch="+targetEpoch);
+        cancel("FAST_RETURN_POSITIONED");
+        return true;
+    }
     ReaderTtsScrollController(RecyclerView list,LinearLayoutManager layout,Host host,
                               int topInset,int bottomInset,int tolerance,int minimum,int maximum){
         this.list=list;this.layout=layout;this.host=host;

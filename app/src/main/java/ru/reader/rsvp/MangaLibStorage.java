@@ -204,7 +204,7 @@ final class MangaLibStorage {
     static ArrayList<ComicLibrary.Chapter> comicChapters(Context c,String slug){ArrayList<ComicLibrary.Chapter> out=new ArrayList<>();
         for(Job j:seriesJobs(c,slug)){
             ComicLibrary.Chapter ch=new ComicLibrary.Chapter();ch.title=j.chapter;ch.type="mangalib_cbz";
-            ch.imagePaths.add(j.file);out.add(ch);
+            ch.stableId="mangalib:"+j.id();ch.imagePaths.add(j.file);out.add(ch);
         }
         return out;
     }

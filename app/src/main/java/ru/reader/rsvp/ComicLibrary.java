@@ -22,7 +22,7 @@ import java.util.zip.ZipInputStream;
 /** SAF comic library supporting HTML folders, image folders and CBZ/CBR archives. */
 final class ComicLibrary {
     static final class Comic {
-        String uri="",title="",kind="auto";int chapter=0,mode=1,scroll=0,page=0,chapterTotal=0,pageTotal=0;long opened=0;
+        String uri="",title="",kind="auto",chapterId="";int chapter=0,mode=1,scroll=0,page=0,chapterTotal=0,pageTotal=0;double pageFraction=-1;long opened=0;
         ArrayList<Integer> pageCounts=new ArrayList<>();
         int progressPercent(){return ComicProgressMath.percent(pageCounts,chapter,page,chapterTotal);}
         String compactProgress(){
@@ -32,13 +32,20 @@ final class ComicLibrary {
             int percent=progressPercent();return progress+(percent>=0?" · "+percent+"%":"");
         }
         JSONObject json(){JSONObject o=new JSONObject();try{o.put("uri",uri).put("title",title).put("kind",kind).put("chapter",chapter).put("mode",mode).put("scroll",scroll).put("page",page).put("chapterTotal",chapterTotal)
-            .put("pageTotal",pageTotal).put("opened",opened);
+            .put("pageTotal",pageTotal).put("opened",opened).put("chapterId",chapterId).put("pageFraction",pageFraction);
             JSONArray counts=new JSONArray();for(Integer count:pageCounts)counts.put(count);o.put("pageCounts",counts);}catch(Exception ignored){}return o;}
-        static Comic read(JSONObject o){Comic c=new Comic();c.uri=o.optString("uri","");c.title=o.optString("title","");c.kind=o.optString("kind","auto");c.chapter=o.optInt("chapter",0);c.mode=o.optInt("mode",1);c.scroll=o.optInt("scroll",0);c.page=o.optInt("page",0);c.chapterTotal=o.optInt("chapterTotal",0);c.pageTotal=o.optInt("pageTotal",0);c.opened=o.optLong("opened",0);JSONArray counts=o.optJSONArray("pageCounts");
+        static Comic read(JSONObject o){Comic c=new Comic();c.uri=o.optString("uri","");c.title=o.optString("title","");c.kind=o.optString("kind","auto");c.chapter=o.optInt("chapter",0);c.mode=o.optInt("mode",1);c.scroll=o.optInt("scroll",0);c.page=o.optInt("page",0);c.chapterTotal=o.optInt("chapterTotal",0);c.pageTotal=o.optInt("pageTotal",0);c.opened=o.optLong("opened",0);c.chapterId=o.optString("chapterId","");c.pageFraction=o.optDouble("pageFraction",-1);JSONArray counts=o.optJSONArray("pageCounts");
             if(counts!=null)for(int i=0;i<counts.length();i++)c.pageCounts.add(counts.optInt(i,-1));return c;}
     }
     static final class Chapter {
-        String title="";String type="html";DocumentFile htmlFile,archiveFile;int pageCount=-1;ArrayList<String> imagePaths=new ArrayList<>();
+        String title="";String type="html";String stableId="";DocumentFile htmlFile,archiveFile;int pageCount=-1;ArrayList<String> imagePaths=new ArrayList<>();
+        String identity(){
+            if(!stableId.isEmpty())return stableId;
+            if(htmlFile!=null)return "html:"+htmlFile.getUri();
+            if(archiveFile!=null)return "archive:"+archiveFile.getUri();
+            if(!imagePaths.isEmpty()&&"archive".equals(type))return "archive-file:"+title;
+            return type+":"+title;
+        }
     }
 
     static ArrayList<Comic> list(Context c){ArrayList<Comic> out=new ArrayList<>();try{JSONArray arr=new JSONArray(c.getSharedPreferences("reader",0).getString("comics_v1","[]"));for(int i=0;i<arr.length();i++){JSONObject o=arr.optJSONObject(i);if(o!=null){Comic item=Comic.read(o);item.title=BookTitleStore.title(c,BookTitleStore.COMIC,item.uri,item.title);out.add(item);}}}catch(Exception ignored){}return out;}

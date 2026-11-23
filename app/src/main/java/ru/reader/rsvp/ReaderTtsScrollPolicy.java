@@ -48,6 +48,11 @@ final class ReaderTtsScrollPolicy {
         return Integer.signum(remainingPx)*Math.min(Math.abs(remainingPx),step);
     }
 
+    /** Far explicit navigation may bypass the normal 22dp-per-frame speech follow. */
+    static boolean needsFastReturn(int remainingPx,int viewportHeight){
+        return Math.abs((long)remainingPx)>Math.max(1,viewportHeight);
+    }
+
     static int missingDirection(int targetAdapterPosition,int firstVisible,int lastVisible){
         if(targetAdapterPosition>lastVisible)return 1;
         if(targetAdapterPosition<firstVisible)return -1;

@@ -57,25 +57,41 @@ public final class ComicReaderActivity extends NavigationActivity {
     private int restoringScroll=0,restoringIndex=0;
     private volatile int generation=0;private final ArrayList<PageAsset> currentAssets=new ArrayList<>();
     private boolean lastPositionKnown=false;
+    private long lastPositionCheckpointAt=0;
+    private boolean restoreInterruptedByTouch=false;
+    private int restoreAttempt=0;
+    private double restoringFraction=-1;
+
     private final Handler tracker=new Handler(Looper.getMainLooper());private boolean tracking=false;
     private final Runnable trackPosition=new Runnable(){@Override public void run(){
         if(!tracking||web==null||isFinishing())return;
         if(restoringPage){tracker.postDelayed(this,500L);return;}
         final int token=generation;
         try{web.evaluateJavascript("positionInfo()",value->{
-            if(token!=generation||value==null||comic==null)return;
+            if(token!=generation||value==null||comic==null||restoringPage)return;
             String[] parts=value.replace("\"","").split("\\|");
-            if(parts.length==2)try{
+            if(parts.length<2)return;
+            try{
                 int page=Integer.parseInt(parts[0]),offset=Integer.parseInt(parts[1]);
                 int max; synchronized(currentAssets){max=currentAssets.size();}
-                if(page<0||page>=max)return; // No trustworthy page before WebView layout.
+                if(page<0||page>=max)return;
                 int nextScroll=Math.max(0,offset),oldPage=comic.page;
-                if(oldPage==page&&comic.scroll==nextScroll)return;
-                comic.page=page;comic.scroll=nextScroll;lastPositionKnown=true;
+                double fraction=parts.length>2?Double.parseDouble(parts[2]):-1;
+                fraction=ComicRestorePolicy.clampFraction(fraction);
+                if(oldPage==page&&comic.scroll==nextScroll&&
+                    Math.abs(comic.pageFraction-fraction)<.002)return;
+                comic.page=page;comic.scroll=nextScroll;comic.pageFraction=fraction;
+                lastPositionKnown=true;
                 getSharedPreferences("reader",0).edit()
                     .putBoolean("comic_anchor_v175:"+comic.uri,true).apply();
                 if(oldPage!=page)ChteicoStore.recordComicPage(ComicReaderActivity.this,comic.uri,comic.chapter,page);
                 updateChapterButton();
+                long now=android.os.SystemClock.elapsedRealtime();
+                if(oldPage!=page||now-lastPositionCheckpointAt>1800){
+                    lastPositionCheckpointAt=now;persist();
+                    ReaderDiagnosticLog.event("COMIC_RESTORE","POSITION_SAVED chapter="+comic.chapter+
+                        " page="+page+" offset="+nextScroll);
+                }
             }catch(Exception ignored){}
         });}catch(Exception ignored){}
         tracker.postDelayed(this,600L);
@@ -123,7 +139,7 @@ public final class ComicReaderActivity extends NavigationActivity {
         modeLp.leftMargin=dp(5);toolbar.addView(modeAction,modeLp);
         modeAction.setContentDescription(comic.mode==0?"Страницы":"Лента");
         modeAction.setOnClickListener(v->UiNavigationSheet.showComicModes(this,comic.mode,n->{
-            if(n!=comic.mode){comic.mode=n;comic.scroll=0;setChromeVisible(true);persist();updateModeIcon();loadChapter();}
+            if(n!=comic.mode){comic.mode=n;comic.scroll=0;comic.pageFraction=0;setChromeVisible(true);persist();updateModeIcon();loadChapter();}
         }));
         orientationAction=toolIcon(savedOrientation==0?R.drawable.ic_comic_portrait:R.drawable.ic_comic_landscape,neutralInk);
         orientationAction.setBackground(rounded(neutral,12));
@@ -143,6 +159,7 @@ public final class ComicReaderActivity extends NavigationActivity {
                 if(!restoringPage&&web!=null)web.evaluateJavascript("positionInfo()",value->{
                     try{String[] parts=value.replace("\"","").split("\\|");
                         int pg=Integer.parseInt(parts[0]);if(pg>=0){comic.page=pg;comic.scroll=Math.max(0,Integer.parseInt(parts[1]));
+                            if(parts.length>2)comic.pageFraction=Math.max(0,Math.min(1,Double.parseDouble(parts[2])));
                             getSharedPreferences("reader",0).edit().putBoolean("comic_anchor_v175:"+comic.uri,true).apply();}}
                     catch(Exception ignored){}
                     rotate.run();
@@ -177,10 +194,36 @@ public final class ComicReaderActivity extends NavigationActivity {
         web.getSettings().setLoadWithOverviewMode(true);
         web.setOnTouchListener((v,event)->handleReaderTouch(event));
         web.addJavascriptInterface(new Object(){
+            @android.webkit.JavascriptInterface public void onPositionChanged(int token,int page,int offset,double fraction){
+                runOnUiThread(()->{
+                    if(token!=generation||restoringPage||comic==null||isFinishing()||isDestroyed())return;
+                    int count; synchronized(currentAssets){count=currentAssets.size();}
+                    if(page<0||page>=count)return;
+                    int before=comic.page;
+                    comic.page=page;comic.scroll=Math.max(0,offset);
+                    comic.pageFraction=ComicRestorePolicy.clampFraction(fraction);
+                    lastPositionKnown=true;
+                    getSharedPreferences("reader",0).edit()
+                        .putBoolean("comic_anchor_v175:"+comic.uri,true).apply();
+                    if(before!=page){
+                        ChteicoStore.recordComicPage(ComicReaderActivity.this,comic.uri,comic.chapter,page);
+                        updateChapterButton();
+                    }
+                    long now=android.os.SystemClock.elapsedRealtime();
+                    if(before!=page||now-lastPositionCheckpointAt>1700){
+                        lastPositionCheckpointAt=now;persist();
+                        ReaderDiagnosticLog.event("COMIC_RESTORE","POSITION_SAVED chapter="+comic.chapter+
+                            " page="+page+" offset="+comic.scroll);
+                    }
+                });
+            }
             @android.webkit.JavascriptInterface public void onPositionRestored(int token){
-                runOnUiThread(()->{if(token!=generation||token!=restoringToken||web==null)return;
+                runOnUiThread(()->{if(token!=generation||token!=restoringToken||web==null
+                    ||restoreInterruptedByTouch)return;
                     restoringPage=false;web.animate().cancel();web.setAlpha(1f);
-                    if(tracking){tracker.removeCallbacks(trackPosition);tracker.postDelayed(trackPosition,400L);}
+                    ReaderDiagnosticLog.event("COMIC_RESTORE","RESTORE_APPLIED token="+token+
+                        " chapter="+comic.chapter+" page="+restoringIndex);
+                    if(tracking){tracker.removeCallbacks(trackPosition);tracker.postDelayed(trackPosition,350L);}
                 });
             }
         },"ComicRestore");
@@ -190,8 +233,9 @@ public final class ComicReaderActivity extends NavigationActivity {
             @Override public void onPageFinished(WebView view,String url){
                 if(view!=web||!restoringPage||!url.startsWith("https://comic.local/"))return;
                 final int token=restoringToken;
-                String call="restoreWhenReady("+restoringScroll+","+restoringIndex+","+token+")";
-                view.evaluateJavascript(call,null);
+                if(restoreInterruptedByTouch)return;
+                ReaderDiagnosticLog.event("COMIC_RESTORE","LAYOUT_READY token="+token);
+                requestComicRestore(token);
             }
             @Override public WebResourceResponse shouldInterceptRequest(WebView view,WebResourceRequest request){
                 Uri requestUri=request.getUrl(); if(!"comic.local".equals(requestUri.getHost())) return forbidden();
@@ -261,7 +305,14 @@ public final class ComicReaderActivity extends NavigationActivity {
             final ArrayList<ComicLibrary.Chapter> loaded=ComicLibrary.chapters(getApplicationContext(),comic);
             runOnUiThread(()->{
                 if(isFinishing()||isDestroyed()||comic==null||!openedUri.equals(comic.uri))return;
-                chapters=loaded;comic.chapterTotal=loaded.size();updateChapterButton();loadChapter();
+                chapters=loaded;comic.chapterTotal=loaded.size();
+                java.util.ArrayList<String> identifiers=new java.util.ArrayList<>();
+                for(ComicLibrary.Chapter item:chapters)identifiers.add(item.identity());
+                int resolved=ComicRestorePolicy.resolveChapter(comic.chapterId,identifiers,comic.chapter);
+                if(resolved>=0)comic.chapter=resolved;
+                ReaderDiagnosticLog.event("COMIC_RESTORE","CHAPTER_RESOLVED chapter="+comic.chapter+
+                    " stable="+!comic.chapterId.isEmpty()+" total="+chapters.size());
+                updateChapterButton();loadChapter();
                 // Counting all page assets is deferred until after the first chapter starts.
                 new Thread(()->{
                     ComicLibrary.indexCounts(getApplicationContext(),comic);
@@ -278,6 +329,24 @@ public final class ComicReaderActivity extends NavigationActivity {
         },"comic-chapter-discovery").start();
     }
 
+    private void requestComicRestore(int token){
+        if(web==null||!restoringPage||restoreInterruptedByTouch||token!=generation)return;
+        final String call="restoreWhenReady("+restoringScroll+","+restoringIndex+","+
+            String.format(Locale.ROOT,"%.6f",restoringFraction)+","+token+")";
+        web.evaluateJavascript(call,null);
+        // This only retries a missing acknowledgement. It never performs a blind
+        // scroll 1800ms after the user has already moved the viewport.
+        if(restoreAttempt++<5)web.postDelayed(()->{
+            if(token==generation&&restoringPage&&!restoreInterruptedByTouch)
+                requestComicRestore(token);
+        },350L);
+        else web.postDelayed(()->{
+            if(token==generation&&restoringPage){
+                restoringPage=false;web.setAlpha(1f);
+                ReaderDiagnosticLog.event("COMIC_RESTORE","RESTORE_TIMEOUT token="+token);
+            }
+        },350L);
+    }
     /** ReaderActivity-like chrome: overlays leave the WebView viewport untouched. */
     private void setChromeVisible(boolean show){
         if(chromeVisible==show)return;
@@ -299,6 +368,11 @@ public final class ComicReaderActivity extends NavigationActivity {
     private boolean handleReaderTouch(MotionEvent event){
         final int action=event.getActionMasked();
         if(action==MotionEvent.ACTION_DOWN){
+            if(restoringPage){
+                restoreInterruptedByTouch=true;restoringPage=false;
+                if(web!=null){web.setAlpha(1f);web.evaluateJavascript("window.__comicRestoreCancelled=true",null);}
+                ReaderDiagnosticLog.event("COMIC_RESTORE","RESTORE_CANCELLED reason=USER_TOUCH token="+generation);
+            }
             gestureStartX=event.getX();gestureStartY=event.getY();
             gestureStartedAt=android.os.SystemClock.uptimeMillis();
             gestureMoved=false;touchPinching=false;
@@ -342,12 +416,12 @@ public final class ComicReaderActivity extends NavigationActivity {
     private static String guessMime(String path){String lower=path.toLowerCase(Locale.ROOT); if(lower.endsWith(".png")) return "image/png"; if(lower.endsWith(".webp")) return "image/webp"; if(lower.endsWith(".gif")) return "image/gif"; if(lower.endsWith(".bmp")) return "image/bmp"; if(lower.endsWith(".avif")) return "image/avif"; return "image/jpeg";}
     private TextView button(String text,int fg){TextView v=new TextView(this); v.setText(text); v.setTextColor(fg); v.setGravity(Gravity.CENTER); v.setTextSize(15); v.setPadding(dp(9),dp(7),dp(9),dp(7)); return v;}
     private void persist(){comic.opened=System.currentTimeMillis(); ComicLibrary.save(this,comic);}    
-    private void navigate(int delta){int target=comic.chapter+delta; if(target>=0&&target<chapters.size()){comic.chapter=target; comic.scroll=0;comic.page=0; loadChapter();}}
+    private void navigate(int delta){int target=comic.chapter+delta; if(target>=0&&target<chapters.size()){comic.chapter=target; comic.scroll=0;comic.page=0;comic.pageFraction=0; loadChapter();}}
     private void contents(){
         String[] titles=new String[chapters.size()];int[] counts=new int[chapters.size()];
         for(int i=0;i<chapters.size();i++){titles[i]=chapters.get(i).title;counts[i]=ComicLibrary.chapterPages(chapters.get(i));}
         int pages; synchronized(currentAssets){pages=currentAssets.size();}
-        UiNavigationSheet.showComicChapters(this,titles,counts,comic.chapter,comic.page,pages,n->{comic.chapter=n;comic.page=0;comic.scroll=0;loadChapter();});
+        UiNavigationSheet.showComicChapters(this,titles,counts,comic.chapter,comic.page,pages,n->{comic.chapter=n;comic.page=0;comic.scroll=0;comic.pageFraction=0;loadChapter();});
     }
 
     private void loadChapter(){
@@ -362,9 +436,16 @@ public final class ComicReaderActivity extends NavigationActivity {
         comic.pageTotal=comic.chapter<comic.pageCounts.size()?Math.max(0,comic.pageCounts.get(comic.chapter)):0;
         persist();updateChapterButton();
         final ComicLibrary.Chapter chapter=chapters.get(comic.chapter);final int token=++generation;
+        comic.chapterId=chapter.identity();
         final int previousScroll=comic.scroll,previousPage=comic.page,mode=comic.mode;
-        restoringScroll=previousScroll;restoringIndex=previousPage;restoringToken=token;restoringPage=true;
-        web.animate().cancel(); // Never hide the entire WebView during lazy-image loading.
+        restoringScroll=previousScroll;restoringIndex=previousPage;restoringFraction=ComicRestorePolicy.clampFraction(comic.pageFraction);
+        restoringToken=token;restoringPage=true;restoreInterruptedByTouch=false;restoreAttempt=0;
+        ReaderDiagnosticLog.event("COMIC_RESTORE","POSITION_LOADED chapter="+comic.chapter+
+            " page="+previousPage+" scroll="+previousScroll+" token="+token);
+        persist();
+        web.animate().cancel();
+        // No first-page flash before the saved page is positioned inside WebView.
+        if(previousPage>0||previousScroll>0)web.setAlpha(0f);else web.setAlpha(1f);
         new Thread(() -> {
             try {
                 PreparedChapter ready=buildChapterHtml(chapter,mode,token);
@@ -375,13 +456,11 @@ public final class ComicReaderActivity extends NavigationActivity {
                     synchronized(currentAssets){currentAssets.clear();currentAssets.addAll(ready.assets);}
                     updateChapterButton();
                     web.loadDataWithBaseURL("https://comic.local/",ready.html,"text/html","UTF-8",null);
-                    web.postDelayed(()->{if(token==generation&&restoringPage){
-                        web.evaluateJavascript("restore("+previousScroll+","+previousPage+")",null);
-                        restoringPage=false;
-                    }},1800L);
+                    // Restoration is acknowledged by ComicRestore after layout.
+                    // No delayed unconditional scroll can override a user gesture.
                 });
             } catch(Exception e){runOnUiThread(()->{if(token!=generation)return;
-                    restoringPage=false;
+                    restoringPage=false;if(web!=null)web.setAlpha(1f);
                     Toast.makeText(this,"Ошибка открытия главы: "+e.getMessage(),Toast.LENGTH_LONG).show();});}
         },"comic-open").start();
     }
@@ -455,21 +534,29 @@ public final class ComicReaderActivity extends NavigationActivity {
         html.append("}");
         html.append("function positionInfo(){var n=page();var v=");
         html.append(mode==0?"document.getElementById('pages').scrollLeft":"window.scrollY");
-        html.append(mode==0?";return n+'|'+Math.round(v)}":";return n+'|'+(n<0?0:Math.round(v-pictures()[n].offsetTop))}");
-        html.append("function restore(offset,index){var imgs=pictures();if(!imgs.length)return;var n=Math.max(0,Math.min(index,imgs.length-1));");
+        html.append(mode==0?";return n+'|'+Math.round(v)+'|0'}":
+            ";var o=n<0?0:Math.max(0,Math.round(v-pictures()[n].offsetTop));var h=n<0?1:Math.max(1,pictures()[n].getBoundingClientRect().height);return n+'|'+o+'|'+Math.max(0,Math.min(1,o/h)).toFixed(6)}");
+        html.append("function restore(offset,index,ratio){var imgs=pictures();if(!imgs.length)return;var n=Math.max(0,Math.min(index,imgs.length-1));");
         if(mode==0)html.append("var el=document.getElementById('pages');el.scrollLeft=n*el.clientWidth;");
         else {
             boolean anchored=getSharedPreferences("reader",0).getBoolean("comic_anchor_v175:"+comic.uri,false);
             html.append("window.scrollTo(0,")
-                .append(anchored?"imgs[n].offsetTop+Math.max(0,offset)":"offset>0?offset:imgs[n].offsetTop")
+                .append(anchored?"imgs[n].offsetTop+(ratio>=0?Math.round(imgs[n].getBoundingClientRect().height*ratio):Math.max(0,offset))":"offset>0?offset:imgs[n].offsetTop")
                 .append(");");
         }
         html.append("}");
         // Geometry is reserved before image loads. Restore the page anchor immediately;
         // never force downloads of all preceding pages or do repeated scrollTo loops.
-        html.append("function restoreWhenReady(offset,index,token){var imgs=pictures(),n=Math.max(0,Math.min(index,imgs.length-1));");
+        html.append("function restoreWhenReady(offset,index,ratio,token){var imgs=pictures(),n=Math.max(0,Math.min(index,imgs.length-1));");
         html.append("for(var i=Math.max(0,n-1);i<=Math.min(imgs.length-1,n+2);i++)imgs[i].loading='eager';");
-        html.append("requestAnimationFrame(function(){restore(offset,index);requestAnimationFrame(function(){if(window.ComicRestore)ComicRestore.onPositionRestored(token);});});}");
+        html.append("requestAnimationFrame(function(){if(window.__comicRestoreCancelled)return;restore(offset,index,ratio);requestAnimationFrame(function(){if(!window.__comicRestoreCancelled&&window.ComicRestore)ComicRestore.onPositionRestored(token);});});}");
+        // Native scrolls update the durable in-memory position without waiting for
+        // the 600ms polling timer. The restored chapter generation is part of each event.
+        html.append("function comicProgress(){var p=positionInfo().split('|');if(window.ComicRestore&&p.length>=3)ComicRestore.onPositionChanged(")
+            .append(token).append(",parseInt(p[0],10),parseInt(p[1],10),parseFloat(p[2]));}");
+        html.append("var progressQueued=false;function queueComicProgress(){if(progressQueued)return;progressQueued=true;setTimeout(function(){progressQueued=false;comicProgress()},120)};");
+        html.append("window.addEventListener('scroll',queueComicProgress,{passive:true});document.getElementById('pages').addEventListener('scroll',queueComicProgress,{passive:true});");
+        html.append("window.addEventListener('touchstart',function(){window.__comicRestoreCancelled=true},{passive:true});");
         // Page swipes remain native; an ACTION_UP without movement toggles the floating chrome.
         html.append("</script></body></html>");
         return html.toString();
@@ -485,12 +572,12 @@ public final class ComicReaderActivity extends NavigationActivity {
         tracking=true;tracker.removeCallbacks(trackPosition);tracker.postDelayed(trackPosition,600);}
     @Override protected void onPause(){
         tracking=false;tracker.removeCallbacks(trackPosition);
-        if(web!=null&&!restoringPage){try{web.evaluateJavascript("positionInfo()",value->{try{
-            String[] parts=value.replace("\"","").split("\\|");
-            int page=Integer.parseInt(parts[0]);
-            if(page>=0){comic.page=page;comic.scroll=Math.max(0,Integer.parseInt(parts[1]));
-                getSharedPreferences("reader",0).edit().putBoolean("comic_anchor_v175:"+comic.uri,true).apply();persist();}
-        }catch(Exception ignored){}});}catch(Exception ignored){}}
+        // Persist the last confirmed WebView scroll event before destruction; no
+        // asynchronous onPause callback may overwrite a newer Activity's progress.
+        if(comic!=null){persist();
+            ReaderDiagnosticLog.event("COMIC_RESTORE","POSITION_SAVED reason=PAUSE chapter="+
+                comic.chapter+" page="+comic.page+" offset="+comic.scroll);
+        }
         super.onPause();
     }
     @Override protected void onDestroy(){tracker.removeCallbacks(trackPosition);if(web!=null){web.stopLoading();web.destroy();}super.onDestroy();}
