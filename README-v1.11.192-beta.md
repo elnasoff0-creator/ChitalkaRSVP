@@ -49,3 +49,7 @@
 CI: `.github/workflows/release.yml` включает новые проверки Web Transfer и старые регрессии. Для полноценной сборки нужен Android SDK 35, JDK 17, Gradle 8.7 и зависимости Maven Central (добавлен `com.google.zxing:core:3.5.3` для локального QR-кода). Запуск проекта: `gradle :app:assembleRelease` (требуется окружение Android). Текущие локальные QA не заменяют Android-компиляцию или испытание на реальном устройстве.
 
 В корне архива должны быть только четыре документа версии 1.11.192: README, CHANGELOG, QA-REPORT и TZ.
+
+## QA Hotfix после первой CI-сборки
+
+Исправлена ошибка компиляции Java в `WebTransferServer.java` (`variable error is already defined`); формат и поведение Web Transfer не изменены. В `qa/` добавлена отдельная проверка реальной компиляции серверного класса (`bash qa/typecheck_web_transfer_server_192.sh`), вызываемая также из `.github/workflows/release.yml`. Повторный запуск CI необходим для подтверждения полной Android-сборки. Номер версии не увеличен.

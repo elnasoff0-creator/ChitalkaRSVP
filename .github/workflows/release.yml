@@ -57,6 +57,7 @@ jobs:
         run: |
           bash qa/check_java_syntax.sh
           bash qa/test_web_transfer_192.sh
+          bash qa/typecheck_web_transfer_server_192.sh
           bash qa/test_tts_dictionary_csv_190.sh
           bash qa/typecheck_dictionary_store_190.sh
           bash qa/test_tts_scroll_controller_190.sh

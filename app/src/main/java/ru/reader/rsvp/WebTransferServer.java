@@ -201,9 +201,9 @@ final class WebTransferServer {
                 String message=error.getMessage()==null?"Ошибка импорта":error.getMessage();
                 latest="Ошибка передачи: "+message;
                 int code=message.startsWith("DUPLICATE:")||message.startsWith("DUPLICATE_SKIP:")?409:400;
-                byte[] error=json(message.replace("DUPLICATE:","").replace("DUPLICATE_SKIP:",""));
+                byte[] errorPayload=json(message.replace("DUPLICATE:","").replace("DUPLICATE_SKIP:",""));
                 String marker=message.startsWith("DUPLICATE_SKIP:")?"X-WT-Skip: 1\r\n":null;
-                respond(out,code,"application/json",error,marker);
+                respond(out,code,"application/json",errorPayload,marker);
             }finally{
                 if(temp!=null)temp.delete();inflight.decrementAndGet();lastActivity=SystemClock.elapsedRealtime();
             }

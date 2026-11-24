@@ -17,3 +17,9 @@
 **Пройдено:** синтаксический разбор 231 Java-файла; 2 новых теста Web Transfer; чистая Java-политика имён, типов, размеров и Origin; контракты SQLite/CSV и Reader/Comic; все оставшиеся регрессионные тесты Edge TTS, WordBoundary, выделения, цитат и ранее исправленных методов ReaderActivity. XML и встроенный JavaScript проверены отдельно. Один длительный общий прогон был прерван таймаутом внешней команды после тестов Edge; оставшиеся тесты запущены отдельно и прошли. Лог: `qa/qa-results-v192.txt`.
 
 **Не проверялось:** APK-компиляция Gradle с Android SDK, работа Wi-Fi-сервера на устройстве, реальные SAF-провайдеры, уведомления Android, QR на телефоне и браузерные интеграционные испытания. Не считать автономную проверку подтверждением успешной Android-сборки.
+
+## QA Hotfix после CI-компиляции
+
+GitHub Actions выявил ошибку `WebTransferServer.java:204: variable error is already defined in method handle(Socket)` на задаче `:app:compileReleaseJavaWithJavac`. Исправлено переименование локальной переменной массива в `errorPayload`.
+
+Новый тест `qa/typecheck_web_transfer_server_192.sh` выполняет настоящий `javac` для `WebTransferServer.java` с заглушками используемых Android/API зависимостей, а не только синтаксический разбор. Скрипт добавлен в release workflow перед Gradle. Это не полноценная Android-сборка. **Требуется повторный запуск GitHub Actions**, поскольку Gradle `assembleRelease` с исправлением в текущем окружении всё ещё недоступен.

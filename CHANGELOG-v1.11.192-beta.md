@@ -26,3 +26,8 @@
 - Новые `qa/TestWebTransferPolicy192.java`, `qa/test_web_transfer_192.sh`, `qa/check_v192_contracts.py` и запуск в GitHub Actions.
 - Сохранены исправления v191 QA Hotfix, в частности `ReaderActivityMethodCheck` признаёт `isFinishing()` унаследованным методом Android Activity.
 - Сохранены функции и данные библиотек, скачиваний, выделения, цитатника, Edge TTS, манги.
+
+## QA Hotfix — Java compileReleaseJavaWithJavac
+- Исправлено повторное объявление `error` в `WebTransferServer.handle()`: байтовый массив HTTP-ответа переименован в `errorPayload`. Алгоритм обработки ошибок, заголовки и HTTP-статусы не изменены.
+- Добавлен `qa/typecheck_web_transfer_server_192.sh`: автономная компиляция **всего `WebTransferServer.java`** с минимальными Android-заглушками. QA GitHub Actions запускает её перед `assembleRelease`, чтобы ловить ошибки типов и конфликтов локальных имён, не обнаруживаемые синтаксическим парсером.
+- Версия Android-приложения остаётся `1.11.192-beta` (`versionCode 19200`); это исправление исходников без изменения версии.
