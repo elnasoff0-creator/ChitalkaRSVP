@@ -5,7 +5,7 @@ from xml.etree import ElementTree as ET
 root=Path(__file__).resolve().parents[1]
 src=root/'app/src/main/java/ru/reader/rsvp'
 read=lambda n:(src/n).read_text(encoding='utf-8')
-assert "versionCode 19200; versionName '1.11.192-beta'" in (root/'app/build.gradle').read_text()
+assert "versionCode 19300; versionName '1.11.193-beta'" in (root/'app/build.gradle').read_text()
 assert 'com.google.zxing:core:' in (root/'app/build.gradle').read_text()
 assert 'Передача по Wi-Fi' in read('DownloadActivity.java') and 'R.drawable.ic_wifi_transfer' in read('DownloadActivity.java')
 assert 'Подготовить книгу Edge' not in read('DownloadActivity.java')
@@ -37,5 +37,5 @@ for key in ['dragover','drop','/api/pair','/api/upload','XMLHttpRequest','encode
 assert (root/'app/src/main/res/drawable/ic_wifi_transfer.xml').is_file()
 for x in (root/'app/src/main').rglob('*.xml'):ET.parse(x)
 md=list(root.glob('*.md'))
-assert len(md)==4 and all('1.11.192' in f.name for f in md),md
+assert len(md)==4 and all('1.11.193' in f.name for f in md),md
 print('PASS: v192 Web Transfer lifecycle, browser UI, SAF, tabs, TTS word settings, clean docs and XML')

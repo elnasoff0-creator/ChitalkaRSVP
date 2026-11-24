@@ -7,7 +7,7 @@ comic=java('ComicReaderActivity.java')
 lib=java('ComicLibrary.java')
 manga=java('MangaLibStorage.java')
 config=(r/'app/build.gradle').read_text()
-assert "versionCode 19200; versionName '1.11.192-beta'" in config
+assert "versionCode 19300; versionName '1.11.193-beta'" in config
 # On the General tab typography must not appear; on Reading tab the whole block is first.
 general=settings.split('if(currentTab==4){drawChteicoSettings();return;}',1)[1].split('private void drawTypographySettings',1)[0]
 assert 'preview=new TextView(this)' not in general

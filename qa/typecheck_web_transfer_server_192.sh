@@ -73,7 +73,7 @@ final class WebTransferUploadManager {
  static String sanitize(String name){return name;}
  static String category(String name){return "book";}
  static Outcome commit(Context c,File temp,String name,String collision){return new Outcome();}
- static final class Outcome {String name="book";long bytes=123L;}
+ static final class Outcome {String name="book",uri="content://test/1";long bytes=123L;}
 }
 final class WebTransferService {
  static void notifyCompleted(Context c,String name){}
@@ -81,6 +81,17 @@ final class WebTransferService {
 final class DownloadFolderPicker {
  static boolean available(Context c,String type){return true;}
  static String label(String type){return type;}
+}
+final class WebTransferDownloadStore {
+ static final String CANCELLED="cancelled",DONE="done",DUPLICATE="duplicate",ERROR="error";
+ static String newId(){return "wifi:example";}
+ static boolean begin(Context c,String id,String name,String kind,long length){return true;}
+ static boolean cancel(Context c,String id){return true;}
+ static boolean cancelled(Context c,String id){return false;}
+ static void progress(Context c,String id,long received,long total){}
+ static void importing(Context c,String id){}
+ static void finish(Context c,String id,String status,String error,String uri,long bytes){}
+ static void interruptActive(Context c,String error){}
 }
 JAVA
 javac -encoding UTF-8 -d "$tmp/bin" \

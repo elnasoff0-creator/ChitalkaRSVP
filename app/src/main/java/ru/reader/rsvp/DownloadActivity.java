@@ -253,15 +253,15 @@ public final class DownloadActivity extends NavigationActivity {
         ImageView archive=icon(R.drawable.ic_download_archive,"Архив загрузок",44);
         headingRow.addView(archive,new LinearLayout.LayoutParams(dp(44),dp(44)));
         archive.setOnClickListener(v->startActivity(new Intent(this,DownloadArchiveActivity.class)));
-        String[] currentFilters={"Все загрузки","В процессе","Аудиокниги","Edge TTS","По ссылке","Манга","Ранобэ"};
-        TextView filterSelect=center(currentFilters[Math.max(0,Math.min(filter,6))]+"  ▾",16);
+        String[] currentFilters={"Все загрузки","В процессе","Аудиокниги","Edge TTS","По ссылке","Манга","Ранобэ","Wi-Fi"};
+        TextView filterSelect=center(currentFilters[Math.max(0,Math.min(filter,7))]+"  ▾",16);
         filterSelect.setGravity(Gravity.CENTER_VERTICAL|Gravity.CENTER_HORIZONTAL);
         filterSelect.setBackground(bg(ReaderButtonColors.neutral(this,PANEL),15));
         filterSelect.setTextColor(ReaderButtonColors.contrastingText(ReaderButtonColors.neutral(this,PANEL)));
         LinearLayout.LayoutParams fl=new LinearLayout.LayoutParams(-1,dp(49));fl.topMargin=dp(14);root.addView(filterSelect,fl);
         filterSelect.setOnClickListener(v->{
             PopupMenu menu=new PalettePopupMenu(this,filterSelect);
-            String[] names={"Все загрузки","В процессе","Аудиокниги","Edge TTS","По ссылке","Манга","Ранобэ"};
+            String[] names={"Все загрузки","В процессе","Аудиокниги","Edge TTS","По ссылке","Манга","Ранобэ","Wi-Fi"};
             for(int i=0;i<names.length;i++){final int ix=i;menu.getMenu().add(names[i]).setOnMenuItemClickListener(item->{
                 filter=ix;filterSelect.setText(names[ix]+"  ▾");getSharedPreferences("reader",0).edit().putInt(FILTER_KEY,ix).apply();showCachedFilter();return true;});}
             // Full disk reconciliation is a secondary action, not another toolbar button.
@@ -468,6 +468,7 @@ public final class DownloadActivity extends NavigationActivity {
             if(filter==4&&!DownloadsRepository.LINK.equals(item.type))continue;
             if(filter==5&&!DownloadsRepository.MANGA.equals(item.type))continue;
             if(filter==6&&!DownloadsRepository.RANOBE.equals(item.type)&&!DownloadsRepository.RANOBES.equals(item.type))continue;
+            if(filter==7&&!DownloadsRepository.WIFI.equals(item.type))continue;
             (item.ready?ready:unfinished).add(item);
         }
         if(!unfinished.isEmpty()){
@@ -489,6 +490,9 @@ public final class DownloadActivity extends NavigationActivity {
         main.postDelayed(()->refreshCurrent(item.id),250);
     }
     private void open(DownloadsRepository.Item item){
+        if(DownloadsRepository.WIFI.equals(item.type)){
+            wifiDetails(item);return;
+        }
         // A saved ID opens the unified manager immediately; disk checks run there
         // asynchronously. A completed audiobook must NOT auto-open the player.
         startActivity(new Intent(this,UnifiedDownloadManagerActivity.class)
@@ -496,6 +500,15 @@ public final class DownloadActivity extends NavigationActivity {
             .putExtra(UnifiedDownloadManagerActivity.EXTRA_TITLE,item.title)
             .putExtra(UnifiedDownloadManagerActivity.EXTRA_COVER,item.cover)
             .putExtra(UnifiedDownloadManagerActivity.EXTRA_TYPE,item.type));
+    }
+    private void wifiDetails(DownloadsRepository.Item item){
+        WebTransferDownloadStore.Entry e=WebTransferDownloadStore.one(this,item.id);
+        if(e==null){Toast.makeText(this,"Запись Wi-Fi не найдена",Toast.LENGTH_SHORT).show();return;}
+        String details="Источник: Wi-Fi\nФайл: "+e.name+"\nСостояние: "+item.status+
+            "\nПолучено: "+item.downloadedBytes+" из "+item.totalBytes+" байт";
+        if(!e.message.isEmpty())details+="\n"+e.message;
+        new SwipeDialogs.Builder(this).setTitle("Передача по Wi-Fi")
+            .setMessage(details).setPositiveButton("Закрыть",null).show();
     }
     private void openMangaChapters(DownloadsRepository.Item item){
         startActivity(new Intent(this,MangaLibChapterDownloadsActivity.class)
@@ -835,6 +848,29 @@ public final class DownloadActivity extends NavigationActivity {
         });
     }
     private void menu(View anchor,DownloadsRepository.Item item){
+        if(DownloadsRepository.WIFI.equals(item.type)){
+            PopupMenu popup=new PalettePopupMenu(this,anchor);
+            popup.getMenu().add("Подробнее").setOnMenuItemClickListener(m->{wifiDetails(item);return true;});
+            if(item.running){
+                if("Импорт в библиотеку".equals(item.status)){
+                    popup.getMenu().add("Сохранение файла…").setEnabled(false);
+                }else popup.getMenu().add("Отменить передачу").setOnMenuItemClickListener(m->{
+                    if(!WebTransferService.cancelTransfer(this,item.id))
+                        Toast.makeText(this,"Передача уже завершена или сохраняется",Toast.LENGTH_SHORT).show();
+                    refreshCurrent(item.id);return true;});
+            }else{
+                popup.getMenu().add("Удалить из истории").setOnMenuItemClickListener(m->{
+                    new SwipeDialogs.Builder(this).setTitle("Удалить запись о передаче?")
+                        .setMessage("Файл в библиотеке останется. Будет удалена только строка истории Wi-Fi.")
+                        .setNegativeButton("Отмена",null).setPositiveButton("Удалить",(d,w)->{
+                            WebTransferDownloadStore.remove(this,item.id);refreshCurrent(item.id);
+                        }).show();return true;});
+            }
+            popup.getMenu().add("Передача по Wi-Fi").setOnMenuItemClickListener(m->{
+                startActivity(new Intent(this,WebTransferActivity.class));return true;});
+            popup.show();return;
+        }
+
         if(DownloadsRepository.RANOBES.equals(item.type)){
             PopupMenu popup=new PalettePopupMenu(this,anchor);
             popup.getMenu().add("Переименовать").setOnMenuItemClickListener(m->{renameDownload(item);return true;});
@@ -991,6 +1027,9 @@ public final class DownloadActivity extends NavigationActivity {
         },"edge-export-count").start();
     }
     private void archive(DownloadsRepository.Item item){
+        if(DownloadsRepository.WIFI.equals(item.type)){
+            Toast.makeText(this,"Запись Wi-Fi уже сохраняется в истории загрузок",Toast.LENGTH_SHORT).show();return;
+        }
         if(item.previewOnly){resolvePreview(item,this::archive);return;}
         if(!item.ready&&!item.paused){
             new SwipeDialogs.Builder(this).setTitle("Архивировать незавершённую загрузку?")
@@ -1045,6 +1084,7 @@ public final class DownloadActivity extends NavigationActivity {
                     RecyclerView.ViewHolder holder=rv.getChildViewHolder(row);
                     int pos=holder.getBindingAdapterPosition();
                     if(pos<0||pos>=rows.size()||rows.get(pos).item==null)return false;
+                    if(DownloadsRepository.WIFI.equals(rows.get(pos).item.type))return false;
                     LinearLayout itemRoot=(LinearLayout)holder.itemView;
                     if(itemRoot.getChildCount()==0||!(itemRoot.getChildAt(0) instanceof FrameLayout))return false;
                     FrameLayout frame=(FrameLayout)itemRoot.getChildAt(0);
@@ -1109,19 +1149,22 @@ public final class DownloadActivity extends NavigationActivity {
             root.setLayoutParams(new RecyclerView.LayoutParams(-1,-2));return new Holder(root);
         }
         private String staticSignature(DownloadsRepository.Item item){
-            return item.id+"|"+item.title+"|"+item.description+"|"+item.cover+"|"+
+            return item.id+"|"+item.title+"|"+
+                (DownloadsRepository.WIFI.equals(item.type)?"":item.description)+"|"+item.cover+"|"+
                 item.author+"|"+item.narrator+"|"+item.format+"|"+item.type+"|"+
                 item.ready+"|"+item.confirmedReady;
         }
         private void updateFast(Holder h,DownloadsRepository.Item item){
             h.boundItem=item;
+            if(h.infoText!=null&&!item.description.contentEquals(h.infoText.getText()))
+                h.infoText.setText(item.description);
             if(h.currentStatus!=null){
                 if(!item.status.contentEquals(h.currentStatus.getText()))h.currentStatus.setText(item.status);
                 h.currentStatus.setTextColor(item.failed?ERROR:
                     item.ready||"Идёт озвучивание".equals(item.status)?GREEN:ACCENT);
             }
             if(h.progressBar!=null){
-                if(DownloadsRepository.EDGE.equals(item.type)||
+                if(DownloadsRepository.EDGE.equals(item.type)||DownloadsRepository.WIFI.equals(item.type)||
                    (DownloadsRepository.MANGA.equals(item.type)&&item.unknownTotal)){
                     h.progressBar.setMax(100);h.progressBar.setProgress(item.coveragePercent,true);
                     h.progressBar.setIndeterminate(false);
@@ -1153,7 +1196,7 @@ public final class DownloadActivity extends NavigationActivity {
             }
             LinearLayout root=(LinearLayout)h.itemView;root.removeAllViews();
             h.boundId="";h.boundStatic="";h.boundItem=row.item;
-            h.currentStatus=null;h.progressBar=null;h.swipeActions=null;h.swipeCard=null;
+            h.currentStatus=null;h.infoText=null;h.progressBar=null;h.swipeActions=null;h.swipeCard=null;
             if(row.item==null){
                 TextView label=text(row.section,23,true);label.setTypeface(Typeface.SERIF,Typeface.BOLD);
                 label.setPadding(dp(2),dp(8),0,dp(12));root.addView(label);return;
@@ -1204,7 +1247,7 @@ public final class DownloadActivity extends NavigationActivity {
             LinearLayout detail=new LinearLayout(DownloadActivity.this);detail.setOrientation(LinearLayout.VERTICAL);
             LinearLayout.LayoutParams d=new LinearLayout.LayoutParams(0,-2,1);d.leftMargin=dp(12);top.addView(detail,d);
             TextView title=text(item.title,17,true);title.setTypeface(Typeface.SERIF,Typeface.BOLD);title.setMaxLines(2);detail.addView(title);
-            TextView type=text(DownloadsRepository.LINK.equals(item.type)?"↓ По ссылке":DownloadsRepository.EDGE.equals(item.type)?"▥ Edge TTS":DownloadsRepository.MANGA.equals(item.type)?"▣ Манга · MangaLib":DownloadsRepository.RANOBE.equals(item.type)?"▤ Ранобэ · RanobeLIB":DownloadsRepository.RANOBES.equals(item.type)?"▤ Ранобэ · Ranobes.net":"▤ Аудиокнига",12,false);type.setTextColor(ACCENT);
+            TextView type=text(DownloadsRepository.WIFI.equals(item.type)?"◉ Wi-Fi":DownloadsRepository.LINK.equals(item.type)?"↓ По ссылке":DownloadsRepository.EDGE.equals(item.type)?"▥ Edge TTS":DownloadsRepository.MANGA.equals(item.type)?"▣ Манга · MangaLib":DownloadsRepository.RANOBE.equals(item.type)?"▤ Ранобэ · RanobeLIB":DownloadsRepository.RANOBES.equals(item.type)?"▤ Ранобэ · Ranobes.net":"▤ Аудиокнига",12,false);type.setTextColor(ACCENT);
             LinearLayout.LayoutParams tagParams=new LinearLayout.LayoutParams(-2,-2);tagParams.topMargin=dp(5);detail.addView(type,tagParams);
             StringBuilder brief=new StringBuilder();
             if(item.author!=null&&!item.author.isEmpty())brief.append(item.author);
@@ -1216,7 +1259,7 @@ public final class DownloadActivity extends NavigationActivity {
             }
             if(brief.length()>0){TextView byline=text(brief.toString(),12,false);byline.setTextColor(MUTED);detail.addView(byline);}
 
-            TextView info=text(item.description,12,false);info.setTextColor(MUTED);
+            TextView info=text(item.description,12,false);h.infoText=info;info.setTextColor(MUTED);
             LinearLayout.LayoutParams il=new LinearLayout.LayoutParams(-1,-2);il.topMargin=dp(6);detail.addView(info,il);
             LinearLayout statusLine=new LinearLayout(DownloadActivity.this);
             statusLine.setGravity(Gravity.CENTER_VERTICAL);detail.addView(statusLine);
@@ -1227,13 +1270,13 @@ public final class DownloadActivity extends NavigationActivity {
                 ImageView complete=new ImageView(DownloadActivity.this);
                 complete.setImageResource(R.drawable.ic_download_chapter_complete);
                 complete.setImageTintList(android.content.res.ColorStateList.valueOf(UiColorScheme.accent(DownloadActivity.this)));
-                complete.setContentDescription("Все главы загружены");
+                complete.setContentDescription(DownloadsRepository.WIFI.equals(item.type)?"Файл импортирован":"Все главы загружены");
                 LinearLayout.LayoutParams iconLp=new LinearLayout.LayoutParams(dp(18),dp(18));
                 iconLp.leftMargin=dp(7);statusLine.addView(complete,iconLp);
             }
             if(!item.ready){
                 AnimatedDownloadProgressBar progress=new AnimatedDownloadProgressBar(DownloadActivity.this);
-                if(DownloadsRepository.EDGE.equals(item.type)){
+                if(DownloadsRepository.EDGE.equals(item.type)||DownloadsRepository.WIFI.equals(item.type)){
                     progress.setMax(100);progress.setProgress(item.coveragePercent);
                     progress.setIndeterminate(false);
                 }else if(DownloadsRepository.MANGA.equals(item.type)&&item.unknownTotal){
@@ -1269,7 +1312,7 @@ public final class DownloadActivity extends NavigationActivity {
         final class Holder extends RecyclerView.ViewHolder{
             String boundId="",boundStatic="";
             DownloadsRepository.Item boundItem;
-            TextView currentStatus;AnimatedDownloadProgressBar progressBar;
+            TextView currentStatus,infoText;AnimatedDownloadProgressBar progressBar;
             LinearLayout swipeCard,swipeActions;
             Holder(View v){super(v);}
         }

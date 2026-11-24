@@ -33,6 +33,11 @@ public final class WebTransferService extends Service {
         }
         handler.postDelayed(this,2000);
     }};
+    static boolean cancelTransfer(Context context,String id){
+        WebTransferServer server=current;
+        if(server==null)return false;
+        return server.cancelTransfer(id);
+    }
     static WebTransferServer current(){return current;}
     static String lastError(){return lastError;}
     static void notifyCompleted(Context c,String name){

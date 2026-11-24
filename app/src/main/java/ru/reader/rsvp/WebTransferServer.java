@@ -42,6 +42,7 @@ final class WebTransferServer {
     private final ExecutorService requests=Executors.newFixedThreadPool(3,r->{Thread t=new Thread(r,"WebTransfer-HTTP");t.setDaemon(true);return t;});
     private final AtomicInteger inflight=new AtomicInteger();
     private final Set<Socket> sockets=Collections.newSetFromMap(new ConcurrentHashMap<Socket,Boolean>());
+    private final java.util.concurrent.ConcurrentHashMap<String,Socket> transfers=new java.util.concurrent.ConcurrentHashMap<>();
     private final int idleMinutes;
     private volatile boolean running=true;
     private volatile long lastActivity=SystemClock.elapsedRealtime();
@@ -93,8 +94,15 @@ final class WebTransferServer {
     long idleMs(){return SystemClock.elapsedRealtime()-lastActivity;}
     int idleMinutes(){return idleMinutes;}
     boolean wifiSame(){return ip.equals(wifiIpv4(app));}
+    boolean cancelTransfer(String id){
+        Socket uploading=transfers.get(id);
+        if(uploading==null||!WebTransferDownloadStore.cancel(app,id))return false;
+        try{uploading.close();}catch(IOException ignored){}
+        return true;
+    }
     void close(){
-        running=false;try{listener.close();}catch(IOException ignored){}
+        running=false;
+        WebTransferDownloadStore.interruptActive(app,"Wi-Fi-сеанс завершён до окончания передачи");try{listener.close();}catch(IOException ignored){}
         for(Socket s:sockets)try{s.close();}catch(IOException ignored){}
         requests.shutdownNow();
     }
@@ -167,14 +175,33 @@ final class WebTransferServer {
                 String response="{\"ok\":true,\"active\":"+inflight.get()+"}";
                 respond(out,200,"application/json",response.getBytes(StandardCharsets.UTF_8),null);return;
             }
+            if("/api/cancel".equals(path)){
+                String cancelId=headers.get("x-wt-transfer-id");
+                if(cancelId==null||!cancelId.startsWith("wifi:")||!"0".equals(headers.getOrDefault("content-length","0"))){
+                    respond(out,400,"application/json",json("Неверный ID передачи"),null);return;
+                }
+                boolean stopped=cancelTransfer(cancelId);
+                respond(out,stopped?200:404,"application/json",
+                    stopped?"{\"ok\":true}".getBytes(StandardCharsets.UTF_8):json("Передача завершена или не найдена"),null);
+                return;
+            }
             if(!"/api/upload".equals(path)){respond(out,404,"application/json",json("Адрес не найден"),null);return;}
             if(inflight.incrementAndGet()>2){inflight.decrementAndGet();respond(out,429,"application/json",json("Одновременно можно передавать не более двух файлов"),null);return;}
             File temp=null;
+            String transferId=null;
+            boolean registered=false;
             try{
                 long length=WebTransferPolicy.length(headers.getOrDefault("content-length","-1"),
                     headers.get("transfer-encoding"),WebTransferUploadManager.MAX_BYTES);
                 String raw=headers.get("x-wt-filename");if(raw==null||raw.length()>700)throw new IOException("Не указано имя файла");
                 String fileName=WebTransferUploadManager.sanitize(URLDecoder.decode(raw,"UTF-8"));
+                transferId=headers.get("x-wt-transfer-id");
+                if(transferId==null||transferId.isEmpty())transferId=WebTransferDownloadStore.newId();
+                if(!transferId.matches("wifi:[A-Za-z0-9_-]{10,90}"))throw new IOException("Неверный ID передачи");
+                if(!WebTransferDownloadStore.begin(app,transferId,fileName,"",length))
+                    throw new IOException("Задание передачи уже существует или недоступно");
+                registered=true;
+                transfers.put(transferId,client);
                 String type=WebTransferUploadManager.category(fileName);
                 if(!DownloadFolderPicker.available(app,type))throw new IOException("Выберите папку "+DownloadFolderPicker.label(type)+" в настройках приложения");
                 File dir=new File(app.getCacheDir(),"webtransfer_staging");if(!dir.isDirectory()&&!dir.mkdirs())throw new IOException("Нет места для временных файлов");
@@ -184,15 +211,20 @@ final class WebTransferServer {
                     byte[] buffer=new byte[65536];long left=length;
                     while(left>0){
                         if(!running)throw new IOException("Сервер остановлен");
+                        if(WebTransferDownloadStore.cancelled(app,transferId))throw new IOException("Передача отменена");
                         int n=in.read(buffer,0,(int)Math.min(buffer.length,left));if(n<0)throw new IOException("Передача прервана");
                         file.write(buffer,0,n);left-=n;lastActivity=SystemClock.elapsedRealtime();
                         latest=fileName+" · получено "+((length-left)*100/length)+"%";
+                        WebTransferDownloadStore.progress(app,transferId,length-left,length);
                     }
                     file.getFD().sync();
                 }
                 if(!running)throw new IOException("Сервер остановлен");
+                if(WebTransferDownloadStore.cancelled(app,transferId))throw new IOException("Передача отменена");
+                WebTransferDownloadStore.importing(app,transferId);
                 latest=fileName+" · сохранение через SAF…";
                 WebTransferUploadManager.Outcome result=WebTransferUploadManager.commit(app,temp,fileName,headers.get("x-wt-collision"));
+                WebTransferDownloadStore.finish(app,transferId,WebTransferDownloadStore.DONE,"",result.uri,length);
                 WebTransferService.notifyCompleted(app,result.name);
                 latest="Добавлено: "+result.name;
                 JSONObject response=new JSONObject();response.put("ok",true);response.put("name",result.name);response.put("bytes",result.bytes);
@@ -201,10 +233,16 @@ final class WebTransferServer {
                 String message=error.getMessage()==null?"Ошибка импорта":error.getMessage();
                 latest="Ошибка передачи: "+message;
                 int code=message.startsWith("DUPLICATE:")||message.startsWith("DUPLICATE_SKIP:")?409:400;
+                if(registered){
+                    String state=WebTransferDownloadStore.cancelled(app,transferId)?WebTransferDownloadStore.CANCELLED:
+                        code==409?WebTransferDownloadStore.DUPLICATE:WebTransferDownloadStore.ERROR;
+                    WebTransferDownloadStore.finish(app,transferId,state,message.replace("DUPLICATE:","").replace("DUPLICATE_SKIP:",""),"",-1);
+                }
                 byte[] errorPayload=json(message.replace("DUPLICATE:","").replace("DUPLICATE_SKIP:",""));
                 String marker=message.startsWith("DUPLICATE_SKIP:")?"X-WT-Skip: 1\r\n":null;
                 respond(out,code,"application/json",errorPayload,marker);
             }finally{
+                if(registered)transfers.remove(transferId,client);
                 if(temp!=null)temp.delete();inflight.decrementAndGet();lastActivity=SystemClock.elapsedRealtime();
             }
         }catch(Exception ignored){}finally{sockets.remove(socket);}

@@ -20,7 +20,7 @@ import java.util.Set;
 
 /** Read-only projection of two INDEPENDENT downloader stores. Never copies downloaded MP3. */
 final class DownloadsRepository {
-    static final String AUDIO="audiobook",EDGE="edge",LINK="direct_link",MANGA="mangalib",RANOBE="ranobelib",RANOBES="ranobes";
+    static final String AUDIO="audiobook",EDGE="edge",LINK="direct_link",MANGA="mangalib",RANOBE="ranobelib",RANOBES="ranobes",WIFI="wifi";
     static final String HIDDEN_EDGE="hidden_edge_downloads_v1";
     static final class Item {
         String type="",id="",title="",sourceTitle="",cover="",source="",bookUri="",status="",description="";
@@ -168,6 +168,29 @@ final class DownloadsRepository {
         for(LinkDownloadStore.Entry e:b.files)item.downloadedBytes+=e.bytes;
         return item;
     }
+    /** One persistent transfer per card, with a real byte-based progress bar. */
+    private static Item fromWifi(WebTransferDownloadStore.Entry record){
+        Item item=new Item();item.type=WIFI;item.id=record.id;item.title=record.name;
+        item.source=record.id;item.sourceTitle=record.name;item.provider="Wi-Fi";
+        item.bookUri=record.uri;item.cover="";
+        int dot=record.name.lastIndexOf('.');item.format=dot>=0?record.name.substring(dot+1).toUpperCase(Locale.ROOT):"";
+        item.totalBytes=Math.max(0,record.total);item.downloadedBytes=Math.max(0,record.received);
+        item.coveragePercent=record.total>0?(int)Math.min(100,record.received*100/record.total):0;
+        item.total=100;item.done=item.coveragePercent;
+        String state=record.state;
+        item.ready=WebTransferDownloadStore.DONE.equals(state);
+        item.confirmedReady=item.ready;
+        item.running=WebTransferDownloadStore.WAITING.equals(state)||WebTransferDownloadStore.RUNNING.equals(state)
+            ||WebTransferDownloadStore.IMPORTING.equals(state);
+        item.failed=WebTransferDownloadStore.ERROR.equals(state)||WebTransferDownloadStore.DUPLICATE.equals(state);
+        item.paused=WebTransferDownloadStore.CANCELLED.equals(state);
+        item.status=item.ready?"Готово":WebTransferDownloadStore.IMPORTING.equals(state)?"Импорт в библиотеку":
+            WebTransferDownloadStore.WAITING.equals(state)?"Ожидает":WebTransferDownloadStore.RUNNING.equals(state)?"Передача":
+            WebTransferDownloadStore.CANCELLED.equals(state)?"Отменено":WebTransferDownloadStore.DUPLICATE.equals(state)?"Дубликат":"Ошибка";
+        item.description=String.format(Locale.ROOT,"Wi-Fi · %.1f из %.1f МБ",item.downloadedBytes/1048576.0,item.totalBytes/1048576.0);
+        if(record.message!=null&&!record.message.isEmpty())item.description+=" · "+record.message;
+        return item;
+    }
     static ArrayList<Item> load(Context ctx,EdgeStreamingService live){return load(ctx,live,null);}
     /** Rehydrate a single job; never traverse unrelated download providers. */
     static Item loadOne(Context ctx,String id){
@@ -192,6 +215,11 @@ final class DownloadsRepository {
     private static ArrayList<Item> load(Context ctx,EdgeStreamingService live,String onlyId){
         final boolean allTypes=onlyId==null;
         ArrayList<Item> all=new ArrayList<>();
+        if(allTypes||onlyId.startsWith("wifi:")){
+            WebTransferDownloadStore.recover(ctx,WebTransferService.current()!=null);
+            for(WebTransferDownloadStore.Entry record:WebTransferDownloadStore.all(ctx))
+                if(allTypes||onlyId.equals(record.id))all.add(fromWifi(record));
+        }
         for(BookImportManager.Job j:allTypes||onlyId.startsWith("audio:")?BookImportManager.load(ctx):new ArrayList<BookImportManager.Job>())
             if(allTypes||("audio:"+j.source).equals(onlyId))all.add(fromAudio(ctx,j));
         for(LinkDownloadStore.Batch b:allTypes||onlyId.startsWith("link:")?LinkDownloadStore.load(ctx):new ArrayList<LinkDownloadStore.Batch>())
