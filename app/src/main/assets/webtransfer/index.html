@@ -1,0 +1,31 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ПРОЧиталка — Web Transfer</title><style>
+:root{font-family:system-ui,-apple-system,Segoe UI,sans-serif;color-scheme:light dark}body{max-width:760px;margin:0 auto;padding:26px 16px;line-height:1.5}h1{font-size:1.7rem;margin:0}h2{font-size:1.1rem}.hint{opacity:.76;font-size:.92rem}.card{border:1px solid #92929266;border-radius:18px;padding:20px;margin:18px 0}button,input{font:inherit;padding:11px;border-radius:10px}button{cursor:pointer;border:1px solid #8888;background:#638eb8;color:#fff}button:disabled{opacity:.5;cursor:default}input{border:1px solid #aaa9}input[type=file]{width:calc(100% - 25px)}#drop{border:2px dashed #8b94a9;border-radius:16px;padding:32px;text-align:center}#drop.over{background:#84a9cc3a}progress{width:100%;height:13px}.item{padding:12px 0;border-bottom:1px solid #aaa4;overflow-wrap:anywhere}.row{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}#uploads{margin-top:18px}#msg{color:inherit;min-height:1.5rem}.muted{opacity:.72}
+</style></head><body>
+<header class="row"><div><h1>📖 ПРОЧиталка</h1><span class="hint">Web Transfer · Только локальная сеть</span></div><span>📶</span></header>
+<section class="card" id="login"><h2>Подключение к устройству</h2><p class="hint">Введите шестизначный PIN, показанный в приложении «ПРОЧиталка».</p><form id="pinform"><input id="pin" inputmode="numeric" maxlength="6" minlength="6" pattern="[0-9]{6}" required autocomplete="one-time-code" placeholder="PIN: 000000" aria-label="PIN подключения"> <button>Подключиться</button></form><p id="loginstatus" aria-live="polite"></p></section>
+<section id="content" hidden><div class="card"><h2>Загрузить книги и комиксы</h2><div id="drop" tabindex="0" role="button" aria-label="Выбрать файлы для загрузки"><strong>Перетащите файлы сюда</strong><p class="hint">Или выберите несколько файлов</p><input type="file" id="files" multiple accept=".epub,.fb2,.txt,.html,.htm,.cbz,.cbr,.mp3,.m4a,.m4b,.ogg,.flac"></div><p class="hint">EPUB, FB2, TXT, HTML, CBZ, CBR и аудиофайлы. Папки назначения задаются в Android-приложении. Максимум 1 ГБ на файл. Параллельно — до 2 файлов.</p></div><div class="card"><h2>Передачи</h2><div id="uploads"></div><p id="msg" aria-live="polite"></p></div></section>
+<script>
+'use strict';const $=id=>document.getElementById(id);let paired=false;const queue=[];let working=0;
+function message(id,s){$(id).textContent=s;}
+$('pinform').addEventListener('submit',async e=>{e.preventDefault();let p=$('pin').value.trim();if(!/^\d{6}$/.test(p))return;try{const r=await fetch('/api/pair',{method:'POST',headers:{'X-WT-Request':'1','X-WT-Pin':p},credentials:'same-origin'});const j=await r.json();if(!r.ok)throw Error(j.error||'Ошибка подключения');paired=true;$('login').hidden=true;$('content').hidden=false;}catch(ex){message('loginstatus',ex.message)}});
+function enqueue(files){if(!paired)return;for(const file of files){if(!file||file.size===0||file.size>1024*1024*1024){message('msg','Файл пуст или превышает 1 ГБ');continue;}queue.push({file,rename:false});}pump();}
+$('files').addEventListener('change',e=>{enqueue(e.target.files);e.target.value=''});
+const drop=$('drop');drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('over')});drop.addEventListener('dragleave',()=>drop.classList.remove('over'));
+drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('over');enqueue(e.dataTransfer.files)});
+drop.addEventListener('keydown',e=>{if(e.target===drop&&(e.key==='Enter'||e.key===' ')){$('files').click();e.preventDefault()}});
+function pump(){while(working<2&&queue.length){const item=queue.shift();working++;upload(item).finally(()=>{working--;pump()})}}
+function upload(item){return new Promise(resolve=>{
+const file=item.file;const card=document.createElement('div');card.className='item';const row=document.createElement('div');row.className='row';
+const name=document.createElement('strong');name.textContent=file.name;const cancel=document.createElement('button');cancel.textContent='Отменить';const state=document.createElement('span');state.className='muted';state.textContent='Ожидание';const bar=document.createElement('progress');bar.max=100;bar.value=0;
+row.append(name,cancel);card.append(row,bar,state);$('uploads').prepend(card);
+const xhr=new XMLHttpRequest();xhr.open('POST','/api/upload');xhr.withCredentials=true;
+xhr.setRequestHeader('X-WT-Request','1');xhr.setRequestHeader('X-WT-Filename',encodeURIComponent(file.name));xhr.setRequestHeader('Content-Type','application/octet-stream');
+if(item.rename)xhr.setRequestHeader('X-WT-Collision','rename');
+cancel.onclick=()=>xhr.abort();xhr.upload.onload=()=>{cancel.disabled=true;state.textContent='Загрузка завершена. Проверка и сохранение в библиотеку…'};xhr.upload.onprogress=e=>{if(e.lengthComputable){bar.value=Math.round(e.loaded/e.total*100);state.textContent='Отправлено '+bar.value+'% · сохранение на устройстве может занять время'}};
+xhr.onload=()=>{let data={};try{data=JSON.parse(xhr.responseText)}catch(e){}if(xhr.status===200){bar.value=100;state.textContent='✓ Добавлено: '+(data.name||file.name);cancel.remove();}
+else if(xhr.status===409){if(xhr.getResponseHeader('X-WT-Skip')){state.textContent='Пропущен: файл существует';cancel.remove();}else{state.textContent='Файл уже существует';cancel.textContent='С новым именем';cancel.onclick=()=>{card.remove();queue.unshift({file,rename:true});pump()};}}
+else{state.textContent='Ошибка: '+(data.error||('HTTP '+xhr.status));cancel.remove();}resolve()};
+xhr.onerror=()=>{state.textContent='Сеть недоступна';cancel.remove();resolve()};xhr.onabort=()=>{state.textContent='Отменено';cancel.remove();resolve()};xhr.send(file);
+})}
+</script></body></html>

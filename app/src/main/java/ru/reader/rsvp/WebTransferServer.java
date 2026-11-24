@@ -1,0 +1,222 @@
+package ru.reader.rsvp;
+
+import android.content.Context;
+import android.net.ConnectivityManager;
+import android.net.LinkAddress;
+import android.net.LinkProperties;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.os.SystemClock;
+import org.json.JSONObject;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.SocketException;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Collections;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+
+/** Isolated ephemeral same-Wi-Fi HTTP endpoint: no remote library read, listing or deletion. */
+final class WebTransferServer {
+    private final Context app;
+    private final String ip,pin,token;
+    private final int port;
+    private final ServerSocket listener;
+    private final ExecutorService requests=Executors.newFixedThreadPool(3,r->{Thread t=new Thread(r,"WebTransfer-HTTP");t.setDaemon(true);return t;});
+    private final AtomicInteger inflight=new AtomicInteger();
+    private final Set<Socket> sockets=Collections.newSetFromMap(new ConcurrentHashMap<Socket,Boolean>());
+    private final int idleMinutes;
+    private volatile boolean running=true;
+    private volatile long lastActivity=SystemClock.elapsedRealtime();
+    private volatile String latest="Ожидание файлов";
+    private int invalidPins=0;
+    private long blockedUntil=0;
+    private Thread accepting;
+    private WebTransferServer(Context c,String ipv4,int listenPort)throws IOException{
+        app=c.getApplicationContext();ip=ipv4;idleMinutes=WebTransferPrefs.idleMinutes(c);
+        SecureRandom random=new SecureRandom();pin=String.format(Locale.ROOT,"%06d",random.nextInt(1000000));
+        byte[] secret=new byte[32];random.nextBytes(secret);StringBuilder b=new StringBuilder(64);
+        for(byte a:secret)b.append(String.format(Locale.ROOT,"%02x",a&255));token=b.toString();
+        listener=new ServerSocket(listenPort,8,InetAddress.getByName(ip));port=listener.getLocalPort();
+    }
+    static String wifiIpv4(Context c){
+        ConnectivityManager cm=(ConnectivityManager)c.getSystemService(Context.CONNECTIVITY_SERVICE);
+        if(cm==null)return null;
+        Network network=cm.getActiveNetwork();if(network==null)return null;
+        NetworkCapabilities caps=cm.getNetworkCapabilities(network);
+        if(caps==null||!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI))return null;
+        LinkProperties lp=cm.getLinkProperties(network);if(lp==null)return null;
+        for(LinkAddress address:lp.getLinkAddresses()){
+            InetAddress a=address.getAddress();
+            if(a instanceof Inet4Address&&!a.isAnyLocalAddress()&&!a.isLoopbackAddress()&&!a.isLinkLocalAddress())
+                return a.getHostAddress();
+        }
+        return null;
+    }
+    static WebTransferServer start(Context context)throws IOException{
+        File old=new File(context.getCacheDir(),"webtransfer_staging");
+        File[] candidates=old.listFiles();
+        if(candidates!=null)for(File candidate:candidates){
+            if(candidate.isFile()&&candidate.getName().startsWith("incoming_")
+                &&candidate.getName().endsWith(".part")
+                &&System.currentTimeMillis()-candidate.lastModified()>3600000L)
+                candidate.delete();
+        }
+        String ip=wifiIpv4(context);
+        if(ip==null)throw new IOException("Подключите устройство к Wi-Fi и повторите попытку");
+        WebTransferServer s=new WebTransferServer(context,ip,WebTransferPrefs.port(context));
+        s.accepting=new Thread(s::acceptLoop,"WebTransfer-Accept");s.accepting.setDaemon(true);s.accepting.start();return s;
+    }
+    String address(){return "http://"+ip+":"+port;}
+    String pin(){return pin;}
+    boolean running(){return running;}
+    int activeUploads(){return inflight.get();}
+    int connections(){return sockets.size();}
+    String latest(){return latest;}
+    long idleMs(){return SystemClock.elapsedRealtime()-lastActivity;}
+    int idleMinutes(){return idleMinutes;}
+    boolean wifiSame(){return ip.equals(wifiIpv4(app));}
+    void close(){
+        running=false;try{listener.close();}catch(IOException ignored){}
+        for(Socket s:sockets)try{s.close();}catch(IOException ignored){}
+        requests.shutdownNow();
+    }
+    private void acceptLoop(){
+        while(running){
+            try{
+                Socket socket=listener.accept();socket.setSoTimeout(45000);
+                if(sockets.size()>=8){socket.close();continue;}
+                sockets.add(socket);
+                try{requests.execute(()->handle(socket));}
+                catch(RuntimeException rejected){sockets.remove(socket);socket.close();}
+            }catch(SocketException closed){break;}
+            catch(Exception error){if(!running)break;}
+        }
+    }
+    private static String readLine(InputStream in,int max)throws IOException{
+        java.io.ByteArrayOutputStream bytes=new java.io.ByteArrayOutputStream();int n;
+        while((n=in.read())!=-1){if(n==10)break;if(n!=13){if(bytes.size()>=max)throw new IOException("HTTP line too large");bytes.write(n);}}
+        if(n<0&&bytes.size()==0)return null;
+        return bytes.toString("ISO-8859-1");
+    }
+    private static String cleanValue(String s){return s==null?"":s.trim();}
+    private boolean authenticated(Map<String,String> headers){
+        String cookie=headers.get("cookie");if(cookie==null)return false;
+        for(String part:cookie.split(";"))if(part.trim().equals("wt_session="+token))return true;
+        return false;
+    }
+    private void handle(Socket socket){
+        try(Socket client=socket;InputStream in=new BufferedInputStream(client.getInputStream());OutputStream out=new BufferedOutputStream(client.getOutputStream())){
+            if(!running||!wifiSame()){respond(out,503,"application/json",json("Wi-Fi недоступен"),null);return;}
+            String first=readLine(in,4096);if(first==null)return;
+            String[] req=first.split(" ");
+            if(req.length!=3||!"HTTP/1.1".equals(req[2])||!("GET".equals(req[0])||"POST".equals(req[0]))){respond(out,400,"application/json",json("Недопустимый запрос"),null);return;}
+            String path=req[1];if(path.length()>256||!path.startsWith("/")||path.indexOf('?')>=0){respond(out,404,"text/plain",new byte[0],null);return;}
+            Map<String,String> headers=new HashMap<>();int size=first.length();String line;
+            while((line=readLine(in,8192))!=null&&!line.isEmpty()){
+                size+=line.length();if(size>24576||headers.size()>40)throw new IOException("Слишком много заголовков");
+                int colon=line.indexOf(':');if(colon<1)throw new IOException("Некорректный заголовок");
+                String key=line.substring(0,colon).trim().toLowerCase(Locale.ROOT);
+                if(headers.putIfAbsent(key,cleanValue(line.substring(colon+1)))!=null)throw new IOException("Повторный заголовок");
+            }
+            String host=headers.get("host");
+            if(host==null||!host.equals(ip+":"+port)){respond(out,403,"text/plain",new byte[0],null);return;}
+            if("GET".equals(req[0])&&("/".equals(path)||"/index.html".equals(path))){
+                try(InputStream asset=app.getAssets().open("webtransfer/index.html")){
+                    java.io.ByteArrayOutputStream bytes=new java.io.ByteArrayOutputStream();byte[] buf=new byte[8192];int n;
+                    while((n=asset.read(buf))!=-1)bytes.write(buf,0,n);
+                    respond(out,200,"text/html; charset=utf-8",bytes.toByteArray(),null);
+                }return;
+            }
+            if(!"POST".equals(req[0])){respond(out,404,"text/plain",new byte[0],null);return;}
+            // Browser must issue same-origin requests; no wildcard CORS and no cross-site uploads.
+            String origin=headers.get("origin");
+            if(!WebTransferPolicy.sameOrigin(host,origin,address())||!"1".equals(headers.get("x-wt-request"))){respond(out,403,"application/json",json("Запрос с другого сайта запрещён"),null);return;}
+            if("/api/pair".equals(path)){
+                if(!"0".equals(headers.getOrDefault("content-length","0"))){respond(out,400,"application/json",json("Неверный запрос"),null);return;}
+                boolean allowed;
+                synchronized(this){
+                    long now=SystemClock.elapsedRealtime();
+                    allowed=now>=blockedUntil&&pin.equals(headers.get("x-wt-pin"));
+                    if(!allowed){invalidPins++;if(invalidPins>=5){blockedUntil=now+60000L;invalidPins=0;}}
+                    else {invalidPins=0;blockedUntil=0;lastActivity=now;}
+                }
+                if(!allowed){respond(out,403,"application/json",json("Неверный PIN или временная блокировка"),null);return;}
+                respond(out,200,"application/json",("{\"ok\":true}").getBytes(StandardCharsets.UTF_8),
+                    "Set-Cookie: wt_session="+token+"; HttpOnly; SameSite=Strict; Path=/; Max-Age=3600\r\n");return;
+            }
+            if(!authenticated(headers)){respond(out,401,"application/json",json("Введите PIN с устройства"),null);return;}
+            if("/api/status".equals(path)){
+                String response="{\"ok\":true,\"active\":"+inflight.get()+"}";
+                respond(out,200,"application/json",response.getBytes(StandardCharsets.UTF_8),null);return;
+            }
+            if(!"/api/upload".equals(path)){respond(out,404,"application/json",json("Адрес не найден"),null);return;}
+            if(inflight.incrementAndGet()>2){inflight.decrementAndGet();respond(out,429,"application/json",json("Одновременно можно передавать не более двух файлов"),null);return;}
+            File temp=null;
+            try{
+                long length=WebTransferPolicy.length(headers.getOrDefault("content-length","-1"),
+                    headers.get("transfer-encoding"),WebTransferUploadManager.MAX_BYTES);
+                String raw=headers.get("x-wt-filename");if(raw==null||raw.length()>700)throw new IOException("Не указано имя файла");
+                String fileName=WebTransferUploadManager.sanitize(URLDecoder.decode(raw,"UTF-8"));
+                String type=WebTransferUploadManager.category(fileName);
+                if(!DownloadFolderPicker.available(app,type))throw new IOException("Выберите папку "+DownloadFolderPicker.label(type)+" в настройках приложения");
+                File dir=new File(app.getCacheDir(),"webtransfer_staging");if(!dir.isDirectory()&&!dir.mkdirs())throw new IOException("Нет места для временных файлов");
+                if(dir.getUsableSpace()<length+16L*1024*1024)throw new IOException("Недостаточно свободного места");
+                temp=File.createTempFile("incoming_",".part",dir);
+                try(FileOutputStream file=new FileOutputStream(temp)){
+                    byte[] buffer=new byte[65536];long left=length;
+                    while(left>0){
+                        if(!running)throw new IOException("Сервер остановлен");
+                        int n=in.read(buffer,0,(int)Math.min(buffer.length,left));if(n<0)throw new IOException("Передача прервана");
+                        file.write(buffer,0,n);left-=n;lastActivity=SystemClock.elapsedRealtime();
+                        latest=fileName+" · получено "+((length-left)*100/length)+"%";
+                    }
+                    file.getFD().sync();
+                }
+                if(!running)throw new IOException("Сервер остановлен");
+                latest=fileName+" · сохранение через SAF…";
+                WebTransferUploadManager.Outcome result=WebTransferUploadManager.commit(app,temp,fileName,headers.get("x-wt-collision"));
+                WebTransferService.notifyCompleted(app,result.name);
+                latest="Добавлено: "+result.name;
+                JSONObject response=new JSONObject();response.put("ok",true);response.put("name",result.name);response.put("bytes",result.bytes);
+                respond(out,200,"application/json",response.toString().getBytes(StandardCharsets.UTF_8),null);
+            }catch(Exception error){
+                String message=error.getMessage()==null?"Ошибка импорта":error.getMessage();
+                latest="Ошибка передачи: "+message;
+                int code=message.startsWith("DUPLICATE:")||message.startsWith("DUPLICATE_SKIP:")?409:400;
+                byte[] error=json(message.replace("DUPLICATE:","").replace("DUPLICATE_SKIP:",""));
+                String marker=message.startsWith("DUPLICATE_SKIP:")?"X-WT-Skip: 1\r\n":null;
+                respond(out,code,"application/json",error,marker);
+            }finally{
+                if(temp!=null)temp.delete();inflight.decrementAndGet();lastActivity=SystemClock.elapsedRealtime();
+            }
+        }catch(Exception ignored){}finally{sockets.remove(socket);}
+    }
+    private static byte[] json(String error){
+        try{return new JSONObject().put("ok",false).put("error",error).toString().getBytes(StandardCharsets.UTF_8);}
+        catch(Exception e){return "{\"ok\":false}".getBytes(StandardCharsets.UTF_8);}
+    }
+    private static void respond(OutputStream out,int status,String mime,byte[] data,String extra)throws IOException {
+        String reason=status==200?"OK":status==400?"Bad Request":status==401?"Unauthorized":status==403?"Forbidden":status==404?"Not Found":status==409?"Conflict":status==429?"Too Many Requests":"Service Unavailable";
+        String header="HTTP/1.1 "+status+" "+reason+"\r\nContent-Type: "+mime+"\r\nContent-Length: "+data.length+"\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; form-action 'none'; base-uri 'none'\r\n";
+        if(extra!=null)header+=extra;
+        out.write((header+"\r\n").getBytes(StandardCharsets.ISO_8859_1));out.write(data);out.flush();
+    }
+}

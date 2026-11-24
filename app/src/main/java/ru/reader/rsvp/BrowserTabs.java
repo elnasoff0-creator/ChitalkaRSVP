@@ -3,6 +3,12 @@ package ru.reader.rsvp;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.Rect;
+import android.graphics.PixelFormat;
+import android.graphics.drawable.Drawable;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
@@ -25,6 +31,26 @@ final class BrowserTabs {
     private static GradientDrawable top(Context c,int color,int radius){
         GradientDrawable shape=new GradientDrawable();shape.setColor(color);
         float r=dp(c,radius);shape.setCornerRadii(new float[]{r,r,r,r,0,0,0,0});return shape;
+    }
+    /** Top-and-side only stroke: bottom remains open to the selected panel. */
+    private static Drawable activeTab(Context context,int fill,int stroke){
+        return new Drawable(){
+            final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
+            @Override public void draw(Canvas canvas){
+                Rect b=getBounds();float r=dp(context,13),half=Math.max(1,dp(context,1));
+                float l=b.left+half,t=b.top+half,x=b.right-half,bottom=b.bottom;
+                Path shape=new Path();shape.moveTo(l,bottom);shape.lineTo(l,t+r);
+                shape.quadTo(l,t,l+r,t);shape.lineTo(x-r,t);shape.quadTo(x,t,x,t+r);
+                shape.lineTo(x,bottom);shape.close();paint.setStyle(Paint.Style.FILL);paint.setColor(fill);canvas.drawPath(shape,paint);
+                Path topLine=new Path();topLine.moveTo(l,bottom);topLine.lineTo(l,t+r);
+                topLine.quadTo(l,t,l+r,t);topLine.lineTo(x-r,t);topLine.quadTo(x,t,x,t+r);
+                topLine.lineTo(x,bottom);paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(dp(context,2));paint.setColor(stroke);canvas.drawPath(topLine,paint);
+            }
+            @Override public void setAlpha(int alpha){}
+            @Override public void setColorFilter(android.graphics.ColorFilter filter){}
+            @Override public int getOpacity(){return PixelFormat.TRANSLUCENT;}
+        };
     }
     static HorizontalScrollView strip(Context context,String[] names,int active,IntConsumer clicked){
         return build(context,names,null,active,clicked);
@@ -51,7 +77,7 @@ final class BrowserTabs {
             LinearLayout tab=new LinearLayout(context);tab.setGravity(Gravity.CENTER);tab.setOrientation(LinearLayout.VERTICAL);
             tab.setPadding(dp(context,6),dp(context,3),dp(context,6),0);
             int passive=UiColorScheme.blend(bg,panel,.48f);
-            tab.setBackground(top(context,chosen?panel:passive,14));
+            tab.setBackground(chosen?activeTab(context,panel,accent):top(context,passive,14));
             tab.setContentDescription(names[i]);tab.setSelected(chosen);tab.setClickable(true);
             if(icons==null){
                 TextView label=new TextView(context);label.setText(names[i]);label.setSingleLine(true);
@@ -67,9 +93,6 @@ final class BrowserTabs {
                 iconParams.gravity=Gravity.CENTER;tab.addView(image,iconParams);
                 // Center the icon within all available height; never use a weighted trailing spacer.
             }
-            View indicator=new View(context);indicator.setBackgroundColor(chosen?accent:Color.TRANSPARENT);
-            LinearLayout.LayoutParams underline=new LinearLayout.LayoutParams(-1,dp(context,3));
-            underline.leftMargin=dp(context,8);underline.rightMargin=dp(context,8);tab.addView(indicator,underline);
             int tabWidth=icons!=null?dp(context,66):dp(context,92);
             LinearLayout.LayoutParams lp=equal?new LinearLayout.LayoutParams(0,dp(context,height),1f)
                 :new LinearLayout.LayoutParams(tabWidth,dp(context,height));

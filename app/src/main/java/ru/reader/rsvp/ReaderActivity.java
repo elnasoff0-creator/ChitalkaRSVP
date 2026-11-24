@@ -163,6 +163,8 @@ public class ReaderActivity extends NavigationActivity {
     private int cursorBackground=0xff96583f,cursorText=NO_COLOR,cursorScale=100;
     private int normalSelectText=0xff915439,normalSelectScale=110,buttonColor=NO_COLOR,accentButtonColor=NO_COLOR;
     private int sentenceHighlightColor=0xffedca43,sentenceHighlightOpacity=50;
+    private int ttsWordHighlightColor=0xffffda00,ttsWordHighlightOpacity=100;
+    private boolean ttsWordHighlightEnabled=true;
     private int pausePunctuationPercent=60,pauseLongPercent=50,pauseSentencePercent=120,pauseParagraphPercent=150;
     private boolean focusPoint=true,focusLinesEnabled=true,playing=false,selecting=false,selectedWordActive=false;
     private boolean userScrolling=false,restoringScroll=false;
@@ -323,6 +325,9 @@ public class ReaderActivity extends NavigationActivity {
         cursorScale=Math.max(100,Math.min(180,prefs.getInt("cursor_scale",100)));
         sentenceHighlightColor=prefs.getInt("sentence_highlight_color",0xffedca43);
         sentenceHighlightOpacity=Math.max(0,Math.min(100,prefs.getInt("sentence_highlight_opacity",50)));
+        ttsWordHighlightColor=prefs.getInt("tts_word_highlight_color",0xffffda00);
+        ttsWordHighlightOpacity=Math.max(5,Math.min(100,prefs.getInt("tts_word_highlight_opacity",100)));
+        ttsWordHighlightEnabled=prefs.getBoolean("tts_word_highlight_enabled",true);
         normalSelectText=prefs.getInt("normal_select_text",0xff915439);
         normalSelectScale=Math.max(100,Math.min(180,prefs.getInt("normal_select_scale",110)));
         buttonColor=prefs.getInt("button_color",NO_COLOR);accentButtonColor=prefs.getInt("button_accent_color",NO_COLOR);
@@ -1227,7 +1232,8 @@ public class ReaderActivity extends NavigationActivity {
                     }
                     // The word is stronger than the sentence background, using
                     // exact TTS range start when the engine provides WordBoundary.
-                    ReaderWordHighlightSpan word=new ReaderWordHighlightSpan(0xffffda00);
+                    if(ttsWordHighlightEnabled){
+                    ReaderWordHighlightSpan word=new ReaderWordHighlightSpan(ttsWordHighlightColor,ttsWordHighlightOpacity);
                     span(word,from,to);
                     // A 70ms opacity transition softens the edge without delaying
                     // the WordBoundary or shifting the caret/scroll position.
@@ -1242,6 +1248,7 @@ public class ReaderActivity extends NavigationActivity {
                             value.invalidate();
                         });
                         wordFade.start();
+                    }
                     }
                 }else if(mode==RSVP){
                     // Paused RSVP context uses the same typography as ordinary word selection.
@@ -2749,6 +2756,8 @@ public class ReaderActivity extends NavigationActivity {
         int oldCursorBg=cursorBackground,oldCursorText=cursorText,oldCursorScale=cursorScale;
         int oldNormalText=normalSelectText,oldNormalScale=normalSelectScale,oldButton=buttonColor,oldAccent=accentButtonColor;
         int oldHighlightColor=sentenceHighlightColor,oldHighlightOpacity=sentenceHighlightOpacity;
+        int oldWordColor=ttsWordHighlightColor,oldWordOpacity=ttsWordHighlightOpacity;
+        boolean oldWordEnabled=ttsWordHighlightEnabled;
         int oldFocus=focusColor,oldLineColor=lineColor,oldLinePos=linePosition;
         boolean oldPoint=focusPoint,oldLines=focusLinesEnabled;
 
@@ -2763,7 +2772,8 @@ public class ReaderActivity extends NavigationActivity {
         if(root!=null&&words.length>0&&(!lastAppliedFont.equals(ReaderFontLibrary.choice(this,prefs))||oldBg!=bg||oldFg!=fg||oldSize!=size||oldLineSpacing!=lineSpacingPercent||oldFont!=font||oldMode!=mode||oldPortion!=portion
             ||oldCursorBg!=cursorBackground||oldCursorText!=cursorText||oldCursorScale!=cursorScale||oldNormalText!=normalSelectText
             ||oldNormalScale!=normalSelectScale||oldButton!=buttonColor||oldAccent!=accentButtonColor||accentAtDraw!=UiColorScheme.accent(this)
-            ||oldHighlightColor!=sentenceHighlightColor||oldHighlightOpacity!=sentenceHighlightOpacity||oldFocus!=focusColor||oldLineColor!=lineColor
+            ||oldHighlightColor!=sentenceHighlightColor||oldHighlightOpacity!=sentenceHighlightOpacity
+            ||oldWordColor!=ttsWordHighlightColor||oldWordOpacity!=ttsWordHighlightOpacity||oldWordEnabled!=ttsWordHighlightEnabled||oldFocus!=focusColor||oldLineColor!=lineColor
             ||oldLinePos!=linePosition||oldPoint!=focusPoint||oldLines!=focusLinesEnabled))draw();
         else if(words.length>0)updateVisibleAnnotations();
 

@@ -53,9 +53,10 @@ jobs:
           done
           echo 'All four release signing secrets are configured.'
 
-      - name: Verify saved reader positions, comic restoration and regressions v1.11.191
+      - name: Verify Web Transfer, reading UI and regressions v1.11.192
         run: |
           bash qa/check_java_syntax.sh
+          bash qa/test_web_transfer_192.sh
           bash qa/test_tts_dictionary_csv_190.sh
           bash qa/typecheck_dictionary_store_190.sh
           bash qa/test_tts_scroll_controller_190.sh

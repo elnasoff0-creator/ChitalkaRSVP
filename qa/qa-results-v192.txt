@@ -1,0 +1,59 @@
+PROCHITALKA v1.11.192-beta CLEAN — QA summary
+Environment: JDK 17, syntax parser and pure Java tests; NO ANDROID SDK/GRADLE.
+The first full regression run was interrupted by an external command timeout after the
+Edge socket pool checks. The remaining individual commands were rerun successfully.
+Final v192 smoke and source integration tests passed again after the last edits.
+This report does not represent a successful Android APK build.
+
+--- Main workflow partial run ---
+PASS: parsed 231 Java files (syntax only, no Android type checks)
+PASS: Web Transfer formats, Unicode filenames, path rejection, bounds, origin and chunked restrictions
+PASS: v192 Web Transfer lifecycle, browser UI, SAF, tabs, TTS word settings, clean docs and XML
+PASS: CSV roundtrip, BOM, literal/regex, accent, formulas, notes, import modes, duplicates, error lines
+PASS: EdgeDictionaryStore Java types, SQLite migration/import API, background option precompile
+PASS: full follow animation, explicit retarget, epoch cancellation, manual scroll
+PASS stable chapter IDs, fraction and fast-return routing
+PASS source integration: reading tab, position restoration, comic cancellation and logging
+PASS: version 192, scrolling lifecycle, Android CSV SAF UI, SQLite migration, atomic import, CLEAN docs
+PASS: active word follow, variable viewport, bounded retargetable scroll
+PASS: bubble scales inside fixed pet frame and truncation bounds
+PASS: version 192, scrolling lifecycle, Android CSV SAF UI, SQLite migration, atomic import, CLEAN docs
+PASS: v188 explicit Edge reselect and bounded SAF restore policy
+PASS: v188 monotonic trace correlation and privacy-safe stages
+PASS: v188 forced switch, first-audio trace, bounded SAF and CLEAN documentation
+PASS: whole sentences, UTF-8, manual selection, abbreviations, adaptation
+PASS: v187 full sentence replay, pre-roll, first-word metadata and highlight guard
+PASS: v187 selection is painted before audio, cached/isolated replay and Media3 arm contracts
+PASS: selected MP3 is armed before prepare/play, no future-track substitution, 429 guarded
+PASS: v182 version, UI, SAF, Edge image, Ranobes URL, sentence-safe wiring and XML
+PASS: first-frame progressive reading, EOF, replay, cancellation
+PASS: parallel live MP3, immediate next audio, bounded stall, cancellation
+PASS: Quickify-inspired six-candidate limit, char budget, count limit
+PASS: candidate prefetch, end-of-track continuation, reusable sockets, adaptive whole-sentence groups
+PASS: entry into TTS does not issue a manual priority request or redundant warmups
+PASS: Play promotes the exact warmup ticket without a new request
+PASS: user Play preempts full-book job; no 4.5s tap delay; 500ms local 429 delay
+PASS: bounded 500ms HTTP 429 cooldown; no foreground Toast
+PASS: two turns, one handshake, cached open websocket reused
+PASS: bounded resource pool and four parallel turns
+PASS: HTTP429, no automatic retry, 500ms local cooldown
+PASS: cancelled resource destroyed; next request uses fresh socket
+
+--- Remaining workflow steps, independently rerun ---
+PASS: idleExpiry original initializer compiles with javac (no illegal forward reference)
+PASS: 50/50 tap categories, 100% normal without enabled quotes, samples=200000
+PASS: v184 SQLite quotes CRUD, deduplication, companion flags and lossless annotation migration
+PASS: v185 selection geometry, crossing, UTF-16, manual TTS seek and stale callbacks
+PASS: WordBoundary refresh delay is bounded, prompt and audio-speed-aware
+PASS: touch policy separates tap, long press, scroll, recycled row and multi-touch
+PASS: v186 custom selection, themed teardrop handles, 1.5dp dictionary icons, smooth WordBoundary, live downloads, quotes and CLEAN docs
+PASS: ReaderActivity handlers exist and all unqualified calls resolve structurally
+
+--- Final v192 tests ---
+PASS: parsed 231 Java files (syntax only, no Android type checks)
+PASS: Web Transfer formats, Unicode filenames, path rejection, bounds, origin and chunked restrictions
+PASS: v192 Web Transfer lifecycle, browser UI, SAF, tabs, TTS word settings, clean docs and XML
+PASS stable chapter IDs, fraction and fast-return routing
+PASS source integration: reading tab, position restoration, comic cancellation and logging
+PASS: browser inline JavaScript syntax via node --check
+PASS: all XML documents via ElementTree parse

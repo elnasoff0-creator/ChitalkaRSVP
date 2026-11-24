@@ -213,15 +213,15 @@ public final class DownloadActivity extends NavigationActivity {
         LinearLayout toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
         topBar.addView(toolbar,new LinearLayout.LayoutParams(0,dp(52),1));
         final String[] actionNames={"Поиск аудиокниг","Поиск манги","Поиск ранобэ",
-            "Импорт по ссылке","Подготовить книгу Edge"};
+            "Импорт по ссылке","Передача по Wi-Fi"};
         final int[] actionImages={R.drawable.ic_search_audiobook,R.drawable.ic_manga_search,
-            R.drawable.ic_ranobelib_search,R.drawable.ic_import_link,R.drawable.ic_autoload};
+            R.drawable.ic_ranobelib_search,R.drawable.ic_import_link,R.drawable.ic_wifi_transfer};
         final Runnable[] actions={
             ()->DownloadSourcePicker.show(this,DownloadSourcePicker.AUDIO),
             ()->DownloadSourcePicker.show(this,DownloadSourcePicker.MANGA),
             ()->DownloadSourcePicker.show(this,DownloadSourcePicker.RANOBE),
             ()->startActivity(new Intent(this,LinkDownloadActivity.class)),
-            ()->startActivity(new Intent(this,EdgeFullBookActivity.class))
+            ()->startActivity(new Intent(this,WebTransferActivity.class))
         };
         ArrayList<ImageView> quick=new ArrayList<>();
         for(int i=0;i<actions.length;i++)quick.add(toolbarAction(toolbar,actionImages[i],actionNames[i],actions[i]));

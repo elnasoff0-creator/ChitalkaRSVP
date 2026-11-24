@@ -33,7 +33,7 @@ public class SettingsActivity extends NavigationActivity {
     private int shownTab=-1;
     private final int[] sectionScroll=new int[5];
     private int chteicoHelpTapCount=0;
-    private TextView preview, sizeValue;
+    private TextView preview, sizeValue, ttsWordPreview;
     private int bg, fg, font, size, display, buttonColor, accentButtonColor;
     private final String[] fontNames={"Без засечек", "С засечками", "Моноширинный"};
     private final int[] backgrounds={0xffffffff,0xfff3e7d5,0xfff1e0c7,0xffdfe9d9,0xffe3e8ee,0xffe6dff1,0xff1e2025,0xff303438,0xff283d32,0xffded8c9,0xfffff0da,0xffdde5df};
@@ -47,6 +47,9 @@ public class SettingsActivity extends NavigationActivity {
         if(getIntent().getBooleanExtra("online_tab",false)) currentTab=3;
         if(getIntent().getBooleanExtra("rsvp_tab",false)) currentTab=1;
         if(getIntent().getBooleanExtra("chteico_tab",false)) currentTab=4;
+        if(getIntent().getBooleanExtra("download_folders",false)){
+            currentTab=0;sectionScroll[0]=1000000; // reveal the existing SAF-pickers at the end of General
+        }
         if(state!=null){
             currentTab=state.getInt("active_settings_tab",currentTab);
             int[] saved=state.getIntArray("settings_tab_positions");
@@ -469,7 +472,30 @@ public class SettingsActivity extends NavigationActivity {
         headerWithHelp("Подсветка текста (Highlight)","Подсветка текста");
         colorSection("Цвет подсветки предложения","sentence_highlight_color",0xffedca43,false);
         percentSlider("Прозрачность фона предложения","sentence_highlight_opacity",0,100,50,5);
-
+        gap(8);
+        header("Подсветка текущего слова TTS");
+        android.widget.Switch wordToggle=new android.widget.Switch(this);
+        wordToggle.setText("Выделять произносимое слово");wordToggle.setTextColor(contrast(bg));
+        wordToggle.setChecked(prefs.getBoolean("tts_word_highlight_enabled",true));list.addView(wordToggle);
+        wordToggle.setOnCheckedChangeListener((button,on)->{prefs.edit().putBoolean("tts_word_highlight_enabled",on).apply();draw();});
+        colorSection("Цвет подсветки слова TTS","tts_word_highlight_color",0xffffda00,false);
+        percentSlider("Непрозрачность слова TTS","tts_word_highlight_opacity",5,100,100,5);
+        ttsWordPreview=text("Пример: озвучиваемое слово выделено цветом",15,false);
+        updateWordHighlightPreview();
+        ttsWordPreview.setPadding(dp(8),dp(12),dp(8),dp(12));list.addView(ttsWordPreview);
+        list.addView(action("Сбросить подсветку слова TTS",()->{
+            prefs.edit().remove("tts_word_highlight_color").remove("tts_word_highlight_opacity").remove("tts_word_highlight_enabled").apply();draw();
+        }));
+    }
+    /** Live preview: paint-only changes, no TextView layout or book position changes. */
+    private void updateWordHighlightPreview(){
+        if(ttsWordPreview==null)return;
+        android.text.SpannableString sample=new android.text.SpannableString("Пример: озвучиваемое слово выделено цветом");
+        int from=sample.toString().indexOf("слово");
+        if(prefs.getBoolean("tts_word_highlight_enabled",true)&&from>=0)
+            sample.setSpan(new ReaderWordHighlightSpan(prefs.getInt("tts_word_highlight_color",0xffffda00),
+                prefs.getInt("tts_word_highlight_opacity",100)),from,from+5,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        ttsWordPreview.setText(sample);
     }
     /** Text notes and user color marks do not share the temporary TTS word highlight. */
     void drawAnnotationSettings(){
@@ -579,7 +605,7 @@ public class SettingsActivity extends NavigationActivity {
         TextView label=text(title+": "+initial+"%",15,false);label.setPadding(0,dp(4),0,0);list.addView(label);
         SeekBar seek=new SeekBar(this);seek.setMax((max-min)/Math.max(1,step));seek.setProgress((initial-min)/Math.max(1,step));list.addView(seek);
         seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
-            public void onProgressChanged(SeekBar b,int v,boolean user){int value=min+v*Math.max(1,step);label.setText(title+": "+value+"%");if(user)put(key,value);}            public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
+            public void onProgressChanged(SeekBar b,int v,boolean user){int value=min+v*Math.max(1,step);label.setText(title+": "+value+"%");if(user){put(key,value);if("tts_word_highlight_opacity".equals(key))updateWordHighlightPreview();}}            public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
         });
     }
     void customFocusColor(String key,int original,boolean allowNone){
@@ -1030,6 +1056,41 @@ public class SettingsActivity extends NavigationActivity {
         gap(12);
     }
     void drawOnlineSettings(){
+        header("Web Transfer · Передача по Wi-Fi");
+        TextView guidance=text("Передача книг через браузер компьютера в той же сети Wi-Fi. Сервер запускается только вручную из раздела «Загрузки»; PIN обязателен.",14,false);
+        guidance.setPadding(dp(5),dp(7),dp(5),dp(12));list.addView(guidance);
+        list.addView(action("Открыть передачу по Wi-Fi",R.drawable.ic_wifi_transfer,
+            ()->startActivity(new Intent(this,WebTransferActivity.class))));
+        int configured=WebTransferPrefs.port(this);
+        list.addView(action("Порт сервера: "+(configured==0?"Автоматически":String.valueOf(configured)),()->{
+            EditText port=new EditText(this);port.setSingleLine(true);port.setInputType(InputType.TYPE_CLASS_NUMBER);
+            port.setHint("0 — автоматически, либо 1024–65535");port.setText(String.valueOf(configured));
+            new SwipeDialogs.Builder(this).setTitle("Порт Web Transfer").setView(port)
+                .setNegativeButton("Отмена",null).setPositiveButton("Сохранить",(dialog,which)->{
+                    try{int value=Integer.parseInt(port.getText().toString().trim());
+                        if(value!=0&&(value<1024||value>65535))throw new NumberFormatException();
+                        prefs.edit().putInt(WebTransferPrefs.PORT,value).apply();draw();
+                    }catch(Exception ignored){android.widget.Toast.makeText(this,"Введите 0 или порт от 1024 до 65535",android.widget.Toast.LENGTH_LONG).show();}
+                }).show();
+        }));
+        list.addView(action("Остановка при простое: "+(WebTransferPrefs.idleMinutes(this)==0?"Только вручную":WebTransferPrefs.idleMinutes(this)+" мин"),()->{
+            String[] labels={"5 минут","15 минут","30 минут","Только вручную"};int[] values={5,15,30,0};
+            new SwipeDialogs.Builder(this).setTitle("Таймер простоя Web Transfer")
+                .setItems(labels,(dialog,n)->{prefs.edit().putInt(WebTransferPrefs.TIMEOUT,values[n]).apply();draw();})
+                .setNegativeButton("Отмена",null).show();
+        }));
+        String duplicate=WebTransferPrefs.duplicate(this);
+        list.addView(action("Дубликаты: "+("rename".equals(duplicate)?"С новым именем":"skip".equals(duplicate)?"Пропускать":"Спрашивать"),()->{
+            String[] labels={"Спрашивать (без перезаписи)","Пропускать","Сохранять с новым именем"};
+            String[] values={"ask","skip","rename"};
+            new SwipeDialogs.Builder(this).setTitle("Если файл уже существует")
+                .setItems(labels,(dialog,n)->{prefs.edit().putString(WebTransferPrefs.DUPLICATE,values[n]).apply();draw();})
+                .setNegativeButton("Отмена",null).show();
+        }));
+        settingSwitch("Уведомлять о завершении передачи",WebTransferPrefs.NOTIFY,true);
+        TextView security=text("Подключение по временной PIN-сессии · максимум 2 одновременные загрузки · только Wi-Fi · доступ к библиотеке через браузер запрещён. Настройки применятся после перезапуска сервера.",13,false);
+        security.setPadding(dp(5),dp(8),dp(5),dp(12));list.addView(security);
+        gap(14);
         header("Версия и обновления");
         TextView installed=text("Установлена: v"+installedVersion()+" (сборка "+installedCode()+")",14,false);
         installed.setPadding(dp(4),0,0,dp(9));list.addView(installed);
