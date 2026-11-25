@@ -55,6 +55,6 @@ if shutil.which('node'):
     assert code
     result=subprocess.run(['node','--check','-'],input=code.group(1),text=True,capture_output=True)
     assert result.returncode==0,result.stderr
-names=sorted(x.name for x in r.glob('*.md'))
+names=sorted(x.name for x in r.glob('*.md') if x.name != 'README.md')
 assert len(names)==4 and all('1.11.193' in name for name in names),names
 print('PASS: v193 toolbar, shared Wi-Fi download history, cancellation, help, SAF, browser IDs and CLEAN docs')
