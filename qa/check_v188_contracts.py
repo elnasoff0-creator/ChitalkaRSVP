@@ -50,7 +50,8 @@ assert 'Без исходного текста книг' in log
 assert 'ReaderDiagnosticLog.prepareExport(' in get('ReaderLogActivity.java')
 for f in (root/'app/src/main').rglob('*.xml'):
     ET.parse(f)
-md=list(root.glob('*.md'))
+md=[f for f in root.glob('*.md') if f.name != 'README.md']
+assert (root/'README.md').is_file(), 'README.md missing'
 current_version=re.search(r"versionName\s+'([^']+)'",version).group(1)
-assert len(md)==4 and all(current_version in p.name for p in md),md
+assert len(md)==3 and all(current_version in p.name for p in md),md
 print('PASS: v188 forced switch, first-audio trace, bounded SAF and CLEAN documentation')

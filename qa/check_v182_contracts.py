@@ -48,6 +48,7 @@ assert 'boolean hardLimitExceeded=problem.contains("Предложение пр�
 assert 'startBackupTtsForFailedClip(clip,hardLimitExceeded)' in read('EdgeStreamingService.java')
 assert 'ssml.getBytes(StandardCharsets.UTF_8).length' in read('EdgeSpeechEngine.java')
 for f in (root/'app/src/main').rglob('*.xml'): ET.parse(f)
-md=[p.name for p in root.glob('*.md')]
+md=[p.name for p in root.glob('*.md') if p.name != 'README.md']
+assert (root/'README.md').is_file(), 'README.md missing'
 assert all(version.group(2) in name for name in md),md
 print('PASS: v182 version, UI, SAF, Edge image, Ranobes URL, sentence-safe wiring and XML')

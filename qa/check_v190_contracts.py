@@ -38,7 +38,8 @@ assert 'existing rules' not in activity # no misleading text English
 assert 'setEllipsize(TextUtils.TruncateAt.END)' in read('ChteicoActivity.java')
 assert 'PetQuoteChoice.chooseQuote(phraseRandom,store.hasPetQuotes())' in read('ChteicoActivity.java')
 for x in (root/'app/src/main').rglob('*.xml'):ET.parse(x)
-md=list(root.glob('*.md'))
-assert len(md)==4 and all('1.11.193' in m.name for m in md),md
+md=[f for f in root.glob('*.md') if f.name != 'README.md']
+assert (root/'README.md').is_file(), 'README.md missing'
+assert len(md)==3 and all('1.11.193' in m.name for m in md),md
 assert not list(root.glob('*.json')), 'no standalone JSON exporter'
 print('PASS: version 193, scrolling lifecycle, Android CSV SAF UI, SQLite migration, atomic import, CLEAN docs')

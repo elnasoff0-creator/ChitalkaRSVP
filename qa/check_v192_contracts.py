@@ -36,6 +36,7 @@ for key in ['dragover','drop','/api/pair','/api/upload','XMLHttpRequest','encode
     assert key in web,key
 assert (root/'app/src/main/res/drawable/ic_wifi_transfer.xml').is_file()
 for x in (root/'app/src/main').rglob('*.xml'):ET.parse(x)
-md=list(root.glob('*.md'))
-assert len(md)==4 and all('1.11.193' in f.name for f in md),md
+md=[f for f in root.glob('*.md') if f.name != 'README.md']
+assert (root/'README.md').is_file(), 'README.md missing'
+assert len(md)==3 and all('1.11.193' in f.name for f in md),md
 print('PASS: v192 Web Transfer lifecycle, browser UI, SAF, tabs, TTS word settings, clean docs and XML')

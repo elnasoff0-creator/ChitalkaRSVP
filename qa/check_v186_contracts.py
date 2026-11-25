@@ -68,6 +68,7 @@ pet=read('PetQuoteChoice.java')
 assert 'return hasEnabledQuotes && random.nextBoolean();' in pet
 for xml in (root/'app/src/main').rglob('*.xml'):
     ET.parse(xml)
-md=list(root.glob('*.md'))
-assert len(md)==4 and all(version.group(2) in f.name for f in md),md
+md=[f for f in root.glob('*.md') if f.name != 'README.md']
+assert (root/'README.md').is_file(), 'README.md missing'
+assert len(md)==3 and all(version.group(2) in f.name for f in md),md
 print('PASS: v186 custom selection, themed teardrop handles, 1.5dp dictionary icons, smooth WordBoundary, live downloads, quotes and CLEAN docs')
