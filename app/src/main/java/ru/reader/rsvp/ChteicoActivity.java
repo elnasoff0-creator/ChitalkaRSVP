@@ -373,6 +373,21 @@ public final class ChteicoActivity extends NavigationActivity {
         addStatsCard();
         addRewardsCard();
         addGameStatistics();
+        if(stage!=ChteicoStore.EGG){
+            LinearLayout food=card(); LinearLayout row=new LinearLayout(this);
+            stat(row,"Страницы",Long.toString(ChteicoStore.foodPages(this)));
+            stat(row,"Аудио · мин",Long.toString(ChteicoStore.foodMinutes(this)));
+            stat(row,"Манга · стр",Long.toString(ChteicoStore.foodComics(this)));
+            food.addView(row);gap(food,8);
+            View feed=button("Покормить",()->{
+                long gain=ChteicoStore.feed(this);if(gain<=0)return;
+                ChteicoEmotions.wake();show();pet.setSleeping(false);
+                pet.animate().translationY(-dp(8)).setDuration(250).withEndAction(()->pet.animate().translationY(0).setDuration(250).start()).start();
+                showSpeech("❤ Вкусно! +"+gain+" XP",4200);
+            });
+            feed.setEnabled(ChteicoStore.foodPages(this)+ChteicoStore.foodMinutes(this)+ChteicoStore.foodComics(this)>0);
+            food.addView(feed);
+        }
     }
     private void show(){
         if(pendingSpeechHide!=null){ui.removeCallbacks(pendingSpeechHide);pendingSpeechHide=null;}
@@ -495,6 +510,21 @@ public final class ChteicoActivity extends NavigationActivity {
         addStatsCard();
         addRewardsCard();
         addGameStatistics();
+        if(stage!=ChteicoStore.EGG){
+            LinearLayout food=card(); LinearLayout row=new LinearLayout(this);
+            stat(row,"Страницы",Long.toString(ChteicoStore.foodPages(this)));
+            stat(row,"Аудио · мин",Long.toString(ChteicoStore.foodMinutes(this)));
+            stat(row,"Манга · стр",Long.toString(ChteicoStore.foodComics(this)));
+            food.addView(row);gap(food,8);
+            View feed=button("Покормить",()->{
+                long gain=ChteicoStore.feed(this);if(gain<=0)return;
+                ChteicoEmotions.wake();show();pet.setSleeping(false);
+                pet.animate().translationY(-dp(8)).setDuration(250).withEndAction(()->pet.animate().translationY(0).setDuration(250).start()).start();
+                showSpeech("❤ Вкусно! +"+gain+" XP",4200);
+            });
+            feed.setEnabled(ChteicoStore.foodPages(this)+ChteicoStore.foodMinutes(this)+ChteicoStore.foodComics(this)>0);
+            food.addView(feed);
+        }
     }
     private void addGameStatistics(){
         LinearLayout panel=card();panel.addView(text("Рыбалка",18,true));gap(panel,9);

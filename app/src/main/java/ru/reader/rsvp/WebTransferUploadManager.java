@@ -13,7 +13,7 @@ import java.util.Locale;
 
 /** SAF-backed import; no arbitrary filesystem paths supplied by HTTP clients are used. */
 final class WebTransferUploadManager {
-    static final long MAX_BYTES=1024L*1024L*1024L; // One file: one GiB; no unbounded allocations.
+    static final long MAX_BYTES=8L*1024L*1024L*1024L; // Bounded streaming, eight GiB per file.
     static final class Outcome {
         final String name,type,uri; final long bytes;
         Outcome(String n,String t,String u,long b){name=n;type=t;uri=u;bytes=b;}

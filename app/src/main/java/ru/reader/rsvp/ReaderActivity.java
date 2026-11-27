@@ -225,7 +225,7 @@ public class ReaderActivity extends NavigationActivity {
         long now=SystemClock.elapsedRealtime();
         if(words.length>0 && !docUri.isEmpty() && (playing && !waitingForStart || now-chteicoLastInteraction<65000)){
             ChteicoStore.tickReading(ReaderActivity.this,mode,10);
-            if(index>chteicoLastWordIndex)ChteicoStore.recordWords(ReaderActivity.this,index-chteicoLastWordIndex);
+            if(mode!=TTS && index>chteicoLastWordIndex && index-chteicoLastWordIndex<=400)ChteicoStore.recordWords(ReaderActivity.this,index-chteicoLastWordIndex);
             chteicoLastWordIndex=index;
             chteicoReadingSeconds+=10;
             int visibleWord=mode==NORMAL&&viewportWord>=0?viewportWord:index;

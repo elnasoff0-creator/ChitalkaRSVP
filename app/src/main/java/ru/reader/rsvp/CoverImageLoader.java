@@ -60,7 +60,27 @@ final class CoverImageLoader {
                 File file=new File(folder,key(identity)+".img");byte[] bytes=null;
                 if(file.isFile()&&file.length()>30&&file.length()<4*1024*1024){try(InputStream in=new FileInputStream(file)){bytes=BookLoader.readAll(in);}}
                 if(bytes==null){
-                    if(textBook){bytes=CoverLoader.get(app,url);}else{
+                    if(textBook){
+                        String local=url;
+                        String format="";
+                        if(url.startsWith("wifi-cover:")){
+                            int end=url.indexOf(':',11);if(end<0)return;
+                            format=url.substring(11,end);local=url.substring(end+1);
+                        }
+                        if(format.equals("cbz")||format.equals("cbr")){
+                            ComicLibrary.Comic comic=ComicLibrary.find(app,local);
+                            if(comic!=null){Bitmap bmp=ComicCovers.cover(app,comic);if(bmp!=null){java.io.ByteArrayOutputStream data=new java.io.ByteArrayOutputStream();bmp.compress(Bitmap.CompressFormat.JPEG,85,data);bytes=data.toByteArray();}}
+                        }else if(format.isEmpty()||format.matches("epub|fb2|html|htm")){
+                            if(format.isEmpty())bytes=CoverLoader.get(app,local);
+                            else try(android.os.ParcelFileDescriptor fd=app.getContentResolver().openFileDescriptor(Uri.parse(local),"r")){
+                                if(fd!=null&&fd.getStatSize()>0&&fd.getStatSize()<=32L*1024*1024)bytes=CoverLoader.get(app,local);
+                            }
+                        }
+                        if(bytes==null||bytes.length==0){
+                            android.media.MediaMetadataRetriever mm=new android.media.MediaMetadataRetriever();
+                            try{mm.setDataSource(app,Uri.parse(local));bytes=mm.getEmbeddedPicture();}catch(Exception ignored){}finally{try{mm.release();}catch(Exception ignored){}}
+                        }
+                    }else{
                         URI u=new URI(url);
                         if("file".equalsIgnoreCase(u.getScheme())){
                             File local=new File(u);

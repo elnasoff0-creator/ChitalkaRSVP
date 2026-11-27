@@ -59,7 +59,9 @@ public final class ChteicoStore {
     public static synchronized void tickReading(Context c,int mode,int seconds){tick(c,mode==0?CLASSIC:SPEED,seconds);}    
     public static synchronized void recordWords(Context c,int increment){
         if(increment<=0)return;
-        SharedPreferences p=prefs(c);p.edit().putLong("words_advanced",p.getLong("words_advanced",0)+Math.min(400,increment)).apply();
+        SharedPreferences p=prefs(c);SharedPreferences.Editor e=p.edit().putLong("words_advanced",p.getLong("words_advanced",0)+Math.min(400,increment));
+        if(enabled(c))e.putLong("food_words",p.getLong("food_words",0)+Math.min(400,increment));
+        e.apply();
     }
     public static synchronized void tickAudio(Context c,String id,int seconds){
         tick(c,AUDIO,seconds);
@@ -69,6 +71,7 @@ public final class ChteicoStore {
         SharedPreferences p=prefs(c);SharedPreferences.Editor e=p.edit();
         String key=kind==AUDIO?"seconds_audio":kind==SPEED?"seconds_speed":"seconds_classic";
         e.putLong(key,p.getLong(key,0)+Math.min(60,seconds));
+        if(kind==AUDIO&&enabled(c))e.putLong("food_seconds",p.getLong("food_seconds",0)+Math.min(60,seconds));
         active(p,e);e.apply();
     }
     public static synchronized boolean completeBook(Context c,String id){return complete(c,"finished_books",id);}    
@@ -78,10 +81,7 @@ public final class ChteicoStore {
         SharedPreferences p=prefs(c);if(ids(p,key).contains(id))return false;
         SharedPreferences.Editor e=p.edit();addUnique(p,e,key,id);active(p,e);
         int st=p.getInt("stage",EGG);
-        if(enabled(c)){
-            if(st==CHICK)e.putInt("pending_stage_up",READER);
-            else if(st==READER)e.putInt("pending_stage_up",ADULT);
-        }
+        // Completion remains a historical achievement; feeding drives new evolution.
         e.apply();return true;
     }
     /** Eggs have eight progress units: one per tap, two per qualified home return. */
@@ -178,8 +178,24 @@ public final class ChteicoStore {
     public static int progress(Context c){SharedPreferences p=prefs(c);int st=stage(c);
         if(st==ADULT)return 100;
         if(st==EGG)return eggUnits(c)*100/8;
-        if(st==CHICK)return stageProgress(p,3600L);
-        return stageProgress(p,5400L);
+        long xp=p.getLong("pet_food_xp",st>=READER?300:0);
+        return (int)Math.min(100,(st==CHICK?xp:Math.max(0,xp-300))*100/(st==CHICK?300:750));
+    }
+    public static long foodPages(Context c){SharedPreferences p=prefs(c);return p.getLong("food_words",0)/250+p.getLong("food_fishing",0)/10;}
+    public static long foodMinutes(Context c){return prefs(c).getLong("food_seconds",0)/60;}
+    public static long foodComics(Context c){return prefs(c).getLong("food_comics",0);}
+    public static synchronized long feed(Context c){
+        if(!enabled(c)||stage(c)==EGG)return 0;
+        SharedPreferences p=prefs(c);long gain=foodPages(c)+foodMinutes(c)+foodComics(c);
+        if(gain<=0)return 0;
+        long xp=p.getLong("pet_food_xp",stage(c)>=READER?300:0)+gain;
+        int old=stage(c),next=xp>=1050?ADULT:xp>=300?READER:CHICK;
+        SharedPreferences.Editor e=p.edit().putLong("pet_food_xp",xp)
+            .putLong("food_words",p.getLong("food_words",0)%250)
+            .putLong("food_fishing",p.getLong("food_fishing",0)%10)
+            .putLong("food_seconds",p.getLong("food_seconds",0)%60).putLong("food_comics",0);
+        if(next>old){e.putInt("stage",next).putInt("pending_intro_stage",next).putInt("pending_stage_up",0);}
+        return e.commit()?gain:0;
     }
     /** Fishing economy is isolated from reading positions and existing books. */
     public static int fishingBait(Context c){return prefs(c).getInt("fishing_bait",10);}
@@ -236,6 +252,7 @@ public final class ChteicoStore {
             .putInt("fishing_rarity_"+rarity,p.getInt("fishing_rarity_"+rarity,0)+1)
             .putInt("fishing_rarity_best_grams_"+rarity,
                 Math.max(p.getInt("fishing_rarity_best_grams_"+rarity,0),massGrams));
+        if(enabled(c))e.putLong("food_fishing",p.getLong("food_fishing",0)+xp);
         if(shimmering){
             e.putInt("fishing_shimmer_count",p.getInt("fishing_shimmer_count",0)+1)
                 .putInt("fishing_shimmer_rarity_"+rarity,p.getInt("fishing_shimmer_rarity_"+rarity,0)+1);
@@ -283,6 +300,7 @@ public final class ChteicoStore {
         if(p.getBoolean(pageKey,false))return false;
         int total=p.getInt("fishing_comic_unique_pages",0)+1;
         SharedPreferences.Editor edit=p.edit().putBoolean(pageKey,true).putInt("fishing_comic_unique_pages",total);
+        if(enabled(c))edit.putLong("food_comics",p.getLong("food_comics",0)+1);
         if(total%10==0)edit.putInt("fishing_bait",p.getInt("fishing_bait",10)+10);
         edit.apply();return total%10==0;
     }
@@ -332,7 +350,7 @@ public final class ChteicoStore {
     public static void resetPet(Context c){
         SharedPreferences p=prefs(c);
         SharedPreferences.Editor e=p.edit().putInt("stage",EGG).putInt("branch",UNDECIDED)
-            .putInt("egg_units",0).remove("pending_intro_stage").putBoolean("pending_hatch",false)
+            .putInt("egg_units",0).remove("pet_food_xp").remove("food_words").remove("food_seconds").remove("food_fishing").remove("food_comics").remove("pending_intro_stage").putBoolean("pending_hatch",false)
             .putInt("pending_stage_up",0).remove("custom_name").remove("name_locked")
             .remove("bubble_seen").remove("bubble_last_id").remove("sleep_day").remove("launch_day").remove("daily_sleep_pending")
             .remove("evo_marker_classic").remove("evo_marker_speed").remove("evo_marker_audio")
@@ -353,7 +371,7 @@ public final class ChteicoStore {
             p.edit().putString("launch_day",today).putBoolean("daily_sleep_pending",true).apply();
     }
     /** Reselect on the next book/audio opening; lifetime statistics remain available. */
-    public static void resetBranch(Context c){prefs(c).edit().putInt("stage",EGG).putInt("branch",UNDECIDED).putInt("egg_units",0).remove("pending_intro_stage").putBoolean("pending_hatch",false).putInt("pending_stage_up",0)
+    public static void resetBranch(Context c){prefs(c).edit().putInt("stage",EGG).putInt("branch",UNDECIDED).putInt("egg_units",0).remove("pet_food_xp").remove("food_words").remove("food_seconds").remove("food_fishing").remove("food_comics").remove("pending_intro_stage").putBoolean("pending_hatch",false).putInt("pending_stage_up",0)
         .remove("bubble_seen").remove("bubble_last_id").remove("sleep_day").remove("launch_day").remove("daily_sleep_pending")
         .putLong("branch_marker_classic",prefs(c).getLong("seconds_classic",0))
         .putLong("branch_marker_speed",prefs(c).getLong("seconds_speed",0))

@@ -106,7 +106,7 @@ final class BrowserTabs {
         LinearLayout pane=new LinearLayout(context);pane.setOrientation(LinearLayout.VERTICAL);
         pane.setPadding(dp(context,9),dp(context,10),dp(context,9),dp(context,10));
         GradientDrawable shape=new GradientDrawable();shape.setColor(UiColorScheme.neutral(context));
-        float r=dp(context,16);shape.setCornerRadii(new float[]{0,0,r,r,r,r,r,r});pane.setBackground(shape);
+        float r=dp(context,16);shape.setCornerRadii(new float[]{0,0,r,r,r,r,r,r});shape.setStroke(dp(context,2),UiColorScheme.accent(context));pane.setBackground(shape);
         return pane;
     }
 }

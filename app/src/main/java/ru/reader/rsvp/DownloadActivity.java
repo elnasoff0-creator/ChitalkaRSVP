@@ -1243,7 +1243,7 @@ public final class DownloadActivity extends NavigationActivity {
             top.addView(coverFrame,new LinearLayout.LayoutParams(dp(item.ready?75:92),dp(item.ready?106:124)));
             TextView placeholder=text(DownloadsRepository.MANGA.equals(item.type)?"▣":(DownloadsRepository.RANOBE.equals(item.type)||DownloadsRepository.RANOBES.equals(item.type))?"▤":"♫",27,true);placeholder.setGravity(Gravity.CENTER);coverFrame.addView(placeholder,new FrameLayout.LayoutParams(-1,-1));
             ImageView cover=new ImageView(DownloadActivity.this);cover.setScaleType(ImageView.ScaleType.CENTER_CROP);coverFrame.addView(cover,new FrameLayout.LayoutParams(-1,-1));
-            CoverImageLoader.show(cover,item.cover,DownloadsRepository.EDGE.equals(item.type));
+            CoverImageLoader.show(cover,item.cover,DownloadsRepository.EDGE.equals(item.type)||DownloadsRepository.WIFI.equals(item.type));
             LinearLayout detail=new LinearLayout(DownloadActivity.this);detail.setOrientation(LinearLayout.VERTICAL);
             LinearLayout.LayoutParams d=new LinearLayout.LayoutParams(0,-2,1);d.leftMargin=dp(12);top.addView(detail,d);
             TextView title=text(item.title,17,true);title.setTypeface(Typeface.SERIF,Typeface.BOLD);title.setMaxLines(2);detail.addView(title);
