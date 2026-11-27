@@ -67,7 +67,9 @@ final class CoverImageLoader {
                             int end=url.indexOf(':',11);if(end<0)return;
                             format=url.substring(11,end);local=url.substring(end+1);
                         }
-                        if(format.equals("cbz")||format.equals("cbr")){
+                        if(format.equals("image")){
+                            try(InputStream in=app.getContentResolver().openInputStream(Uri.parse(local))){if(in!=null){java.io.ByteArrayOutputStream data=new java.io.ByteArrayOutputStream();byte[] buf=new byte[8192];int n;while((n=in.read(buf))!=-1){if(data.size()+n>16*1024*1024)return;data.write(buf,0,n);}bytes=data.toByteArray();}}
+                        }else if(format.equals("cbz")||format.equals("cbr")||format.equals("folder")){
                             ComicLibrary.Comic comic=ComicLibrary.find(app,local);
                             if(comic!=null){Bitmap bmp=ComicCovers.cover(app,comic);if(bmp!=null){java.io.ByteArrayOutputStream data=new java.io.ByteArrayOutputStream();bmp.compress(Bitmap.CompressFormat.JPEG,85,data);bytes=data.toByteArray();}}
                         }else if(format.isEmpty()||format.matches("epub|fb2|html|htm")){

@@ -27,6 +27,7 @@ import java.util.function.IntConsumer;
  */
 final class BrowserTabs {
     private BrowserTabs(){}
+    private static final java.util.WeakHashMap<Context,java.lang.ref.WeakReference<HorizontalScrollView>> latest=new java.util.WeakHashMap<>();
     private static int dp(Context c,int v){return Math.round(c.getResources().getDisplayMetrics().density*v);}
     private static GradientDrawable top(Context c,int color,int radius){
         GradientDrawable shape=new GradientDrawable();shape.setColor(color);
@@ -37,7 +38,7 @@ final class BrowserTabs {
         return new Drawable(){
             final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
             @Override public void draw(Canvas canvas){
-                Rect b=getBounds();float r=dp(context,13),half=Math.max(1,dp(context,1));
+                Rect b=getBounds();float r=dp(context,13),half=dp(context,2)/2f;
                 float l=b.left+half,t=b.top+half,x=b.right-half,bottom=b.bottom;
                 Path shape=new Path();shape.moveTo(l,bottom);shape.lineTo(l,t+r);
                 shape.quadTo(l,t,l+r,t);shape.lineTo(x-r,t);shape.quadTo(x,t,x,t+r);
@@ -64,6 +65,7 @@ final class BrowserTabs {
         final boolean dark=UiColorScheme.dark(context),equal=names.length>=1&&names.length<=5;
         final int ink=UiColorScheme.prefs(context).getInt("fg",dark?Color.WHITE:0xff30221e);
         HorizontalScrollView scroll=new HorizontalScrollView(context);
+        scroll.setTag(active);latest.put(context,new java.lang.ref.WeakReference<>(scroll));
         scroll.setHorizontalScrollBarEnabled(false);scroll.setFillViewport(true);
         scroll.setClipToPadding(false);
         final int height=icons==null?52:56;
@@ -102,11 +104,33 @@ final class BrowserTabs {
         }
         return scroll;
     }
+    static void fixedViewport(Context context,View viewport,View pane){
+        pane.setForeground(null);viewport.setForeground(panelOutline(context,viewport));
+    }
+    private static Drawable panelOutline(Context context,View panel){return new Drawable(){
+        final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
+        @Override public void draw(Canvas canvas){
+            Rect b=getBounds();float half=dp(context,2)/2f,l=b.left+half,r=b.right-half,t=b.top+half,bot=b.bottom-half;
+            float start=l,end=l;java.lang.ref.WeakReference<HorizontalScrollView> ref=latest.get(context);
+            HorizontalScrollView strip=ref==null?null:ref.get();
+            if(strip!=null&&strip.getChildCount()>0&&strip.getTag() instanceof Integer){
+                ViewGroup row=(ViewGroup)strip.getChildAt(0);int index=(Integer)strip.getTag();
+                if(index>=0&&index<row.getChildCount()){
+                    View tab=row.getChildAt(index);int[] a=new int[2],p=new int[2];tab.getLocationInWindow(a);panel.getLocationInWindow(p);
+                    start=Math.max(l,Math.min(r,a[0]-p[0]+half));end=Math.max(l,Math.min(r,a[0]-p[0]+tab.getWidth()-half));
+                }
+            }
+            paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(dp(context,2));paint.setColor(UiColorScheme.accent(context));
+            Path path=new Path();path.moveTo(start,t);path.lineTo(l,t);path.lineTo(l,bot);path.lineTo(r,bot);path.lineTo(r,t);path.lineTo(end,t);canvas.drawPath(path,paint);
+        }
+        @Override public void setAlpha(int a){} @Override public void setColorFilter(android.graphics.ColorFilter f){} @Override public int getOpacity(){return PixelFormat.TRANSLUCENT;}
+    };}
     static LinearLayout panel(Context context){
         LinearLayout pane=new LinearLayout(context);pane.setOrientation(LinearLayout.VERTICAL);
         pane.setPadding(dp(context,9),dp(context,10),dp(context,9),dp(context,10));
         GradientDrawable shape=new GradientDrawable();shape.setColor(UiColorScheme.neutral(context));
-        float r=dp(context,16);shape.setCornerRadii(new float[]{0,0,r,r,r,r,r,r});shape.setStroke(dp(context,2),UiColorScheme.accent(context));pane.setBackground(shape);
+        pane.setBackgroundColor(UiColorScheme.neutral(context));
+        pane.setForeground(panelOutline(context,pane));
         return pane;
     }
 }

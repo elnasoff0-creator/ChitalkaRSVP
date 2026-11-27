@@ -72,6 +72,12 @@ final class ComicCovers {
         for(int i=0;i<max+3;i++)cached(c,comicUri+"#"+i).delete();
     }
     static Bitmap cover(Context c,ComicLibrary.Comic comic) throws Exception {
+        String explicit=c.getSharedPreferences("reader",0).getString("wifi_comic_cover:"+comic.uri,"");
+        if(!explicit.isEmpty()){try{
+            Uri uri=Uri.parse(explicit);BitmapFactory.Options bounds=new BitmapFactory.Options();bounds.inJustDecodeBounds=true;
+            try(InputStream in=c.getContentResolver().openInputStream(uri)){if(in!=null)BitmapFactory.decodeStream(in,null,bounds);}
+            if(bounds.outWidth>0&&bounds.outHeight>0)try(InputStream in=c.getContentResolver().openInputStream(uri)){if(in!=null){Bitmap image=BitmapFactory.decodeStream(in,null,sample(bounds));if(image!=null)return image;}}
+        }catch(Exception ignored){}}
         int index=c.getSharedPreferences("reader",0).getInt("comic_manual_cover:"+comic.uri,0);
         return coverFromChapter(c,comic,index);
     }

@@ -91,7 +91,7 @@ final class UniversalDrawer {
         scroll.addView(list,new ScrollView.LayoutParams(-1,-2));
 
         LinearLayout branding=new LinearLayout(a);branding.setGravity(Gravity.CENTER_VERTICAL);
-        ImageView logo=new ImageView(a);logo.setImageResource(R.drawable.ic_launcher_foreground);
+        ImageView logo=new ImageView(a);logo.setImageResource(R.mipmap.ic_launcher);
         logo.setBackground(shape(a,soft,14));logo.setClipToOutline(true);
         branding.addView(logo,new LinearLayout.LayoutParams(dp(a,43),dp(a,43)));
         final long[] lastTap={0L};final int[] tapCount={0};

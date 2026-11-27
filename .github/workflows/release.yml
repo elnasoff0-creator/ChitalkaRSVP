@@ -53,9 +53,11 @@ jobs:
           done
           echo 'All four release signing secrets are configured.'
 
-      - name: Verify Web Transfer, Wi-Fi download history and regressions v1.11.193
+      - name: Verify Web Transfer, Wi-Fi download history and regressions v1.11.195
         run: |
           bash qa/check_java_syntax.sh
+          python3 qa/check_chteico_feeding_194.py
+          python3 qa/check_v195_contracts.py
           bash qa/test_web_transfer_192.sh
           bash qa/typecheck_web_transfer_server_192.sh
           bash qa/typecheck_web_transfer_history_193.sh

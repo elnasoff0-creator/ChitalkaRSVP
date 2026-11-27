@@ -140,7 +140,7 @@ final class ComicLibrary {
             String name=safeName(f);
             if(f.isFile()&&isArchiveName(name)) archives.add(f);
             else if(f.isFile()&&isHtmlName(name)) html.add(f);
-            else if(f.isFile()&&isImageName(name)) directImages.add(f);
+            else if(f.isFile()&&isImageName(name)&&!WebTransferFolder.coverName(name)) directImages.add(f);
             else if(f.isDirectory()) subFolders.add(f);
         }
         archives.sort((a,b)->natural(safeName(a),safeName(b)));
@@ -160,29 +160,35 @@ final class ComicLibrary {
 
         boolean hasImageSubfolders=false;
         for(DocumentFile dir:subFolders){ArrayList<String> pages=collectImagePaths(folder,dir);if(!pages.isEmpty()){hasImageSubfolders=true;Chapter ch=new Chapter();ch.title=safeName(dir);ch.type="images";ch.imagePaths.addAll(pages);ch.pageCount=ch.imagePaths.size();out.add(ch);}}
-        if(hasImageSubfolders){comic.kind="images";out.sort(Comparator.comparing(ch->ch.title, ComicLibrary::natural));return out;}
+        if(hasImageSubfolders){comic.kind="images";out.sort(Comparator.comparing(ch->ch.title, ComicLibrary::natural));}
 
         if(!directImages.isEmpty()){
             comic.kind="images";Chapter ch=new Chapter();ch.title=safeName(folder);ch.type="images";
             for(DocumentFile f:directImages) ch.imagePaths.add(safeName(f));
             ch.pageCount=ch.imagePaths.size();
-            out.add(ch);
+            out.add(0,ch);
         }
         return out;
     }
 
     private static ArrayList<String> collectImagePaths(DocumentFile root, DocumentFile folder){
         ArrayList<DocumentFile> files=new ArrayList<>();
-        for(DocumentFile f:folder.listFiles()) if(f.isFile()&&isImageName(safeName(f))) files.add(f);
+        for(DocumentFile f:folder.listFiles()) if(f.isFile()&&isImageName(safeName(f))&&!WebTransferFolder.coverName(safeName(f))) files.add(f);
         files.sort((a,b)->natural(safeName(a),safeName(b)));
         ArrayList<String> out=new ArrayList<>();
         String prefix=safeName(folder)+"/";
         for(DocumentFile f:files) out.add(prefix+safeName(f));
+        collectNestedImages(folder,prefix,out,0);
         return out;
     }
 
     private static boolean isArchiveUri(Context c, Comic comic){
         DocumentFile file=single(c,comic);String name=safeName(file).toLowerCase(Locale.ROOT);return isArchiveName(name);
+    }
+    private static void collectNestedImages(DocumentFile folder,String prefix,ArrayList<String> out,int depth){
+        if(depth>=14)return;ArrayList<DocumentFile> dirs=new ArrayList<>();for(DocumentFile child:folder.listFiles())if(child.isDirectory())dirs.add(child);
+        dirs.sort((a,b)->natural(safeName(a),safeName(b)));
+        for(DocumentFile dir:dirs){String next=prefix+safeName(dir)+"/";ArrayList<DocumentFile> images=new ArrayList<>();for(DocumentFile child:dir.listFiles())if(child.isFile()&&isImageName(safeName(child))&&!WebTransferFolder.coverName(safeName(child)))images.add(child);images.sort((a,b)->natural(safeName(a),safeName(b)));for(DocumentFile child:images)out.add(next+safeName(child));collectNestedImages(dir,next,out,depth+1);}
     }
     static boolean isArchiveKind(String kind){return "cbz".equals(kind)||"cbr".equals(kind);}    
     static boolean isHtmlName(String name){String lower=name.toLowerCase(Locale.ROOT);return lower.endsWith(".html")||lower.endsWith(".htm");}

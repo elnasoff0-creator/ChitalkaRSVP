@@ -5,7 +5,7 @@ from xml.etree import ElementTree as ET
 root=Path(__file__).resolve().parents[1]
 src=root/'app/src/main/java/ru/reader/rsvp'
 read=lambda n:(src/n).read_text(encoding='utf-8')
-assert "versionCode 19400; versionName '1.11.194-beta'" in (root/'app/build.gradle').read_text()
+assert "versionCode 19500; versionName '1.11.195-beta'" in (root/'app/build.gradle').read_text()
 assert 'com.google.zxing:core:' in (root/'app/build.gradle').read_text()
 assert 'Передача по Wi-Fi' in read('DownloadActivity.java') and 'R.drawable.ic_wifi_transfer' in read('DownloadActivity.java')
 assert 'Подготовить книгу Edge' not in read('DownloadActivity.java')
@@ -19,8 +19,9 @@ for key in ['tts_word_highlight_color','tts_word_highlight_opacity','tts_word_hi
 assert 'new ReaderWordHighlightSpan(ttsWordHighlightColor,ttsWordHighlightOpacity)' in read('ReaderActivity.java')
 assert 'oldWordEnabled!=ttsWordHighlightEnabled' in read('ReaderActivity.java')
 server=read('WebTransferServer.java')
-for key in ['SecureRandom','ServerSocket','wifiIpv4','TRANSPORT_WIFI','WebTransferPolicy.length','WebTransferPolicy.sameOrigin','SameSite=Strict','/api/pair','/api/upload','MAX_BYTES','inflight.incrementAndGet','sockets.remove(socket)','X-WT-Skip']:
+for key in ['ServerSocket','wifiIpv4','TRANSPORT_WIFI','WebTransferPolicy.length','WebTransferPolicy.sameOrigin','SameSite=Strict','/api/pair','/api/upload','MAX_BYTES','inflight.incrementAndGet','sockets.remove(socket)','X-WT-Skip']:
     assert key in server,key
+assert 'SecureRandom' in read('WebTransferAuth.java')
 assert 'File.createTempFile' in server and 'temp.delete()' in server
 up=read('WebTransferUploadManager.java')
 for key in ['DocumentFile.fromTreeUri','SafeDownloadTransfer.directory','partial.renameTo(name)','registerBook','registerComic','registerAudio','DUPLICATE_SKIP']:
@@ -38,5 +39,5 @@ assert (root/'app/src/main/res/drawable/ic_wifi_transfer.xml').is_file()
 for x in (root/'app/src/main').rglob('*.xml'):ET.parse(x)
 md=[f for f in root.glob('*.md') if f.name != 'README.md']
 assert (root/'README.md').is_file(), 'README.md missing'
-assert len(md)==3 and all('1.11.194' in f.name for f in md),md
+assert len(md)==3 and all('1.11.195' in f.name for f in md),md
 print('PASS: v192 Web Transfer lifecycle, browser UI, SAF, tabs, TTS word settings, clean docs and XML')

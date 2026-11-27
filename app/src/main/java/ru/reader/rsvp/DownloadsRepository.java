@@ -172,10 +172,10 @@ final class DownloadsRepository {
     private static Item fromWifi(WebTransferDownloadStore.Entry record){
         Item item=new Item();item.type=WIFI;item.id=record.id;item.title=record.name;
         item.source=record.id;item.sourceTitle=record.name;item.provider="Wi-Fi";
-        item.bookUri=record.uri;item.cover=record.uri.isEmpty()?"":"wifi-cover:"+record.name.substring(record.name.lastIndexOf('.')+1).toLowerCase(Locale.ROOT)+":"+record.uri;
-        int dot=record.name.lastIndexOf('.');item.format=dot>=0?record.name.substring(dot+1).toUpperCase(Locale.ROOT):"";
+        item.bookUri=record.uri;item.cover=!record.cover.isEmpty()?record.cover:record.uri.isEmpty()?"":"wifi-cover:"+record.name.substring(record.name.lastIndexOf('.')+1).toLowerCase(Locale.ROOT)+":"+record.uri;
+        int dot=record.name.lastIndexOf('.');item.format=record.fileCount>0?"Папка · "+record.fileCount+" файлов":dot>=0?record.name.substring(dot+1).toUpperCase(Locale.ROOT):"";
         item.totalBytes=Math.max(0,record.total);item.downloadedBytes=Math.max(0,record.received);
-        item.coveragePercent=record.total>0?(int)Math.min(100,record.received*100/record.total):0;
+        item.coveragePercent=record.total>0?(int)Math.min(100,(double)record.received*100/record.total):0;
         item.total=100;item.done=item.coveragePercent;
         String state=record.state;
         item.ready=WebTransferDownloadStore.DONE.equals(state);

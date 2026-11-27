@@ -24,6 +24,9 @@ public final class TestWebTransferPolicy192 {
         expect(WebTransferPolicy.sameOrigin("192.168.0.5:1234","http://192.168.0.5:1234","http://192.168.0.5:1234"),"valid local origin");
         expect(!WebTransferPolicy.sameOrigin("192.168.0.5:1234","https://attacker.example","http://192.168.0.5:1234"),"reject cross origin");
         expect(!WebTransferPolicy.sameOrigin("attacker.example","http://192.168.0.5:1234","http://192.168.0.5:1234"),"reject Host attack");
+        expect(WebTransferPolicy.relative("Том 2/Глава 1.mp3").equals("Том 2/Глава 1.mp3"),"nested Unicode path");
+        for(String path:new String[]{"../test.mp3","/test.mp3","a//b.mp3","a/../b.mp3","a/./b.mp3","a\\b.mp3","a/ .hidden"})rejects(()->WebTransferPolicy.relative(path));
+        expect(WebTransferPolicy.length("5368709120",null,Long.MAX_VALUE-1)==5368709120L,"5 GiB group length");
         System.out.println("PASS: Web Transfer formats, Unicode filenames, path rejection, bounds, origin and chunked restrictions");
     }
 }

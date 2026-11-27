@@ -202,6 +202,15 @@ public final class DownloadActivity extends NavigationActivity {
         if(pendingEdgeAudiobook!=null||!pendingEdgeAudiobookId.isEmpty())state.putString("edge_audiobook_item_id",pendingEdgeAudiobook==null?pendingEdgeAudiobookId:pendingEdgeAudiobook.id);
         super.onSaveInstanceState(state);
     }
+    private TextView wifiState;
+    private ImageView wifiQuick;
+    private WebTransferIndicator wifiIndicator;
+    private final Runnable wifiRefresh=new Runnable(){@Override public void run(){
+        WebTransferServer server=WebTransferService.current();boolean on=server!=null&&server.running();
+        if(wifiState!=null){wifiState.setVisibility(on?View.VISIBLE:View.GONE);wifiState.setText("● Wi-Fi");wifiState.setContentDescription("Сервер Wi-Fi работает");}
+        if(wifiQuick!=null&&wifiIndicator!=null){if(on){wifiQuick.setForeground(wifiIndicator);wifiIndicator.start();}else{wifiIndicator.stop();wifiQuick.setForeground(null);}}
+        main.postDelayed(this,1000);
+    }};
     private void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(12),dp(25),dp(12),dp(12));root.setBackgroundColor(BG);setContentView(root);SafeSystemBars.matchBackground(this,BG);
         LinearLayout topBar=new LinearLayout(this);topBar.setGravity(Gravity.CENTER_VERTICAL);
@@ -225,6 +234,7 @@ public final class DownloadActivity extends NavigationActivity {
         };
         ArrayList<ImageView> quick=new ArrayList<>();
         for(int i=0;i<actions.length;i++)quick.add(toolbarAction(toolbar,actionImages[i],actionNames[i],actions[i]));
+        wifiQuick=quick.get(4);wifiIndicator=new WebTransferIndicator(this);
         ImageView more=toolbarAction(toolbar,R.drawable.ic_more_vertical,"Дополнительные действия",()->{});
         more.setVisibility(View.GONE);
         more.setOnClickListener(v->{
@@ -250,6 +260,7 @@ public final class DownloadActivity extends NavigationActivity {
         root.addView(headingRow,hl);
         TextView heading=text("Загрузки",25,true);heading.setTypeface(Typeface.SERIF,Typeface.BOLD);
         headingRow.addView(heading,new LinearLayout.LayoutParams(0,-2,1));
+        wifiState=text("● Wi-Fi",13,true);wifiState.setTextColor(UiColorScheme.accent(this));wifiState.setVisibility(View.GONE);wifiState.setPadding(dp(4),0,dp(6),0);headingRow.addView(wifiState);wifiState.setOnClickListener(v->startActivity(new Intent(this,WebTransferActivity.class)));
         ImageView archive=icon(R.drawable.ic_download_archive,"Архив загрузок",44);
         headingRow.addView(archive,new LinearLayout.LayoutParams(dp(44),dp(44)));
         archive.setOnClickListener(v->startActivity(new Intent(this,DownloadArchiveActivity.class)));
@@ -308,7 +319,7 @@ public final class DownloadActivity extends NavigationActivity {
 
     @Override protected void onResume(){super.onResume();
         if(paletteSignature!=UiColorScheme.paletteSignature(this)){recreate();return;}
-        visible=true;
+        visible=true;main.removeCallbacks(wifiRefresh);main.post(wifiRefresh);
         ArrayList<DownloadsRepository.Item> previous=sharedSnapshot;
         if(previous==null||previous.isEmpty())previous=DownloadListSnapshot.load(this);
         if(previous!=null&&!previous.isEmpty()){
@@ -331,7 +342,7 @@ public final class DownloadActivity extends NavigationActivity {
         }
     }
     @Override protected void onPause(){visible=false;DownloadChangeBus.remove(downloadListener);DownloadChangeBus.removeProgress(progressListener);
-        main.removeCallbacks(pendingRunner);super.onPause();}
+        main.removeCallbacks(pendingRunner);main.removeCallbacks(wifiRefresh);if(wifiIndicator!=null)wifiIndicator.stop();super.onPause();}
     @Override protected void onDestroy(){if(bound)unbindService(edgeConnection);
         DownloadChangeBus.remove(downloadListener);DownloadChangeBus.removeProgress(progressListener);main.removeCallbacksAndMessages(null);
         scan.shutdownNow();selectionCheck.shutdownNow();super.onDestroy();}
@@ -504,7 +515,7 @@ public final class DownloadActivity extends NavigationActivity {
     private void wifiDetails(DownloadsRepository.Item item){
         WebTransferDownloadStore.Entry e=WebTransferDownloadStore.one(this,item.id);
         if(e==null){Toast.makeText(this,"Запись Wi-Fi не найдена",Toast.LENGTH_SHORT).show();return;}
-        String details="Источник: Wi-Fi\nФайл: "+e.name+"\nСостояние: "+item.status+
+        String details="Источник: Wi-Fi\n"+(e.fileCount>0?"Папка: ":"Файл: ")+e.name+(e.fileCount>0?" · "+e.fileCount+" файлов":"")+"\nСостояние: "+item.status+
             "\nПолучено: "+item.downloadedBytes+" из "+item.totalBytes+" байт";
         if(!e.message.isEmpty())details+="\n"+e.message;
         new SwipeDialogs.Builder(this).setTitle("Передача по Wi-Fi")

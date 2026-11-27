@@ -5,7 +5,7 @@ from xml.etree import ElementTree as ET
 root=Path(__file__).resolve().parents[1]
 src=root/'app/src/main/java/ru/reader/rsvp'
 read=lambda fn:(src/fn).read_text(encoding='utf-8')
-assert "versionCode 19400; versionName '1.11.194-beta'" in (root/'app/build.gradle').read_text()
+assert "versionCode 19500; versionName '1.11.195-beta'" in (root/'app/build.gradle').read_text()
 policy=read('ReaderTtsScrollPolicy.java')
 controller=read('ReaderTtsScrollController.java')
 assert 'movingShift(int wordCenterY' in policy
@@ -40,6 +40,6 @@ assert 'PetQuoteChoice.chooseQuote(phraseRandom,store.hasPetQuotes())' in read('
 for x in (root/'app/src/main').rglob('*.xml'):ET.parse(x)
 md=[f for f in root.glob('*.md') if f.name != 'README.md']
 assert (root/'README.md').is_file(), 'README.md missing'
-assert len(md)==3 and all('1.11.194' in m.name for m in md),md
+assert len(md)==3 and all('1.11.195' in m.name for m in md),md
 assert not list(root.glob('*.json')), 'no standalone JSON exporter'
 print('PASS: version 193, scrolling lifecycle, Android CSV SAF UI, SQLite migration, atomic import, CLEAN docs')

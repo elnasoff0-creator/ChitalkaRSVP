@@ -22,7 +22,6 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
-import java.security.SecureRandom;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -36,7 +35,9 @@ import java.util.concurrent.ConcurrentHashMap;
 /** Isolated ephemeral same-Wi-Fi HTTP endpoint: no remote library read, listing or deletion. */
 final class WebTransferServer {
     private final Context app;
-    private final String ip,pin,token;
+    private final String ip,password;
+    private final Set<String> sessions=Collections.newSetFromMap(new ConcurrentHashMap<String,Boolean>());
+    private volatile WebTransferMdns mdns;
     private final int port;
     private final ServerSocket listener;
     private final ExecutorService requests=Executors.newFixedThreadPool(3,r->{Thread t=new Thread(r,"WebTransfer-HTTP");t.setDaemon(true);return t;});
@@ -47,15 +48,13 @@ final class WebTransferServer {
     private volatile boolean running=true;
     private volatile long lastActivity=SystemClock.elapsedRealtime();
     private volatile String latest="Ожидание файлов";
-    private int invalidPins=0;
+    private int invalidPasswords=0;
     private long blockedUntil=0;
     private Thread accepting;
     private WebTransferServer(Context c,String ipv4,int listenPort)throws IOException{
         app=c.getApplicationContext();ip=ipv4;idleMinutes=WebTransferPrefs.idleMinutes(c);
-        SecureRandom random=new SecureRandom();pin=String.format(Locale.ROOT,"%06d",random.nextInt(1000000));
-        byte[] secret=new byte[32];random.nextBytes(secret);StringBuilder b=new StringBuilder(64);
-        for(byte a:secret)b.append(String.format(Locale.ROOT,"%02x",a&255));token=b.toString();
-        listener=new ServerSocket(listenPort,8,InetAddress.getByName(ip));port=listener.getLocalPort();
+        try{password=WebTransferAuth.password(c);}catch(Exception e){throw new IOException("Не удалось открыть защищённый пароль",e);}
+        try{listener=new ServerSocket(listenPort,8,InetAddress.getByName(ip));}catch(java.net.BindException e){throw new IOException("Порт занят. Измените постоянный порт или включите динамический в Настройки → Онлайн.",e);}port=listener.getLocalPort();
     }
     static String wifiIpv4(Context c){
         ConnectivityManager cm=(ConnectivityManager)c.getSystemService(Context.CONNECTIVITY_SERVICE);
@@ -83,10 +82,11 @@ final class WebTransferServer {
         String ip=wifiIpv4(context);
         if(ip==null)throw new IOException("Подключите устройство к Wi-Fi и повторите попытку");
         WebTransferServer s=new WebTransferServer(context,ip,WebTransferPrefs.port(context));
-        s.accepting=new Thread(s::acceptLoop,"WebTransfer-Accept");s.accepting.setDaemon(true);s.accepting.start();return s;
+        s.accepting=new Thread(s::acceptLoop,"WebTransfer-Accept");s.accepting.setDaemon(true);s.accepting.start();s.mdns=WebTransferMdns.start(context,ip,s.port);return s;
     }
     String address(){return "http://"+ip+":"+port;}
-    String pin(){return pin;}
+    String password(){return password;}
+    String localAddress(){return mdns!=null&&mdns.available()?"http://prochitalka.local:"+port:"";}
     boolean running(){return running;}
     int activeUploads(){return inflight.get();}
     int connections(){return sockets.size();}
@@ -101,7 +101,7 @@ final class WebTransferServer {
         return true;
     }
     void close(){
-        running=false;
+        running=false;if(mdns!=null)mdns.close();sessions.clear();
         WebTransferDownloadStore.interruptActive(app,"Wi-Fi-сеанс завершён до окончания передачи");try{listener.close();}catch(IOException ignored){}
         for(Socket s:sockets)try{s.close();}catch(IOException ignored){}
         requests.shutdownNow();
@@ -127,7 +127,7 @@ final class WebTransferServer {
     private static String cleanValue(String s){return s==null?"":s.trim();}
     private boolean authenticated(Map<String,String> headers){
         String cookie=headers.get("cookie");if(cookie==null)return false;
-        for(String part:cookie.split(";"))if(part.trim().equals("wt_session="+token))return true;
+        for(String part:cookie.split(";")){String v=part.trim();if(v.startsWith("wt_session=")){String token=v.substring(11);if(sessions.contains(token)||WebTransferAuth.trusted(app,token))return true;}}
         return false;
     }
     private void handle(Socket socket){
@@ -145,7 +145,7 @@ final class WebTransferServer {
                 if(headers.putIfAbsent(key,cleanValue(line.substring(colon+1)))!=null)throw new IOException("Повторный заголовок");
             }
             String host=headers.get("host");
-            if(host==null||!host.equals(ip+":"+port)){respond(out,403,"text/plain",new byte[0],null);return;}
+            if(host==null||!(host.equals(ip+":"+port)||(!localAddress().isEmpty()&&host.equals("prochitalka.local:"+port)))){respond(out,403,"text/plain",new byte[0],null);return;}
             if("GET".equals(req[0])&&("/".equals(path)||"/index.html".equals(path))){
                 try(InputStream asset=app.getAssets().open("webtransfer/index.html")){
                     java.io.ByteArrayOutputStream bytes=new java.io.ByteArrayOutputStream();byte[] buf=new byte[8192];int n;
@@ -156,21 +156,24 @@ final class WebTransferServer {
             if(!"POST".equals(req[0])){respond(out,404,"text/plain",new byte[0],null);return;}
             // Browser must issue same-origin requests; no wildcard CORS and no cross-site uploads.
             String origin=headers.get("origin");
-            if(!WebTransferPolicy.sameOrigin(host,origin,address())||!"1".equals(headers.get("x-wt-request"))){respond(out,403,"application/json",json("Запрос с другого сайта запрещён"),null);return;}
+            if(!WebTransferPolicy.sameOrigin(host,origin,"http://"+host)||!"1".equals(headers.get("x-wt-request"))){respond(out,403,"application/json",json("Запрос с другого сайта запрещён"),null);return;}
             if("/api/pair".equals(path)){
                 if(!"0".equals(headers.getOrDefault("content-length","0"))){respond(out,400,"application/json",json("Неверный запрос"),null);return;}
                 boolean allowed;
                 synchronized(this){
                     long now=SystemClock.elapsedRealtime();
-                    allowed=now>=blockedUntil&&pin.equals(headers.get("x-wt-pin"));
-                    if(!allowed){invalidPins++;if(invalidPins>=5){blockedUntil=now+60000L;invalidPins=0;}}
-                    else {invalidPins=0;blockedUntil=0;lastActivity=now;}
+                    String supplied=headers.get("x-wt-password");
+                    allowed=now>=blockedUntil&&supplied!=null&&WebTransferAuth.equal(password,URLDecoder.decode(supplied,"UTF-8"));
+                    if(!allowed){invalidPasswords++;if(invalidPasswords>=5){blockedUntil=now+60000L;invalidPasswords=0;}}
+                    else {invalidPasswords=0;blockedUntil=0;lastActivity=now;}
                 }
-                if(!allowed){respond(out,403,"application/json",json("Неверный PIN или временная блокировка"),null);return;}
+                if(!allowed){respond(out,403,"application/json",json("Неверный пароль или временная блокировка"),null);return;}
+                String token=WebTransferAuth.random(32);boolean remember="1".equals(headers.get("x-wt-remember"));
+                if(remember)WebTransferAuth.remember(app,token);else {if(sessions.size()>=128)sessions.clear();sessions.add(token);}
                 respond(out,200,"application/json",("{\"ok\":true}").getBytes(StandardCharsets.UTF_8),
-                    "Set-Cookie: wt_session="+token+"; HttpOnly; SameSite=Strict; Path=/; Max-Age=3600\r\n");return;
+                    "Set-Cookie: wt_session="+token+"; HttpOnly; SameSite=Strict; Path=/"+(remember?"; Max-Age=2592000":"")+"\r\n");return;
             }
-            if(!authenticated(headers)){respond(out,401,"application/json",json("Введите PIN с устройства"),null);return;}
+            if(!authenticated(headers)){respond(out,401,"application/json",json("Введите пароль с устройства"),null);return;}
             if("/api/status".equals(path)){
                 String response="{\"ok\":true,\"active\":"+inflight.get()+"}";
                 respond(out,200,"application/json",response.getBytes(StandardCharsets.UTF_8),null);return;
@@ -185,12 +188,20 @@ final class WebTransferServer {
                     stopped?"{\"ok\":true}".getBytes(StandardCharsets.UTF_8):json("Передача завершена или не найдена"),null);
                 return;
             }
-            if(!"/api/upload".equals(path)){respond(out,404,"application/json",json("Адрес не найден"),null);return;}
+            if(!"/api/upload".equals(path)&&!"/api/folder".equals(path)){respond(out,404,"application/json",json("Адрес не найден"),null);return;}
             if(inflight.incrementAndGet()>2){inflight.decrementAndGet();respond(out,429,"application/json",json("Одновременно можно передавать не более двух файлов"),null);return;}
             File temp=null;
             String transferId=null;
             boolean registered=false;
             try{
+                if("/api/folder".equals(path)){
+                    String id=headers.get("x-wt-transfer-id");
+                    if(id==null||!id.matches("wifi:[A-Za-z0-9_-]{10,90}"))throw new IOException("Неверный ID передачи");
+                    WebTransferUploadManager.Outcome result=WebTransferFolder.receive(app,in,headers,id,client,transfers,()->running,()->lastActivity=SystemClock.elapsedRealtime());
+                    latest="Добавлено: "+result.name;WebTransferService.notifyCompleted(app,result.name);
+                    JSONObject response=new JSONObject();response.put("ok",true);response.put("name",result.name);response.put("bytes",result.bytes);
+                    respond(out,200,"application/json",response.toString().getBytes(StandardCharsets.UTF_8),null);return;
+                }
                 long length=WebTransferPolicy.length(headers.getOrDefault("content-length","-1"),
                     headers.get("transfer-encoding"),WebTransferUploadManager.MAX_BYTES);
                 String raw=headers.get("x-wt-filename");if(raw==null||raw.length()>700)throw new IOException("Не указано имя файла");

@@ -214,6 +214,8 @@ public class ReaderActivity extends NavigationActivity {
     private long chteicoLastInteraction=0;
     private long chteicoReadingSeconds=0;
     private int chteicoInitialIndex=0,chteicoLastWordIndex=0;
+    private int chteicoPendingWords=0;
+    private long chteicoLastNormalCredit=0;
     private int fishingChapter=-1,fishingChapterSeconds=0,fishingChapterStartWord=-1;
     private int fishingTtsChapter=-1,fishingTtsStartWord=-1;
     private long fishingTtsTime=0,fishingTtsAccumulatedMs=0;
@@ -225,7 +227,7 @@ public class ReaderActivity extends NavigationActivity {
         long now=SystemClock.elapsedRealtime();
         if(words.length>0 && !docUri.isEmpty() && (playing && !waitingForStart || now-chteicoLastInteraction<65000)){
             ChteicoStore.tickReading(ReaderActivity.this,mode,10);
-            if(mode!=TTS && index>chteicoLastWordIndex && index-chteicoLastWordIndex<=400)ChteicoStore.recordWords(ReaderActivity.this,index-chteicoLastWordIndex);
+            flushChteicoWords();
             chteicoLastWordIndex=index;
             chteicoReadingSeconds+=10;
             int visibleWord=mode==NORMAL&&viewportWord>=0?viewportWord:index;
@@ -252,6 +254,7 @@ public class ReaderActivity extends NavigationActivity {
     private final Runnable ticker=new Runnable(){@Override public void run(){
         if(!playing||words.length==0)return;
         int count=Math.min(portion,words.length-index);
+        if(mode==RSVP||mode==CURSOR)chteicoPendingWords+=Math.max(0,count);
         if(index+count>=words.length){
             if(ChteicoStore.completeBook(ReaderActivity.this,docUri))ChteicoNotifications.milestone(ReaderActivity.this,"Книга завершена!","Чтейцо радуется вашему достижению.");
             stop();save();return;
@@ -623,7 +626,13 @@ public class ReaderActivity extends NavigationActivity {
                 }
                 if(state==RecyclerView.SCROLL_STATE_IDLE){
                     userScrolling=false;
-                    if(manualViewportMovement){manualViewportMovement=false;rememberVisibleViewport();}
+                    if(manualViewportMovement){manualViewportMovement=false;int before=viewportWord>=0?viewportWord:index;rememberVisibleViewport();
+                        long now=SystemClock.elapsedRealtime();int delta=viewportWord-before;
+                        if(mode==NORMAL&&chteicoLastNormalCredit>0&&now-chteicoLastNormalCredit>=2000&&delta>0&&delta<=250){
+                            int plausible=(int)Math.min(250,(now-chteicoLastNormalCredit)*10/1000);if(delta<=plausible)chteicoPendingWords+=delta;
+                        }
+                        chteicoLastNormalCredit=now;
+                    }
                     if(mode==RSVP){scrollWordAccumulator=0;setRsvpContextVisible(!playing);}
                     saveLight(true);
                     if(selectionMenuAfterScroll&&!selectionDragging&&selectionFrom>=0){
@@ -1956,7 +1965,7 @@ public class ReaderActivity extends NavigationActivity {
         viewportNavigationEpoch++;
         if(ttsScrollController!=null)ttsScrollController.cancel("TOC_BROWSE");
         if(textList!=null)textList.stopScroll();
-        viewportWord=target;followSuspended=true;userScrolling=false;restoringScroll=true;updateChapterTitle();
+        chteicoLastNormalCredit=SystemClock.elapsedRealtime();viewportWord=target;followSuspended=true;userScrolling=false;restoringScroll=true;updateChapterTitle();
         if(prefs!=null&&!docUri.isEmpty())prefs.edit().putInt("viewport:"+docUri,target).apply();
         ReaderDiagnosticLog.event("NAVIGATION","TOC_VIEW_ONLY target="+target+
             " playing="+index+" chapter="+chapterForWord(target));
@@ -2057,6 +2066,7 @@ public class ReaderActivity extends NavigationActivity {
             startTtsSession();
         }
     }
+    private void flushChteicoWords(){int pending=chteicoPendingWords;chteicoPendingWords=0;while(pending>0){int batch=Math.min(400,pending);ChteicoStore.recordWords(this,batch);pending-=batch;}}
     private void chteicoTouch(){chteicoLastInteraction=SystemClock.elapsedRealtime();}
     private void chteicoCompleteIfReachedEnd(){
         if(words.length<300||docUri==null||docUri.isEmpty())return;
@@ -2750,7 +2760,7 @@ public class ReaderActivity extends NavigationActivity {
             localStateReceiverRegistered=true;
         }
         if(mode==TTS)scheduleTtsUi();
-        chteicoResumed=true;chteicoTouch();handler.removeCallbacks(chteicoReadTick);handler.postDelayed(chteicoReadTick,10000);
+        chteicoResumed=true;chteicoLastNormalCredit=SystemClock.elapsedRealtime();chteicoTouch();handler.removeCallbacks(chteicoReadTick);handler.postDelayed(chteicoReadTick,10000);
         if(prefs!=null){
         int oldBg=bg,oldFg=fg,oldSize=size,oldFont=font,oldMode=mode,oldPortion=portion,oldLineSpacing=lineSpacingPercent;
         int oldCursorBg=cursorBackground,oldCursorText=cursorText,oldCursorScale=cursorScale;
@@ -2779,6 +2789,7 @@ public class ReaderActivity extends NavigationActivity {
 
     }}
     @Override protected void onPause(){
+        flushChteicoWords();
         if(ttsScrollController!=null)ttsScrollController.cancel("ACTIVITY_PAUSED");
         readerWasPaused=true;
         cancelTtsUi();

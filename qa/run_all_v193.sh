@@ -4,6 +4,7 @@ cd "$(dirname "$0")/.."
 commands=(
 'qa/check_java_syntax.sh'
 'qa/check_chteico_feeding_194.py'
+'qa/check_v195_contracts.py'
 'qa/test_web_transfer_192.sh'
 'qa/typecheck_web_transfer_server_192.sh'
 'qa/typecheck_web_transfer_history_193.sh'

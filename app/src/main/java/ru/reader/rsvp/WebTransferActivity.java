@@ -28,9 +28,11 @@ import com.google.zxing.qrcode.QRCodeWriter;
 public final class WebTransferActivity extends NavigationActivity {
     private final Handler handler=new Handler(Looper.getMainLooper());
     private LinearLayout content;
-    private TextView status,address,pin,active,last,foldersSummary;
+    private TextView status,address,passwordText,local,active,last,foldersSummary,reveal;
     private ImageView qr,start,copy;
     private String rendered="";
+    private boolean passwordVisible;
+    private WebTransferIndicator indicator;
     private boolean commandPending;
     private final Runnable update=new Runnable(){@Override public void run(){refresh();handler.postDelayed(this,1000);}};
     private int dp(int v){return Math.round(getResources().getDisplayMetrics().density*v);}
@@ -50,7 +52,7 @@ public final class WebTransferActivity extends NavigationActivity {
         card.setOrientation(LinearLayout.VERTICAL);card.setPadding(dp(padding),dp(padding),dp(padding),dp(padding));
         card.setBackground(surface());LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);
         lp.topMargin=dp(12);parent.addView(card,lp);return card;}
-    @Override protected void onCreate(Bundle state){super.onCreate(state);draw();}
+    @Override protected void onCreate(Bundle state){super.onCreate(state);try{WebTransferAuth.password(this);}catch(Exception ignored){}draw();}
     private void draw(){
         int bg=UiColorScheme.background(this);content=new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);content.setBackgroundColor(bg);
@@ -59,6 +61,9 @@ public final class WebTransferActivity extends NavigationActivity {
         AppToolbar.add(this,content,"Передача по Wi-Fi");
         LinearLayout toolbar=(LinearLayout)content.getChildAt(0);
         start=action(R.drawable.ic_web_server_start,"Запустить сервер Wi-Fi");
+        GradientDrawable accent=surface();accent.setColor(UiColorScheme.accent(this));start.setBackground(accent);
+        start.setColorFilter(ReaderButtonColors.contrastingText(UiColorScheme.accent(this)));
+        indicator=new WebTransferIndicator(this);
         toolbar.addView(start,new LinearLayout.LayoutParams(dp(44),dp(44)));
         start.setOnClickListener(v->toggleServer());
         ImageView help=action(R.drawable.ic_info_help,"Справка: Передача книг по Wi-Fi");
@@ -84,7 +89,13 @@ public final class WebTransferActivity extends NavigationActivity {
         copy=action(R.drawable.ic_web_copy_address,"Копировать адрес сервера");
         addressRow.addView(copy,new LinearLayout.LayoutParams(dp(44),dp(44)));
         copy.setOnClickListener(v->copyAddress());
-        pin=text("",18,true);connection.addView(pin);
+        local=text("",14,false);local.setTextIsSelectable(true);connection.addView(local);
+        LinearLayout passwordRow=new LinearLayout(this);passwordRow.setGravity(Gravity.CENTER_VERTICAL);connection.addView(passwordRow);
+        passwordText=text("",16,true);passwordRow.addView(passwordText,new LinearLayout.LayoutParams(0,-2,1));
+        reveal=text("Показать",13,true);reveal.setPadding(dp(6),dp(12),dp(6),dp(12));passwordRow.addView(reveal);
+        reveal.setOnClickListener(v->{passwordVisible=!passwordVisible;reveal.setText(passwordVisible?"Скрыть":"Показать");refresh();});
+        ImageView copyPassword=action(R.drawable.ic_web_copy_address,"Копировать пароль");passwordRow.addView(copyPassword,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        copyPassword.setOnClickListener(v->{try{((ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Пароль Web Transfer",WebTransferAuth.password(this)));Toast.makeText(this,"Пароль скопирован",Toast.LENGTH_SHORT).show();}catch(Exception ex){Toast.makeText(this,"Пароль недоступен",Toast.LENGTH_SHORT).show();}});
         qr=new ImageView(this);qr.setContentDescription("QR-код адреса локального сервера");
         qr.setAdjustViewBounds(true);qr.setBackgroundColor(Color.WHITE);
         LinearLayout.LayoutParams q=new LinearLayout.LayoutParams(dp(210),dp(210));
@@ -150,14 +161,16 @@ public final class WebTransferActivity extends NavigationActivity {
     private void refresh(){
         if(status==null)return;
         WebTransferServer server=WebTransferService.current();
-        boolean running=server!=null;
+        boolean running=server!=null&&server.running();
+        if(running){if(start.getForeground()!=indicator)start.setForeground(indicator);indicator.start();}else{indicator.stop();start.setForeground(null);}
         start.setImageResource(running?R.drawable.ic_web_server_stop:R.drawable.ic_web_server_start);
         start.setContentDescription(running?"Остановить сервер Wi-Fi":"Запустить сервер Wi-Fi");
         start.setEnabled(!commandPending);start.setAlpha(commandPending?.45f:1f);
         copy.setEnabled(running);copy.setAlpha(running?1f:.35f);
         status.setText(running?"Сервер запущен · локальная сеть":"Сервер остановлен");
         address.setText(running?server.address():WebTransferService.lastError());
-        pin.setText(running?"PIN: "+server.pin():"");
+        local.setText(running?server.localAddress():"");local.setVisibility(running&&!server.localAddress().isEmpty()?View.VISIBLE:View.GONE);
+        try{passwordText.setText("Пароль: "+(passwordVisible?WebTransferAuth.password(this):"••••••••"));}catch(Exception ex){passwordText.setText("Пароль недоступен");}
         qr.setVisibility(running?View.VISIBLE:View.GONE);
         active.setText(running?"Подключений: "+server.connections()+" · Активных передач: "+server.activeUploads():
             "Нет активных передач");
@@ -184,6 +197,6 @@ public final class WebTransferActivity extends NavigationActivity {
         if(category!=null)DownloadFolderPicker.receive(this,request,result,data,request,category,ok->refresh());
     }
     @Override protected void onResume(){super.onResume();handler.removeCallbacks(update);handler.post(update);}
-    @Override protected void onPause(){handler.removeCallbacks(update);super.onPause();}
+    @Override protected void onPause(){handler.removeCallbacks(update);if(indicator!=null)indicator.stop();passwordVisible=false;if(reveal!=null)reveal.setText("Показать");if(passwordText!=null)passwordText.setText("Пароль: ••••••••");super.onPause();}
     @Override protected void onDestroy(){handler.removeCallbacks(update);super.onDestroy();}
 }

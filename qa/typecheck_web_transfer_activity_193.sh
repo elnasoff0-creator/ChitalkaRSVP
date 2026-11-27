@@ -86,7 +86,7 @@ package android.view;public class View {
  public void setBackgroundColor(int bg){}public void setContentDescription(String d){}
  public void setFocusable(boolean v){}public void setClickable(boolean v){}
  public void setOnClickListener(OnClickListener l){}public void setEnabled(boolean value){}
- public void setAlpha(float alpha){}public void setVisibility(int visibility){}
+ public void setAlpha(float alpha){}public Object getForeground(){return null;}public void setForeground(Object o){}public void setVisibility(int visibility){}
 }
 JAVA
 cat > "$tmp/src/android/widget/LinearLayout.java" <<'JAVA'
@@ -167,7 +167,7 @@ class NavigationActivity extends Activity {}
 class ActivityInfo extends NavigationActivity {}
 final class UiColorScheme {
  static int background(Context c){return 0;}static int neutral(Context c){return 0;}
- static int foreground(Context c){return 0;}static int muted(Context c){return 0;}
+ static int accent(Context c){return 0;}static int foreground(Context c){return 0;}static int muted(Context c){return 0;}
 }
 final class AppToolbar {
  static TextView add(Activity a,LinearLayout b,String name){return new TextView(a);}
@@ -177,8 +177,11 @@ final class R {static class drawable {
  static final int ic_web_server_start=1,ic_web_server_stop=2,ic_info_help=3,
  ic_web_copy_address=4,ic_folder_audio=5;
 }}
+final class ReaderButtonColors {static int contrastingText(int c){return c;}}
+final class WebTransferIndicator {WebTransferIndicator(Context c){}void start(){}void stop(){}}
+final class WebTransferAuth {static String password(Context c)throws Exception{return "password";}}
 final class WebTransferServer {
- String address(){return "";}String pin(){return "";}int activeUploads(){return 0;}
+ String address(){return "";}String localAddress(){return "";}boolean running(){return true;}int activeUploads(){return 0;}
  int connections(){return 0;}String latest(){return "";}
 }
 final class WebTransferService {

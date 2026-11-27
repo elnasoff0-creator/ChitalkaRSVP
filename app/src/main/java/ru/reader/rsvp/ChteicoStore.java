@@ -188,7 +188,7 @@ public final class ChteicoStore {
         if(!enabled(c)||stage(c)==EGG)return 0;
         SharedPreferences p=prefs(c);long gain=foodPages(c)+foodMinutes(c)+foodComics(c);
         if(gain<=0)return 0;
-        long xp=p.getLong("pet_food_xp",stage(c)>=READER?300:0)+gain;
+        long xp=p.getLong("pet_food_xp",stage(c)==ADULT?1050:stage(c)>=READER?300:0)+gain;
         int old=stage(c),next=xp>=1050?ADULT:xp>=300?READER:CHICK;
         SharedPreferences.Editor e=p.edit().putLong("pet_food_xp",xp)
             .putLong("food_words",p.getLong("food_words",0)%250)

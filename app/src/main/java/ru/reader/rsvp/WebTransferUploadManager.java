@@ -67,7 +67,7 @@ final class WebTransferUploadManager {
             throw ex;
         }
     }
-    private static void registerBook(Context c,String name,Uri uri)throws Exception {
+    static void registerBook(Context c,String name,Uri uri)throws Exception {
         android.content.SharedPreferences p=c.getSharedPreferences("reader",0);
         synchronized(WebTransferUploadManager.class){
             JSONArray books=new JSONArray(p.getString("library","[]"));

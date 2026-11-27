@@ -141,7 +141,7 @@ public class SettingsActivity extends NavigationActivity {
         LinearLayout.LayoutParams tabsLp=new LinearLayout.LayoutParams(-1,dp(56));tabsLp.topMargin=dp(6);root.addView(tabs,tabsLp);
         settingsScroll=new ScrollView(this);settingsScroll.setFillViewport(true);
         root.addView(settingsScroll,new LinearLayout.LayoutParams(-1,0,1));
-        list=BrowserTabs.panel(this);settingsScroll.addView(list,new ScrollView.LayoutParams(-1,-2));
+        list=BrowserTabs.panel(this);settingsScroll.addView(list,new ScrollView.LayoutParams(-1,-2));BrowserTabs.fixedViewport(this,settingsScroll,list);
         shownTab=currentTab;
         final int position=Math.max(0,sectionScroll[currentTab]);
         settingsScroll.post(()->{if(settingsScroll!=null && shownTab==currentTab)settingsScroll.scrollTo(0,position);});
@@ -1055,24 +1055,40 @@ public class SettingsActivity extends NavigationActivity {
         }));
         gap(12);
     }
+    private boolean webTransferStopped(){if(WebTransferService.current()==null)return true;android.widget.Toast.makeText(this,"Сначала остановите сервер Wi-Fi",android.widget.Toast.LENGTH_SHORT).show();return false;}
     void drawOnlineSettings(){
         header("Web Transfer · Передача по Wi-Fi");
-        TextView guidance=text("Передача книг через браузер компьютера в той же сети Wi-Fi. Сервер запускается только вручную из раздела «Загрузки»; PIN обязателен.",14,false);
+        TextView guidance=text("Передача книг через браузер компьютера в той же сети Wi-Fi. Сервер запускается только вручную из раздела «Загрузки»; пароль обязателен.",14,false);
         guidance.setPadding(dp(5),dp(7),dp(5),dp(12));list.addView(guidance);
         list.addView(action("Открыть передачу по Wi-Fi",R.drawable.ic_wifi_transfer,
             ()->startActivity(new Intent(this,WebTransferActivity.class))));
-        int configured=WebTransferPrefs.port(this);
-        list.addView(action("Порт сервера: "+(configured==0?"Автоматически":String.valueOf(configured)),()->{
+        android.widget.Switch dynamic=new android.widget.Switch(this);dynamic.setText("Динамический порт");dynamic.setTextColor(contrast(bg));dynamic.setChecked(WebTransferPrefs.dynamic(this));
+        dynamic.setEnabled(WebTransferService.current()==null);list.addView(dynamic);
+        dynamic.setOnCheckedChangeListener((button,checked)->{if(WebTransferService.current()==null){prefs.edit().putBoolean(WebTransferPrefs.DYNAMIC,checked).apply();draw();}});
+        int configured=WebTransferPrefs.fixedPort(this);
+        if(!WebTransferPrefs.dynamic(this))list.addView(action("Порт сервера: "+configured,()->{
+            if(!webTransferStopped())return;
             EditText port=new EditText(this);port.setSingleLine(true);port.setInputType(InputType.TYPE_CLASS_NUMBER);
-            port.setHint("0 — автоматически, либо 1024–65535");port.setText(String.valueOf(configured));
+            port.setHint("1024–65535");port.setText(String.valueOf(configured));
             new SwipeDialogs.Builder(this).setTitle("Порт Web Transfer").setView(port)
                 .setNegativeButton("Отмена",null).setPositiveButton("Сохранить",(dialog,which)->{
-                    try{int value=Integer.parseInt(port.getText().toString().trim());
-                        if(value!=0&&(value<1024||value>65535))throw new NumberFormatException();
+                    if(!webTransferStopped())return;
+                    try{int value=Integer.parseInt(port.getText().toString().trim());if(value<1024||value>65535)throw new NumberFormatException();
                         prefs.edit().putInt(WebTransferPrefs.PORT,value).apply();draw();
-                    }catch(Exception ignored){android.widget.Toast.makeText(this,"Введите 0 или порт от 1024 до 65535",android.widget.Toast.LENGTH_LONG).show();}
+                    }catch(Exception ignored){android.widget.Toast.makeText(this,"Введите порт от 1024 до 65535",android.widget.Toast.LENGTH_LONG).show();}
                 }).show();
         }));
+        list.addView(action("Изменить пароль",()->{
+            if(!webTransferStopped())return;
+            EditText value=new EditText(this);value.setSingleLine(true);value.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
+            value.setHint("8–64 символа");
+            new SwipeDialogs.Builder(this).setTitle("Пароль Web Transfer").setView(value).setNegativeButton("Отмена",null).setPositiveButton("Сохранить",(dialog,which)->{
+                if(!webTransferStopped())return;
+                try{WebTransferAuth.setPassword(this,value.getText().toString());android.widget.Toast.makeText(this,"Пароль изменён",android.widget.Toast.LENGTH_SHORT).show();}
+                catch(Exception ex){android.widget.Toast.makeText(this,ex.getMessage(),android.widget.Toast.LENGTH_LONG).show();}
+            }).show();
+        }));
+        list.addView(action("Сбросить авторизации",()->{if(webTransferStopped()){WebTransferAuth.reset(this);android.widget.Toast.makeText(this,"Авторизации сброшены",android.widget.Toast.LENGTH_SHORT).show();}}));
         list.addView(action("Остановка при простое: "+(WebTransferPrefs.idleMinutes(this)==0?"Только вручную":WebTransferPrefs.idleMinutes(this)+" мин"),()->{
             String[] labels={"5 минут","15 минут","30 минут","Только вручную"};int[] values={5,15,30,0};
             new SwipeDialogs.Builder(this).setTitle("Таймер простоя Web Transfer")
@@ -1088,7 +1104,7 @@ public class SettingsActivity extends NavigationActivity {
                 .setNegativeButton("Отмена",null).show();
         }));
         settingSwitch("Уведомлять о завершении передачи",WebTransferPrefs.NOTIFY,true);
-        TextView security=text("Подключение по временной PIN-сессии · максимум 2 одновременные загрузки · только Wi-Fi · доступ к библиотеке через браузер запрещён. Настройки применятся после перезапуска сервера.",13,false);
+        TextView security=text("Подключение по постоянному паролю · максимум 2 одновременные загрузки · только Wi-Fi · доступ к библиотеке через браузер запрещён. Настройки применятся после перезапуска сервера.",13,false);
         security.setPadding(dp(5),dp(8),dp(5),dp(12));list.addView(security);
         gap(14);
         header("Версия и обновления");

@@ -19,18 +19,19 @@ final class WebTransferDownloadStore {
     private static final int MAX_HISTORY=300;
     private static final java.util.HashMap<String,Long> lastWritten=new java.util.HashMap<>();
     static final class Entry {
-        String id="",name="",kind="",state=WAITING,uri="",message="";
+        int fileCount;
+        String id="",name="",kind="",state=WAITING,uri="",message="",cover="";
         long received,total,created,updated;
         JSONObject json() throws Exception {
             JSONObject o=new JSONObject();o.put("id",id);o.put("name",name);o.put("kind",kind);
-            o.put("state",state);o.put("uri",uri);o.put("message",message);
+            o.put("state",state);o.put("uri",uri);o.put("message",message);o.put("cover",cover);o.put("fileCount",fileCount);
             o.put("received",received);o.put("total",total);
             o.put("created",created);o.put("updated",updated);return o;
         }
         static Entry parse(JSONObject o){Entry e=new Entry();e.id=o.optString("id","");
             e.name=o.optString("name","");e.kind=o.optString("kind","");
             e.state=o.optString("state",ERROR);e.uri=o.optString("uri","");
-            e.message=o.optString("message","");e.received=o.optLong("received",0);
+            e.message=o.optString("message","");e.cover=o.optString("cover","");e.fileCount=(int)o.optLong("fileCount",0);e.received=o.optLong("received",0);
             e.total=o.optLong("total",0);e.created=o.optLong("created",0);
             e.updated=o.optLong("updated",e.created);return e;
         }
@@ -70,6 +71,8 @@ final class WebTransferDownloadStore {
             if(write(c,list)){lastWritten.put(id,tick);DownloadChangeBus.publish(id);}return;
         }
     }
+    static synchronized void groupCount(Context c,String id,int count){ArrayList<Entry> entries=read(c);for(Entry e:entries)if(id.equals(e.id)){e.fileCount=count;if(write(c,entries))DownloadChangeBus.publish(id);return;}}
+    static synchronized void setCover(Context c,String id,String cover){ArrayList<Entry> entries=read(c);for(Entry e:entries)if(id.equals(e.id)){e.cover=cover;if(write(c,entries))DownloadChangeBus.publish(id);return;}}
     static synchronized void importing(Context c,String id){set(c,id,IMPORTING,"","",-1);}
     static synchronized void finish(Context c,String id,String state,String message,String uri,long bytes){
         set(c,id,state,message,uri,bytes);

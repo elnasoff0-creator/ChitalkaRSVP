@@ -15,6 +15,12 @@ final class WebTransferPolicy {
         for(int i=0;i<name.length();i++)if(Character.isISOControl(name.charAt(i)))throw new IOException("Недопустимые символы имени");
         return name;
     }
+    static String relative(String path)throws IOException{
+        if(path==null||path.length()>2048)throw new IOException("Недопустимый путь");
+        String[] parts=path.split("/",-1);if(parts.length>16)throw new IOException("Слишком глубокая папка");
+        for(String part:parts)if(!filename(part).equals(part))throw new IOException("Недопустимый компонент пути");
+        return path;
+    }
     static String kind(String filename)throws IOException {
         String s=filename.toLowerCase(Locale.ROOT);
         for(String e:new String[]{".epub",".fb2",".txt",".html",".htm"})if(s.endsWith(e))return "book";
