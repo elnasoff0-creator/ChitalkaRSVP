@@ -12,3 +12,5 @@
 - ICON HOTFIX: исправлена ссылка на ресурс цвета фона адаптивной иконки Android.
 
 - RESOURCE HOTFIX: устранено дублирование launcher_background; сохранён тёмно-синий фон #061A42 в launcher_color.xml.
+
+- JAVA HOTFIX: удалён ошибочно продублированный блок кормления из showDisabledSummary(); рабочий блок в show() сохранён. Добавлена регрессионная проверка в QA и GitHub Actions.
