@@ -7,7 +7,7 @@ r=Path(__file__).resolve().parents[1]
 p=r/'app/src/main/java/ru/reader/rsvp'
 read=lambda name:(p/name).read_text(encoding='utf-8')
 version=(r/'app/build.gradle').read_text()
-assert "versionCode 19500; versionName '1.11.195-beta'" in version
+assert "versionCode 19600; versionName '1.11.196-beta'" in version
 ui=read('WebTransferActivity.java')
 assert 'AppToolbar.add(this,content,"Передача по Wi-Fi")' in ui
 assert 'ic_web_server_start' in ui and 'ic_web_server_stop' in ui
@@ -57,5 +57,5 @@ if shutil.which('node'):
     assert result.returncode==0,result.stderr
 names=sorted(x.name for x in r.glob('*.md') if x.name != 'README.md')
 assert (r/'README.md').is_file(), 'README.md missing'
-assert len(names)==3 and all('1.11.195' in name for name in names),names
+assert len(names)==3 and all('1.11.196' in name for name in names),names
 print('PASS: v193 toolbar, shared Wi-Fi download history, cancellation, help, SAF, browser IDs and CLEAN docs')

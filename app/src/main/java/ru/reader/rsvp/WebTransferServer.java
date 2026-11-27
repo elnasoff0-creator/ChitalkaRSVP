@@ -174,6 +174,13 @@ final class WebTransferServer {
                     "Set-Cookie: wt_session="+token+"; HttpOnly; SameSite=Strict; Path=/"+(remember?"; Max-Age=2592000":"")+"\r\n");return;
             }
             if(!authenticated(headers)){respond(out,401,"application/json",json("Введите пароль с устройства"),null);return;}
+            if("/api/dashboard".equals(path)||"/api/cover".equals(path)){
+                if(!"0".equals(headers.getOrDefault("content-length","0"))||headers.containsKey("transfer-encoding")){respond(out,400,"application/json",json("Неверный запрос"),null);return;}
+                try{
+                    if("/api/dashboard".equals(path)){respond(out,200,"application/json; charset=utf-8",WebTransferDashboard.snapshot(app),null);}
+                    else {if(inflight.get()>0){respond(out,503,"application/json",json("Идёт передача файлов"),null);return;}byte[] cover=WebTransferDashboard.cover(app,headers.get("x-wt-cover"));respond(out,cover==null?404:200,"image/jpeg",cover==null?new byte[0]:cover,null);}
+                }catch(Exception e){respond(out,400,"application/json",json("Не удалось получить данные библиотеки"),null);}return;
+            }
             if("/api/status".equals(path)){
                 String response="{\"ok\":true,\"active\":"+inflight.get()+"}";
                 respond(out,200,"application/json",response.getBytes(StandardCharsets.UTF_8),null);return;
@@ -264,7 +271,7 @@ final class WebTransferServer {
     }
     private static void respond(OutputStream out,int status,String mime,byte[] data,String extra)throws IOException {
         String reason=status==200?"OK":status==400?"Bad Request":status==401?"Unauthorized":status==403?"Forbidden":status==404?"Not Found":status==409?"Conflict":status==429?"Too Many Requests":"Service Unavailable";
-        String header="HTTP/1.1 "+status+" "+reason+"\r\nContent-Type: "+mime+"\r\nContent-Length: "+data.length+"\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; form-action 'none'; base-uri 'none'\r\n";
+        String header="HTTP/1.1 "+status+" "+reason+"\r\nContent-Type: "+mime+"\r\nContent-Length: "+data.length+"\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; form-action 'none'; base-uri 'none'\r\n";
         if(extra!=null)header+=extra;
         out.write((header+"\r\n").getBytes(StandardCharsets.ISO_8859_1));out.write(data);out.flush();
     }

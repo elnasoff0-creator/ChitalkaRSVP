@@ -37,6 +37,8 @@ public final class ChteicoActivity extends NavigationActivity {
     private int bg,fg,accent;
     private ChteicoFishingView activeMiniGame;
     private FrameLayout activePetFrame;
+    private FrameLayout fishingEntryFrame;
+    private void showAndOpenFishing(){show();if(fishingEntryFrame!=null){if(fishingEntryFrame.getLayoutParams().height==0)fishingEntryFrame.getLayoutParams().height=dp(260);openMiniGame(fishingEntryFrame);}}
     private SharedPreferences p;
     private boolean firstResume=true;
     private TextView speechBubble;
@@ -52,7 +54,7 @@ public final class ChteicoActivity extends NavigationActivity {
     @Override protected void onCreate(Bundle b){super.onCreate(b);
         boolean wake=getIntent().getBooleanExtra("wake_pet",false);
         if(wake)ChteicoEmotions.wake();show();
-        if(wake)ui.postDelayed(()->showSpeech(ChteicoEmotions.stroke(),2750),120);
+        if(wake)ui.postDelayed(()->showSpeech(ChteicoEmotions.stroke(this),2750),120);
     }
     @Override protected void onResume(){super.onResume();if(firstResume)firstResume=false;else if(activeMiniGame==null)show();else activeMiniGame.resumeClock();}
     private GradientDrawable shape(int color,int radius){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(radius));return d;}
@@ -180,6 +182,7 @@ public final class ChteicoActivity extends NavigationActivity {
         }catch(Exception error){
             ReaderDiagnosticLog.event("QUOTES","pet_quote_read_failed type="+error.getClass().getSimpleName());
         }
+        if(ChteicoStore.mood(this)==ChteicoLifeCycle.Mood.SAD)return ChteicoPhrases.HUNGRY[phraseRandom.nextInt(ChteicoPhrases.HUNGRY.length)];
         long lastActive=petPrefs.getLong("last_active",0);
         int inactiveDays=Math.max(1,Math.min(36500,petPrefs.getInt("inactive_days",3)));
         boolean inactive=lastActive>0 && System.currentTimeMillis()-lastActive>=inactiveDays*86400000L;
@@ -195,7 +198,7 @@ public final class ChteicoActivity extends NavigationActivity {
     }
     private void showSpeech(String message,long durationMs){showSpeech(message,durationMs,false);}
     private void showSpeech(String message,long durationMs,boolean quote){
-        if(message==null||speechBubble==null||speechContainer==null)return;
+        if(ChteicoStore.dead(this)||message==null||speechBubble==null||speechContainer==null)return;
         if(pendingSpeechHide!=null)ui.removeCallbacks(pendingSpeechHide);
         boolean face=ChteicoEmotions.isFace(message);
         speechBubble.setTextSize(face?41:15);
@@ -243,6 +246,13 @@ public final class ChteicoActivity extends NavigationActivity {
     private void showGameChoices(FrameLayout petFrame){openMiniGame(petFrame);}
     private void openMiniGame(FrameLayout frame){
         if(frame==null)return;
+        if(ChteicoStore.fishingChoicePending(this)){
+            new SwipeDialogs.Builder(this).setTitle("Рыбалка")
+                .setMessage("Начать заново или продолжить? При новом старте весь прогресс рыбалки будет удалён.")
+                .setNegativeButton("Продолжить",(d,w)->{if(ChteicoStore.resolveFishingChoice(this,false))showAndOpenFishing();})
+                .setPositiveButton("Начать заново",(d,w)->{if(ChteicoStore.resolveFishingChoice(this,true))showAndOpenFishing();}).show();
+            return;
+        }
         // Only one embedded game may exist. Repeated taps do not append windows.
         if(activeMiniGame!=null)return;
         if(pendingSpeechHide!=null){ui.removeCallbacks(pendingSpeechHide);pendingSpeechHide=null;}
@@ -287,6 +297,7 @@ public final class ChteicoActivity extends NavigationActivity {
         stat(b,"Минут аудио",mins("seconds_audio"));
         stat(b,"Дней подряд",String.valueOf(p.getInt("streak",0)));
         stat(b,"Сессий",String.valueOf(p.getInt("sessions",0)));
+        LinearLayout comics=new LinearLayout(this);stats.addView(comics);stat(comics,"Страниц манги и комиксов",String.valueOf(ChteicoStore.comicPages(this)));
         gap(stats,8);stats.addView(button("Подробная статистика",this::statistics));
     }
     private LinearLayout rewardLine;
@@ -361,7 +372,7 @@ public final class ChteicoActivity extends NavigationActivity {
         header.addView(gameButton,buttonLp);
         hero.addView(header,new LinearLayout.LayoutParams(-1,-2));
         // The game is embedded in this very card, never appended as a new card.
-        FrameLayout gameFrame=new FrameLayout(this);
+        FrameLayout gameFrame=new FrameLayout(this);fishingEntryFrame=gameFrame;
         hero.addView(gameFrame,new LinearLayout.LayoutParams(-1,0));
         gameButton.setOnClickListener(v->{
             if(activeMiniGame!=null)return;
@@ -375,6 +386,8 @@ public final class ChteicoActivity extends NavigationActivity {
         addGameStatistics();
     }
     private void show(){
+        ChteicoStore.checkLife(this,false);fishingEntryFrame=null;
+        if(sleepAnimation!=null){ui.removeCallbacks(sleepAnimation);sleepAnimation=null;}
         if(pendingSpeechHide!=null){ui.removeCallbacks(pendingSpeechHide);pendingSpeechHide=null;}
         if(speechContainer!=null)speechContainer.animate().cancel();
         if(activeMiniGame!=null){activeMiniGame.stopClock();activeMiniGame=null;activePetFrame=null;}
@@ -416,18 +429,31 @@ public final class ChteicoActivity extends NavigationActivity {
         nameRow.addView(gameButton,gameButtonLp);
         // The selection handler is attached below, once the pet frame exists.
         hero.addView(nameRow);gap(hero,8);
-        FrameLayout petFrame=new FrameLayout(this);petSpeechFrame=petFrame;
+        if(stage!=ChteicoStore.EGG){
+            TextView moodLabel=text(stage==ChteicoStore.DEAD?"Статус: погиб":"Настроение: "+ChteicoStore.moodName(this),13,false);hero.addView(moodLabel);gap(hero,5);
+            if(stage!=ChteicoStore.DEAD){moodLabel.post(new Runnable(){public void run(){if(!moodLabel.isAttachedToWindow())return;ChteicoStore.checkLife(ChteicoActivity.this,false);if(ChteicoStore.dead(ChteicoActivity.this)){show();return;}moodLabel.setText("Настроение: "+ChteicoStore.moodName(ChteicoActivity.this));moodLabel.postDelayed(this,30000);}});}
+        }
+        FrameLayout petFrame=new FrameLayout(this);petSpeechFrame=petFrame;fishingEntryFrame=petFrame;
         // Keep the original 248x247dp pet; reclaim unused speech space above it.
         hero.addView(petFrame,new LinearLayout.LayoutParams(-1,dp(260)));
         gameButton.setOnClickListener(v->showGameChoices(petFrame));
         FrameLayout.LayoutParams spriteLayout=new FrameLayout.LayoutParams(dp(248),dp(247),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);
         pet=new ChteicoPetView(this);petFrame.addView(pet,spriteLayout);
+        if(stage==ChteicoStore.DEAD){
+            pet.setSleeping(true);gap(hero,12);
+            hero.addView(button("Попрощаться",()->new SwipeDialogs.Builder(this).setTitle("Попрощаться с питомцем?")
+                .setMessage("Прогресс питомца будет удалён. Появится новое яйцо. Рыбалка и книжная статистика сохранятся.")
+                .setNegativeButton("Отмена",null).setPositiveButton("Попрощаться",(d,w)->{ChteicoStore.resetPet(this);show();}).show()));
+            addStatsCard();addRewardsCard();addGameStatistics();
+            return;
+        }
         // Draw rays over the whole card width; restrict taps to the pet itself.
         TapWaves waves=new TapWaves();emotionTapWaves=waves;
         petFrame.addView(waves,new FrameLayout.LayoutParams(-1,-1));
         View petTapTarget=new View(this);
         petFrame.addView(petTapTarget,new FrameLayout.LayoutParams(dp(248),dp(247),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL));
         Runnable normalTap=()->{
+            if(ChteicoStore.dead(this)){show();return;}
             ChteicoEmotions.wake();pet.setSleeping(false);
             if(sleepAnimation!=null)ui.removeCallbacks(sleepAnimation);
             waves.burst();
@@ -450,9 +476,10 @@ public final class ChteicoActivity extends NavigationActivity {
             normalTap.run();
         },null,()->{
             // showSpeech provides one haptic pulse when the face actually appears.
+            if(ChteicoStore.dead(this)){show();return;}
             if(sleepAnimation!=null)ui.removeCallbacks(sleepAnimation);
             pet.setSleeping(false);
-            showSpeech(ChteicoEmotions.stroke(),2750);
+            showSpeech(ChteicoEmotions.stroke(this),2750);
         },null);
         if(stage!=ChteicoStore.EGG){
             speechContainer=new SpeechBubbleLayout();
@@ -472,7 +499,7 @@ public final class ChteicoActivity extends NavigationActivity {
                 pet.setSleeping(true);
                 sleepAnimation=new Runnable(){int phase;
                     @Override public void run(){
-                        if(!ChteicoEmotions.isSleeping()||speechBubble==null)return;
+                        if(ChteicoStore.dead(ChteicoActivity.this)||!ChteicoEmotions.isSleeping()||speechBubble==null)return;
                         String sleep=ChteicoEmotions.sleep(phase++);
                         speechBubble.setTextSize(29);
                         speechBubble.setMaxLines(1);
@@ -487,16 +514,8 @@ public final class ChteicoActivity extends NavigationActivity {
                 ui.post(sleepAnimation);
             }else if(intro!=null)showSpeech(intro,7000);
         }
-        gap(hero,12);
-        progressBar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progressBar.setMax(100);progressBar.setProgress(ChteicoStore.progress(this));
-        if(android.os.Build.VERSION.SDK_INT>=21)progressBar.setProgressTintList(android.content.res.ColorStateList.valueOf(accent));
-        hero.addView(progressBar,new LinearLayout.LayoutParams(-1,dp(9)));gap(hero,7);
-        progressLabel=text(progressText(stage),13,false);progressLabel.setGravity(Gravity.CENTER);hero.addView(progressLabel);
-        addStatsCard();
-        addRewardsCard();
-        addGameStatistics();
         if(stage!=ChteicoStore.EGG){
-            LinearLayout food=card(); LinearLayout row=new LinearLayout(this);
+            LinearLayout food=column();hero.addView(food,new LinearLayout.LayoutParams(-1,-2)); LinearLayout row=new LinearLayout(this);
             stat(row,"Страницы",Long.toString(ChteicoStore.foodPages(this)));
             stat(row,"Аудио · мин",Long.toString(ChteicoStore.foodMinutes(this)));
             stat(row,"Манга · стр",Long.toString(ChteicoStore.foodComics(this)));
@@ -505,11 +524,19 @@ public final class ChteicoActivity extends NavigationActivity {
                 long gain=ChteicoStore.feed(this);if(gain<=0)return;
                 ChteicoEmotions.wake();show();pet.setSleeping(false);
                 pet.animate().translationY(-dp(8)).setDuration(250).withEndAction(()->pet.animate().translationY(0).setDuration(250).start()).start();
-                showSpeech("❤ Вкусно! +"+gain+" XP",4200);
+                showSpeech(ChteicoEmotions.stroke(this)+" +"+gain+" XP",4200);
             });
             feed.setEnabled(ChteicoStore.foodPages(this)+ChteicoStore.foodMinutes(this)+ChteicoStore.foodComics(this)>0);
             food.addView(feed);
         }
+        gap(hero,12);
+        progressBar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progressBar.setMax(100);progressBar.setProgress(ChteicoStore.progress(this));
+        if(android.os.Build.VERSION.SDK_INT>=21)progressBar.setProgressTintList(android.content.res.ColorStateList.valueOf(accent));
+        hero.addView(progressBar,new LinearLayout.LayoutParams(-1,dp(9)));gap(hero,7);
+        progressLabel=text(progressText(stage),13,false);progressLabel.setGravity(Gravity.CENTER);hero.addView(progressLabel);
+        addStatsCard();
+        addRewardsCard();
+        addGameStatistics();
     }
     private void addGameStatistics(){
         LinearLayout panel=card();panel.addView(text("Рыбалка",18,true));gap(panel,9);

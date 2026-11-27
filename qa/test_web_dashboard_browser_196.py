@@ -1,0 +1,18 @@
+from pathlib import Path
+import argparse, shutil
+parser=argparse.ArgumentParser(description="Browser UI smoke test with mock data; requires Playwright and Chromium")
+parser.add_argument("--screenshot",type=Path)
+args=parser.parse_args()
+root=Path(__file__).resolve().parents[1]
+from playwright.sync_api import sync_playwright
+import json
+html=(root/'app/src/main/assets/webtransfer/index.html').read_text()
+data={'library':[{'key':'a'*43,'kind':'book','title':'Лесные хроники','detail':'EPUB','progress':58,'started':True},{'key':'b'*43,'kind':'audio','title':'Дорога к звёздам','detail':'4 файлов','progress':100,'started':True},{'key':'c'*43,'kind':'comic','title':'Северный ветер','detail':'','progress':-1,'started':False}], 'stats':{'books':1,'audio':1,'comics':1,'finishedBooks':12,'finishedAudio':5,'comicPages':846,'readingSeconds':132000,'audioSeconds':99500,'words':1500,'sessions':24,'streak':3,'bestStreak':30},'history':[{'name':'Архив теста','state':'done','received':1024,'total':1024,'fileCount':2,'updated':1795700000000}],'awards':['Первая книга','30 дней подряд'],'days':[{'label':str(i+21)+'.11','known':i>=3,'read':i*60,'audio':i*30} for i in range(7)]}
+with sync_playwright() as p:
+ b=p.chromium.launch(executable_path=shutil.which('chromium') or shutil.which('google-chrome'),args=['--no-sandbox']);page=b.new_page(viewport={'width':1280,'height':1000});errors=[];page.on('pageerror',lambda e:errors.append(str(e)));state={'authorized':False,'expired':False}
+ mock="""<script>window.mockExpired=false;window.mockData="""+json.dumps(data,ensure_ascii=False)+""";window.fetch=async (path,options)=>{let status=200,body={};if(path==='/api/status')status=401;else if(path==='/api/pair')body={ok:true};else if(path==='/api/dashboard'){status=window.mockExpired?401:200;body=window.mockData;}else status=404;return new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json'}})}</script>"""
+ page.set_content(html.replace('<script>',mock+'<script>',1));assert page.locator('#content').is_hidden();page.fill('#password','testpassword');page.locator('#pinform button').click();page.locator('#summary .metric').first.wait_for();assert page.locator('#history').inner_text().find('Архив теста')>=0
+ page.locator('[data-tab=library]').click();assert page.locator('#library .media').count()==3;assert page.locator('#library').inner_text().find('Нет точных данных')>=0;page.locator('[data-kind=audio]').click();assert page.locator('#library .media').count()==1;page.fill('#search','нет');assert page.locator('#library .media').count()==0;page.fill('#search','');page.locator('[data-kind=all]').click();
+ if args.screenshot:page.screenshot(path=str(args.screenshot),full_page=True)
+ page.locator('[data-tab=statistics]').click();assert page.locator('#statDetails').inner_text().find('846')>=0;assert page.locator('#statsChart').inner_text().find('Дневной учёт')>=0;page.locator('[data-tab=rewards]').click();assert '30 дней подряд' in page.locator('#awards').inner_text();page.set_viewport_size({'width':390,'height':800});page.locator('[data-tab=library]').click();assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth');page.locator('[data-tab=statistics]').click();page.evaluate('window.mockExpired=true');page.locator('#tab-statistics [data-refresh]').click();page.locator('#login').wait_for(state='visible');assert page.locator('#content').is_hidden();assert page.locator('#library').inner_text()=='';assert not errors,errors;b.close()
+print('PASS: Chromium UI with mocked API: login, history, 3 media types, search/filter, statistics, awards, responsive width, expired-session cleanup')

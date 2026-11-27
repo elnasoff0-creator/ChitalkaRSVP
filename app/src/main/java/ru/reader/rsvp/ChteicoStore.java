@@ -12,15 +12,53 @@ import java.util.TimeZone;
 
 /** Local, opt-in reading companion. Independent of the book library and playback positions. */
 public final class ChteicoStore {
-    public static final int EGG=0, CHICK=1, READER=2, ADULT=3;
+    public static final int EGG=0, CHICK=1, READER=2, ADULT=3, DEAD=4;
     public static final int UNDECIDED=0, CLASSIC=1, SPEED=2, AUDIO=3;
     private static final String PREFS="chteico_v1";
     private ChteicoStore(){}
     public static SharedPreferences prefs(Context c){return c.getApplicationContext().getSharedPreferences(PREFS,Context.MODE_PRIVATE);}    
     public static boolean enabled(Context c){return prefs(c).getBoolean("enabled",false);}    
-    public static int stage(Context c){return prefs(c).getInt("stage",EGG);}    
+    public static int stage(Context c){return prefs(c).getBoolean("pet_dead",false)?DEAD:prefs(c).getInt("stage",EGG);}
+    public static boolean dead(Context c){return stage(c)==DEAD;}
+    private static boolean acceptsFood(Context c){checkLife(c,false);return enabled(c)&&!dead(c);}
+    public static synchronized void checkLife(Context c,boolean visit){
+        SharedPreferences p=prefs(c); long now=System.currentTimeMillis();
+        if(!p.getBoolean("enabled",false))return;
+        if(!p.contains("pet_created_at")){
+            SharedPreferences.Editor init=p.edit().putLong("pet_created_at",now).putLong("last_app_visit_at",now);
+            if(stage(c)!=EGG)init.putLong("pet_hatched_at",now).putLong("last_fed_at",now);
+            init.apply();
+        }
+        if(!dead(c)&&stage(c)!=EGG){
+            long fed=p.getLong("last_fed_at",0),last=p.getLong("last_app_visit_at",0);
+            if(fed<=0||last<=0){p.edit().putLong("last_fed_at",now).putLong("last_app_visit_at",now).apply();}
+            else if(ChteicoLifeCycle.dies(now,fed,last)){
+                p.edit().putBoolean("pet_dead",true).putLong("pet_dead_at",now).putBoolean("fishing_death_choice_pending",true).apply();
+                ChteicoNotifications.cancelHunger(c);
+            }
+        }
+        if(visit)p.edit().putLong("last_app_visit_at",now).apply();
+    }
+    public static ChteicoLifeCycle.Mood mood(Context c){SharedPreferences p=prefs(c);long now=p.getLong("life_paused_at",0);if(now<=0)now=System.currentTimeMillis();return ChteicoLifeCycle.mood(now,p.getLong("last_fed_at",now));}
+    public static String moodName(Context c){switch(mood(c)){case EXCELLENT:return "отличное";case GOOD:return "хорошее";case SAD:return "грустное";default:return "нормальное";}}
+    public static boolean fishingChoicePending(Context c){return prefs(c).getBoolean("fishing_death_choice_pending",false);}
+    public static synchronized boolean resolveFishingChoice(Context c,boolean restart){
+        SharedPreferences p=prefs(c);if(!p.getBoolean("fishing_death_choice_pending",false))return false;SharedPreferences.Editor e=p.edit();
+        if(restart){
+            // Migrate old shared page history before deleting game-only keys.
+            e.putInt("reading_comic_unique_pages",comicPages(c));
+            for(String key:p.getAll().keySet())if(key.startsWith("fishing_")){
+                if(key.startsWith("fishing_page_")&&p.getBoolean(key,false))e.putBoolean("reading_page_"+key.substring("fishing_page_".length()),true);
+                e.remove(key);
+            }
+            e.remove("food_fishing");
+        }
+        e.remove("fishing_death_choice_pending");return e.commit();
+    }
+    private static void resetLife(SharedPreferences.Editor e){long now=System.currentTimeMillis();e.remove("pet_dead").remove("pet_dead_at").remove("pet_hatched_at").remove("last_fed_at").remove("feeding_count").remove("last_hunger_notice_at").remove("last_pet_notice_at").remove("life_paused_at").putLong("pet_created_at",now).putLong("last_app_visit_at",now);}
+    
     public static int branch(Context c){return prefs(c).getInt("branch",UNDECIDED);}    
-    public static String stageName(int stage){return stage==ADULT?"Чтун":stage==READER?"Чтенец":stage==CHICK?"Чтенчик":"Чтейцо";}
+    public static String stageName(int stage){return stage==DEAD?"Погиб":stage==ADULT?"Чтун":stage==READER?"Чтенец":stage==CHICK?"Чтенчик":"Чтейцо";}
     public static String branchName(int branch){return branch==AUDIO?"Аудиокниги":branch==SPEED?"Скорочтение":branch==CLASSIC?"Чтение":"Ещё не выбрана";}
     private static String date(long millis){return new SimpleDateFormat("yyyyMMdd",Locale.ROOT).format(new Date(millis));}
     private static int daysBetween(String first,String second){try{
@@ -60,7 +98,7 @@ public final class ChteicoStore {
     public static synchronized void recordWords(Context c,int increment){
         if(increment<=0)return;
         SharedPreferences p=prefs(c);SharedPreferences.Editor e=p.edit().putLong("words_advanced",p.getLong("words_advanced",0)+Math.min(400,increment));
-        if(enabled(c))e.putLong("food_words",p.getLong("food_words",0)+Math.min(400,increment));
+        if(acceptsFood(c))e.putLong("food_words",p.getLong("food_words",0)+Math.min(400,increment));
         e.apply();
     }
     public static synchronized void tickAudio(Context c,String id,int seconds){
@@ -71,7 +109,10 @@ public final class ChteicoStore {
         SharedPreferences p=prefs(c);SharedPreferences.Editor e=p.edit();
         String key=kind==AUDIO?"seconds_audio":kind==SPEED?"seconds_speed":"seconds_classic";
         e.putLong(key,p.getLong(key,0)+Math.min(60,seconds));
-        if(kind==AUDIO&&enabled(c))e.putLong("food_seconds",p.getLong("food_seconds",0)+Math.min(60,seconds));
+        String daily="daily_"+(kind==AUDIO?"audio_":"read_")+date(System.currentTimeMillis());
+        e.putLong(daily,p.getLong(daily,0)+Math.min(60,seconds));
+        if(!p.contains("daily_stats_since"))e.putLong("daily_stats_since",System.currentTimeMillis());
+        if(kind==AUDIO&&acceptsFood(c))e.putLong("food_seconds",p.getLong("food_seconds",0)+Math.min(60,seconds));
         active(p,e);e.apply();
     }
     public static synchronized boolean completeBook(Context c,String id){return complete(c,"finished_books",id);}    
@@ -107,7 +148,7 @@ public final class ChteicoStore {
         int next=Math.min(8,eggUnits(c)+units);
         SharedPreferences.Editor e=p.edit().putInt("egg_units",next);
         if(next>=8){
-            e.putInt("stage",CHICK).putInt("branch",chosenBranch(p))
+            e.putLong("pet_hatched_at",System.currentTimeMillis()).putLong("last_fed_at",System.currentTimeMillis()).putInt("stage",CHICK).putInt("branch",chosenBranch(p))
                 .putBoolean("pending_hatch",false)
                 .putInt("pending_stage_up",0)
                 .putInt("pending_intro_stage",CHICK);
@@ -125,7 +166,7 @@ public final class ChteicoStore {
         return addEggUnits(c,2);
     }
     public static synchronized boolean matureOnHome(Context c){
-        if(!enabled(c))return false;
+        if(!enabled(c)||dead(c))return false;
         SharedPreferences p=prefs(c);int st=stage(c),pending=p.getInt("pending_stage_up",0);
         // Migrate a previously-earned evolution from the former three-stage release.
         if(st==CHICK && pending==0 && p.getBoolean("post_hatch_mature",false))pending=READER;
@@ -142,7 +183,7 @@ public final class ChteicoStore {
     /** Introduction is displayed once per evolution, even when the pet has been renamed. */
     public static synchronized String consumeIntroduction(Context c){
         SharedPreferences p=prefs(c);int event=p.getInt("pending_intro_stage",-1);
-        if(event!=CHICK&&event!=READER&&event!=ADULT)return null;
+        if(dead(c)||event!=CHICK&&event!=READER&&event!=ADULT)return null;
         p.edit().remove("pending_intro_stage").apply();
         return event==CHICK?ChteicoPhrases.INTRO_CHICK:event==READER?ChteicoPhrases.INTRO_READER:ChteicoPhrases.INTRO_ADULT;
     }
@@ -156,9 +197,9 @@ public final class ChteicoStore {
     }
     public static String petName(Context c){
         String custom=prefs(c).getString("custom_name","").trim();
-        return custom.isEmpty()?stageName(stage(c)):custom;
+        return custom.isEmpty()?stageName(prefs(c).getInt("stage",EGG)):custom;
     }
-    public static boolean canName(Context c){return !prefs(c).getBoolean("name_locked",false);}    
+    public static boolean canName(Context c){return !dead(c)&&!prefs(c).getBoolean("name_locked",false);}    
     public static synchronized boolean setPetName(Context c,String name){
         if(!canName(c)||name==null)return false;
         name=name.trim();if(name.isEmpty()||name.length()>18||name.contains("\n"))return false;
@@ -176,6 +217,7 @@ public final class ChteicoStore {
         return Math.min(95,readingProgress+gameBonus);
     }
     public static int progress(Context c){SharedPreferences p=prefs(c);int st=stage(c);
+        if(st==DEAD)return 0;
         if(st==ADULT)return 100;
         if(st==EGG)return eggUnits(c)*100/8;
         long xp=p.getLong("pet_food_xp",st>=READER?300:0);
@@ -185,17 +227,19 @@ public final class ChteicoStore {
     public static long foodMinutes(Context c){return prefs(c).getLong("food_seconds",0)/60;}
     public static long foodComics(Context c){return prefs(c).getLong("food_comics",0);}
     public static synchronized long feed(Context c){
-        if(!enabled(c)||stage(c)==EGG)return 0;
+        checkLife(c,false);
+        if(!acceptsFood(c)||stage(c)==EGG)return 0;
         SharedPreferences p=prefs(c);long gain=foodPages(c)+foodMinutes(c)+foodComics(c);
         if(gain<=0)return 0;
         long xp=p.getLong("pet_food_xp",stage(c)==ADULT?1050:stage(c)>=READER?300:0)+gain;
         int old=stage(c),next=xp>=1050?ADULT:xp>=300?READER:CHICK;
-        SharedPreferences.Editor e=p.edit().putLong("pet_food_xp",xp)
+        SharedPreferences.Editor e=p.edit().putLong("last_fed_at",System.currentTimeMillis()).putInt("feeding_count",p.getInt("feeding_count",0)+1).remove("last_hunger_notice_at").putLong("pet_food_xp",xp)
             .putLong("food_words",p.getLong("food_words",0)%250)
             .putLong("food_fishing",p.getLong("food_fishing",0)%10)
             .putLong("food_seconds",p.getLong("food_seconds",0)%60).putLong("food_comics",0);
         if(next>old){e.putInt("stage",next).putInt("pending_intro_stage",next).putInt("pending_stage_up",0);}
-        return e.commit()?gain:0;
+        if(!e.commit())return 0;
+        ChteicoNotifications.cancelHunger(c);ChteicoNotifications.schedule(c);return gain;
     }
     /** Fishing economy is isolated from reading positions and existing books. */
     public static int fishingBait(Context c){return prefs(c).getInt("fishing_bait",10);}
@@ -252,7 +296,7 @@ public final class ChteicoStore {
             .putInt("fishing_rarity_"+rarity,p.getInt("fishing_rarity_"+rarity,0)+1)
             .putInt("fishing_rarity_best_grams_"+rarity,
                 Math.max(p.getInt("fishing_rarity_best_grams_"+rarity,0),massGrams));
-        if(enabled(c))e.putLong("food_fishing",p.getLong("food_fishing",0)+xp);
+        if(acceptsFood(c))e.putLong("food_fishing",p.getLong("food_fishing",0)+xp);
         if(shimmering){
             e.putInt("fishing_shimmer_count",p.getInt("fishing_shimmer_count",0)+1)
                 .putInt("fishing_shimmer_rarity_"+rarity,p.getInt("fishing_shimmer_rarity_"+rarity,0)+1);
@@ -296,14 +340,20 @@ public final class ChteicoStore {
         SharedPreferences p=prefs(c);
         String id=stableRewardId("comic",comic+"|"+volume,page);
         // Per-page keys avoid copying an ever-growing StringSet on every swipe.
-        String pageKey="fishing_page_"+id;
-        if(p.getBoolean(pageKey,false))return false;
-        int total=p.getInt("fishing_comic_unique_pages",0)+1;
-        SharedPreferences.Editor edit=p.edit().putBoolean(pageKey,true).putInt("fishing_comic_unique_pages",total);
-        if(enabled(c))edit.putLong("food_comics",p.getLong("food_comics",0)+1);
-        if(total%10==0)edit.putInt("fishing_bait",p.getInt("fishing_bait",10)+10);
-        edit.apply();return total%10==0;
+        String pageKey="fishing_page_"+id,readingKey="reading_page_"+id;
+        boolean oldGame=p.getBoolean(pageKey,false),seen=p.getBoolean(readingKey,false)||oldGame;
+        if(seen&&oldGame)return false;
+        SharedPreferences.Editor edit=p.edit();boolean bait=false;
+        if(!seen){edit.putBoolean(readingKey,true).putInt("reading_comic_unique_pages",comicPages(c)+1);
+            if(acceptsFood(c))edit.putLong("food_comics",p.getLong("food_comics",0)+1);
+        }
+        if(!oldGame){int total=p.getInt("fishing_comic_unique_pages",0)+1;
+            edit.putBoolean(pageKey,true).putInt("fishing_comic_unique_pages",total);
+            bait=total%10==0;if(bait)edit.putInt("fishing_bait",p.getInt("fishing_bait",10)+10);
+        }
+        edit.apply();return bait;
     }
+    public static int comicPages(Context c){SharedPreferences p=prefs(c);return p.getInt("reading_comic_unique_pages",p.getInt("fishing_comic_unique_pages",0));}
     public static boolean developerUnlocked(Context c){return prefs(c).getBoolean("developer_unlocked",false);}    
     public static void unlockDeveloper(Context c){prefs(c).edit().putBoolean("developer_unlocked",true).apply();}
     public static boolean toggleDeveloper(Context c){
@@ -313,6 +363,7 @@ public final class ChteicoStore {
     }
     /** Developer-only preview override for QA of every evolution and reading branch. */
     public static synchronized void setDeveloperState(Context c,int stage,int branch){
+        if(dead(c))return;
         stage=Math.max(EGG,Math.min(ADULT,stage));
         branch=Math.max(UNDECIDED,Math.min(AUDIO,branch));
         if(stage!=EGG&&branch==UNDECIDED)branch=CLASSIC;
@@ -327,12 +378,16 @@ public final class ChteicoStore {
             .remove("bubble_seen")
             .remove("bubble_last_id");
         if(stage==EGG)e.remove("sleep_day");
-        else putStageMarkers(p,e);
+        else {putStageMarkers(p,e);e.putLong("last_fed_at",System.currentTimeMillis()).putLong("pet_hatched_at",System.currentTimeMillis());}
         e.apply();
     }
     public static synchronized void setEnabled(Context c,boolean enabled){
         SharedPreferences p=prefs(c);
+        if(!enabled)checkLife(c,false);
         SharedPreferences.Editor e=p.edit().putBoolean("enabled",enabled);
+        long now=System.currentTimeMillis(),paused=p.getLong("life_paused_at",0);
+        if(!enabled&&p.getBoolean("enabled",false))e.putLong("life_paused_at",now);
+        if(enabled&&paused>0){long delta=Math.max(0,now-paused);for(String key:new String[]{"last_fed_at","pet_hatched_at","pet_created_at","last_app_visit_at"}){long old=p.getLong(key,0);if(old>0)e.putLong(key,old+delta);}e.remove("life_paused_at");}
         // Existing lifetime statistics must not predetermine a newly activated egg's branch.
         // Keep the markers intact when resuming an egg already in progress.
         if(enabled && !p.getBoolean("enabled",false) && p.getInt("stage",EGG)==EGG
@@ -347,7 +402,7 @@ public final class ChteicoStore {
     }    
     /** Reset game state, not imported books nor reader/audioplayer positions. */
     /** Reset the pet without touching independent reading statistics, earned achievements or books. */
-    public static void resetPet(Context c){
+    public static synchronized void resetPet(Context c){
         SharedPreferences p=prefs(c);
         SharedPreferences.Editor e=p.edit().putInt("stage",EGG).putInt("branch",UNDECIDED)
             .putInt("egg_units",0).remove("pet_food_xp").remove("food_words").remove("food_seconds").remove("food_fishing").remove("food_comics").remove("pending_intro_stage").putBoolean("pending_hatch",false)
@@ -360,18 +415,19 @@ public final class ChteicoStore {
             .putLong("branch_marker_audio",p.getLong("seconds_audio",0))
             .putInt("branch_marker_finished_books_count",p.getInt("finished_books_count",0))
             .putInt("branch_marker_finished_audio_count",p.getInt("finished_audio_count",0));
-        e.apply();
+        resetLife(e);e.remove("post_hatch_mature").remove("bubble_last_quote_id").remove("hatch_last_kind");e.apply();ChteicoNotifications.cancelHunger(c);ChteicoNotifications.schedule(c);
     }
     /** Called when MainActivity is first created; the sleep/wake sequence runs at most once per day. */
     public static void markAppLaunch(Context c){
-        if(!enabled(c))return;
+        checkLife(c,true);
+        if(!enabled(c)||dead(c))return;
         SharedPreferences p=prefs(c);
         String today=date(System.currentTimeMillis());
         if(!today.equals(p.getString("launch_day","")))
             p.edit().putString("launch_day",today).putBoolean("daily_sleep_pending",true).apply();
     }
     /** Reselect on the next book/audio opening; lifetime statistics remain available. */
-    public static void resetBranch(Context c){prefs(c).edit().putInt("stage",EGG).putInt("branch",UNDECIDED).putInt("egg_units",0).remove("pet_food_xp").remove("food_words").remove("food_seconds").remove("food_fishing").remove("food_comics").remove("pending_intro_stage").putBoolean("pending_hatch",false).putInt("pending_stage_up",0)
+    public static void resetBranch(Context c){if(dead(c))return;prefs(c).edit().putInt("stage",EGG).putInt("branch",UNDECIDED).putInt("egg_units",0).remove("pet_food_xp").remove("food_words").remove("food_seconds").remove("food_fishing").remove("food_comics").remove("pending_intro_stage").putBoolean("pending_hatch",false).putInt("pending_stage_up",0)
         .remove("bubble_seen").remove("bubble_last_id").remove("sleep_day").remove("launch_day").remove("daily_sleep_pending")
         .putLong("branch_marker_classic",prefs(c).getLong("seconds_classic",0))
         .putLong("branch_marker_speed",prefs(c).getLong("seconds_speed",0))

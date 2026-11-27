@@ -60,6 +60,7 @@ cat > "$tmp/src/ru/reader/rsvp/WebTransferDependencies.java" <<'JAVA'
 package ru.reader.rsvp;
 import android.content.Context;
 import java.io.File;
+final class WebTransferDashboard {static byte[] snapshot(Context c)throws Exception{return new byte[0];}static byte[] cover(Context c,String key)throws Exception{return null;}}
 final class WebTransferAuth {static String password(Context c)throws Exception{return "password";}static boolean equal(String a,String b){return true;}static String random(int n){return "token";}static boolean trusted(Context c,String token){return false;}static void remember(Context c,String token)throws Exception{}}
 final class WebTransferMdns {static WebTransferMdns start(Context c,String ip,int port){return new WebTransferMdns();}boolean available(){return false;}void close(){}}
 final class WebTransferFolder {static WebTransferUploadManager.Outcome receive(Context c,java.io.InputStream in,java.util.Map<String,String> headers,String id,java.net.Socket client,java.util.Map<String,java.net.Socket> transfers,java.util.function.BooleanSupplier running,Runnable tick)throws Exception{return new WebTransferUploadManager.Outcome();}}

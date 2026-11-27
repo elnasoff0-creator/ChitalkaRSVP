@@ -28,6 +28,8 @@ import java.util.function.IntConsumer;
 final class BrowserTabs {
     private BrowserTabs(){}
     private static final java.util.WeakHashMap<Context,java.lang.ref.WeakReference<HorizontalScrollView>> latest=new java.util.WeakHashMap<>();
+    private static final java.util.WeakHashMap<Context,java.lang.ref.WeakReference<View>> panels=new java.util.WeakHashMap<>();
+    private static void redrawPanel(Context c){java.lang.ref.WeakReference<View> ref=panels.get(c);View view=ref==null?null:ref.get();if(view!=null)view.invalidate();}
     private static int dp(Context c,int v){return Math.round(c.getResources().getDisplayMetrics().density*v);}
     private static GradientDrawable top(Context c,int color,int radius){
         GradientDrawable shape=new GradientDrawable();shape.setColor(color);
@@ -67,6 +69,9 @@ final class BrowserTabs {
         HorizontalScrollView scroll=new HorizontalScrollView(context);
         scroll.setTag(active);latest.put(context,new java.lang.ref.WeakReference<>(scroll));
         scroll.setHorizontalScrollBarEnabled(false);scroll.setFillViewport(true);
+        scroll.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->redrawPanel(context));
+        scroll.setOnScrollChangeListener((v,x,y,ox,oy)->redrawPanel(context));
+        scroll.post(()->redrawPanel(context));
         scroll.setClipToPadding(false);
         final int height=icons==null?52:56;
         scroll.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(context,height)));
@@ -106,6 +111,9 @@ final class BrowserTabs {
     }
     static void fixedViewport(Context context,View viewport,View pane){
         pane.setForeground(null);viewport.setForeground(panelOutline(context,viewport));
+        panels.put(context,new java.lang.ref.WeakReference<>(viewport));
+        viewport.setPadding(0,0,0,dp(context,2));
+        viewport.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->v.invalidate());
     }
     private static Drawable panelOutline(Context context,View panel){return new Drawable(){
         final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -131,6 +139,7 @@ final class BrowserTabs {
         GradientDrawable shape=new GradientDrawable();shape.setColor(UiColorScheme.neutral(context));
         pane.setBackgroundColor(UiColorScheme.neutral(context));
         pane.setForeground(panelOutline(context,pane));
+        panels.put(context,new java.lang.ref.WeakReference<>(pane));
         return pane;
     }
 }

@@ -618,6 +618,9 @@ public class MainActivity extends NavigationActivity {
             FrameLayout.LayoutParams petLp=new FrameLayout.LayoutParams(-1,-1,Gravity.CENTER);
             petArea.addView(pet,petLp);
 
+            if(ChteicoStore.dead(this)){
+                pet.setSleeping(true);
+            }else{
             // The opaque emotion bubble is OVER the face, including its open eyes
             // on sleeping down sprites. No phrases or placeholder text on Home.
             ChteicoSpeechBubble bubble=new ChteicoSpeechBubble(this,bg,fg);
@@ -651,7 +654,7 @@ public class MainActivity extends NavigationActivity {
                 miniSleepAppearance.accept(false);
                 bubble.removeCallbacks(dismissEmotion);
                 emotion.setTextSize(39);
-                emotion.setText(ChteicoEmotions.stroke());
+                emotion.setText(ChteicoEmotions.stroke(this));
                 petArea.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
                 emotionRays.burst();
                 bubble.animate().cancel();
@@ -696,6 +699,7 @@ public class MainActivity extends NavigationActivity {
                     bubble.removeCallbacks(dismissEmotion);startActivity(new Intent(this,ChteicoActivity.class).putExtra("wake_pet",wake));},
                 ()->{if(MenuEditPrefs.longPress(this))enterHomeEditing();},showEmotion,
                 v->{if(MenuEditPrefs.longPress(this))enterHomeEditing();});
+            }
             TextView miniHeading=text(HomeSectionOrder.title(prefs,"pet"),14,true);
             miniHeading.setGravity(Gravity.CENTER_HORIZONTAL);
             contentWrap.addView(miniHeading,new LinearLayout.LayoutParams(-1,-2));
@@ -2087,6 +2091,7 @@ public class MainActivity extends NavigationActivity {
     private boolean hasResumedOnce = false;
     @Override protected void onResume() {
         super.onResume();
+        ChteicoStore.markAppLaunch(this);
         AudiobookCoverStore.backfill(this,this::onCoverBackfilled);
         if (hasResumedOnce) {
             loadPrefs();

@@ -58,7 +58,7 @@ public final class ChteicoPetView extends ImageView {
     }
 
     private final Runnable cycle=new Runnable(){@Override public void run(){
-        if(!attached||sleeping)return;
+        if(!attached||sleeping||ChteicoStore.dead(getContext()))return;
         int stage=ChteicoStore.stage(getContext());
         int branch=ChteicoStore.branch(getContext());
         int units=ChteicoStore.eggUnits(getContext());
@@ -88,6 +88,7 @@ public final class ChteicoPetView extends ImageView {
         int branch=ChteicoStore.branch(getContext());
         shownStage=stage;shownBranch=branch;
         updateMiniInsets();
+        if(stage==ChteicoStore.DEAD){clearColorFilter();setImageResource(R.drawable.ic_chteico_grave);return;}
         if(stage==ChteicoStore.EGG){
             shownEggUnits=ChteicoStore.eggUnits(getContext());
             setImageResource(ChteicoStore.eggCracked(getContext())
@@ -121,7 +122,7 @@ public final class ChteicoPetView extends ImageView {
         sleeping=value;handler.removeCallbacks(cycle);
         animate().cancel();setScaleX(1f);setScaleY(1f);
         frameDown=value;showFrame();
-        if(attached&&!sleeping)handler.postDelayed(cycle,FRAME_MS);
+        if(attached&&!sleeping&&!ChteicoStore.dead(getContext()))handler.postDelayed(cycle,FRAME_MS);
     }
     public void refresh(){
         handler.removeCallbacks(cycle);
@@ -129,7 +130,7 @@ public final class ChteicoPetView extends ImageView {
         shownStage=-1;shownBranch=-1;shownEggUnits=-1;
         animate().cancel();setScaleX(1f);setScaleY(1f);setRotation(0f);setTranslationY(0f);
         showFrame();
-        if(attached&&!sleeping)handler.postDelayed(cycle,FRAME_MS);
+        if(attached&&!sleeping&&!ChteicoStore.dead(getContext()))handler.postDelayed(cycle,FRAME_MS);
     }
 
     @Override protected void onAttachedToWindow(){

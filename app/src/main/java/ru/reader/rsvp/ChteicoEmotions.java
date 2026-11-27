@@ -8,16 +8,16 @@ import java.util.Random;
 
 /** Tap opens; system-duration long press starts drag; horizontal-only swipe reacts; vertical gestures scroll. */
 final class ChteicoEmotions {
-    private static final String[] FACES={"(~‿^)","(♡‿♡)","(＾▽＾)","(◕‿◕)"};
+    private static final String[][] FACES={{"(♡‿♡)","(＾▽＾)","٩(◕‿◕)۶","(≧◡≦)"},{"(~‿^)","(^‿^)","(◠‿◠)","(⌒‿⌒)"},{"(◕‿◕)","(・‿・)","(•‿•)","(・_・)"},{"(╥﹏╥)","(｡•́︿•̀｡)","(´︵`)","(ಥ_ಥ)","(•́︵•̀)","(｡•́_•̀｡)"}};
     private static final Random RANDOM=new Random();
     private static boolean sleeping=true;
     private static long lastInteraction=SystemClock.elapsedRealtime();
     private ChteicoEmotions(){}
     static boolean isSleeping(){return sleeping||SystemClock.elapsedRealtime()-lastInteraction>20L*60*1000;}
     static void wake(){sleeping=false;lastInteraction=SystemClock.elapsedRealtime();}
-    static String stroke(){wake();return FACES[RANDOM.nextInt(FACES.length)];}
-    static String sleep(int phase){return "( ◡‿◡ ) Zzz"+new String[]{".","..","..."}[Math.abs(phase)%3];}
-    static boolean isFace(String text){return text!=null&&text.startsWith("(")&&text.endsWith(")")&&text.length()<=16;}
+    static String stroke(android.content.Context c){wake();String[] faces=FACES[ChteicoStore.mood(c).ordinal()];return faces[RANDOM.nextInt(faces.length)];}
+    static String sleep(int phase){return "Zzz"+new String[]{".","..","..."}[Math.abs(phase)%3];}
+    static boolean isFace(String text){for(String[] group:FACES)for(String face:group)if(face.equals(text))return true;return false;}
     interface Drag { void start(View view); }
     static void attach(View view,Runnable tap,Runnable longTap,Runnable pet,Drag drag){
         final int slop=ViewConfiguration.get(view.getContext()).getScaledTouchSlop();

@@ -17,12 +17,21 @@ import java.util.Calendar;
 public final class ChteicoNotifications extends BroadcastReceiver {
     private static final String CHANNEL="chteico_reminders";
     private static final int REQUEST=721;
+    private static final String HUNGER="ru.reader.rsvp.PET_HUNGER";
+    private static PendingIntent hungerAlarm(Context c){return PendingIntent.getBroadcast(c,722,new Intent(c,ChteicoNotifications.class).setAction(HUNGER),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);}
+    public static void cancelHunger(Context c){NotificationManager nm=(NotificationManager)c.getSystemService(Context.NOTIFICATION_SERVICE);if(nm!=null)nm.cancel(726);}
+    private static boolean canNotify(Context c){return Build.VERSION.SDK_INT<33||c.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)==PackageManager.PERMISSION_GRANTED;}
+
     private static PendingIntent alarm(Context c){return PendingIntent.getBroadcast(c,REQUEST,new Intent(c,ChteicoNotifications.class),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);}
     public static void schedule(Context c){
         AlarmManager manager=(AlarmManager)c.getSystemService(Context.ALARM_SERVICE);if(manager==null)return;
-        manager.cancel(alarm(c));
+        manager.cancel(alarm(c));manager.cancel(hungerAlarm(c));
+        ChteicoStore.checkLife(c,false);
         android.content.SharedPreferences p=ChteicoStore.prefs(c);
-        if(!ChteicoStore.enabled(c)||!(p.getBoolean("daily",false)||p.getBoolean("inactive",false)))return;
+        if(!ChteicoStore.enabled(c)||ChteicoStore.dead(c)){cancelHunger(c);return;}
+        if(p.getBoolean("hungry_notice",false))manager.setInexactRepeating(AlarmManager.RTC_WAKEUP,System.currentTimeMillis()+3600000L,3600000L,hungerAlarm(c));
+        else cancelHunger(c);
+        if(!(p.getBoolean("daily",false)||p.getBoolean("inactive",false)))return;
         int hour=p.getInt("reminder_hour",19);
         Calendar when=Calendar.getInstance();when.set(Calendar.HOUR_OF_DAY,hour);when.set(Calendar.MINUTE,0);when.set(Calendar.SECOND,0);
         if(when.getTimeInMillis()<=System.currentTimeMillis())when.add(Calendar.DAY_OF_YEAR,1);
@@ -31,19 +40,34 @@ public final class ChteicoNotifications extends BroadcastReceiver {
     private static void channel(Context c){if(Build.VERSION.SDK_INT>=26){NotificationManager nm=(NotificationManager)c.getSystemService(Context.NOTIFICATION_SERVICE);
         nm.createNotificationChannel(new NotificationChannel(CHANNEL,"Чтейцо · напоминания",NotificationManager.IMPORTANCE_DEFAULT));}}
     static void notifyPet(Context c,String title,String message,int id){
-        if(!ChteicoStore.enabled(c))return;
+        if(!ChteicoStore.enabled(c)||ChteicoStore.dead(c))return;
         if(Build.VERSION.SDK_INT>=33&&c.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)return;
         channel(c);Intent open=new Intent(c,ChteicoActivity.class);open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent pi=PendingIntent.getActivity(c,0,open,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         NotificationCompat.Builder b=new NotificationCompat.Builder(c,CHANNEL).setSmallIcon(R.drawable.ic_chteico_egg)
             .setContentTitle(title).setContentText(message).setContentIntent(pi).setAutoCancel(true).setPriority(NotificationCompat.PRIORITY_DEFAULT);
         ((NotificationManager)c.getSystemService(Context.NOTIFICATION_SERVICE)).notify(id,b.build());
+        ChteicoStore.prefs(c).edit().putLong("last_pet_notice_at",System.currentTimeMillis()).apply();
     }
     public static void milestone(Context c,String title,String body){if(ChteicoStore.prefs(c).getBoolean("achievements_notice",false))notifyPet(c,title,body,725);}
     @Override public void onReceive(Context c,Intent intent){
         if(intent!=null&&Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())){schedule(c);return;}
-        if(!ChteicoStore.enabled(c))return;
+        ChteicoStore.checkLife(c,false);
+        if(!ChteicoStore.enabled(c)||ChteicoStore.dead(c)){schedule(c);cancelHunger(c);return;}
         android.content.SharedPreferences p=ChteicoStore.prefs(c);long last=p.getLong("last_active",0),now=System.currentTimeMillis();
+        if(intent!=null&&HUNGER.equals(intent.getAction())){
+            if(!p.getBoolean("hungry_notice",false)||ChteicoStore.stage(c)==ChteicoStore.EGG||!canNotify(c))return;
+            long interval=ChteicoLifeCycle.reminderInterval(now,p.getLong("last_fed_at",now));
+            int hour=Calendar.getInstance().get(Calendar.HOUR_OF_DAY),preferred=Math.max(8,Math.min(21,p.getInt("reminder_hour",19)));
+            if(interval==0||hour<8||hour>21)return;
+            boolean nearPreferred=hour>=preferred;
+            if(interval==ChteicoLifeCycle.DAY&&!nearPreferred)return;
+            long previous=p.getLong("last_hunger_notice_at",0);
+            if(now-previous<interval||now-p.getLong("last_pet_notice_at",0)<3600000L)return;
+            notifyPet(c,ChteicoStore.petName(c)+" проголодался",ChteicoStore.foodPages(c)+ChteicoStore.foodMinutes(c)+ChteicoStore.foodComics(c)>0?"У вас есть накопленные ресурсы. Можно покормить питомца.":"Почитаем или послушаем историю, чтобы накопить пищу?",726);
+            p.edit().putLong("last_hunger_notice_at",now).apply();return;
+        }
+        if(now-p.getLong("last_pet_notice_at",0)<3600000L)return;
         if(p.getBoolean("inactive",false)&&last>0&&now-last>=Math.max(1,Math.min(36500,p.getInt("inactive_days",3)))*86400000L){
             notifyPet(c,ChteicoStore.petName(c)+" скучает","Заглянем в книгу или включим аудиокнигу?",723);
         }else if(p.getBoolean("daily",false)&&last>0&& !new java.text.SimpleDateFormat("yyyyMMdd",java.util.Locale.ROOT).format(new java.util.Date(last)).equals(new java.text.SimpleDateFormat("yyyyMMdd",java.util.Locale.ROOT).format(new java.util.Date(now)))){

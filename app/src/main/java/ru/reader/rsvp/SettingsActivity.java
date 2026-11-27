@@ -140,8 +140,11 @@ public class SettingsActivity extends NavigationActivity {
         });
         LinearLayout.LayoutParams tabsLp=new LinearLayout.LayoutParams(-1,dp(56));tabsLp.topMargin=dp(6);root.addView(tabs,tabsLp);
         settingsScroll=new ScrollView(this);settingsScroll.setFillViewport(true);
-        root.addView(settingsScroll,new LinearLayout.LayoutParams(-1,0,1));
-        list=BrowserTabs.panel(this);settingsScroll.addView(list,new ScrollView.LayoutParams(-1,-2));BrowserTabs.fixedViewport(this,settingsScroll,list);
+        android.widget.FrameLayout viewport=new android.widget.FrameLayout(this);
+        viewport.setBackgroundColor(UiColorScheme.neutral(this));
+        root.addView(viewport,new LinearLayout.LayoutParams(-1,0,1));
+        viewport.addView(settingsScroll,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        list=BrowserTabs.panel(this);settingsScroll.addView(list,new ScrollView.LayoutParams(-1,-2));BrowserTabs.fixedViewport(this,viewport,list);
         shownTab=currentTab;
         final int position=Math.max(0,sectionScroll[currentTab]);
         settingsScroll.post(()->{if(settingsScroll!=null && shownTab==currentTab)settingsScroll.scrollTo(0,position);});
@@ -330,6 +333,7 @@ public class SettingsActivity extends NavigationActivity {
                     }).show();
             }));
         }else list.addView(action("Имя питомца: "+ChteicoStore.petName(this),()->{}));
+        if(!ChteicoStore.dead(this)){
         gap(16);header("Сброс и тестирование");
         list.addView(action("Сбросить вариант развития",()->new SwipeDialogs.Builder(this)
             .setTitle("Начать новую историю?")
@@ -339,6 +343,7 @@ public class SettingsActivity extends NavigationActivity {
             .setTitle("Сбросить Чтейцо?")
             .setMessage("Будут сброшены игровая стадия, имя и выбранная ветка питомца. Книжная статистика, заработанные награды, книги и позиции чтения останутся нетронутыми.")
             .setNegativeButton("Отмена",null).setPositiveButton("Сбросить",(dialog,which)->{ChteicoStore.resetPet(this);draw();}).show()));
+        }
         // Notification controls live together in a dedicated card below rewards.
         gap(14);
         LinearLayout noticeBox=col();noticeBox.setBackground(rounded(cardColor(),16));
@@ -349,6 +354,7 @@ public class SettingsActivity extends NavigationActivity {
 
         chteicoSwitch(noticeBox,"Ежедневное напоминание","daily");
         chteicoSwitch(noticeBox,"Напомнить при неактивности","inactive");
+        chteicoSwitch(noticeBox,"Оповещать о голоде питомца","hungry_notice");
         LinearLayout daysRow=new LinearLayout(this);daysRow.setGravity(Gravity.CENTER_VERTICAL);
         TextView daysLabel=text("Дней без чтения или аудио",15,false);
         daysRow.addView(daysLabel,new LinearLayout.LayoutParams(0,-2,1));

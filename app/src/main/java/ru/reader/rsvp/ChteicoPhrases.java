@@ -11,6 +11,7 @@ public final class ChteicoPhrases {
     public static final String INTRO_READER="Я подрос! Теперь я Чтенец!";
     public static final String INTRO_ADULT="Я вырос! Теперь я Чтун!";
 
+    public static final String[] HUNGRY={"Я немного проголодался...","Почитаем что-нибудь?","Хочется новых историй.","Может, послушаем аудиокнигу?","Давно не пробовал вкусных страниц..."};
     public static final String[] GREETINGS={
         "Ещё одна история? Я весь во внимании!",
         "Каждая страница — новое приключение!",

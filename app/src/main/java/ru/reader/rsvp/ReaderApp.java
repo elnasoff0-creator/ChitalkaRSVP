@@ -11,9 +11,10 @@ public final class ReaderApp extends Application {
         ReaderDiagnosticLog.init(this);
         EdgeServerClock.initialize(new EdgeClockPreferences(this));
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks(){
-            @Override public void onActivityCreated(Activity a,Bundle b){SafeSystemBars.install(a);}
+            private boolean first=true;
+            @Override public void onActivityCreated(Activity a,Bundle b){ChteicoStore.checkLife(a,true);if(first){first=false;ChteicoNotifications.schedule(a);}SafeSystemBars.install(a);}
             @Override public void onActivityStarted(Activity a){}
-            @Override public void onActivityResumed(Activity a){}
+            @Override public void onActivityResumed(Activity a){ChteicoStore.markAppLaunch(a); }
             @Override public void onActivityPaused(Activity a){}
             @Override public void onActivityStopped(Activity a){}
             @Override public void onActivitySaveInstanceState(Activity a,Bundle b){}
