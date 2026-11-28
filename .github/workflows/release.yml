@@ -53,9 +53,10 @@ jobs:
           done
           echo 'All four release signing secrets are configured.'
 
-      - name: Verify Web Transfer, Wi-Fi download history and regressions v1.11.196
+      - name: Verify Web Transfer, Wi-Fi download history and regressions v1.11.198
         run: |
           bash qa/check_java_syntax.sh
+          bash qa/test_reader_text_reanchor_197.sh
           python3 qa/check_chteico_feeding_194.py
           python3 qa/test_chteico_lifecycle_196.py
           python3 qa/test_web_dashboard_196.py
@@ -74,6 +75,7 @@ jobs:
           bash qa/test_edge_startup_188.sh
           python3 qa/check_v188_contracts.py
           bash qa/test_edge_sentence_blocks_182.sh
+          bash qa/test_edge_fits_198.sh
           bash qa/test_edge_sentence_seek.sh
           python3 qa/check_v182_contracts.py
           bash qa/test_edge_live_buffer.sh
@@ -97,6 +99,9 @@ jobs:
 
       - name: Build unsigned release APK
         run: gradle --no-daemon :app:assembleRelease --stacktrace
+
+      - name: Verify original EPUB, FB2 and HTML with real jsoup
+        run: REQUIRE_JSOUP=1 bash qa/test_book_original_text_197.sh
 
       - name: Sign and verify release APK
         shell: bash

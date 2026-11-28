@@ -13,7 +13,9 @@ import java.nio.charset.StandardCharsets;
 final class EdgeSpeechLayout {
     private static final String NAME="edge-block-layout-v182.txt";
     final int first,normal;
-    private EdgeSpeechLayout(int first,int normal){this.first=first;this.normal=normal;}
+    final boolean legacyParagraphs;
+    private EdgeSpeechLayout(int first,int normal){this(first,normal,false);}
+    private EdgeSpeechLayout(int first,int normal,boolean legacy){this.first=first;this.normal=normal;legacyParagraphs=legacy;}
     static EdgeSpeechLayout current(){
         return new EdgeSpeechLayout(EdgeAdaptiveBlocks.priorityTarget(),
             EdgeAdaptiveBlocks.normalTarget());
@@ -36,18 +38,22 @@ final class EdgeSpeechLayout {
             if(marker.isFile()){
                 String[] parts=readSmall(marker).trim().split(",");
                 int first=Integer.parseInt(parts[0]),normal=Integer.parseInt(parts[1]);
-                if(first>=300&&first<=800&&normal>=600&&normal<=800)
-                    return new EdgeSpeechLayout(first,normal);
+                if(first>=300&&first<=800&&normal>=600&&normal<=800){
+                    if(parts.length>=3)return new EdgeSpeechLayout(first,normal,"legacy".equals(parts[2]));
+                    // A legacy marker can refer to externally archived audio, even when
+                    // the local folder is empty. Do not silently change its grouping.
+                    return new EdgeSpeechLayout(first,normal,true);
+                }
             }
         }catch(Exception ignored){}
         File[] mp3=folder.listFiles((parent,name)->name.endsWith(".mp3"));
         final boolean oldAudio=mp3!=null&&mp3.length>0;
-        EdgeSpeechLayout layout=oldAudio?new EdgeSpeechLayout(800,800):current();
+        EdgeSpeechLayout layout=oldAudio?new EdgeSpeechLayout(800,800,true):current();
         try{
             if(folder.isDirectory()||folder.mkdirs()){
                 File pending=new File(folder,NAME+".pending");
                 try(FileOutputStream stream=new FileOutputStream(pending)){
-                    stream.write((layout.first+","+layout.normal+"\n")
+                    stream.write((layout.first+","+layout.normal+","+(layout.legacyParagraphs?"legacy":"v198")+"\n")
                         .getBytes(StandardCharsets.UTF_8));
                     stream.getFD().sync();
                 }
@@ -56,7 +62,7 @@ final class EdgeSpeechLayout {
                     if(marker.isFile())pending.delete();
                     else {
                         try(FileOutputStream stream=new FileOutputStream(marker)){
-                            stream.write((layout.first+","+layout.normal+"\n")
+                            stream.write((layout.first+","+layout.normal+","+(layout.legacyParagraphs?"legacy":"v198")+"\n")
                                 .getBytes(StandardCharsets.UTF_8));
                         }
                         pending.delete();

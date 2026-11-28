@@ -43,8 +43,10 @@ public final class BookChapterIndex {
     public int size(){return items.size();}
     public Chapter get(int i){return items.get(i);}
     public Chapter atChar(int pos){
-        Chapter result=null;
-        for(Chapter c:items){if(c.startChar<=pos)result=c;else break;}
-        return result;
+        int low=0,high=items.size()-1;
+        while(low<=high){int mid=(low+high)>>>1;
+            if(items.get(mid).startChar<=pos)low=mid+1;else high=mid-1;
+        }
+        return high<0?null:items.get(high);
     }
 }

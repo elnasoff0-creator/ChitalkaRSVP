@@ -99,6 +99,21 @@ final class EdgeSpeechTextTransform {
                 preferences.getString(REPLACEMENT,","),dictionary,ignored);
         }
         Result apply(String original){return EdgeSpeechTextTransform.apply(original,this);}
+        boolean fitsSpeech(String source){
+            // With no rules there is nothing to transform; mapping is built only for playback.
+            if(entries.isEmpty()&&dictionary.trim().isEmpty()&&ignored.trim().isEmpty())
+                return EdgeSpeechSize.fits(source);
+            if(dictionary.trim().isEmpty()&&ignored.trim().isEmpty()){
+                boolean matched=false;
+                String lowered=source.toLowerCase(Locale.ROOT);
+                for(Entry entry:entries){
+                    if(!entry.regex&&!lowered.contains(entry.key.toLowerCase(Locale.ROOT)))continue;
+                    if(entry.compiled.matcher(source).find()){matched=true;break;}
+                }
+                if(!matched)return EdgeSpeechSize.fits(source);
+            }
+            return EdgeSpeechSize.fits(apply(source).spoken);
+        }
         String fingerprint(){return revision>=0?mode+"|"+replacement+"|db:"+revision:
             mode+"|"+replacement+"|"+dictionary+"|ignore:"+ignored;}
     }

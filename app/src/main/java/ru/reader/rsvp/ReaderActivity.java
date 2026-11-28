@@ -1483,16 +1483,25 @@ public class ReaderActivity extends NavigationActivity {
         selectWordButton.setColorFilter(contrast(background));
         selectWordButton.setAlpha(selecting?1f:.9f);
     }
+    private String lastEdgeProgressStatus="";
     private void updateProgress(){
         if(progressView==null||words.length==0)return;
         int percent=(int)((index+1L)*100/words.length);
         if(mode==TTS){
+            String status=edgeProgressStatus();
+            lastEdgeProgressStatus=status;
+            if(!status.isEmpty()){progressView.setText(status);return;}
             int rate=Math.max(100,TtsWpm.get(this));
             long elapsed=index*60L/rate,total=words.length*60L/rate;
             progressView.setText(formatReadingTime(elapsed)+" / "+formatReadingTime(total)+" · "+percent+"%");
         }else{
             progressView.setText((index+1)+" / "+words.length+" слов · "+percent+"%");
         }
+    }
+    private String edgeProgressStatus(){
+        if(mode==TTS&&!ttsLocal&&!backupTtsForThisBook()&&ttsStreamer!=null&&
+                docUri!=null&&docUri.equals(ttsStreamer.bookUri()))return ttsStreamer.playbackStatus();
+        return "";
     }
     private String formatReadingTime(long seconds){
         return (seconds/3600)+" ч "+((seconds%3600)/60)+" м";
@@ -2549,6 +2558,7 @@ public class ReaderActivity extends NavigationActivity {
             ttsScrollController.cancel("PLAYBACK_STOPPED");
         if(followSuspended&&mode==TTS)updateFloatingCaption();
         updatePlayButtonIfChanged();
+        if(!lastEdgeProgressStatus.equals(edgeProgressStatus()))updateProgress();
         updateSleepTimerBadge();
     }
     /** Keep the overlay icon in sync with the engine actually speaking this book. */

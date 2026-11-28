@@ -29,6 +29,7 @@ final class EdgeSpeechQueue {
     private static long order,blockedUntil,lastBackgroundAt,lastLimitedAt;
     private static boolean interactivePlayback;
     private static final long MAX_LOCAL_DELAY_MS=500L;
+    private static final long MAX_SERVER_DELAY_MS=7L*24*60*60*1000;
     private static final long BACKGROUND_GAP_MS=500L;
     private EdgeSpeechQueue(){}
     static synchronized boolean interactivePlaybackActive(){return interactivePlayback;}
@@ -62,7 +63,7 @@ final class EdgeSpeechQueue {
     }
     static synchronized void restoreCooldown(long wallClockDeadlineMs){
         long remaining=wallClockDeadlineMs-System.currentTimeMillis();
-        if(remaining>0){blockedUntil=Math.max(blockedUntil,SystemClock.elapsedRealtime()+Math.min(remaining,MAX_LOCAL_DELAY_MS));schedule();}
+        if(remaining>0){blockedUntil=Math.max(blockedUntil,SystemClock.elapsedRealtime()+Math.min(remaining,MAX_SERVER_DELAY_MS));schedule();}
     }
     static synchronized long remainingMs(){return Math.max(0,blockedUntil-SystemClock.elapsedRealtime());}
     static synchronized boolean allowPrefetch(){
@@ -72,12 +73,27 @@ final class EdgeSpeechQueue {
     static synchronized void success(){lastLimitedAt=0;}
     static synchronized void limited(Response response){
         lastLimitedAt=SystemClock.elapsedRealtime();
-        blockedUntil=Math.max(blockedUntil,lastLimitedAt+MAX_LOCAL_DELAY_MS);
-        ReaderDiagnosticLog.event("QUEUE","HTTP 429 local_cooldown_ms=500 server_retry_after="+
-            (response!=null&&response.header("Retry-After")!=null));
-        Log.w("EdgeSpeechQueue","429 localDelay=500ms; serverRetryAfterPresent="+
-            (response!=null&&response.header("Retry-After")!=null));
+        long delay=retryAfterMs(response==null?null:response.header("Retry-After"),System.currentTimeMillis());
+        blockedUntil=Math.max(blockedUntil,lastLimitedAt+delay);
+        ReaderDiagnosticLog.event("QUEUE","HTTP 429 cooldown_ms="+delay);
+        Log.w("EdgeSpeechQueue","429 cooldown_ms="+delay);
         schedule();
+    }
+    static long retryAfterMs(String header,long now){
+        if(header==null||header.trim().isEmpty())return MAX_LOCAL_DELAY_MS;
+        String value=header.trim();long delay=0;
+        try{
+            long seconds=Long.parseLong(value);
+            delay=seconds<=0?0:Math.min(seconds,MAX_SERVER_DELAY_MS/1000L)*1000L;
+        }catch(NumberFormatException ignored){
+            try{
+                java.text.SimpleDateFormat format=new java.text.SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz",java.util.Locale.US);
+                format.setLenient(false);format.setTimeZone(java.util.TimeZone.getTimeZone("GMT"));
+                java.util.Date date=format.parse(value);
+                if(date!=null)delay=Math.max(0,date.getTime()-now);
+            }catch(java.text.ParseException invalid){return MAX_LOCAL_DELAY_MS;}
+        }
+        return Math.max(MAX_LOCAL_DELAY_MS,Math.min(delay,MAX_SERVER_DELAY_MS));
     }
     private static int runningBackground(){int n=0;for(Ticket t:active)if(t.priority!=PLAY)n++;return n;}
     /** A live foreground listen must not trigger a second, speculative WebSocket handshake.

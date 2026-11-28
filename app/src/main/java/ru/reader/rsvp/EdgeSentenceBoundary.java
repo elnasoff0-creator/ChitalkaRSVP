@@ -31,8 +31,10 @@ final class EdgeSentenceBoundary {
     }
     static ArrayList<SentenceChunks.Chunk> split(String input){
         String text=input==null?"":input;
+        return splitIndexed(text,SentenceChunks.wordPositions(text));
+    }
+    static ArrayList<SentenceChunks.Chunk> splitIndexed(String text,ArrayList<Integer> words){
         ArrayList<SentenceChunks.Chunk> result=new ArrayList<>();
-        ArrayList<Integer> words=SentenceChunks.wordPositions(text);
         int start=0,n=text.length();
         for(int i=0;i<n;i++){
             char ch=text.charAt(i);

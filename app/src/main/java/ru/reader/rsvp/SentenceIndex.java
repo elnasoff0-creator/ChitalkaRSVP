@@ -19,6 +19,9 @@ final class SentenceIndex {
         if(source!=null)values.addAll(source);
         return new SentenceIndex(values,new ArrayList<>());
     }
+    static SentenceIndex fromSourceChunks(ArrayList<SentenceChunks.Chunk> chunks,ArrayList<Integer> words){
+        return new SentenceIndex(chunks,words);
+    }
     static SentenceIndex fromText(String text){
         if(text==null)text="";
         return new SentenceIndex(EdgeSentenceBoundary.split(text),SentenceChunks.wordPositions(text));

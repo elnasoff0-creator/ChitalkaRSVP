@@ -1,0 +1,141 @@
+[PASS] bash qa/check_java_syntax.sh
+PASS: parsed 240 Java files (syntax only, no Android type checks)
+
+[PASS] bash qa/test_reader_text_reanchor_197.sh
+PASS: word and character anchors after removal, nearest surviving passage, repeated text
+
+[PASS] python3 qa/check_chteico_feeding_194.py
+PASS: feeding only on enabled non-egg pet screen; no duplicate block or out-of-scope stage reference
+
+[PASS] python3 qa/test_chteico_lifecycle_196.py
+PASS: actual store migration, mood boundaries, death, feeding guard, farewell and independent fishing choices
+PASS: UI source wiring (not Android rendering)
+Note: /tmp/tmppzrhpgyr/android/content/SharedPreferences.java uses unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+
+[PASS] python3 qa/test_web_dashboard_196.py
+PASS: dashboard projection, reward totals, unknown dates, path isolation
+PASS: authenticated dashboard routes, fixed parent viewport, visible lifetime statistics, four browser tabs
+
+[PASS] python3 qa/check_v195_contracts.py
+PASS: v195 source contracts, browser JS and unique Android resource names; device tests still required
+
+[PASS] bash qa/test_web_transfer_192.sh
+PASS: Web Transfer formats, Unicode filenames, path rejection, bounds, origin and chunked restrictions
+PASS: v192 Web Transfer lifecycle, browser UI, SAF, tabs, TTS word settings, clean docs and XML
+
+[PASS] bash qa/typecheck_web_transfer_server_192.sh
+PASS: WebTransferServer Android API typecheck using isolated javac stubs
+
+[PASS] bash qa/typecheck_web_transfer_history_193.sh
+PASS: Wi-Fi transfer durable journal, byte progress, import, cancellation, idempotency and recovery
+
+[PASS] bash qa/typecheck_web_transfer_activity_193.sh
+PASS: WebTransferActivity Android API typecheck using isolated javac stubs
+
+[PASS] python3 qa/check_web_transfer_ui_193.py
+PASS: v193 toolbar, shared Wi-Fi download history, cancellation, help, SAF, browser IDs and CLEAN docs
+
+[PASS] bash qa/test_tts_dictionary_csv_190.sh
+PASS: CSV roundtrip, BOM, literal/regex, accent, formulas, notes, import modes, duplicates, error lines
+
+[PASS] bash qa/typecheck_dictionary_store_190.sh
+PASS: EdgeDictionaryStore Java types, SQLite migration/import API, background option precompile
+
+[PASS] bash qa/test_tts_scroll_controller_190.sh
+PASS: full follow animation, explicit retarget, epoch cancellation, manual scroll
+
+[PASS] bash qa/test_reader_and_comic_restore_191.sh
+PASS stable chapter IDs, fraction and fast-return routing
+PASS source integration: reading tab, position restoration, comic cancellation and logging
+
+[PASS] python3 qa/check_v190_contracts.py
+PASS: version 193, scrolling lifecycle, Android CSV SAF UI, SQLite migration, atomic import, CLEAN docs
+
+[PASS] bash qa/test_reader_tts_scroll_189.sh
+PASS: active word follow, variable viewport, bounded retargetable scroll
+PASS: bubble scales inside fixed pet frame and truncation bounds
+PASS: version 193, scrolling lifecycle, Android CSV SAF UI, SQLite migration, atomic import, CLEAN docs
+
+[PASS] bash qa/test_edge_startup_188.sh
+PASS: v188 explicit Edge reselect and bounded SAF restore policy
+PASS: v188 monotonic trace correlation and privacy-safe stages
+
+[PASS] python3 qa/check_v188_contracts.py
+PASS: v188 forced switch, first-audio trace, bounded SAF and CLEAN documentation
+
+[PASS] bash qa/test_edge_sentence_blocks_182.sh
+v198 benchmark: paragraphs=100, groups=7, startup groups=2
+v198 benchmark: legacy groups=100, new groups=44
+PASS: whole sentences, UTF-8, manual selection, abbreviations, adaptation
+
+[PASS] bash qa/test_edge_fits_198.sh
+PASS: speech byte check matches actual transform for empty, legacy, ignore and SQLite rules
+
+[PASS] bash qa/test_edge_sentence_seek.sh
+PASS: v187 full sentence replay, pre-roll, first-word metadata and highlight guard
+PASS: v187 selection is painted before audio, cached/isolated replay and Media3 arm contracts
+PASS: selected MP3 is armed before prepare/play, no future-track substitution, 429 guarded
+
+[PASS] python3 qa/check_v182_contracts.py
+PASS: v182 version, UI, SAF, Edge image, Ranobes URL, sentence-safe wiring and XML
+
+[PASS] bash qa/test_edge_live_buffer.sh
+PASS: first-frame progressive reading, EOF, replay, cancellation
+
+[PASS] bash qa/test_edge_transitions_183.sh
+PASS: parallel live MP3, immediate next audio, bounded stall, cancellation
+
+[PASS] bash qa/test_edge_prefetch_planner.sh
+PASS: Quickify-inspired six-candidate limit, char budget, count limit
+
+[PASS] bash qa/check_edge_serial_playback.sh
+PASS: candidate prefetch, end-of-track continuation, reusable sockets, adaptive whole-sentence groups
+
+[PASS] bash qa/test_edge_startup_singleflight.sh
+PASS: entry into TTS does not issue a manual priority request or redundant warmups
+PASS: Play promotes the exact warmup ticket without a new request
+
+[PASS] bash qa/test_edge_priority.sh
+PASS: priority, local 429 fallback and Retry-After seconds/date
+
+[PASS] bash qa/test_edge_429_silent.sh
+PASS: Retry-After HTTP 429 cooldown; no foreground Toast
+
+[PASS] bash qa/test_edge_reuse_pool.sh
+PASS: two turns, one handshake, cached open websocket reused
+PASS: bounded resource pool and four parallel turns
+PASS: HTTP429, no automatic transport retry, server cooldown
+PASS: cancelled resource destroyed; next request uses fresh socket
+
+[PASS] python3 qa/test_edge_idle_expiry_compilation.py
+PASS: idleExpiry original initializer compiles with javac (no illegal forward reference)
+
+[PASS] bash qa/test_pet_quotes_184.sh
+PASS: 50/50 tap categories, 100% normal without enabled quotes, samples=200000
+
+[PASS] python3 qa/test_quotes_sqlite_184.py
+PASS: v184 SQLite quotes CRUD, deduplication, companion flags and lossless annotation migration
+
+[PASS] bash qa/test_reader_selection_navigation_185.sh
+PASS: v185 selection geometry, crossing, UTF-16, manual TTS seek and stale callbacks
+
+[PASS] bash qa/test_word_boundary_refresh_186.sh
+PASS: WordBoundary refresh delay is bounded, prompt and audio-speed-aware
+
+[PASS] bash qa/test_reader_touch_policy_186.sh
+PASS: touch policy separates tap, long press, scroll, recycled row and multi-touch
+
+[PASS] python3 qa/check_v186_contracts.py
+PASS: v186 custom selection, themed teardrop handles, 1.5dp dictionary icons, smooth WordBoundary, live downloads, quotes and CLEAN docs
+
+[PASS] mkdir -p /tmp/reader-qa-198 && javac -d /tmp/reader-qa-198 qa/ReaderActivityMethodCheck.java && java -cp /tmp/reader-qa-198 ReaderActivityMethodCheck
+PASS: ReaderActivity handlers exist and all unqualified calls resolve structurally
+warning: [options] system modules path not set in conjunction with -source 17
+
+[PASS] bash qa/test_book_original_text_197.sh
+jsoup unavailable: compile against API doubles and run only real XML FB2 fixture.
+PASS: FB2 real XML parser, original headings, nested sections, notes
+
+[PASS] python3 qa/typecheck_reader_migration_197.py
+PASS: migration and annotation store Java types against Android/JSON API-shaped doubles

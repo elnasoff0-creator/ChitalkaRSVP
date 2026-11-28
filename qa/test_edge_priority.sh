@@ -63,7 +63,10 @@ public class TestEdgePriority {
         EdgeSpeechQueue.limited(null);
         long cooldown=EdgeSpeechQueue.remainingMs();
         check(cooldown>0&&cooldown<=500,"429 local 500ms pause is outside bounds: "+cooldown);
-        System.out.println("PASS: user Play preempts full-book job; no 4.5s tap delay; 500ms local 429 delay");
+        check(EdgeSpeechQueue.retryAfterMs("12",0)==12000,"Retry-After seconds ignored");
+        check(EdgeSpeechQueue.retryAfterMs("Thu, 01 Jan 1970 00:00:20 GMT",1000)==19000,"Retry-After date ignored");
+        check(EdgeSpeechQueue.retryAfterMs("bad",0)==500,"invalid header fallback");
+        System.out.println("PASS: priority, local 429 fallback and Retry-After seconds/date");
     }
 }
 JAVA

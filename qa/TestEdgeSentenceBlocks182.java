@@ -49,7 +49,32 @@ public final class TestEdgeSentenceBlocks182 {
         String utf="&".repeat(1000)+".";
         require(!EdgeSpeechSize.fits(utf),"XML escaping undercounted bytes");
         String oversized="тест ".repeat(550)+"конец.";
-        require(EdgeSpeechSegments.split(oversized).size()==1,"oversized UTF-8 sentence cut in pieces");
+        ArrayList<SentenceChunks.Chunk> split=EdgeSpeechSegments.split(oversized);
+        require(split.size()>1,"oversized UTF-8 sentence not split");
+        int last=0;
+        for(SentenceChunks.Chunk piece:split){
+            require(piece.fromWord==last,"hard split gap");
+            require(EdgeSpeechSize.fits(piece.text),"hard split still oversized");
+            last=piece.toWord;
+        }
+        require(last==SentenceChunks.wordPositions(oversized).size(),"hard split lost words");
+        verifyBoundary(oversized,split);
+        String paragraphs=("Это короткая фраза. Следующее предложение.\n\n").repeat(100);
+        require(EdgeSpeechSegments.split(paragraphs).size()<50,"paragraphs still create excessive requests");
+        ArrayList<SentenceChunks.Chunk> allSentences=SentenceChunks.split(paragraphs);
+        ArrayList<Integer> allWords=SentenceChunks.wordPositions(paragraphs);
+        ArrayList<SentenceChunks.Chunk> full=EdgeSpeechSegments.split(paragraphs);
+        ArrayList<SentenceChunks.Chunk> prefix=EdgeSpeechSegments.startupPrefix(paragraphs,
+            BookChapterIndex.empty(),EdgeSpeechSize::fits,EdgeSpeechLayout.current(),allSentences,allWords,0);
+        require(!prefix.isEmpty()&&prefix.size()<full.size(),"startup prefix not bounded");
+        for(int i=0;i<prefix.size();i++){
+            require(prefix.get(i).text.equals(full.get(i).text)&&prefix.get(i).toWord==full.get(i).toWord,
+                "startup prefix diverges from full catalogue");
+        }
+        System.out.println("v198 benchmark: paragraphs=100, groups="+full.size()+", startup groups="+prefix.size());
+        String[] cases={"abc & < > \" '\n", "Привет \uD83D\uDE00", "\u0000\u0001\uD800"};
+        for(String value:cases)require(EdgeSpeechSize.speechBytes(value)==
+            EdgeSpeechSize.escaped(value).getBytes(StandardCharsets.UTF_8).length,"byte counter mismatch");
         String small="Привет, это одна фраза. Другая короткая фраза.";
         // A synthetic dictionary expands the first sentence: check candidate budget *after* transform.
         ArrayList<SentenceChunks.Chunk> checked=EdgeSpeechSegments.split(small,BookChapterIndex.empty(),
@@ -65,7 +90,16 @@ public final class TestEdgeSentenceBlocks182 {
             java.nio.file.Path legacy=java.nio.file.Files.createTempDirectory("edge-182-legacy-");
             java.nio.file.Files.write(legacy.resolve("old-fragment.mp3"),new byte[]{1,2,3});
             EdgeSpeechLayout old=EdgeSpeechLayout.forFolder(legacy.toFile());
-            require(old.first==800&&old.normal==800,"older downloaded MP3 groups not preserved");
+            require(old.first==800&&old.normal==800&&old.legacyParagraphs,"older downloaded MP3 groups not preserved");
+            String bigParagraphs=("Это пример текста длинного абзаца, предназначенного для проверки количества блоков. ".repeat(3)+"Конец абзаца.\n\n").repeat(100);
+            int oldCount=EdgeSpeechSegments.split(bigParagraphs,BookChapterIndex.empty(),EdgeSpeechSize::fits,old).size();
+            int newCount=EdgeSpeechSegments.split(bigParagraphs).size();
+            require(newCount<oldCount,"new grouping should reduce requests on long paragraphs");
+            System.out.println("v198 benchmark: legacy groups="+oldCount+", new groups="+newCount);
+
+            require(!remembered.legacyParagraphs&&!second.legacyParagraphs,"new folder did not keep v198 grouping");
+            java.nio.file.Files.write(legacy.resolve("edge-block-layout-v182.txt"),"500,800\n".getBytes(StandardCharsets.UTF_8));
+            require(EdgeSpeechLayout.forFolder(legacy.toFile()).legacyParagraphs,"old marker lost compatibility");
         }catch(java.io.IOException error){throw new AssertionError(error);}
         require(EdgeAdaptiveBlocks.normalTarget()>=600&&EdgeAdaptiveBlocks.normalTarget()<=800,
             "normal adaptive target out of range");

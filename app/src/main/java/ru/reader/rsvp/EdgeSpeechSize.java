@@ -16,7 +16,23 @@ final class EdgeSpeechSize {
             .replace(">","&gt;").replace("\"","&quot;").replace("'","&apos;")
             .replaceAll("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]"," ");
     }
-    static int speechBytes(String text){return escaped(text).getBytes(StandardCharsets.UTF_8).length;}
+    static int speechBytes(String text){
+        if(text==null)return 0;
+        long count=0;
+        for(int i=0;i<text.length();i++){
+            char c=text.charAt(i);
+            if(c=='&')count+=5;
+            else if(c=='<'||c=='>')count+=4;
+            else if(c=='"'||c=='\'')count+=6;
+            else if(c<=0x7f)count++;
+            else if(c<=0x7ff)count+=2;
+            else if(Character.isHighSurrogate(c)&&i+1<text.length()&&Character.isLowSurrogate(text.charAt(i+1))){count+=4;i++;}
+            else if(Character.isSurrogate(c))count++; // UTF-8 encoder replaces malformed UTF-16 with '?'
+            else count+=3;
+            if(count>=Integer.MAX_VALUE)return Integer.MAX_VALUE;
+        }
+        return (int)count;
+    }
     static boolean fits(String text){
         return speechBytes(text)<=MAX_SSML_UTF8-ENVELOPE_ALLOWANCE;
     }

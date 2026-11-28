@@ -31,20 +31,30 @@ final class UnifiedBookSession {
     synchronized java.util.ArrayList<SentenceChunks.Chunk> edgeGroups(
             EdgeSpeechTextTransform.Options options,EdgeSpeechLayout layout){
         final String revision=(options==null?"raw":options.fingerprint())+
-            "|"+layout.first+"|"+layout.normal;
+            "|"+layout.first+"|"+layout.normal+"|"+layout.legacyParagraphs;
         if(edgeGroups==null||!revision.equals(edgeGroupsRevision)){
-            edgeGroups=EdgeSpeechSegments.split(book.text,book.chapters,
-                text->EdgeSpeechSize.fits(options==null?text:options.apply(text).spoken),layout);
+            edgeGroups=EdgeSpeechSegments.splitIndexed(book.text,book.chapters,
+                text->options==null?EdgeSpeechSize.fits(text):options.fitsSpeech(text),layout,
+                speechSegments,ttsWordPositions);
             edgeGroupsRevision=revision;
         }
         return edgeGroups;
+    }
+    java.util.ArrayList<SentenceChunks.Chunk> startupEdgeGroups(EdgeSpeechTextTransform.Options options,
+            EdgeSpeechLayout layout,int word){
+        int at=sentenceIndex.atWord(word);
+        // Avoid duplicating a potentially huge prefix on a late-book seek.
+        if(at<0||at>512)return new java.util.ArrayList<>();
+        return EdgeSpeechSegments.startupPrefix(book.text,book.chapters,
+            text->options==null?EdgeSpeechSize.fits(text):options.fitsSpeech(text),layout,
+            speechSegments,ttsWordPositions,at);
     }
     private UnifiedBookSession(String u,String rev,BookLoader.Book b,ReadingWordMap w){
         uri=u;revision=rev;book=b;words=w;blocks=new BookChunkIndex(b.text,w,560);
         ttsWordPositions=new java.util.ArrayList<>(w.starts.length);
         for(int value:w.starts)ttsWordPositions.add(value);
-        speechSegments=SentenceChunks.split(b.text);
-        sentenceIndex=SentenceIndex.fromText(b.text);
+        speechSegments=EdgeSentenceBoundary.splitIndexed(b.text,ttsWordPositions);
+        sentenceIndex=SentenceIndex.fromSourceChunks(speechSegments,ttsWordPositions);
     }
     static UnifiedBookSession current(String uri){
         UnifiedBookSession s=active;
@@ -53,7 +63,12 @@ final class UnifiedBookSession {
     static synchronized void invalidate(String uri){
         if(active!=null&&active.uri.equals(uri))active=null;
     }
-    static synchronized UnifiedBookSession open(Context context,Uri source)throws Exception {
+    static UnifiedBookSession open(Context context,Uri source)throws Exception {
+        UnifiedBookSession ready=current(source.toString());
+        if(ready!=null)return ready;
+        return openUncached(context,source);
+    }
+    private static synchronized UnifiedBookSession openUncached(Context context,Uri source)throws Exception {
         String uri=source.toString();
         // The previously opened immutable book is already ready for all reading modes.
         // Never traverse HTML chapter trees or hash the source while returning to the reader.

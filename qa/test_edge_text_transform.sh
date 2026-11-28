@@ -79,6 +79,7 @@ javac -encoding UTF-8 -d "$T/classes" "$T/src/android/content/SharedPreferences.
  "$T/src/ru/reader/rsvp/EdgeAudioManager.java" \
  "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeWordTimings.java" \
  "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeSpeechTextTransform.java" \
+ "$ROOT/app/src/main/java/ru/reader/rsvp/EdgeSpeechSize.java" \
  "$T/src/ru/reader/rsvp/TestTransform.java"
 java -cp "$T/classes" ru.reader.rsvp.TestTransform
 python3 - "$ROOT" <<'PY'
