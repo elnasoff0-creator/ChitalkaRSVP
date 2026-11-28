@@ -10,9 +10,10 @@ final class ReaderChapterLabels {
     private static final String PREFIX="reader_chapter_labels_v162:";
     private ReaderChapterLabels(){}
     static void saveIfMissing(Context c,String uri,ReadingWordMap words,BookChapterIndex chapters){
-        if(uri==null||uri.isEmpty()||chapters==null||chapters.size()==0||words==null||words.size()==0)return;
+        if(uri==null||uri.isEmpty()||words==null||words.size()==0)return;
         String key=PREFIX+BookUriMigration.legacy(c,uri);
         SharedPreferences p=c.getSharedPreferences("reader",0);
+        if(chapters==null||chapters.size()==0){if(p.contains(key))p.edit().remove(key).remove(key+":revision").apply();return;}
         BookChapterIndex.Chapter first=chapters.get(0),last=chapters.get(chapters.size()-1);
         // Constant-time revision check avoids re-indexing large books on every return,
         // but a deliberate manual HTML rebuild refreshes chapter labels on next load.

@@ -435,7 +435,7 @@ final class RanobesApi {
         for(Element img:content.select("img")){String src=img.absUrl("src");if(!src.startsWith("https://"))img.remove();else img.attr("src",src).removeAttr("srcset").removeAttr("onload");}
         for(Element node:content.select("*")){
             node.removeAttr("onclick").removeAttr("style").removeAttr("class").removeAttr("id").removeAttr("onerror");
-            if(!node.tagName().matches("(?i)p|h2|h3|h4|b|strong|em|i|u|blockquote|br|hr|ul|ol|li|img|div|span"))node.unwrap();
+            if(!node.tagName().matches("(?i)p|h1|h2|h3|h4|h5|h6|b|strong|em|i|u|blockquote|br|hr|ul|ol|li|img|div|span"))node.unwrap();
         }
         if(content.text().length()<90)throw new IOException("Глава слишком коротка или защищена");
         return content.html();

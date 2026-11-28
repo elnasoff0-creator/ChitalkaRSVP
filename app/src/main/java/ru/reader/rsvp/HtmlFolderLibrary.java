@@ -252,9 +252,8 @@ final class HtmlFolderLibrary {
     private static String bookHtml(Context c,Scan scan,File target,String title,JSONArray recorded)throws IOException{
         StringBuilder html=new StringBuilder("<!doctype html><html lang=\"ru\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>");
         html.append(RanobeLibStorage.escape(title)).append("</title><style>body{max-width:880px;margin:24px auto;padding:20px;font:1.1em/1.75 Georgia,serif}img{max-width:100%;height:auto}section.ranobe-chapter{margin:30px 0}h2{page-break-before:always}@media(prefers-color-scheme:dark){body{background:#222;color:#eee}}</style></head><body>");
-        html.append("<header><h1>").append(RanobeLibStorage.escape(title)).append("</h1></header>");
         int n=0;long parsedBytes=0;
-        Safelist safe=Safelist.relaxed().addTags("h1","h2","h3","h4","h5","section","article","figure","figcaption","details","summary")
+        Safelist safe=Safelist.relaxed().addTags("h1","h2","h3","h4","h5","h6","section","article","figure","figcaption","details","summary")
             .addAttributes("img","src","alt").preserveRelativeLinks(true);
         for(Part part:scan.html){
             byte[] bytes=readDocument(c,part.document,MAX_CHAPTER_BYTES);
@@ -265,8 +264,9 @@ final class HtmlFolderLibrary {
             if(scan.html.size()==1&&part.path.equalsIgnoreCase("book.html")
                     &&!document.select("section.ranobe-chapter").isEmpty()){
                 // Preserve an existing structural TOC, but never copy scripts or event handlers.
-                Safelist combined=Safelist.relaxed().addTags("section","article","h1","h2","h3","h4","figure","figcaption")
-                    .addAttributes("section","class","data-volume","data-number","data-branch","data-chapter-key")
+                Safelist combined=Safelist.relaxed().addTags("section","article","header","h1","h2","h3","h4","h5","h6","figure","figcaption")
+                    .addAttributes("header","class")
+                    .addAttributes("section","class","data-volume","data-number","data-branch","data-chapter-key","data-chapter-title")
                     .addAttributes("img","src","alt").preserveRelativeLinks(true);
                 Document cleanBook=Jsoup.parseBodyFragment(Jsoup.clean(document.body().html(),"",combined));
                 copyIllustrations(c,scan,part,cleanBook,target);
@@ -279,15 +279,15 @@ final class HtmlFolderLibrary {
             }
             Element block=document.selectFirst("div.node-doc.text-content,.node-doc.text-content,.chapter-content,.chapter__content,.reading-content,article,main,.text-content,body");
             if(block==null||block.text().trim().isEmpty())throw new IOException("В главе отсутствует текст: "+part.path);
-            Document clean=Jsoup.parseBodyFragment(Jsoup.clean(block.html(),"",safe));
-            clean.select("script,style,nav,footer,iframe,form,button").remove();
+            Document clean=Jsoup.parseBodyFragment(Jsoup.clean(BookLoader.readingBody(block.html()).html(),"",safe));
+            clean.select("script,style,nav,iframe,form,button").remove();
             copyIllustrations(c,scan,part,clean,target);
             String content=clean.body().html();
             if(Jsoup.parseBodyFragment(content).text().trim().length()<3)throw new IOException("В главе нет читаемого текста: "+part.path);
             String heading=titleFrom(document,part.path.substring(part.path.lastIndexOf('/')+1));
             html.append("<section class=\"ranobe-chapter\" data-chapter-key=\"")
-                .append(RanobeLibStorage.escape(part.path)).append("\"><h2>")
-                .append(RanobeLibStorage.escape(heading)).append("</h2>").append(content).append("</section>\n");
+                .append(RanobeLibStorage.escape(part.path)).append("\" data-chapter-title=\"")
+                .append(RanobeLibStorage.escape(heading)).append("\">").append(content).append("</section>\n");
             JSONObject row=new JSONObject();try{row.put("path",part.path);row.put("sha256",digest(bytes));row.put("title",heading);}catch(Exception ignored){}
             recorded.put(row);n++;
         }

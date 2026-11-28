@@ -16,6 +16,9 @@ final class UnifiedBookSession {
     final java.util.ArrayList<Integer> ttsWordPositions;
     final java.util.ArrayList<SentenceChunks.Chunk> speechSegments;
     final SentenceIndex sentenceIndex;
+    private volatile ReaderTextReanchor openingMigration;
+    int translateOpeningWord(int old){ReaderTextReanchor m=openingMigration;return m==null?old:m.word(old); }
+    void finishOpeningMigration(){openingMigration=null;}
     private static volatile UnifiedBookSession active;
     private volatile java.util.ArrayList<SentenceChunks.Chunk> edgeGroups;
     private String edgeGroupsRevision="";
@@ -50,7 +53,7 @@ final class UnifiedBookSession {
     static synchronized void invalidate(String uri){
         if(active!=null&&active.uri.equals(uri))active=null;
     }
-    static UnifiedBookSession open(Context context,Uri source)throws Exception {
+    static synchronized UnifiedBookSession open(Context context,Uri source)throws Exception {
         String uri=source.toString();
         // The previously opened immutable book is already ready for all reading modes.
         // Never traverse HTML chapter trees or hash the source while returning to the reader.
@@ -58,25 +61,29 @@ final class UnifiedBookSession {
         if(s!=null)return s;
         // New downloads/imports explicitly invalidate this session after publishing.
         String fingerprint=ReaderBookCache.revision(context,source);
-        // RBI4 carries parsed text, word offsets, a structural TOC and revision.
+        // RBI5 carries parsed text, word offsets, a structural TOC and revision.
         // EPUB/FB2 need not be reopened after restart when the source is unchanged.
         ReaderBookCache.CachedBook cached=ReaderBookCache.load(context,source);
         BookLoader.Book book;
         ReadingWordMap map;
+        ReaderTextReanchor openingMigration=null;
         if(cached!=null){
             book=new BookLoader.Book(cached.title,cached.author,cached.text,cached.chapters);
             map=cached.map;
         }else{
+            ReaderBookCache.CachedBook previous=ReaderBookCache.loadLegacy(context,source);
             book=BookLoader.load(context,source);
             if(book.text==null||book.text.trim().isEmpty())
                 throw new IllegalArgumentException("Нет текста книги");
             map=ReadingWordMap.parse(book.text);
             if(map.size()==0)throw new IllegalArgumentException("В книге нет слов");
+            if(ReaderTextMigration.migrate(context,uri,previous,book,map))
+                openingMigration=new ReaderTextReanchor(previous.map,map,previous.chapters,book.chapters);
             ReaderBookCache.store(context,source,book.title,book.author,book.text,map,book.chapters);
         }
         UnifiedBookSession prepared=new UnifiedBookSession(uri,fingerprint,book,map);
-        // Hold the session lock only for publishing the immutable snapshot.
-        // Keep the lock short; source I/O is never performed inside it.
+        prepared.openingMigration=openingMigration;
+        // Serialize cache conversion and publication to prevent duplicate migrations.
         synchronized(UnifiedBookSession.class){active=prepared;}
         return prepared;
     }

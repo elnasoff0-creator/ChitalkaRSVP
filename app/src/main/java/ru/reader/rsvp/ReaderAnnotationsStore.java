@@ -69,6 +69,27 @@ final class ReaderAnnotationsStore extends SQLiteOpenHelper {
         }else{id=getWritableDatabase().insertOrThrow("annotations",null,v);}
         return id;
     }
+    /** Preserve annotation content and IDs. SQLite transaction makes a retry idempotent. */
+    synchronized void reanchorRbi5(String book,ReaderTextReanchor map,ReadingWordMap words){
+        SQLiteDatabase db=getWritableDatabase();db.beginTransaction();
+        try{
+            db.execSQL("CREATE TABLE IF NOT EXISTS reader_text_migrations (book TEXT PRIMARY KEY NOT NULL)");
+            try(Cursor c=db.query("reader_text_migrations",new String[]{"book"},"book=?",new String[]{book},null,null,null)){
+                if(c.moveToNext()){db.setTransactionSuccessful();return;}
+            }
+            for(Annotation a:load(book)){
+                int start=map.word(a.fromWord),last=Math.max(start,map.word(a.toWord-1));
+                int from=map.startChar(a.fromChar,a.fromWord,start);
+                int to=map.endChar(a.toChar,a.toWord-1,last);
+                if(from>=0&&to<=from){from=words.starts[start];to=words.ends[last];}
+                ContentValues v=new ContentValues();v.put("from_word",start);v.put("to_word",last+1);
+                v.put("from_char",from);v.put("to_char",to);
+                db.update("annotations",v,"id=? AND book=?",new String[]{Long.toString(a.id),book});
+            }
+            ContentValues done=new ContentValues();done.put("book",book);db.insertOrThrow("reader_text_migrations",null,done);
+            db.setTransactionSuccessful();
+        }finally{db.endTransaction();}
+    }
     synchronized void delete(long id,String book){
         if(id>0)getWritableDatabase().delete("annotations","id=? AND book=?",new String[]{Long.toString(id),book});
     }

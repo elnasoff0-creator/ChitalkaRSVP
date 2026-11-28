@@ -136,13 +136,12 @@ final class RanobesStorage {
         String display=first.bookTitle+(translated?" — русский машинный перевод":" — оригинал");
         StringBuilder out=new StringBuilder("<!DOCTYPE html><html lang=\"").append(translated?"ru":"en").append("\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>")
             .append(escape(display)).append("</title><meta name=\"author\" content=\"").append(escape(first.author)).append("\"><style>body{font:1.1em/1.75 Georgia,serif;max-width:840px;margin:22px auto;padding:22px}img{max-width:100%;height:auto}section{margin-top:36px}@media(prefers-color-scheme:dark){body{background:#202020;color:#eee}}</style></head><body>");
-        out.append("<h1>").append(escape(display)).append("</h1>");if(!first.author.isEmpty())out.append("<p>").append(escape(first.author)).append("</p>");
+        
         if(cover(c,key).isFile())out.append("<img alt=\"Обложка\" src=\"cover.jpg\">");
-        String lastVolume="";
-        for(Job j:available){if(!j.volume.equals(lastVolume)){lastVolume=j.volume;out.append("<h2>Том ").append(escape(lastVolume)).append("</h2>");}
+        for(Job j:available){
             byte[] buffer=read(chapter(c,j),4_000_000L);String html=new String(buffer,StandardCharsets.UTF_8);
             if(Jsoup.parseBodyFragment(html).text().length()<90)throw new IOException("Глава повреждена: "+j.title);
-            out.append("<section data-chapter=\"").append(j.chapterId).append("\"><h3>").append(escape(j.title)).append("</h3>").append(html).append("</section>\n");
+            out.append("<section class=\"ranobe-chapter\" data-chapter=\"").append(j.chapterId).append("\" data-volume=\"").append(escape(j.volume)).append("\" data-chapter-title=\"").append(escape(j.title)).append("\">").append(html).append("</section>\n");
         }
         out.append("</body></html>");
         File book=book(c,key);atomic(book,out.toString().getBytes(StandardCharsets.UTF_8));

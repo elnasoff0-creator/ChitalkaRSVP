@@ -319,7 +319,7 @@ final class RanobeLibStorage {
         String cleaned=RanobeLibHtmlCleaner.chapterBody(html,job.apiChapter().fullTitle());
         if(Jsoup.parseBodyFragment(cleaned).text().trim().length()<12)
             throw new IOException("RanobeLIB вернул пустую главу после очистки");
-        // Chapter cache contains only narrative. Its single heading is in the assembled book.
+        // Chapter cache retains original headings; navigation labels live only in metadata.
         String document="<!doctype html><html lang=\"ru\"><head><meta charset=\"utf-8\"><base href=\"../../\"><title>"+title+"</title></head><body><article>"+cleaned+"</article></body></html>";
         File file=chapterFile(ctx,job);writeAtomic(file,document);job.file=file.getAbsolutePath();job.bytes=file.length();
     }
@@ -332,10 +332,6 @@ final class RanobeLibStorage {
         if(complete.isEmpty())return;
         RanobeLibApi.Title title=savedTitle(c,slug);StringBuilder html=new StringBuilder("<!doctype html><html lang=\"ru\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>");
         html.append(escape(title.title)).append("</title><meta name=\"author\" content=\"").append(escape(title.author)).append("\"><style>body{max-width:880px;margin:24px auto;padding:22px;font:1.12em/1.75 Georgia,serif}section.ranobe-chapter{margin-top:38px}h2{margin-top:2em}img{max-width:100%;height:auto}a{overflow-wrap:anywhere}@media(prefers-color-scheme:dark){body{background:#202020;color:#e5e5e5}}</style></head><body>");
-        html.append("<header class=\"ranobe-book-header\"><h1>").append(escape(title.title)).append("</h1>");
-        if(!title.author.isEmpty())html.append("<p>").append(escape(title.author)).append("</p>");
-        if(hasCover(c,slug))html.append("<img src=\"cover.jpg\" alt=\"Обложка\" style=\"max-width:230px\">");
-        html.append("</header>");
         for(Job j:complete){
             String document=readStored(c,j.file);Document parsed=Jsoup.parse(document);
             // User replacements may be standalone translated HTML pages rather
@@ -348,7 +344,7 @@ final class RanobeLibStorage {
             if(Jsoup.parseBodyFragment(chapterBody).text().trim().length()<12)
                 throw new IOException("В HTML-главе не удалось извлечь основной текст: "+j.file);
             String name=RanobeLibHtmlCleaner.heading(j);
-            html.append("<section class=\"ranobe-chapter\" data-volume=\"").append(escape(j.volume)).append("\" data-number=\"").append(escape(j.number)).append("\" data-branch=\"").append(j.branch).append("\"><h2>").append(escape(name)).append("</h2>");
+            html.append("<section class=\"ranobe-chapter\" data-volume=\"").append(escape(j.volume)).append("\" data-number=\"").append(escape(j.number)).append("\" data-branch=\"").append(j.branch).append("\" data-chapter-title=\"").append(escape(name)).append("\">");
             html.append(chapterBody).append("</section>\n");
         }
         html.append("</body></html>");

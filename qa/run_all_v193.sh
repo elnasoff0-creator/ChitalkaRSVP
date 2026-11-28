@@ -3,6 +3,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 commands=(
 'qa/check_java_syntax.sh'
+'qa/test_reader_text_reanchor_197.sh'
+'qa/test_book_original_text_197.sh'
 'qa/check_chteico_feeding_194.py'
 'qa/test_chteico_lifecycle_196.py'
 'qa/test_web_dashboard_196.py'

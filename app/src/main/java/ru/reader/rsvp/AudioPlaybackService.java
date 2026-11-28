@@ -382,7 +382,7 @@ public class AudioPlaybackService extends Service implements TextToSpeech.OnInit
               mediaAuthor=book.author==null?"":book.author;
               requestCover(source,true,"");
               title=book.title==null||book.title.trim().isEmpty()?"Книга":book.title.trim();
-              makeChunks(session);int requestedWord=intent.getIntExtra("word_index",-1); int fallback=getSharedPreferences("reader",0).getInt("tts_pos:"+source,0); ttsPosition=requestedWord>=0?chunkForWord(requestedWord):Math.max(0,Math.min(chunks.size()-1,fallback));ttsStartRequested=ttsStartRequested||intent.getBooleanExtra("auto_on_selection",false);
+              makeChunks(session);int requestedWord=intent.getIntExtra("word_index",-1); int fallback=getSharedPreferences("reader",0).getInt("tts_pos:"+source,0); ttsPosition=requestedWord>=0?chunkForWord(session.translateOpeningWord(requestedWord)):Math.max(0,Math.min(chunks.size()-1,fallback));session.finishOpeningMigration();ttsStartRequested=ttsStartRequested||intent.getBooleanExtra("auto_on_selection",false);
               paused=true;
               if(ttsStartRequested)startTts();
               notifyState();});}catch(Exception ignored){handler.post(()->{

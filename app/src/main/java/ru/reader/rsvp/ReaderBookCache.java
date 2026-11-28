@@ -11,7 +11,8 @@ import java.security.MessageDigest;
 
 /** Versioned compact index: stores book text ONCE and word offsets, not repeated word strings. */
 public final class ReaderBookCache {
-    private static final int MAGIC=0x52424934; // RBI4 cache format (fast metadata validation).
+    private static final int MAGIC=0x52424935; // RBI5: navigation-free original reading text.
+    private static final int LEGACY_MAGIC=0x52424934;
     private static final int MAX_WORDS=2_500_000;
     public static final class CachedBook {
         public final String title,author,text;
@@ -67,11 +68,13 @@ public final class ReaderBookCache {
         byte[] bytes=new byte[len];in.readFully(bytes);
         return new String(bytes,StandardCharsets.UTF_8);
     }
-    public static CachedBook load(Context context,Uri uri){
+    public static CachedBook load(Context context,Uri uri){return read(context,uri,MAGIC);}
+    static CachedBook loadLegacy(Context context,Uri uri){return read(context,uri,LEGACY_MAGIC);}
+    private static CachedBook read(Context context,Uri uri,int expectedMagic){
         File f=file(context,uri);
         if(!f.exists())return null;
         try(DataInputStream in=new DataInputStream(new BufferedInputStream(new FileInputStream(f)))){
-            if(in.readInt()!=MAGIC)return null;
+            if(in.readInt()!=expectedMagic)return null;
             long original=in.readLong(),actual=sourceSize(context,uri);
             if(actual>=0&&original!=actual)return null;
             String storedRevision=readString(in,256),now=revision(context,uri);

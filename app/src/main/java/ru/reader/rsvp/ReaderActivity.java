@@ -2265,7 +2265,8 @@ public class ReaderActivity extends NavigationActivity {
                 if(reset){index=0;viewportWord=-1;followSuspended=false;}
                 else if(!getIntent().hasExtra("word_index"))
                     index=map.clamp(UnifiedReadingProgress.read(prefs,docUri,index));
-                else index=map.clamp(index);
+                else index=map.clamp(session.translateOpeningWord(index));
+                session.finishOpeningMigration();
                 // Reloading a previously read book must not restore a stale cover viewport.
                 // In-session TOC browsing is kept in memory until explicitly exited.
                 if(root==null||viewportWord<0){viewportWord=-1;followSuspended=false;}

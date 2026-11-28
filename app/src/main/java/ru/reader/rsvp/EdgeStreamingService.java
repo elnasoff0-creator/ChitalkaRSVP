@@ -691,6 +691,8 @@ public final class EdgeStreamingService extends Service {
                 main.post(()->{
                     if(destroyed||!requested.equals(bookUri))return;
                     bookText=raw;title=name;chapters=parsedChapters;offsets.addAll(positions);sentenceParts.addAll(newParts);sentenceIndex=session.sentenceIndex;sentenceHistory.bind(sentenceIndex);directory=dir;
+                    if(anchorWord==Math.max(0,initialWord))anchorWord=session.translateOpeningWord(anchorWord);
+                    session.finishOpeningMigration();
                     bookReady=!offsets.isEmpty();restore();
                     EdgeStartupTrace.stage("BOOK_READY","words="+offsets.size());
                     // Recovery is pure disk I/O. It must never delay the first frame.

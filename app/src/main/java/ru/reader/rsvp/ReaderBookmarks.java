@@ -16,7 +16,7 @@ final class ReaderBookmarks {
         static Item from(JSONObject o){Item b=new Item();b.word=o.optInt("word",0);b.endWord=Math.max(b.word+1,o.optInt("endWord",b.word+1));b.title=o.optString("title","");b.chapter=o.optString("chapter","");b.excerpt=o.optString("excerpt","");b.created=o.optLong("created",0);return b;}
     }
     static ArrayList<Item> list(Context ctx,String uri){SharedPreferences p=ctx.getSharedPreferences("reader",0);ArrayList<Item> out=new ArrayList<>();HashSet<Integer> seen=new HashSet<>();
-        try{JSONArray a=new JSONArray(p.getString("bookmarks_v2:"+uri,"[]"));for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);if(o==null)continue;Item b=Item.from(o);if(seen.add(b.word))out.add(b);}}catch(Exception ignored){}
+        try{JSONArray a=new JSONArray(p.getString("bookmarks_v2:"+uri,"[]"));for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);if(o==null)continue;Item b=Item.from(o);out.add(b);seen.add(b.word);}}catch(Exception ignored){}
         for(String legacy:p.getStringSet("bookmark:"+uri,Collections.emptySet()))try{int at=Integer.parseInt(legacy);if(seen.add(at)){Item item=new Item();item.word=at;item.endWord=at+1;item.title="Закладка";out.add(item);}}catch(Exception ignored){}
         out.sort((a,b)->Integer.compare(a.word,b.word));return out;
     }
